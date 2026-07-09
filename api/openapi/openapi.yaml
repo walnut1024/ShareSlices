@@ -1,0 +1,526 @@
+openapi: 3.1.0
+info:
+  title: ShareSlices API
+  summary: Account entry HTTP API contract for ShareSlices.
+  description: >
+    This OpenAPI document describes the current ShareSlices HTTP API contract
+    for account registration, email/password login, and a current-user check
+    used to verify signed-in state. Artifact upload, publishing, sharing,
+    password recovery, email verification, sign out, additional sign-in
+    methods, and administration are outside this contract.
+
+    The 429 responses are reserved for a future rate limiting change and are
+    not implemented; contract tests exclude them until that change ships.
+  version: 0.0.0
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: /
+    description: Same-origin API server.
+tags:
+  - name: system
+    description: Process health and readiness checks.
+  - name: users
+    description: ShareSlices user account entry operations.
+  - name: sessions
+    description: Browser signed-in state operations.
+security: []
+paths:
+  /health:
+    get:
+      tags:
+        - system
+      operationId: getHealth
+      summary: Read process liveness.
+      responses:
+        "200":
+          description: The API process is alive.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              examples:
+                ok:
+                  value:
+                    status: ok
+                    service: shareslices-api
+  /ready:
+    get:
+      tags:
+        - system
+      operationId: getReadiness
+      summary: Read dependency readiness.
+      responses:
+        "200":
+          description: The API is ready to serve account entry traffic.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessResponse"
+              examples:
+                ready:
+                  value:
+                    status: ready
+                    checks:
+                      database:
+                        status: pass
+        "503":
+          description: The API process is alive but one or more dependencies are not ready.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessResponse"
+              examples:
+                databaseUnavailable:
+                  value:
+                    status: not_ready
+                    checks:
+                      database:
+                        status: fail
+                        message: Database is not reachable.
+  /api/users:
+    post:
+      tags:
+        - users
+      operationId: createUser
+      summary: Register a ShareSlices user.
+      description: >
+        Creates a ShareSlices user account from name, email, and password.
+        Successful registration does not create signed-in state and must not
+        set an authenticated session cookie.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+            examples:
+              valid:
+                value:
+                  name: Ada Lovelace
+                  email: ada@example.com
+                  password: correct horse battery staple
+      responses:
+        "201":
+          description: User account created. No signed-in state is created.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+              examples:
+                created:
+                  value:
+                    user:
+                      id: user_000000000000000000000000
+                      name: Ada Lovelace
+                      email: ada@example.com
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "409":
+          $ref: "#/components/responses/EmailAlreadyRegistered"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/sessions:
+    post:
+      tags:
+        - sessions
+      operationId: createSession
+      summary: Log in with email and password.
+      description: >
+        Creates signed-in browser state only when the submitted email and
+        password are valid. Wrong-password and unknown-email failures are
+        intentionally indistinguishable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSessionRequest"
+            examples:
+              valid:
+                value:
+                  email: ada@example.com
+                  password: correct horse battery staple
+      responses:
+        "201":
+          description: Signed-in state created.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            Set-Cookie:
+              description: >
+                Authenticated browser session cookie. The cookie must be
+                HttpOnly, Secure in production, SameSite=Lax or stricter, and
+                scoped to the application path.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateSessionResponse"
+              examples:
+                signedIn:
+                  value:
+                    signedIn: true
+                    user:
+                      id: user_000000000000000000000000
+                      name: Ada Lovelace
+                      email: ada@example.com
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/InvalidLogin"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/users/me:
+    get:
+      tags:
+        - users
+      operationId: getCurrentUser
+      summary: Read the current ShareSlices user.
+      description: >
+        Verifies signed-in state and returns ShareSlices user identity without
+        exposing authentication-library internals.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Signed-in state is valid.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+              examples:
+                currentUser:
+                  value:
+                    user:
+                      id: user_000000000000000000000000
+                      name: Ada Lovelace
+                      email: ada@example.com
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "500":
+          $ref: "#/components/responses/InternalError"
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: shareslices_session
+      description: Browser session cookie established by successful email/password login.
+  headers:
+    RequestId:
+      description: Stable request identifier for logs and support.
+      schema:
+        type: string
+        minLength: 1
+    RetryAfter:
+      description: Seconds the client should wait before retrying.
+      schema:
+        type: integer
+        minimum: 1
+  responses:
+    InvalidRequest:
+      description: The request shape or field values are invalid.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            invalidEmail:
+              value:
+                error:
+                  code: invalid_request
+                  message: Invalid request.
+                  requestId: req_000000000000000000000000
+                  fields:
+                    - path: email
+                      code: invalid_email
+                      message: Enter a valid email.
+    EmailAlreadyRegistered:
+      description: An account already exists for the normalized email.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            duplicateEmail:
+              value:
+                error:
+                  code: email_already_registered
+                  message: An account already exists for this email.
+                  requestId: req_000000000000000000000000
+    InvalidLogin:
+      description: Neutral login failure for wrong password or unknown email.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            neutralFailure:
+              value:
+                error:
+                  code: invalid_login
+                  message: Email or password is incorrect.
+                  requestId: req_000000000000000000000000
+    Unauthenticated:
+      description: Signed-in state is missing or invalid.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            unauthenticated:
+              value:
+                error:
+                  code: unauthenticated
+                  message: Sign in to continue.
+                  requestId: req_000000000000000000000000
+    RateLimited:
+      description: >
+        Reserved. The request was rejected because too many attempts were
+        made. Rate limiting is not implemented yet; this response is
+        documented for forward compatibility and excluded from contract tests.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            rateLimited:
+              value:
+                error:
+                  code: rate_limited
+                  message: Too many attempts. Try again later.
+                  requestId: req_000000000000000000000000
+    InternalError:
+      description: The API encountered an unexpected failure.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            internalError:
+              value:
+                error:
+                  code: internal_error
+                  message: Internal server error.
+                  requestId: req_000000000000000000000000
+  schemas:
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - service
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+        service:
+          type: string
+          enum:
+            - shareslices-api
+    ReadinessResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - checks
+      properties:
+        status:
+          type: string
+          enum:
+            - ready
+            - not_ready
+        checks:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/ReadinessCheck"
+    ReadinessCheck:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - pass
+            - fail
+        message:
+          type: string
+          minLength: 1
+    CreateUserRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - email
+        - password
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Display name captured during registration.
+        email:
+          type: string
+          format: email
+          maxLength: 320
+          description: Email sign-in identifier.
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+          format: password
+          description: Email/password credential secret.
+    CreateSessionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+          description: Email sign-in identifier.
+        password:
+          type: string
+          format: password
+          minLength: 1
+          maxLength: 128
+          description: Email/password credential secret.
+    CreateSessionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - signedIn
+        - user
+      properties:
+        signedIn:
+          type: boolean
+          enum:
+            - true
+        user:
+          $ref: "#/components/schemas/User"
+    UserResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - user
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+    User:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - email
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Stable ShareSlices user ID.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Display name captured during registration.
+        email:
+          type: string
+          format: email
+          maxLength: 320
+          description: Email sign-in identifier.
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorBody"
+    ErrorBody:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+        - requestId
+      properties:
+        code:
+          type: string
+          pattern: "^[a-z][a-z0-9_]*$"
+        message:
+          type: string
+          minLength: 1
+        requestId:
+          type: string
+          minLength: 1
+          description: Stable request identifier matching the X-Request-Id response header.
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldError"
+    FieldError:
+      type: object
+      additionalProperties: false
+      required:
+        - path
+        - code
+        - message
+      properties:
+        path:
+          type: string
+          minLength: 1
+        code:
+          type: string
+          pattern: "^[a-z][a-z0-9_]*$"
+        message:
+          type: string
+          minLength: 1

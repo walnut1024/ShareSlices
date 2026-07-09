@@ -1,0 +1,263 @@
+base_url: "http://127.0.0.1:7456"
+failure_base_url: "http://127.0.0.1:7457"
+cases:
+  - id: health
+    request:
+      method: GET
+      path: /health
+    expect:
+      status: 200
+      json:
+        status: ok
+        service: shareslices-api
+
+  - id: ready
+    request:
+      method: GET
+      path: /ready
+    expect:
+      status: 200
+      json:
+        status: ready
+        checks:
+          database:
+            status: pass
+
+  - id: register_valid_user
+    request:
+      method: POST
+      path: /api/users
+      json:
+        name: Ada Lovelace
+        email: "Ada-{run_id}@EXAMPLE.COM"
+        password: "correct horse battery staple"
+    expect:
+      status: 201
+      json_paths:
+        user.name: Ada Lovelace
+        user.email: "ada-{run_id}@example.com"
+      no_set_cookie: true
+    save:
+      user_id: user.id
+
+  - id: register_duplicate_user
+    request:
+      method: POST
+      path: /api/users
+      json:
+        name: Ada Again
+        email: "ada-{run_id}@example.com"
+        password: "correct horse battery staple"
+    expect:
+      status: 409
+      json_paths:
+        error.code: email_already_registered
+
+  - id: register_invalid_name
+    request:
+      method: POST
+      path: /api/users
+      json:
+        name: ""
+        email: "bad-name@example.com"
+        password: "correct horse battery staple"
+    expect:
+      status: 400
+      json_paths:
+        error.code: invalid_request
+
+  - id: register_invalid_email
+    request:
+      method: POST
+      path: /api/users
+      json:
+        name: Bad Email
+        email: "not-an-email"
+        password: "correct horse battery staple"
+    expect:
+      status: 400
+      json_paths:
+        error.code: invalid_request
+
+  - id: register_invalid_password
+    request:
+      method: POST
+      path: /api/users
+      json:
+        name: Bad Password
+        email: "bad-password@example.com"
+        password: "short"
+    expect:
+      status: 400
+      json_paths:
+        error.code: invalid_request
+
+  - id: register_unknown_field
+    request:
+      method: POST
+      path: /api/users
+      json:
+        name: Extra Field
+        email: "extra-{run_id}@example.com"
+        password: "correct horse battery staple"
+        admin: true
+    expect:
+      status: 400
+      json_paths:
+        error.code: invalid_request
+
+  - id: current_user_without_login
+    request:
+      method: GET
+      path: /api/users/me
+    expect:
+      status: 401
+      json_paths:
+        error.code: unauthenticated
+
+  - id: login_wrong_password
+    request:
+      method: POST
+      path: /api/sessions
+      json:
+        email: "ada-{run_id}@example.com"
+        password: "wrong password"
+    expect:
+      status: 401
+      json_paths:
+        error.code: invalid_login
+        error.message: Email or password is incorrect.
+      no_set_cookie: true
+
+  - id: login_unknown_email
+    request:
+      method: POST
+      path: /api/sessions
+      json:
+        email: "unknown@example.com"
+        password: "wrong password"
+    expect:
+      status: 401
+      json_paths:
+        error.code: invalid_login
+        error.message: Email or password is incorrect.
+      no_set_cookie: true
+      same_error_as: login_wrong_password
+
+  - id: current_user_after_failed_login
+    request:
+      method: GET
+      path: /api/users/me
+    expect:
+      status: 401
+      json_paths:
+        error.code: unauthenticated
+
+  - id: login_invalid_request
+    request:
+      method: POST
+      path: /api/sessions
+      json:
+        email: "not-an-email"
+        password: "wrong password"
+    expect:
+      status: 400
+      json_paths:
+        error.code: invalid_request
+
+  - id: login_unknown_field
+    request:
+      method: POST
+      path: /api/sessions
+      json:
+        email: "ada-{run_id}@example.com"
+        password: "correct horse battery staple"
+        rememberMe: true
+    expect:
+      status: 400
+      json_paths:
+        error.code: invalid_request
+
+  - id: login_valid_user
+    request:
+      method: POST
+      path: /api/sessions
+      json:
+        email: "ada-{run_id}@example.com"
+        password: "correct horse battery staple"
+    expect:
+      status: 201
+      set_cookie: true
+      json_paths:
+        signedIn: true
+        user.name: Ada Lovelace
+        user.email: "ada-{run_id}@example.com"
+    save_cookie: session
+
+  - id: current_user_with_login
+    request:
+      method: GET
+      path: /api/users/me
+      cookie_ref: session
+    expect:
+      status: 200
+      json_paths:
+        user.name: Ada Lovelace
+        user.email: "ada-{run_id}@example.com"
+
+  - id: ready_database_unavailable
+    server: failure
+    request:
+      method: GET
+      path: /ready
+    expect:
+      status: 503
+      json:
+        status: not_ready
+        checks:
+          database:
+            status: fail
+            message: Database is not reachable.
+
+  - id: register_internal_error
+    server: failure
+    request:
+      method: POST
+      path: /api/users
+      json:
+        name: Internal Failure
+        email: "failure-{run_id}@example.com"
+        password: "correct horse battery staple"
+    expect:
+      status: 500
+      no_set_cookie: true
+      json_paths:
+        error.code: internal_error
+        error.message: Internal server error.
+
+  - id: login_internal_error
+    server: failure
+    request:
+      method: POST
+      path: /api/sessions
+      json:
+        email: "ada-{run_id}@example.com"
+        password: "correct horse battery staple"
+    expect:
+      status: 500
+      no_set_cookie: true
+      json_paths:
+        error.code: internal_error
+        error.message: Internal server error.
+
+  - id: current_user_internal_error
+    server: failure
+    request:
+      method: GET
+      path: /api/users/me
+    expect:
+      status: 500
+      no_set_cookie: true
+      json_paths:
+        error.code: internal_error
+        error.message: Internal server error.

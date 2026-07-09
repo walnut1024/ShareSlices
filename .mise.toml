@@ -1,0 +1,27 @@
+[tools]
+node = "26.4.0"
+python = "3.13.14"
+
+[tasks.install]
+description = "Install workspace dependencies"
+run = "pnpm install"
+
+[tasks.check]
+description = "Run the local quality gate"
+run = "pnpm run check"
+
+[tasks.docs-check]
+description = "Lint Markdown documents"
+run = "pnpm run docs:check"
+
+[tasks.spellcheck]
+description = "Run spelling checks"
+run = "pnpm run spellcheck"
+
+[tasks.api-test]
+description = "Run API unit and contract tests"
+run = "pnpm run api:test"
+
+[tasks.web-test]
+description = "Run Web tests"
+run = "pnpm run web:test"

@@ -1,0 +1,19 @@
+{
+  "name": "shareslices",
+  "private": true,
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "check": "pnpm run docs:check && pnpm run spellcheck && pnpm run docs:refs && pnpm run docs:links && pnpm run specs:check && pnpm run -r typecheck && pnpm run -r test",
+    "docs:check": "markdownlint-cli2",
+    "spellcheck": "cspell .",
+    "docs:refs": "node tools/check-doc-refs.mjs",
+    "docs:links": "node tools/check-doc-links.mjs",
+    "specs:check": "openspec validate --all --no-interactive",
+    "api:test": "pnpm --dir api run test && uv run pytest api/tests/test_account_entry_contract.py",
+    "web:test": "pnpm --dir web run test"
+  },
+  "devDependencies": {
+    "cspell": "^10.0.1",
+    "markdownlint-cli2": "^0.23.0"
+  }
+}
