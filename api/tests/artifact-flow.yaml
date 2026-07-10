@@ -1,0 +1,334 @@
+# cspell:ignore stylesheet
+base_url: "http://127.0.0.1:7456"
+archives:
+  relative:
+    index.html: '<!doctype html><script type="module" src="assets/app.js"></script><link rel="stylesheet" href="assets/app.css">'
+    assets/app.js: 'import "./chunk.js"; document.body.dataset.ready = "true";'
+    assets/chunk.js: 'export const ready = true;'
+    assets/app.css: 'body { background-image: url("../images/pixel.png"); }'
+    images/pixel.png:
+      base64: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=
+  replacement:
+    index.html: '<!doctype html><title>Replacement</title>'
+  invalid_missing_entry:
+    notes.txt: missing index
+
+cases:
+  - id: upload_policy_requires_authentication
+    request:
+      method: GET
+      path: /api/artifact-upload-policies/current
+    expect:
+      status: 401
+      json_paths:
+        error.code: unauthenticated
+
+  - id: register_owner
+    request:
+      method: POST
+      path: /api/users
+      json:
+        name: Artifact Owner
+        email: "artifact-{run_id}@example.com"
+        password: correct horse battery staple
+    expect:
+      status: 201
+
+  - id: login_owner
+    request:
+      method: POST
+      path: /api/sessions
+      json:
+        email: "artifact-{run_id}@example.com"
+        password: correct horse battery staple
+    expect:
+      status: 201
+    save_cookie: owner
+
+  - id: read_upload_policy
+    request:
+      method: GET
+      path: /api/artifact-upload-policies/current
+      cookie_ref: owner
+    expect:
+      status: 200
+      json_paths:
+        policy.maxArchiveBytes: 52428800
+        policy.maxExpandedBytes: 209715200
+        policy.maxFileCount: 1000
+        policy.maxFileBytes: 52428800
+
+  - id: reject_blank_artifact_name
+    request:
+      method: POST
+      path: /api/artifacts
+      cookie_ref: owner
+      headers:
+        Idempotency-Key: "blank-{run_id}"
+      multipart:
+        name: "   "
+        archive: relative
+    expect:
+      status: 400
+      json_paths:
+        error.code: invalid_request
+
+  - id: create_relative_artifact
+    request:
+      method: POST
+      path: /api/artifacts
+      cookie_ref: owner
+      headers:
+        Idempotency-Key: "create-{run_id}"
+      multipart:
+        name: Relative Artifact
+        archive: relative
+    expect:
+      status: 202
+      json_paths:
+        processingState: accepted
+    save:
+      artifact_id: artifactId
+      upload_session_id: uploadSessionId
+      share_url: shareLink.url
+
+  - id: replay_artifact_creation
+    request:
+      method: POST
+      path: /api/artifacts
+      cookie_ref: owner
+      headers:
+        Idempotency-Key: "create-{run_id}"
+      multipart:
+        name: Relative Artifact
+        archive: relative
+    expect:
+      status: 202
+      json_paths:
+        artifactId: "{artifact_id}"
+
+  - id: reject_idempotency_conflict
+    request:
+      method: POST
+      path: /api/artifacts
+      cookie_ref: owner
+      headers:
+        Idempotency-Key: "create-{run_id}"
+      multipart:
+        name: Different Artifact
+        archive: relative
+    expect:
+      status: 409
+      json_paths:
+        error.code: idempotency_conflict
+
+  - id: list_owned_artifact
+    request:
+      method: GET
+      path: /api/artifacts
+      cookie_ref: owner
+    expect:
+      status: 200
+      json_paths:
+        artifacts.0.id: "{artifact_id}"
+
+  - id: rename_artifact
+    request:
+      method: PATCH
+      path: "/api/artifacts/{artifact_id}"
+      cookie_ref: owner
+      json:
+        name: Renamed Artifact
+    expect:
+      status: 200
+      json_paths:
+        artifact.id: "{artifact_id}"
+        artifact.name: Renamed Artifact
+
+  - id: wait_for_ready
+    request:
+      method: GET
+      path: "/api/artifacts/{artifact_id}"
+      cookie_ref: owner
+    poll:
+      json_path: artifact.processingState
+      equals: ready
+      timeout_seconds: 60
+    expect:
+      status: 200
+      json_paths:
+        artifact.processingState: ready
+    save:
+      version_id: artifact.readyVersion.id
+
+  - id: preview_entry
+    request:
+      method: GET
+      path: "/api/versions/{version_id}/content/"
+      cookie_ref: owner
+    expect:
+      status: 200
+      headers:
+        Cache-Control: no-store
+      body_contains: assets/app.js
+
+  - id: preview_relative_script
+    request:
+      method: GET
+      path: "/api/versions/{version_id}/content/assets/app.js"
+      cookie_ref: owner
+    expect:
+      status: 200
+      headers:
+        Cache-Control: no-store
+      body_contains: ./chunk.js
+
+  - id: publish_artifact
+    request:
+      method: POST
+      path: "/api/artifacts/{artifact_id}/publications"
+      cookie_ref: owner
+      headers:
+        Idempotency-Key: "publish-{run_id}"
+      json:
+        versionId: "{version_id}"
+    expect:
+      status: 201
+      json_paths:
+        publication.versionId: "{version_id}"
+    save:
+      publication_id: publication.id
+
+  - id: replay_publication
+    request:
+      method: POST
+      path: "/api/artifacts/{artifact_id}/publications"
+      cookie_ref: owner
+      headers:
+        Idempotency-Key: "publish-{run_id}"
+      json:
+        versionId: "{version_id}"
+    expect:
+      status: 201
+      json_paths:
+        publication.id: "{publication_id}"
+
+  - id: view_published_entry
+    request:
+      method: GET
+      path: "{share_url}"
+    expect:
+      status: 200
+      headers:
+        Cache-Control: no-store
+      body_contains: assets/app.js
+
+  - id: view_relative_asset
+    request:
+      method: GET
+      path: "{share_url}assets/app.css"
+    expect:
+      status: 200
+      headers:
+        Cache-Control: no-store
+      body_contains: ../images/pixel.png
+
+  - id: root_absolute_path_is_not_remapped
+    request:
+      method: GET
+      path: /assets/app.js
+    expect:
+      status: 404
+
+  - id: unpublish_artifact
+    request:
+      method: DELETE
+      path: "/api/artifacts/{artifact_id}/publications/{publication_id}"
+      cookie_ref: owner
+    expect:
+      status: 204
+
+  - id: repeat_unpublish
+    request:
+      method: DELETE
+      path: "/api/artifacts/{artifact_id}/publications/{publication_id}"
+      cookie_ref: owner
+    expect:
+      status: 204
+
+  - id: view_unpublished_state
+    request:
+      method: GET
+      path: "{share_url}"
+    expect:
+      status: 200
+      headers:
+        Cache-Control: no-store
+      body_contains: not currently published
+
+  - id: unknown_share_link
+    request:
+      method: GET
+      path: /a/unknown-share-link-000000/
+    expect:
+      status: 404
+      headers:
+        Cache-Control: no-store
+
+  - id: create_invalid_artifact
+    request:
+      method: POST
+      path: /api/artifacts
+      cookie_ref: owner
+      headers:
+        Idempotency-Key: "invalid-{run_id}"
+      multipart:
+        name: Invalid Artifact
+        archive: invalid_missing_entry
+    expect:
+      status: 202
+    save:
+      invalid_artifact_id: artifactId
+      invalid_upload_session_id: uploadSessionId
+
+  - id: wait_for_validation_failure
+    request:
+      method: GET
+      path: "/api/artifacts/{invalid_artifact_id}"
+      cookie_ref: owner
+    poll:
+      json_path: artifact.processingState
+      equals: failed
+      timeout_seconds: 60
+    expect:
+      status: 200
+      json_paths:
+        artifact.processingState: failed
+        artifact.failure.recoverable: false
+        artifact.uploadSessionId: "{invalid_upload_session_id}"
+    save:
+      detail_upload_session_id: artifact.uploadSessionId
+
+  - id: reject_retry_for_deterministic_failure
+    request:
+      method: POST
+      path: "/api/upload-sessions/{detail_upload_session_id}:retry"
+      cookie_ref: owner
+      headers:
+        Idempotency-Key: "retry-invalid-{run_id}"
+    expect:
+      status: 409
+      json_paths:
+        error.code: invalid_artifact_state
+
+  - id: replace_invalid_file
+    request:
+      method: POST
+      path: "/api/artifacts/{invalid_artifact_id}/upload-sessions"
+      cookie_ref: owner
+      headers:
+        Idempotency-Key: "replace-{run_id}"
+      multipart:
+        archive: replacement
+    expect:
+      status: 202

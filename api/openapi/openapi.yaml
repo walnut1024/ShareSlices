@@ -1,17 +1,17 @@
 openapi: 3.1.0
 info:
   title: ShareSlices API
-  summary: Account entry HTTP API contract for ShareSlices.
+  summary: ShareSlices account and Artifact HTTP API contract.
   description: >
     This OpenAPI document describes the current ShareSlices HTTP API contract
-    for account registration, email/password login, and a current-user check
-    used to verify signed-in state. Artifact upload, publishing, sharing,
-    password recovery, email verification, sign out, additional sign-in
-    methods, and administration are outside this contract.
+    for account entry and the version 0.0.1 Artifact upload, Preview, Publish,
+    and Viewer flow. Password recovery, email verification, sign out,
+    additional sign-in methods, CLI integration, link rotation, private
+    sharing, and administration are outside this contract.
 
     The 429 responses are reserved for a future rate limiting change and are
     not implemented; contract tests exclude them until that change ships.
-  version: 0.0.0
+  version: 0.0.1
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -25,6 +25,16 @@ tags:
     description: ShareSlices user account entry operations.
   - name: sessions
     description: Browser signed-in state operations.
+  - name: artifacts
+    description: Signed-in Artifact management operations.
+  - name: upload-policies
+    description: Advisory upload preflight configuration.
+  - name: publications
+    description: Artifact publication operations.
+  - name: preview
+    description: Owner-only ready-Version content.
+  - name: viewer
+    description: Public Share-link pages and committed assets.
 security: []
 paths:
   /health:
@@ -221,6 +231,416 @@ paths:
           $ref: "#/components/responses/Unauthenticated"
         "500":
           $ref: "#/components/responses/InternalError"
+  /api/artifact-upload-policies/current:
+    get:
+      tags:
+        - upload-policies
+      operationId: getCurrentArtifactUploadPolicy
+      summary: Read the active upload policy for optional preflight.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Active upload policy returned.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadPolicyResponse"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/artifacts:
+    get:
+      tags:
+        - artifacts
+      operationId: listArtifacts
+      summary: List Artifacts owned by the current user.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Owned Artifacts returned.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags:
+        - artifacts
+      operationId: createArtifact
+      summary: Create an Artifact from a name and ZIP.
+      description: >
+        Streams the ZIP to private storage before creating the Artifact,
+        Upload session, Share link, and processing job.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/CreateArtifactRequest"
+      responses:
+        "202":
+          description: Upload accepted for asynchronous processing.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactAcceptedResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "409":
+          $ref: "#/components/responses/OperationConflict"
+        "413":
+          $ref: "#/components/responses/UploadTooLarge"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/artifacts/{artifactId}:
+    parameters:
+      - $ref: "#/components/parameters/ArtifactId"
+    get:
+      tags:
+        - artifacts
+      operationId: getArtifact
+      summary: Read one owned Artifact and its current management state.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Owned Artifact returned.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactResponse"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/ArtifactNotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    patch:
+      tags:
+        - artifacts
+      operationId: updateArtifact
+      summary: Change an Artifact's mutable name.
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateArtifactRequest"
+      responses:
+        "200":
+          description: Artifact name updated without changing its identity.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/ArtifactNotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/artifacts/{artifactId}/upload-sessions:
+    parameters:
+      - $ref: "#/components/parameters/ArtifactId"
+    post:
+      tags:
+        - artifacts
+      operationId: replaceArtifactFile
+      summary: Replace failed input before the first ready Version.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/ReplaceArtifactFileRequest"
+      responses:
+        "202":
+          description: Replacement accepted for asynchronous processing.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactAcceptedResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/ArtifactNotFound"
+        "409":
+          $ref: "#/components/responses/OperationConflict"
+        "413":
+          $ref: "#/components/responses/UploadTooLarge"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/upload-sessions/{uploadSessionId}:retry:
+    parameters:
+      - $ref: "#/components/parameters/UploadSessionId"
+    post:
+      tags:
+        - artifacts
+      operationId: retryUploadSession
+      summary: Retry a recoverable failed Upload session.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          description: Retry accepted.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactAcceptedResponse"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/UploadSessionNotFound"
+        "409":
+          $ref: "#/components/responses/OperationConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/versions/{versionId}/content/:
+    parameters:
+      - $ref: "#/components/parameters/VersionId"
+    get:
+      tags:
+        - preview
+      operationId: previewVersionEntry
+      summary: Preview a ready Version's root entry file.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Ready root entry streamed with caching disabled.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            text/html:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/VersionNotFound"
+        "409":
+          $ref: "#/components/responses/VersionNotReady"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/versions/{versionId}/content/{assetPath}:
+    parameters:
+      - $ref: "#/components/parameters/VersionId"
+      - $ref: "#/components/parameters/AssetPath"
+    get:
+      tags:
+        - preview
+      operationId: previewVersionAsset
+      summary: Preview one normalized committed manifest asset.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Manifest asset streamed with its recorded content type.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/AssetNotFound"
+        "409":
+          $ref: "#/components/responses/VersionNotReady"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/artifacts/{artifactId}/publications:
+    parameters:
+      - $ref: "#/components/parameters/ArtifactId"
+    post:
+      tags:
+        - publications
+      operationId: createPublication
+      summary: Publish a ready Version atomically.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePublicationRequest"
+      responses:
+        "201":
+          description: Publication created or original idempotent result returned.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicationResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/ArtifactNotFound"
+        "409":
+          $ref: "#/components/responses/OperationConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/artifacts/{artifactId}/publications/{publicationId}:
+    parameters:
+      - $ref: "#/components/parameters/ArtifactId"
+      - $ref: "#/components/parameters/PublicationId"
+    delete:
+      tags:
+        - publications
+      operationId: deletePublication
+      summary: Unpublish while retaining the active Share link.
+      security:
+        - sessionCookie: []
+      responses:
+        "204":
+          description: Artifact is unpublished; repeated deletes have the same effect.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/ArtifactNotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /a/{shareSlug}/:
+    parameters:
+      - $ref: "#/components/parameters/ShareSlug"
+    get:
+      tags:
+        - viewer
+      operationId: getSharedArtifactEntry
+      summary: View published content or the known Share-link state.
+      responses:
+        "200":
+          description: Published entry content or an unpublished state page.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            text/html:
+              schema:
+                type: string
+        "410":
+          description: Known Share link is expired or retired.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            text/html:
+              schema:
+                type: string
+        "404":
+          description: Share link is unknown.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            text/html:
+              schema:
+                type: string
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /a/{shareSlug}/{assetPath}:
+    parameters:
+      - $ref: "#/components/parameters/ShareSlug"
+      - $ref: "#/components/parameters/AssetPath"
+    get:
+      tags:
+        - viewer
+      operationId: getSharedArtifactAsset
+      summary: Stream one normalized asset from the current Publication.
+      responses:
+        "200":
+          description: Manifest asset streamed with its recorded content type.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Share link or normalized manifest asset is unknown.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            text/html:
+              schema:
+                type: string
+        "410":
+          description: Known Share link is expired or retired.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            text/html:
+              schema:
+                type: string
+        "500":
+          $ref: "#/components/responses/InternalError"
 components:
   securitySchemes:
     sessionCookie:
@@ -228,6 +648,72 @@ components:
       in: cookie
       name: shareslices_session
       description: Browser session cookie established by successful email/password login.
+  parameters:
+    ArtifactId:
+      name: artifactId
+      in: path
+      required: true
+      description: Stable Artifact ID.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+    UploadSessionId:
+      name: uploadSessionId
+      in: path
+      required: true
+      description: Stable Upload session ID.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+    VersionId:
+      name: versionId
+      in: path
+      required: true
+      description: Stable immutable Version ID.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+    PublicationId:
+      name: publicationId
+      in: path
+      required: true
+      description: Stable Publication ID.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+    ShareSlug:
+      name: shareSlug
+      in: path
+      required: true
+      description: Opaque active or historical Share-link slug.
+      schema:
+        type: string
+        minLength: 20
+        maxLength: 64
+        pattern: "^[A-Za-z0-9_-]+$"
+    AssetPath:
+      name: assetPath
+      in: path
+      required: true
+      description: >
+        Greedy relative Artifact path. The server decodes, normalizes, and
+        resolves it only against the committed manifest.
+      schema:
+        type: string
+        minLength: 1
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Caller-generated key scoped to the signed-in owner and operation.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
   headers:
     RequestId:
       description: Stable request identifier for logs and support.
@@ -239,6 +725,13 @@ components:
       schema:
         type: integer
         minimum: 1
+    NoStore:
+      description: Prevents storage of Preview, Viewer, and known-link state responses.
+      required: true
+      schema:
+        type: string
+        enum:
+          - no-store
   responses:
     InvalidRequest:
       description: The request shape or field values are invalid.
@@ -307,6 +800,134 @@ components:
                 error:
                   code: unauthenticated
                   message: Sign in to continue.
+                  requestId: req_000000000000000000000000
+    ArtifactNotFound:
+      description: Artifact is unknown or is not owned by the current user.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            notFound:
+              value:
+                error:
+                  code: artifact_not_found
+                  message: Artifact not found.
+                  requestId: req_000000000000000000000000
+    UploadSessionNotFound:
+      description: Upload session is unknown or is not owned by the current user.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            notFound:
+              value:
+                error:
+                  code: upload_session_not_found
+                  message: Upload session not found.
+                  requestId: req_000000000000000000000000
+    VersionNotFound:
+      description: Version is unknown or is not owned by the current user.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            notFound:
+              value:
+                error:
+                  code: version_not_found
+                  message: Version not found.
+                  requestId: req_000000000000000000000000
+    AssetNotFound:
+      description: Normalized asset is absent from the committed Version manifest.
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            notFound:
+              value:
+                error:
+                  code: asset_not_found
+                  message: Asset not found.
+                  requestId: req_000000000000000000000000
+    VersionNotReady:
+      description: Version exists but has not reached the ready state.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            notReady:
+              value:
+                error:
+                  code: version_not_ready
+                  message: Version is not ready.
+                  requestId: req_000000000000000000000000
+    OperationConflict:
+      description: >
+        Mutation conflicts with current state, is still in progress, or
+        reuses an idempotency key with different input.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            inProgress:
+              value:
+                error:
+                  code: operation_in_progress
+                  message: Operation is still in progress.
+                  requestId: req_000000000000000000000000
+            idempotencyConflict:
+              value:
+                error:
+                  code: idempotency_conflict
+                  message: Idempotency key was used with different input.
+                  requestId: req_000000000000000000000000
+            invalidState:
+              value:
+                error:
+                  code: invalid_artifact_state
+                  message: Artifact state does not allow this operation.
+                  requestId: req_000000000000000000000000
+    UploadTooLarge:
+      description: Streamed ZIP exceeded the active archive-size limit.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            tooLarge:
+              value:
+                error:
+                  code: archive_too_large
+                  message: ZIP exceeds the upload limit.
                   requestId: req_000000000000000000000000
     RateLimited:
       description: >
@@ -477,6 +1098,303 @@ components:
           format: email
           maxLength: 320
           description: Email sign-in identifier.
+    UploadPolicyResponse:
+      type: object
+      additionalProperties: false
+      example:
+        policy:
+          revision: v0.0.1-default
+          maxArchiveBytes: 52428800
+          maxExpandedBytes: 209715200
+          maxFileCount: 1000
+          maxFileBytes: 52428800
+          enabledExtensions: [.html, .css, .js, .png]
+      required:
+        - policy
+      properties:
+        policy:
+          $ref: "#/components/schemas/UploadPolicy"
+    UploadPolicy:
+      type: object
+      additionalProperties: false
+      required:
+        - revision
+        - maxArchiveBytes
+        - maxExpandedBytes
+        - maxFileCount
+        - maxFileBytes
+        - enabledExtensions
+      properties:
+        revision:
+          type: string
+          minLength: 1
+          description: Opaque revision snapshotted by newly accepted Upload sessions.
+        maxArchiveBytes:
+          type: integer
+          format: int64
+          minimum: 1
+        maxExpandedBytes:
+          type: integer
+          format: int64
+          minimum: 1
+        maxFileCount:
+          type: integer
+          minimum: 1
+        maxFileBytes:
+          type: integer
+          format: int64
+          minimum: 1
+        enabledExtensions:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            pattern: "^\\.[a-z0-9]+$"
+    CreateArtifactRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - file
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        file:
+          type: string
+          format: binary
+          description: ZIP archive body.
+    ReplaceArtifactFileRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - file
+      properties:
+        file:
+          type: string
+          format: binary
+          description: Replacement ZIP archive body.
+    UpdateArtifactRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+    ArtifactAcceptedResponse:
+      type: object
+      additionalProperties: false
+      example:
+        artifactId: artifact-example
+        uploadSessionId: upload-example
+        processingState: accepted
+        shareLink:
+          url: https://view.example.com/a/W7e4jPFm3p8r7YEh2xQn2g/
+          state: active
+      required:
+        - artifactId
+        - uploadSessionId
+        - processingState
+        - shareLink
+      properties:
+        artifactId:
+          type: string
+          minLength: 1
+        uploadSessionId:
+          type: string
+          minLength: 1
+        processingState:
+          $ref: "#/components/schemas/ProcessingState"
+        shareLink:
+          $ref: "#/components/schemas/ShareLink"
+    ArtifactListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - artifacts
+      properties:
+        artifacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Artifact"
+    ArtifactResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - artifact
+      properties:
+        artifact:
+          $ref: "#/components/schemas/Artifact"
+    Artifact:
+      type: object
+      additionalProperties: false
+      example:
+        id: artifact-example
+        name: Quarterly report
+        uploadSessionId: upload-example
+        processingState: ready
+        shareLink:
+          url: https://view.example.com/a/W7e4jPFm3p8r7YEh2xQn2g/
+          state: active
+        readyVersion:
+          id: version-example
+          state: ready
+        publication:
+          id: publication-example
+          versionId: version-example
+          publishedAt: "2026-07-10T08:00:00Z"
+        failure: null
+        allowedActions: [rename, copy_share_link, preview, unpublish]
+      required:
+        - id
+        - name
+        - uploadSessionId
+        - processingState
+        - shareLink
+        - allowedActions
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        uploadSessionId:
+          description: Current Upload session ID used for Retry when one exists.
+          oneOf:
+            - type: string
+              minLength: 1
+              maxLength: 128
+            - type: "null"
+        processingState:
+          $ref: "#/components/schemas/ProcessingState"
+        shareLink:
+          $ref: "#/components/schemas/ShareLink"
+        readyVersion:
+          oneOf:
+            - $ref: "#/components/schemas/VersionSummary"
+            - type: "null"
+        publication:
+          oneOf:
+            - $ref: "#/components/schemas/Publication"
+            - type: "null"
+        failure:
+          oneOf:
+            - $ref: "#/components/schemas/ProcessingFailure"
+            - type: "null"
+        allowedActions:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum:
+              - rename
+              - retry
+              - replace_file
+              - preview
+              - publish
+              - unpublish
+              - copy_share_link
+    ProcessingState:
+      type: string
+      enum:
+        - accepted
+        - processing
+        - ready
+        - failed
+    ShareLink:
+      type: object
+      additionalProperties: false
+      required:
+        - url
+        - state
+      properties:
+        url:
+          type: string
+          format: uri
+        state:
+          type: string
+          enum:
+            - active
+            - expired
+            - retired
+    VersionSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - state
+      properties:
+        id:
+          type: string
+          minLength: 1
+        state:
+          type: string
+          enum:
+            - ready
+    ProcessingFailure:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+        - recoverable
+      properties:
+        code:
+          type: string
+          pattern: "^[a-z][a-z0-9_]*$"
+        message:
+          type: string
+          minLength: 1
+        recoverable:
+          type: boolean
+    CreatePublicationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - versionId
+      properties:
+        versionId:
+          type: string
+          minLength: 1
+          maxLength: 128
+    PublicationResponse:
+      type: object
+      additionalProperties: false
+      example:
+        publication:
+          id: publication-example
+          versionId: version-example
+          publishedAt: "2026-07-10T08:00:00Z"
+      required:
+        - publication
+      properties:
+        publication:
+          $ref: "#/components/schemas/Publication"
+    Publication:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - versionId
+        - publishedAt
+      properties:
+        id:
+          type: string
+          minLength: 1
+        versionId:
+          type: string
+          minLength: 1
+        publishedAt:
+          type: string
+          format: date-time
     ErrorResponse:
       type: object
       additionalProperties: false

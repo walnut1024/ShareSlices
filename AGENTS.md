@@ -18,7 +18,7 @@ Project-level engineering guidance for agents working on ShareSlices.
 - API runtime: Node.js unless deployment constraints require another Hono runtime.
 - API validation and contracts: Zod with `@hono/zod-openapi`.
 - Authentication infrastructure: Better Auth inside the Hono API. Authentication methods are defined in `PRODUCT.md`; all of them are implemented through Better Auth.
-- API logging: structured logs with stable fields.
+- Application logging: one OpenTelemetry-compatible structured record contract across Web, API, and Worker.
 - Worker: Rust on Tokio, for performance-sensitive background functions: archive expansion, artifact validation, manifest generation, and concurrency-limited object storage writes.
 - Database: PostgreSQL. API access through Drizzle ORM; worker access through `sqlx`, limited to job leases, processing state transitions, artifact metadata, and version commit records.
 - Database migrations: checked SQL migration files under `db/`.
@@ -59,9 +59,23 @@ Project-level engineering guidance for agents working on ShareSlices.
 - Extract a responsibility into an application module when it gains a second caller or a second implementation; until then, thin route handlers may hold it directly.
 - The target module architecture, seams, and interface sketches live in `docs/design/modules.md`. Each OpenSpec change declares in its `design.md` which subset it realizes. Once built, code is the source of truth and `docs/design/modules.md` is updated to match.
 
+## Logging guidance
+
+- Use the same OpenTelemetry-compatible logical record in the Web, TypeScript API, and Rust Worker: `timestamp`, `severityText`, `severityNumber`, `body`, `eventName`, optional `traceId` and `spanId`, `resource`, and `attributes`.
+- Use OpenTelemetry severity numbers `1`, `5`, `9`, `13`, `17`, and `21` for `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`, and `FATAL` respectively.
+- Set `resource.service.name` to `shareslices-web`, `shareslices-api`, or `shareslices-worker`; also include `service.version` and `deployment.environment.name`.
+- Name application events and attributes with stable dot-delimited namespaces. Use lower snake case within a multi-word namespace component, such as `shareslices.artifact.processing.retry_scheduled` and `shareslices.retry.reason_code`.
+- Emit one JSON object per line from server processes. Web code passes the same structured object to a project logger that selects the browser console level; application code does not call `console.*` directly.
+- Preserve request, Artifact, Upload session, processing job, attempt, and retry identifiers when available. Propagate W3C Trace Context fields when tracing context exists.
+- Record retry and unclassified failures with a stable reason code plus sanitized `exception.type`, `exception.message`, `exception.stacktrace`, and cause-chain fields. Keep enough error evidence to classify additional failures in later versions.
+- Never log credentials, session cookies, Share slugs, raw Artifact content, or archive entries without redaction. Treat exception messages and stack traces as potentially sensitive and redact before emission.
+
 ## Frontend guidance
 
 - Build the Web UI as a quiet management surface, not a marketing site.
+- Target desktop browsers only. Use `1440x900` as the default design and screenshot viewport; the minimum supported viewport is `1280x720`.
+- Do not design, implement, test, review, or propose mobile or tablet layouts. Do not add mobile breakpoints, responsive navigation, mobile stacking, touch-specific interactions, or mobile screenshots unless the user explicitly changes the product scope.
+- Behavior below the minimum supported viewport is not an acceptance criterion. Frontend plans and implementation reports must not spend tokens discussing mobile responsiveness or mobile compatibility.
 - Use shadcn/ui components as local source components.
 - Use lucide icons for common actions.
 - Use Tailwind CSS v4 with the Vite plugin and CSS-first configuration.
@@ -81,7 +95,7 @@ Project-level engineering guidance for agents working on ShareSlices.
 - Use Zod schemas at the HTTP seam, then map validated DTOs into application commands.
 - Keep the checked OpenAPI spec in `api/openapi/` as the contract source of truth. Move to `@hono/zod-openapi` generation once routes are typed, and add OpenAPI drift validation when CI is established, so public contracts do not change accidentally.
 - API naming and method shapes follow Google AIP resource-oriented design (AIP-121, 122, 130–136: `https://google.aip.dev/121`). Microsoft REST API guidance is the secondary practical reference for URIs, casing, request IDs, and operational concerns; Zalando RESTful API Guidelines and JSON:API Recommendations are tie-breakers only. If external guidelines conflict with this file, follow this file. If this file conflicts with `PRODUCT.md`, stop and resolve the product decision first.
-- Keep JSON management API routes under `/api`; keep public viewer routes such as `/a/{artifactSlug}/` outside management API route groups.
+- Keep JSON management API routes under `/api`; keep public Viewer routes such as `/a/{shareSlug}/` outside management API route groups.
 - Name path resources with plural nouns, not verbs. Express standard operations with HTTP methods: `GET` reads, `POST` creates or starts non-idempotent operations, `PUT` replaces, `PATCH` partially updates, and `DELETE` removes.
 - Use lowercase kebab-case for multi-word path segments and camelCase for OpenAPI path parameter names, JSON object fields, operation IDs, and TypeScript DTO fields. Use lower_snake_case for stable machine-readable error codes.
 - Avoid trailing slashes on JSON API routes. Viewer page routes may keep trailing slashes when the public URL contract requires them.
@@ -89,13 +103,13 @@ Project-level engineering guidance for agents working on ShareSlices.
 - Model durable business events as resources when possible (`POST /api/artifacts/{artifactId}/publications`, not `:publish`). Custom action routes only when the operation cannot be modeled as a resource; follow AIP-136 `:{verb}`, use `POST` for mutations, and document idempotency and side effects in OpenAPI.
 - Keep semantic validation in application modules when it depends on account state, authorization, upload state, or publication state.
 - Add automated tests for HTTP request validation and authorization seams.
-- Keep structured log field names stable for operational search across the API and worker.
+- Keep structured event names, attribute names, and reason codes stable for operational search across all runtimes.
 - Validate archive paths and entry files on the server. Do not treat CLI or Skill checks as a security guarantee.
 - Store immutable asset metadata with path, object key, size, content type, and sha256.
 - Keep object storage private. Do not return object storage URLs or signed object storage URLs to browsers.
 - Keep app-origin routes and viewer-origin routes separate in code. Do not expose management APIs from viewer-origin route groups.
 - Stream viewer assets through the backend after route authorization and path validation.
-- Cache viewer responses conservatively because `PRODUCT.md` defines public artifact links as stable URLs.
+- Set `Cache-Control: no-store` on all Preview and Viewer responses in version 0.0.1; later versions can introduce version-aware caching without weakening Publish and Unpublish behavior.
 - Do not decompress artifact archives in Hono request handlers.
 
 Migration readiness:
@@ -134,6 +148,16 @@ Migration readiness:
 ## Viewer security
 
 - Treat served user HTML, JavaScript, CSS, images, fonts, and data files as untrusted content.
-- Keep the viewer origin narrow.
-- Restrict external API connections from served user pages with Content Security Policy (CSP): keep `connect-src` restricted to `self` unless a product decision changes this in `PRODUCT.md`, and keep `frame-ancestors` as `none`.
-- Do not serve user HTML from the app origin.
+- Keep management API routes and Viewer routes in separate HTTP route groups, and never expose management operations from the Viewer route group.
+- Resolve Web, API, and Viewer addresses from deployment configuration. Do not hardcode Docker Compose, Kubernetes, IP, port, or public-domain values in application behavior.
+- Version 0.0.1 Preview reuses the current management session and verifies Artifact ownership plus ready-Version state on every Preview request. Do not add a separate Preview session or grant in this version.
+- Serve Preview content from authenticated API routes so the current management session is available. Accept the same-origin untrusted-content risk for version 0.0.1 as documented in the active change.
+- Keep object storage private, validate requested asset paths, and stream only committed Version objects referenced by the manifest.
+- Preserve relative Artifact paths under trailing-slash entry URLs. Do not rewrite HTML or promise support for root-absolute Artifact URLs in version 0.0.1.
+- Defer separate-site Cookie isolation, strict CSP and Permissions Policy, opener isolation, and other browser hardening until after the functional 0.0.1 flow.
+
+Deployment profiles for version 0.0.1:
+
+- Local development and local automated testing use Docker Compose.
+- Shared testing and intranet production use Kubernetes without requiring domain names.
+- Public production uses Kubernetes with configured public domain names.

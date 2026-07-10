@@ -1,5 +1,19 @@
-import { relations } from "drizzle-orm";
-import { boolean, index, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { relations, sql } from "drizzle-orm";
+import {
+  bigint,
+  boolean,
+  check,
+  foreignKey,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  unique,
+  uniqueIndex
+} from "drizzle-orm/pg-core";
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -68,5 +82,404 @@ export const verification = pgTable(
 
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
-  accounts: many(account)
+  accounts: many(account),
+  artifacts: many(artifact),
+  publications: many(artifactPublication),
+  idempotencyRecords: many(artifactIdempotencyRecord)
+}));
+
+export type ArtifactFormatSnapshot = {
+  extension: string;
+  contentType: string;
+  validationKind: string;
+};
+
+export const artifactUploadPolicy = pgTable(
+  "artifact_upload_policy",
+  {
+    id: text("id").primaryKey(),
+    revision: text("revision").notNull().unique(),
+    active: boolean("active").default(false).notNull(),
+    archiveSizeBytes: bigint("archive_size_bytes", { mode: "number" }).notNull(),
+    expandedSizeBytes: bigint("expanded_size_bytes", { mode: "number" }).notNull(),
+    fileCount: integer("file_count").notNull(),
+    singleFileSizeBytes: bigint("single_file_size_bytes", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    uniqueIndex("artifact_upload_policy_one_active_idx")
+      .on(table.active)
+      .where(sql`${table.active}`),
+    check("artifact_upload_policy_archive_size_check", sql`${table.archiveSizeBytes} > 0`),
+    check("artifact_upload_policy_expanded_size_check", sql`${table.expandedSizeBytes} > 0`),
+    check("artifact_upload_policy_file_count_check", sql`${table.fileCount} > 0`),
+    check("artifact_upload_policy_single_file_size_check", sql`${table.singleFileSizeBytes} > 0`)
+  ]
+);
+
+export const artifactUploadPolicyFormat = pgTable(
+  "artifact_upload_policy_format",
+  {
+    policyId: text("policy_id")
+      .notNull()
+      .references(() => artifactUploadPolicy.id, { onDelete: "cascade" }),
+    extension: text("extension").notNull(),
+    contentType: text("content_type").notNull(),
+    validationKind: text("validation_kind").notNull()
+  },
+  (table) => [
+    primaryKey({ columns: [table.policyId, table.extension] }),
+    check("artifact_upload_policy_format_extension_check", sql`${table.extension} ~ '^\\.[a-z0-9]+$'`)
+  ]
+);
+
+export const artifact = pgTable(
+  "artifact",
+  {
+    id: text("id").primaryKey(),
+    ownerUserId: text("owner_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    index("artifact_owner_user_id_idx").on(table.ownerUserId),
+    check(
+      "artifact_name_check",
+      sql`${table.name} = trim(${table.name}) and length(${table.name}) between 1 and 120`
+    )
+  ]
+);
+
+export const artifactShareLink = pgTable(
+  "artifact_share_link",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifact.id, { onDelete: "cascade" }),
+    slug: text("slug").notNull().unique(),
+    status: text("status").default("active").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    retiredAt: timestamp("retired_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true })
+  },
+  (table) => [
+    uniqueIndex("artifact_share_link_one_active_idx")
+      .on(table.artifactId)
+      .where(sql`${table.status} = 'active'`),
+    check("artifact_share_link_status_check", sql`${table.status} in ('active', 'retired', 'expired')`),
+    check("artifact_share_link_retired_at_check", sql`${table.status} <> 'retired' or ${table.retiredAt} is not null`),
+    check("artifact_share_link_expires_at_check", sql`${table.status} <> 'expired' or ${table.expiresAt} is not null`)
+  ]
+);
+
+export const artifactUploadSession = pgTable(
+  "artifact_upload_session",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifact.id, { onDelete: "cascade" }),
+    policyRevision: text("policy_revision").notNull(),
+    archiveSizeBytes: bigint("archive_size_bytes", { mode: "number" }).notNull(),
+    expandedSizeBytes: bigint("expanded_size_bytes", { mode: "number" }).notNull(),
+    fileCount: integer("file_count").notNull(),
+    singleFileSizeBytes: bigint("single_file_size_bytes", { mode: "number" }).notNull(),
+    formats: jsonb("formats").$type<ArtifactFormatSnapshot[]>().notNull(),
+    rawObjectKey: text("raw_object_key").notNull(),
+    rawSha256: text("raw_sha256").notNull(),
+    rawSizeBytes: bigint("raw_size_bytes", { mode: "number" }).notNull(),
+    state: text("state").default("accepted").notNull(),
+    failureReasonCode: text("failure_reason_code"),
+    failureSummary: text("failure_summary"),
+    retryable: boolean("retryable").default(false).notNull(),
+    supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    index("artifact_upload_session_artifact_id_idx").on(table.artifactId),
+    uniqueIndex("artifact_upload_session_current_idx")
+      .on(table.artifactId)
+      .where(sql`${table.supersededAt} is null and ${table.state} <> 'committed'`),
+    check("artifact_upload_session_archive_size_check", sql`${table.archiveSizeBytes} > 0`),
+    check("artifact_upload_session_expanded_size_check", sql`${table.expandedSizeBytes} > 0`),
+    check("artifact_upload_session_file_count_check", sql`${table.fileCount} > 0`),
+    check("artifact_upload_session_single_file_size_check", sql`${table.singleFileSizeBytes} > 0`),
+    check("artifact_upload_session_formats_check", sql`jsonb_typeof(${table.formats}) = 'array'`),
+    check("artifact_upload_session_sha256_check", sql`${table.rawSha256} ~ '^[0-9a-f]{64}$'`),
+    check(
+      "artifact_upload_session_raw_size_check",
+      sql`${table.rawSizeBytes} >= 0 and ${table.rawSizeBytes} <= ${table.archiveSizeBytes}`
+    ),
+    check(
+      "artifact_upload_session_state_check",
+      sql`${table.state} in ('accepted', 'processing', 'committed', 'failed')`
+    ),
+    check(
+      "artifact_upload_session_failure_check",
+      sql`${table.state} = 'failed' or (${table.failureReasonCode} is null and ${table.failureSummary} is null and not ${table.retryable})`
+    ),
+    check("artifact_upload_session_retryable_check", sql`not ${table.retryable} or ${table.state} = 'failed'`)
+  ]
+);
+
+export const artifactProcessingJob = pgTable(
+  "artifact_processing_job",
+  {
+    id: text("id").primaryKey(),
+    uploadSessionId: text("upload_session_id")
+      .notNull()
+      .references(() => artifactUploadSession.id, { onDelete: "cascade" }),
+    state: text("state").default("queued").notNull(),
+    availableAt: timestamp("available_at", { withTimezone: true }).defaultNow().notNull(),
+    leaseOwner: text("lease_owner"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
+    attemptCount: integer("attempt_count").default(0).notNull(),
+    maxAttempts: integer("max_attempts").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    index("artifact_processing_job_claim_idx")
+      .on(table.state, table.availableAt)
+      .where(sql`${table.state} = 'queued'`),
+    index("artifact_processing_job_upload_session_id_idx").on(table.uploadSessionId),
+    check("artifact_processing_job_state_check", sql`${table.state} in ('queued', 'running', 'completed', 'failed')`),
+    check("artifact_processing_job_attempt_count_check", sql`${table.attemptCount} >= 0`),
+    check("artifact_processing_job_max_attempts_check", sql`${table.maxAttempts} > 0`),
+    check(
+      "artifact_processing_job_lease_check",
+      sql`(${table.state} = 'running') = (${table.leaseOwner} is not null and ${table.leaseExpiresAt} is not null)`
+    )
+  ]
+);
+
+export const artifactProcessingAttempt = pgTable(
+  "artifact_processing_attempt",
+  {
+    id: text("id").primaryKey(),
+    jobId: text("job_id")
+      .notNull()
+      .references(() => artifactProcessingJob.id, { onDelete: "cascade" }),
+    attemptNumber: integer("attempt_number").notNull(),
+    state: text("state").default("running").notNull(),
+    stagingPrefix: text("staging_prefix").notNull(),
+    reasonCode: text("reason_code"),
+    retryScheduledAt: timestamp("retry_scheduled_at", { withTimezone: true }),
+    exception: jsonb("exception").$type<Record<string, unknown>>(),
+    startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true })
+  },
+  (table) => [
+    unique("artifact_processing_attempt_job_number_unique").on(table.jobId, table.attemptNumber),
+    check("artifact_processing_attempt_number_check", sql`${table.attemptNumber} > 0`),
+    check("artifact_processing_attempt_state_check", sql`${table.state} in ('running', 'succeeded', 'failed')`),
+    check(
+      "artifact_processing_attempt_finished_check",
+      sql`(${table.state} = 'running') = (${table.finishedAt} is null)`
+    )
+  ]
+);
+
+export const artifactVersion = pgTable(
+  "artifact_version",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifact.id, { onDelete: "cascade" }),
+    uploadSessionId: text("upload_session_id")
+      .notNull()
+      .unique()
+      .references(() => artifactUploadSession.id, { onDelete: "restrict" }),
+    versionNumber: integer("version_number").notNull(),
+    state: text("state").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    readyAt: timestamp("ready_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    index("artifact_version_artifact_id_idx").on(table.artifactId),
+    unique("artifact_version_artifact_number_unique").on(table.artifactId, table.versionNumber),
+    unique("artifact_version_id_artifact_unique").on(table.id, table.artifactId),
+    check("artifact_version_number_check", sql`${table.versionNumber} > 0`),
+    check("artifact_version_state_check", sql`${table.state} in ('ready')`)
+  ]
+);
+
+export const artifactManifest = pgTable(
+  "artifact_manifest",
+  {
+    versionId: text("version_id")
+      .primaryKey()
+      .references(() => artifactVersion.id, { onDelete: "cascade" }),
+    entryPath: text("entry_path").default("index.html").notNull(),
+    fileCount: integer("file_count").notNull(),
+    totalSizeBytes: bigint("total_size_bytes", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    check("artifact_manifest_entry_path_check", sql`${table.entryPath} = 'index.html'`),
+    check("artifact_manifest_file_count_check", sql`${table.fileCount} > 0`),
+    check("artifact_manifest_total_size_check", sql`${table.totalSizeBytes} >= 0`)
+  ]
+);
+
+export const artifactAsset = pgTable(
+  "artifact_asset",
+  {
+    versionId: text("version_id")
+      .notNull()
+      .references(() => artifactVersion.id, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    objectKey: text("object_key").notNull().unique(),
+    sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+    contentType: text("content_type").notNull(),
+    sha256: text("sha256").notNull()
+  },
+  (table) => [
+    primaryKey({ columns: [table.versionId, table.path] }),
+    check("artifact_asset_path_check", sql`${table.path} <> '' and ${table.path} !~ '(^/|(^|/)\\.\\.(/|$))'`),
+    check("artifact_asset_size_check", sql`${table.sizeBytes} >= 0`),
+    check("artifact_asset_sha256_check", sql`${table.sha256} ~ '^[0-9a-f]{64}$'`)
+  ]
+);
+
+export const artifactPublication = pgTable(
+  "artifact_publication",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifact.id, { onDelete: "cascade" }),
+    versionId: text("version_id").notNull(),
+    publishedByUserId: text("published_by_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    endedAt: timestamp("ended_at", { withTimezone: true })
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.versionId, table.artifactId],
+      foreignColumns: [artifactVersion.id, artifactVersion.artifactId],
+      name: "artifact_publication_version_artifact_fk"
+    }).onDelete("restrict"),
+    uniqueIndex("artifact_publication_one_current_idx")
+      .on(table.artifactId)
+      .where(sql`${table.endedAt} is null`),
+    index("artifact_publication_version_id_idx").on(table.versionId)
+  ]
+);
+
+export const artifactIdempotencyRecord = pgTable(
+  "artifact_idempotency_record",
+  {
+    id: text("id").primaryKey(),
+    ownerUserId: text("owner_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    operation: text("operation").notNull(),
+    targetResourceId: text("target_resource_id"),
+    key: text("key").notNull(),
+    requestHash: text("request_hash").notNull(),
+    state: text("state").default("pending").notNull(),
+    responseStatus: integer("response_status"),
+    responseBody: jsonb("response_body").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true })
+  },
+  (table) => [
+    unique("artifact_idempotency_record_scope_unique")
+      .on(table.ownerUserId, table.operation, table.targetResourceId, table.key)
+      .nullsNotDistinct(),
+    check(
+      "artifact_idempotency_record_operation_check",
+      sql`${table.operation} in ('create_artifact', 'replace_upload', 'retry_upload', 'publish')`
+    ),
+    check("artifact_idempotency_record_hash_check", sql`${table.requestHash} ~ '^[0-9a-f]{64}$'`),
+    check("artifact_idempotency_record_state_check", sql`${table.state} in ('pending', 'completed')`),
+    check(
+      "artifact_idempotency_record_completion_check",
+      sql`(${table.state} = 'pending' and ${table.responseStatus} is null and ${table.responseBody} is null and ${table.completedAt} is null)
+        or (${table.state} = 'completed' and ${table.responseStatus} is not null and ${table.responseBody} is not null and ${table.completedAt} is not null)`
+    )
+  ]
+);
+
+export const artifactUploadPolicyRelations = relations(artifactUploadPolicy, ({ many }) => ({
+  formats: many(artifactUploadPolicyFormat)
+}));
+
+export const artifactUploadPolicyFormatRelations = relations(artifactUploadPolicyFormat, ({ one }) => ({
+  policy: one(artifactUploadPolicy, {
+    fields: [artifactUploadPolicyFormat.policyId],
+    references: [artifactUploadPolicy.id]
+  })
+}));
+
+export const artifactRelations = relations(artifact, ({ many, one }) => ({
+  owner: one(user, { fields: [artifact.ownerUserId], references: [user.id] }),
+  shareLinks: many(artifactShareLink),
+  uploadSessions: many(artifactUploadSession),
+  versions: many(artifactVersion),
+  publications: many(artifactPublication)
+}));
+
+export const artifactShareLinkRelations = relations(artifactShareLink, ({ one }) => ({
+  artifact: one(artifact, { fields: [artifactShareLink.artifactId], references: [artifact.id] })
+}));
+
+export const artifactUploadSessionRelations = relations(artifactUploadSession, ({ many, one }) => ({
+  artifact: one(artifact, { fields: [artifactUploadSession.artifactId], references: [artifact.id] }),
+  jobs: many(artifactProcessingJob),
+  version: one(artifactVersion)
+}));
+
+export const artifactProcessingJobRelations = relations(artifactProcessingJob, ({ many, one }) => ({
+  uploadSession: one(artifactUploadSession, {
+    fields: [artifactProcessingJob.uploadSessionId],
+    references: [artifactUploadSession.id]
+  }),
+  attempts: many(artifactProcessingAttempt)
+}));
+
+export const artifactProcessingAttemptRelations = relations(artifactProcessingAttempt, ({ one }) => ({
+  job: one(artifactProcessingJob, {
+    fields: [artifactProcessingAttempt.jobId],
+    references: [artifactProcessingJob.id]
+  })
+}));
+
+export const artifactVersionRelations = relations(artifactVersion, ({ many, one }) => ({
+  artifact: one(artifact, { fields: [artifactVersion.artifactId], references: [artifact.id] }),
+  uploadSession: one(artifactUploadSession, {
+    fields: [artifactVersion.uploadSessionId],
+    references: [artifactUploadSession.id]
+  }),
+  manifest: one(artifactManifest),
+  assets: many(artifactAsset),
+  publications: many(artifactPublication)
+}));
+
+export const artifactManifestRelations = relations(artifactManifest, ({ one }) => ({
+  version: one(artifactVersion, { fields: [artifactManifest.versionId], references: [artifactVersion.id] })
+}));
+
+export const artifactAssetRelations = relations(artifactAsset, ({ one }) => ({
+  version: one(artifactVersion, { fields: [artifactAsset.versionId], references: [artifactVersion.id] })
+}));
+
+export const artifactPublicationRelations = relations(artifactPublication, ({ one }) => ({
+  artifact: one(artifact, { fields: [artifactPublication.artifactId], references: [artifact.id] }),
+  version: one(artifactVersion, { fields: [artifactPublication.versionId], references: [artifactVersion.id] }),
+  publishedBy: one(user, { fields: [artifactPublication.publishedByUserId], references: [user.id] })
+}));
+
+export const artifactIdempotencyRecordRelations = relations(artifactIdempotencyRecord, ({ one }) => ({
+  owner: one(user, { fields: [artifactIdempotencyRecord.ownerUserId], references: [user.id] })
 }));

@@ -17,6 +17,7 @@
     "clippy",
     "cspell",
     "esbuild",
+    "fflate",
     "healthcheck",
     "idempotency",
     "isinstance",

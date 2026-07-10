@@ -3,14 +3,18 @@
   "private": true,
   "packageManager": "pnpm@11.9.0",
   "scripts": {
-    "check": "pnpm run docs:check && pnpm run spellcheck && pnpm run docs:refs && pnpm run docs:links && pnpm run specs:check && pnpm run -r typecheck && pnpm run -r test",
+    "check": "pnpm run docs:check && pnpm run spellcheck && pnpm run docs:refs && pnpm run docs:links && pnpm run specs:check && pnpm run -r typecheck && pnpm run -r test && pnpm run rust:check",
     "docs:check": "markdownlint-cli2",
     "spellcheck": "cspell .",
     "docs:refs": "node tools/check-doc-refs.mjs",
     "docs:links": "node tools/check-doc-links.mjs",
     "specs:check": "openspec validate --all --no-interactive",
     "api:test": "pnpm --dir api run test && uv run pytest api/tests/test_account_entry_contract.py",
-    "web:test": "pnpm --dir web run test"
+    "web:test": "pnpm --dir web run test",
+    "rust:fmt": "cargo fmt --all --check",
+    "rust:clippy": "cargo clippy --workspace --all-targets --all-features -- -D warnings",
+    "rust:test": "cargo test --workspace",
+    "rust:check": "pnpm run rust:fmt && pnpm run rust:clippy && pnpm run rust:test"
   },
   "devDependencies": {
     "cspell": "^10.0.1",

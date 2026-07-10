@@ -5,12 +5,16 @@ ShareSlices turns local static web artifacts created by agents into stable publi
 ## Language
 
 **Artifact**:
-The stable product object for one shareable static web artifact. It owns versions, publication state, and the share link.
+The stable product object for one shareable static web artifact. It owns versions, publication state, and share links.
 _Avoid_: Upload, site, project
 
-**Artifact slug**:
-The stable public path segment used by an artifact share link.
-_Avoid_: Artifact ID in public URLs
+**Artifact name**:
+The mutable owner-facing label used to identify an artifact in management surfaces. It does not determine identity or the share link.
+_Avoid_: ZIP filename, share slug
+
+**Share slug**:
+The server-generated public path segment that identifies one share link.
+_Avoid_: Artifact ID, artifact slug
 
 **Entry file**:
 The HTML file ShareSlices opens first when rendering an artifact.
@@ -28,8 +32,12 @@ _Avoid_: Upload, build, revision
 The current pointer from an artifact to the version viewers should see.
 _Avoid_: Deployment, release
 
+**Preview**:
+An owner-only rendering of one ready version before publication. It does not change publication state or make content available through the share link.
+_Avoid_: Private share, draft publication
+
 **Share link**:
-The stable public web address for an artifact.
+An address that resolves an artifact according to the link lifecycle and the artifact's publication state. A link can be active, expired, or retired.
 _Avoid_: Version link, upload link
 
 **User**:
@@ -37,11 +45,11 @@ The account holder who signs in to ShareSlices.
 _Avoid_: Owner when talking about account identity
 
 **Owner**:
-The role a user has for an artifact they can manage.
+The role a user has while managing an artifact they own through authenticated management surfaces.
 _Avoid_: Account, identity
 
 **Viewer**:
-A person who opens the share link.
+A person who opens a share link, including an artifact owner when that owner follows the share link.
 _Avoid_: Visitor, reader
 
 **Sign-in identifier**:

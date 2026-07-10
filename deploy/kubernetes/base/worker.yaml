@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shareslices-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: shareslices-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: shareslices-worker
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/walnut1024/shareslices-worker:0.0.1
+          envFrom:
+            - configMapRef:
+                name: shareslices-config
+            - secretRef:
+                name: shareslices-secret

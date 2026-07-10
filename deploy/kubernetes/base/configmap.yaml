@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shareslices-config
+data:
+  NODE_ENV: production
+  PORT: "7456"
+  WEB_ORIGIN: http://10.96.10.10:8080
+  API_ORIGIN: http://10.96.10.10:8080
+  VIEWER_ORIGIN: http://10.96.10.10:8080
+  BETTER_AUTH_URL: http://10.96.10.10:8080
+  S3_ENDPOINT: http://10.96.10.13:9000
+  S3_REGION: us-east-1
+  S3_BUCKET: shareslices-artifacts
+  S3_FORCE_PATH_STYLE: "true"
+  WORKER_JOB_POLL_INTERVAL_MS: "1000"
+  WORKER_JOB_LEASE_SECONDS: "30"
+  WORKER_JOB_HEARTBEAT_SECONDS: "10"
+  WORKER_JOB_MAX_ATTEMPTS: "3"
+  API_UPSTREAM: 10.96.10.11:7456
+  Caddyfile: |
+    :8080 {
+      handle /api/* {
+        reverse_proxy {$API_UPSTREAM}
+      }
+
+      handle /a/* {
+        reverse_proxy {$API_UPSTREAM}
+      }
+
+      handle /health {
+        reverse_proxy {$API_UPSTREAM}
+      }
+
+      handle /ready {
+        reverse_proxy {$API_UPSTREAM}
+      }
+
+      handle {
+        root * /srv
+        try_files {path} /index.html
+        file_server
+      }
+    }

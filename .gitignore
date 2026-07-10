@@ -11,4 +11,7 @@ target/
 __pycache__/
 .pytest_cache/
 coverage/
+output/playwright/
+playwright-report/
+test-results/
 .codex/

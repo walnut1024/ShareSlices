@@ -9,31 +9,31 @@ Engineering rules that constrain all designs live in `AGENTS.md`. Product behavi
 
 ## Top-level seams
 
-Status: target
+Status: current for the 0.0.1 runtime seams; CLI and Skill entry remain target.
 
-| Seam | Interface owner | Production Adapter | Test Adapter |
-| --- | --- | --- | --- |
-| User, artifact, and CLI requests into API | `api/src/http/` | Hono route handlers | HTTP contract tests |
-| Hono HTTP into business behavior | `api/src/application/` | Hono handler mapping | Direct Module tests |
-| Authenticated request into user account | `api/src/application/user/` | Better Auth Adapter | Fake auth Adapter |
-| Application data persistence | `api/src/application/*` | Drizzle Adapter | Local PostgreSQL or in-memory Adapter |
-| Raw and processed object access | Application and worker Modules | S3-compatible Adapter | In-memory object Adapter |
-| Processing job handoff | `db/migrations/` schema plus job Interfaces | Drizzle enqueue Adapter and sqlx claim Adapter | Local PostgreSQL or in-memory Adapter |
-| Agent entry | `cli/` command Interface | Skill shell Adapter | CLI fixture Adapter |
+| Seam | Status | Interface owner | Production Adapter | Test Adapter |
+| --- | --- | --- | --- | --- |
+| User and Artifact requests into API | current | `api/src/http/` | Hono route handlers | HTTP and YAML/Python contract tests |
+| Hono HTTP into business behavior | current | `api/src/application/` | Hono handler mapping | Direct Module tests |
+| Authenticated request into user account | current | `api/src/http/account-routes.ts` | Better Auth Adapter | Fake auth Adapter |
+| Application data persistence | current | `api/src/application/*` | Drizzle Adapter | Local PostgreSQL or in-memory Adapter |
+| Raw and processed object access | current | Application and worker Modules | S3-compatible Adapter | In-memory object Adapter |
+| Processing job handoff | current | `db/migrations/` schema plus job Interfaces | Drizzle enqueue Adapter and SQLx claim Adapter | Local PostgreSQL and fake Adapters |
+| Agent entry | target | `cli/` command Interface | Skill shell Adapter | CLI fixture Adapter |
 
 ## Hono runtime Modules
 
-Status: target. The `account-entry` change deliberately starts without an application layer (`api/src/http/ + auth/ + db/`); a responsibility is extracted into one of these Modules when it gains a second caller or a second implementation (rule in `AGENTS.md`).
+Status: mixed. Account entry remains a thin current HTTP/Auth/DB path. Artifact, Viewer, and Reconciliation behavior is current; Administration remains target.
 
-- `UserModule` owns ShareSlices user account resolution, current-user state, account status gates, and auth event recording. Better Auth is the library used for credential, provider, password reset, email verification, and session cookie mechanics.
-- `ArtifactModule` owns artifact target resolution, upload session creation, raw upload acceptance, upload result reading, owner cleanup, and publish decisions. It hides idempotency, publication pointer transitions, version eligibility checks, and `owner_user_id` checks.
-- `ViewerModule` owns public artifact slug resolution and committed asset lookup. It hides publication pointer reads, manifest cache behavior, path validation, and object streaming decisions.
-- `ReconciliationModule` owns stale challenge cleanup, expired upload sessions, expired processing leases, abandoned staging objects, and dirty-state repair. It hides scan windows, retry eligibility, and non-destructive repair ordering.
+- `ArtifactIntakeService`, `ArtifactManagementService`, and `ArtifactRecoveryService` are the current Artifact application modules. Together they own raw upload acceptance, Artifact state projection, name changes, Retry, Replace file, idempotency, and ready-Version gates.
+- `PublicationViewerService` is the current Publication and Viewer application module. It owns owner Preview checks, atomic Publish and Unpublish behavior, Share-slug lifecycle resolution, normalized manifest lookup, and immutable Version selection for each request.
+- `ReconciliationModule` is current. It owns bounded expired-lease recovery and raw/staging object cleanup while preserving the current retryable input.
+- `UserModule` remains target. Current account entry intentionally stays in `api/src/http/account-routes.ts`, Better Auth, and focused account queries until another caller or implementation requires extraction.
 - `AdministrationModule` is a roadmap Module for user search, deactivation, reactivation, soft deletion, forced sign out, session revocation, email verification policy, and administrative audit. It stays separate because the actor and permissions differ from user-managed flows.
 
 ## Rust worker Modules
 
-Status: target
+Status: current
 
 - `ArtifactProcessingModule` owns one processing attempt from claimed job to ready version or failed terminal result. It hides archive reading, path validation, entry file validation, manifest generation, staging writes, concurrency limits, and commit ordering.
 - `ArchiveModule` is an internal Module for archive traversal and normalized file entries. It keeps path traversal, unsupported file type, size, count, and entry-file validation local to the worker.
@@ -42,7 +42,7 @@ Status: target
 
 ## Cross-runtime Interfaces
 
-Status: target
+Status: current
 
 - The Hono runtime and Rust worker do not import each other.
 - They coordinate through PostgreSQL migration files, processing job states, upload session states, object key layout, manifest JSON shape, and version commit fields.
@@ -50,7 +50,7 @@ Status: target
 
 ## Core Module Interfaces
 
-Status: target
+Status: current for Artifact, Publication, Viewer, and Reconciliation behavior.
 
 ```typescript
 type UserModule = {
@@ -59,17 +59,26 @@ type UserModule = {
   recordAuthEvent(input: RecordAuthEventInput): Promise<RecordedAuthEvent>;
 };
 
-type ArtifactModule = {
-  prepareUpload(input: PrepareUploadInput): Promise<PreparedUpload>;
-  recordRawUpload(input: RecordRawUploadInput): Promise<UploadAccepted>;
-  readUploadResult(input: ReadUploadResultInput): Promise<UploadResult>;
-  publishVersion(input: PublishVersionInput): Promise<PublishedArtifact>;
-  cleanupUserArtifactState(input: CleanupUserArtifactStateInput): Promise<ArtifactManagementState>;
+type ArtifactIntakeService = {
+  create(input: CreateArtifactInput): Promise<ArtifactAccepted>;
 };
 
-type ViewerModule = {
-  resolveArtifactPage(input: ResolveArtifactPageInput): Promise<ViewerPageResult>;
-  resolveAsset(input: ResolveAssetInput): Promise<ViewerAssetResult>;
+type ArtifactManagementService = {
+  list(ownerUserId: string): Promise<ArtifactManagementState[]>;
+  get(ownerUserId: string, artifactId: string): Promise<ArtifactManagementState>;
+  rename(ownerUserId: string, artifactId: string, name: string): Promise<ArtifactManagementState>;
+};
+
+type ArtifactRecoveryService = {
+  retry(input: RetryUploadInput): Promise<ArtifactAccepted>;
+  replace(input: ReplaceUploadInput): Promise<ArtifactAccepted>;
+};
+
+type PublicationViewerService = {
+  preview(ownerUserId: string, versionId: string, path: string): Promise<ContentAsset>;
+  publish(input: PublishInput): Promise<PublicationView>;
+  unpublish(ownerUserId: string, artifactId: string, publicationId: string): Promise<void>;
+  resolveViewer(shareSlug: string, path: string): Promise<ViewerResolution>;
 };
 
 type ReconciliationModule = {
@@ -81,39 +90,45 @@ Interface rules:
 
 - `UserModule.ensureUserAccount` ensures the authenticated request has a valid ShareSlices user account.
 - `UserModule.resolveCurrentUser` returns ShareSlices current-user state, not Better Auth library internals.
-- `ArtifactModule.prepareUpload` is idempotent by user, command type, target artifact, and idempotency key.
-- `ArtifactModule.recordRawUpload` is called only after the raw object key is durably written or recovered.
-- `ArtifactModule.publishVersion` updates the publication pointer only for ready versions owned by the target artifact.
-- `ViewerModule.resolveAsset` serves only committed version objects referenced by a manifest.
+- Intake, Retry, Replace file, and Publish are idempotent by user, operation, target resource, and caller key.
+- Artifact intake commits database state only after the raw ZIP is durably written.
+- Publish updates the current Publication only for a ready Version owned by the target Artifact.
+- Preview and Viewer serve only committed Version objects referenced by a manifest.
 - `ReconciliationModule.run` is bounded by work type, time window, and row limit.
 
 ## Rust worker Interfaces
 
-Status: target
+Status: current
 
 ```rust
-pub trait ArtifactProcessingWorker {
-    async fn process_one(&self, input: ProcessOneInput) -> ProcessOneResult;
+pub async fn process_attempt(
+    storage: &dyn ObjectStorage,
+    ready_versions: &dyn ReadyVersionStore,
+    input: ProcessingAttemptInput,
+) -> Result<AttemptCompletion, ProcessingError>;
+
+pub trait JobStore {
+    async fn claim_next(&self, worker_id: &str, lease: Duration) -> Result<Option<ClaimedJob>, JobStoreError>;
+    async fn heartbeat(&self, job_id: &str, worker_id: &str, lease: Duration) -> Result<bool, JobStoreError>;
+    async fn fail(&self, job_id: &str, worker_id: &str, failure: &JobFailure) -> Result<bool, JobStoreError>;
+    async fn recover_expired_leases(&self, limit: i64) -> Result<u64, JobStoreError>;
 }
 
-pub trait ProcessingJobStore {
-    async fn claim_next(&self, worker_id: WorkerId) -> ClaimResult;
-    async fn heartbeat(&self, lease: ProcessingLease) -> HeartbeatResult;
-    async fn complete(&self, result: ReadyVersionCommit) -> CommitResult;
-    async fn fail(&self, result: ProcessingFailure) -> FailureResult;
+pub trait ReadyVersionStore {
+    async fn commit_ready_version(&self, commit: &ReadyVersionCommit) -> Result<CommitOutcome, JobStoreError>;
 }
 
-pub trait WorkerObjectStore {
-    async fn read_raw_archive(&self, key: RawObjectKey) -> RawArchiveReader;
-    async fn write_staging_file(&self, file: StagingFileWrite) -> StoredFile;
-    async fn write_manifest(&self, manifest: ManifestWrite) -> StoredManifest;
-    async fn remove_staging_prefix(&self, prefix: StagingPrefix) -> RemovalResult;
+pub trait ObjectStorage {
+    async fn read_raw_archive(&self, key: &str) -> Result<ObjectReader, ObjectStorageError>;
+    async fn write_staging_object(&self, input: StagingWrite) -> Result<(), ObjectStorageError>;
+    async fn promote_staging_object(&self, input: Promotion) -> Result<(), ObjectStorageError>;
+    async fn remove_staging_prefix(&self, prefix: &str) -> Result<u64, ObjectStorageError>;
 }
 ```
 
 Interface rules:
 
-- `ArtifactProcessingWorker.process_one` claims at most one job or returns `NoWork`.
+- The Worker runtime claims at most one job per iteration and remains alive while idle.
 - Each attempt uses a unique processing attempt ID and staging prefix.
 - Successful completion inserts a ready version before the upload session is marked committed.
 - Failed validation returns a user-actionable failure summary.
@@ -121,11 +136,11 @@ Interface rules:
 
 ## Adapter test surfaces
 
-Status: target
+Status: current for the 0.0.1 Artifact flow; future User and Administration surfaces remain target.
 
 - Test `UserModule` through `ensureUserAccount`, `resolveCurrentUser`, and `recordAuthEvent`; use fake authenticated requests and fake auth sessions.
-- Test `ArtifactModule` through `prepareUpload`, `recordRawUpload`, `readUploadResult`, `publishVersion`, and `cleanupUserArtifactState`; assert idempotency, state transitions, `owner_user_id` checks, and publication pointer behavior.
-- Test `ViewerModule` through `resolveArtifactPage` and `resolveAsset`; assert slug resolution, committed-only reads, path rejection, and headers.
-- Test `ArtifactProcessingModule` through `process_one`; assert validation failure, staged writes, manifest output, concurrency limits, ready version commit, and retry after lease expiry.
+- Test Artifact services through create, list, get, rename, Retry, Replace file, Publish, and Unpublish; assert idempotency, state transitions, `owner_user_id` checks, and Publication pointer behavior.
+- Test `PublicationViewerService` through Preview and Viewer resolution; assert Share-slug lifecycle resolution, committed-only reads, path rejection, and headers.
+- Test Worker processing through `process_attempt`; assert validation failure, staged writes, manifest output, concurrency limits, ready Version commit, and retry after lease expiry.
 - Test `ReconciliationModule` through `run`; assert non-destructive repair ordering and retry-safe reports.
 - Add cross-runtime tests for migration compatibility, processing job lifecycle, object key layout, manifest schema, and upload-to-ready integration.

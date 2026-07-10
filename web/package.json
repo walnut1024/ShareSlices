@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173",
     "build": "vite build",
+    "e2e": "playwright test",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
@@ -17,12 +18,15 @@
     "vite": "^7.3.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "@tailwindcss/vite": "^4.3.2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.1",
     "@testing-library/user-event": "^14.6.1",
     "@types/node": "^26.0.0",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "fflate": "^0.8.3",
     "jsdom": "^27.3.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.15"

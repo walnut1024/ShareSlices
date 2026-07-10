@@ -1,0 +1,23 @@
+:8080 {
+	handle /api/* {
+		reverse_proxy {$API_UPSTREAM}
+	}
+
+	handle /a/* {
+		reverse_proxy {$API_UPSTREAM}
+	}
+
+	handle /health {
+		reverse_proxy {$API_UPSTREAM}
+	}
+
+	handle /ready {
+		reverse_proxy {$API_UPSTREAM}
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

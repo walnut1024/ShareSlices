@@ -12,6 +12,10 @@ An artifact has an HTML entry file and supporting assets such as JavaScript, CSS
 
 The product starts where an agent finishes. ShareSlices takes local agent output, creates a shareable web address, and keeps that address stable as the content changes.
 
+## Supported clients
+
+ShareSlices-owned Web UI and Viewer surfaces support desktop browsers only. Mobile browsers, tablet layouts, touch-specific interaction, and responsive mobile layouts are outside the supported product scope. ShareSlices serves uploaded artifacts as provided and does not adapt their layouts for different devices.
+
 ## Who it is for
 
 ShareSlices is for non-programmer users who ask an agent to create a report, presentation, or keynote-style slice deck.
@@ -71,17 +75,19 @@ The main workflow starts inside an agent session:
 7. The user or agent publishes that version
 8. ShareSlices returns the artifact share link
 
-Each artifact owns one stable share link:
+Each artifact has one active share link. The link stays the same while the owner publishes, unpublishes, or republishes content:
 
 ```text
-https://view.example.com/a/{artifact_slug}/
+https://view.example.com/a/{share_slug}/
 ```
 
-The viewer opens the latest published version for that artifact.
+When the artifact is published, the viewer opens its current published version. When it is unpublished, the same link opens a status page instead of artifact content.
 
 ## Artifact rules
 
 `CONTEXT.md` owns durable glossary definitions. This section records product rules for artifact behavior.
+
+An Artifact name is trimmed and contains 1 to 120 characters. Names are mutable owner-facing labels and do not need to be unique; the Artifact ID is the stable identity.
 
 Every upload creates a new version. A version never changes after creation.
 
@@ -93,19 +99,70 @@ Publishing an older version creates a new publication that points to that versio
 
 Upload validation enforces product limits on archive size, expanded size, file count, and allowed file types. The limits are deployment configuration with product-defined defaults.
 
-The default values are a product decision owned by this section. They must be recorded here before the first upload capability ships; the worker's validation thresholds have no other source.
+The default upload limits are:
+
+- ZIP archive size: 50 MiB
+- Expanded total size: 200 MiB
+- Expanded regular files: 1,000
+- Single expanded file: 50 MiB
+
+The first upload capability accepts one ZIP whose root contains `index.html`. It accepts document-oriented static web resources and rejects audio, video, WebAssembly, arbitrary binary attachments, nested archives, links, and special files.
+
+The default enabled formats are:
+
+| Kind | Extensions | Content type | Validation |
+| --- | --- | --- | --- |
+| HTML | `.html` | `text/html` | UTF-8 text |
+| CSS | `.css` | `text/css` | UTF-8 text |
+| JavaScript | `.js`, `.mjs` | `text/javascript` | UTF-8 text |
+| JSON | `.json` | `application/json` | UTF-8 JSON |
+| Plain text | `.txt` | `text/plain` | UTF-8 text |
+| CSV | `.csv` | `text/csv` | UTF-8 text |
+| TSV | `.tsv` | `text/tab-separated-values` | UTF-8 text |
+| PNG | `.png` | `image/png` | PNG signature |
+| JPEG | `.jpg`, `.jpeg` | `image/jpeg` | JPEG signature |
+| GIF | `.gif` | `image/gif` | GIF signature |
+| WebP | `.webp` | `image/webp` | RIFF WebP signature |
+| AVIF | `.avif` | `image/avif` | ISO base media file format AVIF brand |
+| SVG | `.svg` | `image/svg+xml` | UTF-8 XML with an SVG root |
+| Icon | `.ico` | `image/x-icon` | ICO signature |
+| WOFF | `.woff` | `font/woff` | WOFF signature |
+| WOFF2 | `.woff2` | `font/woff2` | WOFF2 signature |
+
+Internal HTML, CSS, and JavaScript references must use relative URLs. For example, an entry page at `/a/{share_slug}/` resolves `assets/app.js` to `/a/{share_slug}/assets/app.js`; root-absolute references such as `/assets/app.js` are unsupported in version 0.0.1. ShareSlices does not rewrite uploaded HTML.
+
+Artifact build tools must therefore produce relative base paths. Existing output that already uses relative references needs no modification; output that contains root-absolute asset paths must be rebuilt or corrected before upload.
+
+Version 0.0.1 renders accepted packaged HTML, JavaScript, CSS, images, fonts, and data files. Advanced Viewer isolation and browser-capability restrictions are future hardening work rather than release blockers for the first complete sharing flow.
 
 ## Artifact ownership and cleanup
 
 Signed-in users manage only artifacts they own.
 
-Whether an owner can unpublish an artifact, delete an artifact entirely, or prune old versions are open product decisions owned by this section. They must be decided here before any user-facing cleanup or deletion capability ships. Until then, ShareSlices exposes no user-facing deletion, and share links for published artifacts stay live.
+An owner can unpublish and republish an artifact without changing its active share link. Removing the current publication makes the active link show an unpublished status page.
+
+Whether an owner can delete an artifact entirely or prune old versions remains open. ShareSlices exposes no user-facing deletion until those retention decisions are made.
 
 ## Public sharing model
 
-Anyone with the artifact share link can view the latest published version. Private links, access keys, restricted sharing, allowlists, organizations, teams, and workspaces are roadmap product work.
+Anyone with an active share link can view the artifact's current published version. Private links, access keys, restricted sharing, allowlists, organizations, teams, and workspaces are roadmap product work.
 
-ShareSlices exposes public web addresses at the artifact level. Signed-in users can preview and publish historical versions for artifacts they own from the management surface.
+Owner and Viewer are contextual roles, not separate account types. A person who follows a share link is treated as a Viewer even when the same browser is signed in as that artifact's owner. A share-link visit never implicitly reveals unpublished content; an owner starts Preview explicitly from the authenticated management surface.
+
+Preview uses the owner's current signed-in management session to render one ready Version without changing publication state. Version 0.0.1 does not create a separate Preview session, grant, expiry, or shareable Preview link.
+
+An artifact has at most one active share link. The first share link does not expire by default. Future link rotation creates a new active link and retires the old link without changing the artifact, its versions, or its publication.
+
+Viewer HTML routes represent known link state as follows:
+
+- An active, published link returns artifact content with `200`.
+- An active, unpublished link returns a `200` status page explaining that the artifact is not currently published and provides a generic route back to ShareSlices management.
+- A known expired or retired link returns a `410` status page explaining why the link is unavailable.
+- An unknown link returns `404`.
+
+Non-content status pages do not expose the artifact name, owner, or historical content and are excluded from search indexing. Signed-in owners can preview ready versions without changing publication state.
+
+Version 0.0.1 Viewer and Preview responses are not cached so Publish and Unpublish state changes are visible immediately.
 
 ## Reliability expectations
 

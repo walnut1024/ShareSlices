@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shareslices-config
+data:
+  WEB_ORIGIN: https://app.shareslices.example.com
+  API_ORIGIN: https://api.shareslices.example.com
+  VIEWER_ORIGIN: https://view.shareslices.example.com
+  BETTER_AUTH_URL: https://api.shareslices.example.com
+  Caddyfile: |
+    :8080 {
+      handle /api/* {
+        reverse_proxy {$API_UPSTREAM}
+      }
+
+      handle /health {
+        reverse_proxy {$API_UPSTREAM}
+      }
+
+      handle /ready {
+        reverse_proxy {$API_UPSTREAM}
+      }
+
+      handle {
+        root * /srv
+        try_files {path} /index.html
+        file_server
+      }
+    }

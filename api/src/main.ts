@@ -1,6 +1,7 @@
 import { serve } from "@hono/node-server";
 import { env } from "./env.js";
 import { buildApp } from "./http/app.js";
+import { apiLogger } from "./logging/index.js";
 
 const app = buildApp();
 
@@ -10,14 +11,14 @@ serve(
     port: env.PORT
   },
   (info) => {
-    console.log(
-      JSON.stringify({
-        level: "info",
-        event: "api_listening",
-        service: "shareslices-api",
-        host: "127.0.0.1",
-        port: info.port
-      })
-    );
+    apiLogger.emit({
+      severity: "INFO",
+      body: "API listening.",
+      eventName: "shareslices.api.server.listening",
+      attributes: {
+        "server.address": "127.0.0.1",
+        "server.port": info.port
+      }
+    });
   }
 );

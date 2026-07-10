@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shareslices-config
+data:
+  WEB_ORIGIN: http://10.0.10.10:30080
+  API_ORIGIN: http://10.0.10.10:30080
+  VIEWER_ORIGIN: http://10.0.10.10:30080
+  BETTER_AUTH_URL: http://10.0.10.10:30080
+  S3_ENDPOINT: http://10.96.10.13:9000
+  API_UPSTREAM: 10.96.10.11:7456
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: shareslices-secret
+stringData:
+  DATABASE_URL: postgres://shareslices:replace-me@10.96.10.12:5432/shareslices
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shareslices-web
+spec:
+  type: NodePort
+  clusterIP: 10.96.10.10
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      nodePort: 30080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shareslices-api
+spec:
+  clusterIP: 10.96.10.11

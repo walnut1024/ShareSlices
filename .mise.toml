@@ -1,6 +1,7 @@
 [tools]
 node = "26.4.0"
 python = "3.13.14"
+rust = "1.96.1"
 
 [tasks.install]
 description = "Install workspace dependencies"
@@ -25,3 +26,19 @@ run = "pnpm run api:test"
 [tasks.web-test]
 description = "Run Web tests"
 run = "pnpm run web:test"
+
+[tasks.rust-fmt]
+description = "Check Rust formatting"
+run = "pnpm run rust:fmt"
+
+[tasks.rust-clippy]
+description = "Lint all Rust targets and features"
+run = "pnpm run rust:clippy"
+
+[tasks.rust-test]
+description = "Run Rust workspace tests"
+run = "pnpm run rust:test"
+
+[tasks.rust-check]
+description = "Run the Rust quality gate"
+run = "pnpm run rust:check"

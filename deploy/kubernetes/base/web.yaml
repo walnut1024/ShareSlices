@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shareslices-web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: shareslices-web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: shareslices-web
+    spec:
+      containers:
+        - name: web
+          image: ghcr.io/walnut1024/shareslices-web:0.0.1
+          env:
+            - name: API_UPSTREAM
+              valueFrom:
+                configMapKeyRef:
+                  name: shareslices-config
+                  key: API_UPSTREAM
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          volumeMounts:
+            - name: caddy-config
+              mountPath: /etc/caddy/Caddyfile
+              subPath: Caddyfile
+              readOnly: true
+      volumes:
+        - name: caddy-config
+          configMap:
+            name: shareslices-config
+            items:
+              - key: Caddyfile
+                path: Caddyfile
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shareslices-web
+spec:
+  type: ClusterIP
+  clusterIP: 10.96.10.10
+  selector:
+    app.kubernetes.io/name: shareslices-web
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

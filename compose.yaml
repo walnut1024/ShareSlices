@@ -15,5 +15,138 @@ services:
     volumes:
       - shareslices-postgres:/var/lib/postgresql/data
 
+  object-storage:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-shareslices}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-shareslices-local-secret}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - shareslices-object-storage:/data
+
+  object-storage-init:
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+    depends_on:
+      object-storage:
+        condition: service_healthy
+    environment:
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-shareslices}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-shareslices-local-secret}
+      S3_BUCKET: ${S3_BUCKET:-shareslices-artifacts}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        mc alias set local http://object-storage:9000
+        "$${S3_ACCESS_KEY_ID}" "$${S3_SECRET_ACCESS_KEY}" &&
+        mc mb --ignore-existing "local/$${S3_BUCKET}"
+    restart: "no"
+
+  migrate:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    command: ["node", "dist/src/db/migrate.js"]
+    environment: &api-environment
+      DATABASE_URL: postgres://shareslices:shareslices@postgres:5432/shareslices
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-local-development-secret-at-least-32-bytes}
+      BETTER_AUTH_URL: http://127.0.0.1:5173
+      WEB_ORIGIN: http://127.0.0.1:5173
+      API_ORIGIN: http://127.0.0.1:7456
+      VIEWER_ORIGIN: http://127.0.0.1:5173
+      S3_ENDPOINT: http://object-storage:9000
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-shareslices-artifacts}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-shareslices}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-shareslices-local-secret}
+      S3_FORCE_PATH_STYLE: "true"
+      WORKER_JOB_POLL_INTERVAL_MS: ${WORKER_JOB_POLL_INTERVAL_MS:-1000}
+      WORKER_JOB_LEASE_SECONDS: ${WORKER_JOB_LEASE_SECONDS:-30}
+      WORKER_JOB_HEARTBEAT_SECONDS: ${WORKER_JOB_HEARTBEAT_SECONDS:-10}
+      WORKER_JOB_MAX_ATTEMPTS: ${WORKER_JOB_MAX_ATTEMPTS:-3}
+      PORT: "7456"
+      NODE_ENV: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    environment: *api-environment
+    ports:
+      - "7456:7456"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      object-storage-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:7456/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    environment:
+      DATABASE_URL: postgres://shareslices:shareslices@postgres:5432/shareslices
+      S3_ENDPOINT: http://object-storage:9000
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-shareslices-artifacts}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-shareslices}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-shareslices-local-secret}
+      S3_FORCE_PATH_STYLE: "true"
+      WORKER_JOB_POLL_INTERVAL_MS: ${WORKER_JOB_POLL_INTERVAL_MS:-1000}
+      WORKER_JOB_LEASE_SECONDS: ${WORKER_JOB_LEASE_SECONDS:-30}
+      WORKER_JOB_HEARTBEAT_SECONDS: ${WORKER_JOB_HEARTBEAT_SECONDS:-10}
+      WORKER_JOB_MAX_ATTEMPTS: ${WORKER_JOB_MAX_ATTEMPTS:-3}
+      NODE_ENV: development
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      object-storage-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    environment:
+      API_UPSTREAM: api:7456
+    ports:
+      - "5173:8080"
+    volumes:
+      - ./deploy/compose/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
 volumes:
   shareslices-postgres:
+  shareslices-object-storage:

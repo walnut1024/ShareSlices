@@ -1,6 +1,8 @@
+// cspell:ignore traceparent
 import { APIError } from "better-auth";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../src/http/app.js";
+import { apiLogger } from "../src/logging/index.js";
 
 type TestDependencies = {
   account?: {
@@ -34,7 +36,7 @@ function accountDependencies() {
 describe("account routes", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.spyOn(apiLogger, "emit").mockImplementation(() => undefined);
   });
 
   it("returns health response matching OpenAPI", async () => {
@@ -116,7 +118,39 @@ describe("account routes", () => {
         requestId: "req_registration_failure"
       }
     });
-    expect(console.error).toHaveBeenCalledWith(expect.stringContaining('"event":"http_request_failed"'));
+    expect(apiLogger.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "shareslices.api.http.request_failed",
+        attributes: expect.objectContaining({ "shareslices.request.id": "req_registration_failure" })
+      })
+    );
+  });
+
+  it("correlates an unhandled request failure with its response and W3C trace context", async () => {
+    const account = accountDependencies();
+    account.userExistsByEmail.mockRejectedValue(new Error("database unavailable"));
+    const app = buildTestApp({ account });
+
+    const response = await app.request("/api/users", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        traceparent: "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+      },
+      body: JSON.stringify({ name: "Ada", email: "ada@example.com", password: "password123" })
+    });
+    const body = await response.json();
+
+    expect(response.headers.get("x-request-id")).toBe(body.error.requestId);
+    expect(apiLogger.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attributes: expect.objectContaining({ "shareslices.request.id": body.error.requestId }),
+        trace: {
+          traceId: "0af7651916cd43dd8448eb211c80319c",
+          spanId: "b7ad6b7169203331"
+        }
+      })
+    );
   });
 
   it("returns the OpenAPI internal error when login has an unexpected failure", async () => {

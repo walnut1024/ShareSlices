@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../co
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 
-export function LoginScreen() {
+export function LoginScreen({ onSignedIn }: { onSignedIn?: (user: { id: string; name: string; email: string }) => void }) {
   const [message, setMessage] = useState<string | null>(null);
   const [signedInName, setSignedInName] = useState<string | null>(null);
 
@@ -22,6 +22,7 @@ export function LoginScreen() {
     try {
       const result = await createSession({ email, password });
       setSignedInName(result.user.name);
+      onSignedIn?.(result.user);
     } catch {
       setMessage("Email or password is incorrect.");
     }
@@ -44,7 +45,11 @@ export function LoginScreen() {
             <Input id="password" name="password" type="password" autoComplete="current-password" />
           </div>
           {message ? <Alert>{message}</Alert> : null}
-          {signedInName ? <Alert>Signed in as {signedInName}.</Alert> : null}
+          {signedInName ? (
+            <Alert>
+              Signed in as {signedInName}. <a className="font-medium underline" href="/artifacts">Continue to artifacts</a>
+            </Alert>
+          ) : null}
           <Button type="submit" className="w-full">
             Log in
           </Button>

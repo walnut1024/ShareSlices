@@ -1,0 +1,3 @@
+# Use OpenTelemetry-compatible structured logs
+
+ShareSlices uses one OpenTelemetry-compatible logical log record across the Web, TypeScript API, and Rust Worker, with stable event names, resource identity, trace context, namespaced attributes, and sanitized exception evidence. Server processes emit JSON lines while the Web sends the same record to its browser logger; vendor-specific Google Cloud or Azure mappings belong at the collection edge. Separate per-runtime formats were rejected because they make one asynchronous upload difficult to correlate and would couple application events to the first logging backend, while adding a collector or browser log ingestion remains outside version 0.0.1.

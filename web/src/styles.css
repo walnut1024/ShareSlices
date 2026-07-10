@@ -31,6 +31,17 @@ body {
   color: var(--foreground);
 }
 
+button,
+a,
+input {
+  letter-spacing: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
 * {
   box-sizing: border-box;
 }

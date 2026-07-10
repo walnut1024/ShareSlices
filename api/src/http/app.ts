@@ -1,12 +1,21 @@
+// cspell:ignore traceparent
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { env } from "../env.js";
+import { apiLogger, exceptionAttributes, parseTraceParent } from "../logging/index.js";
 import { accountRoutes, type AccountRouteDependencies } from "./account-routes.js";
+import { artifactRoutes, type ArtifactRouteDependencies } from "./artifact-routes.js";
 import { errorJson, requestId } from "./http-error.js";
+import {
+  publicationViewerRoutes,
+  type PublicationViewerRouteDependencies
+} from "./publication-viewer-routes.js";
 import { systemRoutes, type SystemRouteDependencies } from "./system-routes.js";
 
 export type AppDependencies = {
   account?: Partial<AccountRouteDependencies>;
+  artifact?: Partial<ArtifactRouteDependencies>;
+  publicationViewer?: Partial<PublicationViewerRouteDependencies>;
   system?: Partial<SystemRouteDependencies>;
 };
 
@@ -15,17 +24,19 @@ export function buildApp(dependencies: AppDependencies = {}): Hono {
 
   app.onError((error, c) => {
     const id = requestId(c);
-    console.error(
-      JSON.stringify({
-        level: "error",
-        event: "http_request_failed",
-        service: "shareslices-api",
-        requestId: id,
-        method: c.req.method,
-        path: new URL(c.req.url).pathname,
-        errorName: error.name
-      })
-    );
+    const trace = parseTraceParent(c.req.header("traceparent"));
+    apiLogger.emit({
+      severity: "ERROR",
+      body: "HTTP request failed.",
+      eventName: "shareslices.api.http.request_failed",
+      attributes: {
+        "shareslices.request.id": id,
+        "http.request.method": c.req.method,
+        "url.path": new URL(c.req.url).pathname,
+        ...exceptionAttributes(error)
+      },
+      ...(trace ? { trace } : {})
+    });
     return errorJson(c, 500, "internal_error");
   });
 
@@ -34,13 +45,15 @@ export function buildApp(dependencies: AppDependencies = {}): Hono {
     cors({
       origin: env.WEB_ORIGIN,
       credentials: true,
-      allowHeaders: ["Content-Type", "Authorization", "X-Request-Id"],
-      allowMethods: ["GET", "POST", "OPTIONS"]
+      allowHeaders: ["Content-Type", "Authorization", "Idempotency-Key", "Traceparent", "X-Request-Id"],
+      allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
     })
   );
 
   app.route("/", systemRoutes(dependencies.system));
   app.route("/", accountRoutes(dependencies.account));
+  app.route("/", artifactRoutes(dependencies.artifact));
+  app.route("/", publicationViewerRoutes(dependencies.publicationViewer));
 
   return app;
 }
