@@ -25,8 +25,8 @@ Status: current for the 0.0.1 runtime seams; CLI and Skill entry remain target.
 
 Status: mixed. Account entry remains a thin current HTTP/Auth/DB path. Artifact, Viewer, and Reconciliation behavior is current; Administration remains target.
 
-- `ArtifactIntakeService`, `ArtifactManagementService`, and `ArtifactRecoveryService` are the current Artifact application modules. Together they own raw upload acceptance, Artifact state projection, name changes, Retry, Replace file, idempotency, and ready-Version gates.
-- `PublicationViewerService` is the current Publication and Viewer application module. It owns owner Preview checks, atomic Publish and Unpublish behavior, Share-slug lifecycle resolution, normalized manifest lookup, and immutable Version selection for each request.
+- `ArtifactIntakeService`, `ArtifactManagementService`, and `ArtifactRecoveryService` are the current Artifact application modules. Together they own raw upload acceptance, Artifact state projection, name changes, permanent deletion, Share-link expiration, Retry, Replace file, idempotency, and ready-Version gates.
+- `PublicationViewerService` is the current Publication and Viewer application module. It owns owner Preview and Version export checks, atomic Publish and Unpublish behavior, Share-slug lifecycle resolution, normalized manifest lookup, and immutable Version selection for each request.
 - `ReconciliationModule` is current. It owns bounded expired-lease recovery and raw/staging object cleanup while preserving the current retryable input.
 - `UserModule` remains target. Current account entry intentionally stays in `api/src/http/account-routes.ts`, Better Auth, and focused account queries until another caller or implementation requires extraction.
 - `AdministrationModule` is a roadmap Module for user search, deactivation, reactivation, soft deletion, forced sign out, session revocation, email verification policy, and administrative audit. It stays separate because the actor and permissions differ from user-managed flows.
@@ -35,9 +35,9 @@ Status: mixed. Account entry remains a thin current HTTP/Auth/DB path. Artifact,
 
 Status: current
 
-- `ArtifactProcessingModule` owns one processing attempt from claimed job to ready version or failed terminal result. It hides archive reading, path validation, entry file validation, manifest generation, staging writes, concurrency limits, and commit ordering.
-- `ArchiveModule` is an internal Module for archive traversal and normalized file entries. It keeps path traversal, unsupported file type, size, count, and entry-file validation local to the worker.
-- `ManifestModule` is an internal Module for manifest creation. It produces stable metadata for viewer resolution: entry file, paths, object keys, sizes, content types, and hashes.
+- `ArtifactProcessingModule` owns one processing attempt from claimed job to ready version or failed terminal result. It hides archive reading, normalization, structured validation reporting, manifest generation, staging writes, concurrency limits, and commit ordering.
+- `ArchiveModule` is an internal Module for safe archive traversal and normalization. It validates raw paths before filtering supported system metadata, removes at most one common wrapper directory, resolves a dynamic root HTML entry, and retains each immutable `sourcePath` beside its normalized `effectivePath`.
+- `ManifestModule` is an internal Module for manifest creation. It records the resolved dynamic entry file and path-sorted assets with their effective paths, object keys, sizes, content types, and hashes.
 - `ProcessingJobModule` owns claim, heartbeat, retry, completion, and failure transitions for processing jobs. Its external Interface is the durable job state shared with the Hono runtime.
 
 ## Cross-runtime Interfaces
@@ -45,7 +45,7 @@ Status: current
 Status: current
 
 - The Hono runtime and Rust worker do not import each other.
-- They coordinate through PostgreSQL migration files, processing job states, upload session states, object key layout, manifest JSON shape, and version commit fields.
+- They coordinate through PostgreSQL migration files, processing job states, upload session states including the structured validation report, object key layout, dynamic manifest entry paths, manifest JSON shape, and version commit fields.
 - Changing any cross-runtime Interface requires tests that exercise both Adapters.
 
 ## Core Module Interfaces
@@ -67,6 +67,8 @@ type ArtifactManagementService = {
   list(ownerUserId: string): Promise<ArtifactManagementState[]>;
   get(ownerUserId: string, artifactId: string): Promise<ArtifactManagementState>;
   rename(ownerUserId: string, artifactId: string, name: string): Promise<ArtifactManagementState>;
+  setShareExpiration(ownerUserId: string, artifactId: string, expiresAt: string | null): Promise<ArtifactManagementState>;
+  delete(ownerUserId: string, artifactId: string): Promise<void>;
 };
 
 type ArtifactRecoveryService = {
@@ -76,6 +78,7 @@ type ArtifactRecoveryService = {
 
 type PublicationViewerService = {
   preview(ownerUserId: string, versionId: string, path: string): Promise<ContentAsset>;
+  exportVersion(ownerUserId: string, versionId: string): Promise<VersionExport>;
   publish(input: PublishInput): Promise<PublicationView>;
   unpublish(ownerUserId: string, artifactId: string, publicationId: string): Promise<void>;
   resolveViewer(shareSlug: string, path: string): Promise<ViewerResolution>;
@@ -130,8 +133,9 @@ Interface rules:
 
 - The Worker runtime claims at most one job per iteration and remains alive while idle.
 - Each attempt uses a unique processing attempt ID and staging prefix.
-- Successful completion inserts a ready version before the upload session is marked committed.
-- Failed validation returns a user-actionable failure summary.
+- Successful completion atomically inserts a ready Version and its dynamic manifest entry before the Upload session is marked committed, and persists any normalization warnings with that session.
+- Deterministic validation failures persist a bounded structured report; scalar failure fields remain for state transitions, operational search, and legacy or infrastructure failures.
+- Archive extraction reads immutable `sourcePath` values, while staging, manifests, validation details, Preview, and Viewer routing use normalized `effectivePath` values.
 - Crash recovery is handled by lease expiry and a later retry.
 
 ## Adapter test surfaces

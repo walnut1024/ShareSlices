@@ -15,6 +15,11 @@ async function dependencies(session: { user: { id: string } } | null = { user: {
     contentType: "text/html; charset=utf-8"
   });
   await storage.writeStagingObject({
+    key: "committed/version-1/腾讯文档盘点分析报告.html",
+    body: bytes('<script src="assets/app.js"></script>'),
+    contentType: "text/html; charset=utf-8"
+  });
+  await storage.writeStagingObject({
     key: "committed/version-1/assets/app.js",
     body: bytes("window.ready = true"),
     contentType: "text/javascript"
@@ -30,14 +35,22 @@ async function dependencies(session: { user: { id: string } } | null = { user: {
   return {
     authApi: { getSession: vi.fn().mockResolvedValue(session) },
     service: {
-      preview: vi.fn(async (_owner: string, _version: string, path: string) => asset(path)),
+      preview: vi.fn(async (_owner: string, _version: string, path: string) =>
+        asset(path || "腾讯文档盘点分析报告.html")
+      ),
+      exportVersion: vi.fn().mockResolvedValue({
+        artifactName: "Board deck",
+        assets: [asset("index.html"), asset("assets/app.js")]
+      }),
       publish: vi.fn().mockResolvedValue({
         id: "publication-1",
         versionId: "version-1",
         publishedAt: new Date("2026-07-10T00:00:00Z")
       }),
       unpublish: vi.fn().mockResolvedValue(undefined),
-      resolveViewer: vi.fn(async (_slug: string, path: string) => asset(path))
+      resolveViewer: vi.fn(async (_slug: string, path: string) =>
+        asset(path || "腾讯文档盘点分析报告.html")
+      )
     },
     storage,
     managementOrigin: "http://127.0.0.1:5173"
@@ -80,6 +93,22 @@ describe("Publication, Preview, and Viewer routes", () => {
     expect(viewerAsset.headers.get("cache-control")).toBe("no-store");
     expect(await viewerAsset.text()).toBe("window.ready = true");
     expect(rootAbsolute.status).toBe(404);
+    expect(deps.service.preview).toHaveBeenCalledWith("owner-1", "version-1", "");
+    await app.request("/a/stable-slug/");
+    expect(deps.service.resolveViewer).toHaveBeenCalledWith("stable-slug", "");
+  });
+
+  it("streams an owned ready Version as a ZIP download", async () => {
+    const deps = await dependencies();
+    const app = buildApp({ publicationViewer: deps } as never);
+
+    const response = await app.request("/api/versions/version-1/export");
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/zip");
+    expect(response.headers.get("content-disposition")).toContain("Board-deck.zip");
+    expect((await response.arrayBuffer()).byteLength).toBeGreaterThan(0);
+    expect(deps.service.exportVersion).toHaveBeenCalledWith("owner-1", "version-1");
   });
 
   it("publishes and supports idempotent Unpublish through management routes", async () => {

@@ -19,12 +19,9 @@ pub struct ReadyManifest {
 
 impl ReadyManifest {
     #[must_use]
-    pub fn new(mut files: Vec<ManifestAsset>) -> Self {
+    pub fn new(entry_path: String, mut files: Vec<ManifestAsset>) -> Self {
         files.sort_by(|left, right| left.path.cmp(&right.path));
-        Self {
-            entry_path: "index.html".to_owned(),
-            files,
-        }
+        Self { entry_path, files }
     }
 
     #[must_use]

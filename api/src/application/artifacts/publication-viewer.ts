@@ -14,6 +14,11 @@ export type ReadyVersionAccess = {
   artifactId: string;
 };
 
+export type VersionExport = {
+  artifactName: string;
+  assets: ContentAsset[];
+};
+
 export type PublicationView = {
   id: string;
   versionId: string;
@@ -39,6 +44,8 @@ export type PublishResult =
 export interface PublicationContentRepository {
   findOwnedReadyVersion(ownerUserId: string, versionId: string): Promise<ReadyVersionAccess | null>;
   findAsset(versionId: string, path: string): Promise<ContentAsset | null>;
+  findEntryAsset(versionId: string): Promise<ContentAsset | null>;
+  findOwnedVersionExport(ownerUserId: string, versionId: string): Promise<VersionExport | null>;
   publish(input: {
     id: string;
     ownerUserId: string;
@@ -94,15 +101,23 @@ export class PublicationViewerService {
     if (!version) {
       throw new PublicationViewerError("version_not_found");
     }
-    const path = normalizeContentPath(rawPath);
-    if (!path) {
+    const path = rawPath.length === 0 ? null : normalizeContentPath(rawPath);
+    if (rawPath.length > 0 && !path) {
       throw new PublicationViewerError("asset_not_found");
     }
-    const asset = await this.repository.findAsset(version.id, path);
+    const asset = path
+      ? await this.repository.findAsset(version.id, path)
+      : await this.repository.findEntryAsset(version.id);
     if (!asset) {
       throw new PublicationViewerError("asset_not_found");
     }
     return asset;
+  }
+
+  async exportVersion(ownerUserId: string, versionId: string): Promise<VersionExport> {
+    const exported = await this.repository.findOwnedVersionExport(ownerUserId, versionId);
+    if (!exported) throw new PublicationViewerError("version_not_found");
+    return exported;
   }
 
   async publish(input: {
@@ -133,11 +148,13 @@ export class PublicationViewerService {
     if (resolution.kind !== "published") {
       return resolution;
     }
-    const path = normalizeContentPath(rawPath);
-    if (!path) {
+    const path = rawPath.length === 0 ? null : normalizeContentPath(rawPath);
+    if (rawPath.length > 0 && !path) {
       throw new PublicationViewerError("asset_not_found");
     }
-    const asset = await this.repository.findAsset(resolution.versionId, path);
+    const asset = path
+      ? await this.repository.findAsset(resolution.versionId, path)
+      : await this.repository.findEntryAsset(resolution.versionId);
     if (!asset) {
       throw new PublicationViewerError("asset_not_found");
     }

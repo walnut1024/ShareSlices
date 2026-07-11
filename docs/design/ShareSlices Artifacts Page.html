@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+  html,body{margin:0}
+  body{background:#f4f4f5;font-family:Geist,system-ui,sans-serif;color:#09090b;-webkit-font-smoothing:antialiased}
+  input::placeholder{color:#a1a1aa}
+  a{color:inherit;text-decoration:none}
+  *{box-sizing:border-box}
+  @keyframes sl-spin{to{transform:rotate(360deg)}}
+  @keyframes sl-pop{from{opacity:0;transform:translateY(6px) scale(.98)}to{opacity:1;transform:none}}
+</style>
+</helmet>
+
+<template id="__bundler_thumbnail" data-bg-color="#f4f4f5">
+  <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <rect width="1200" height="800" fill="#f4f4f5"></rect>
+    <g transform="translate(470,320)">
+      <rect x="0" y="0" width="80" height="80" rx="10" fill="#fff" stroke="#e4e4e7"></rect>
+      <rect x="90" y="0" width="80" height="80" rx="10" fill="#fff" stroke="#e4e4e7"></rect>
+      <rect x="180" y="0" width="80" height="80" rx="10" fill="#fff" stroke="#e4e4e7"></rect>
+    </g>
+    <text x="600" y="470" font-family="Geist, system-ui, sans-serif" font-size="38" font-weight="600" fill="#09090b" text-anchor="middle">ShareSlices</text>
+  </svg>
+</template>
+
+<div style="min-height:100vh;padding:52px 56px 64px;display:flex;flex-direction:column;gap:56px">
+
+  <!-- ============================================================ -->
+  <!-- SCREEN 1 · DASHBOARD (live)                                  -->
+  <!-- ============================================================ -->
+  <div id="screen-dashboard">
+    <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:18px">
+      <span style="font:600 15px Geist;color:#18181b">1 · Artifacts dashboard</span>
+      <span style="font:400 12px Geist;color:#a1a1aa">Q3 Board Deck &amp; Company Handbook already shared → manage/revoke · others → create · 1360×860</span>
+    </div>
+
+    <div data-screen-label="Artifacts dashboard" style="width:1360px;height:860px;border-radius:14px;overflow:hidden;border:1px solid #e4e4e7;box-shadow:0 24px 60px -32px rgba(9,9,11,.28);background:#fff;display:flex;flex-direction:column;position:relative">
+
+      <!-- TOP BAR -->
+      <header style="height:57px;flex:none;border-bottom:1px solid #e4e4e7;display:flex;align-items:center;padding:0 22px;gap:18px;position:relative;z-index:40">
+        <div style="display:flex;align-items:center;gap:9px">
+          <div style="width:28px;height:28px;flex:none;border-radius:7px;background:#09090b;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2.5px">
+            <div style="width:13px;height:2.5px;border-radius:1px;background:#fff"></div>
+            <div style="width:13px;height:2.5px;border-radius:1px;background:#fff;opacity:.55"></div>
+            <div style="width:13px;height:2.5px;border-radius:1px;background:#fff;opacity:.28"></div>
+          </div>
+          <span style="font:600 14.5px Geist;letter-spacing:-.01em">ShareSlices</span>
+        </div>
+        <nav style="display:flex;align-items:center;gap:2px;margin-left:6px">
+          <span style="height:32px;display:flex;align-items:center;padding:0 12px;border-radius:7px;background:#f4f4f5;font:500 13px Geist;color:#09090b">Artifacts</span>
+          
+        </nav>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
+          <label style="width:248px;height:36px;display:flex;align-items:center;gap:9px;padding:0 11px;border:1px solid #e4e4e7;border-radius:8px;background:#fff">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+            <input placeholder="Search artifacts…" style="flex:1;border:none;outline:none;background:none;font:400 13px Geist;color:#18181b">
+            <span style="font:500 11px Geist Mono,monospace;color:#a1a1aa;border:1px solid #e4e4e7;border-radius:4px;padding:1px 5px">⌘K</span>
+          </label>
+          <button style="width:36px;height:36px;flex:none;display:flex;align-items:center;justify-content:center;border:1px solid #e4e4e7;border-radius:8px;background:#fff;cursor:pointer;position:relative">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.268 21a2 2 0 0 0 3.464 0"></path><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"></path></svg>
+            <span style="position:absolute;top:7px;right:8px;width:6px;height:6px;border-radius:50%;background:#dc2626;border:1.5px solid #fff"></span>
+          </button>
+          <div style="width:1px;height:24px;background:#e4e4e7"></div>
+          <div style="position:relative">
+            <button onClick="{{ onAvatar }}" style="display:flex;align-items:center;gap:9px;height:38px;padding:3px 8px 3px 4px;border:1px solid #e4e4e7;border-radius:999px;background:#fff;cursor:pointer">
+              <span style="width:30px;height:30px;flex:none;border-radius:50%;background:#09090b;color:#fff;display:flex;align-items:center;justify-content:center;font:600 12px Geist">W4</span>
+              <span style="font:500 12.5px Geist;color:#18181b">walnut 4096</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg>
+            </button>
+            <sc-if value="{{ avatarOpen }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;top:46px;right:0;width:224px;background:#fff;border:1px solid #e4e4e7;border-radius:11px;box-shadow:0 16px 40px -10px rgba(9,9,11,.3);padding:5px;z-index:50">
+                <div style="padding:9px 10px 10px;display:flex;align-items:center;gap:10px">
+                  <span style="width:34px;height:34px;flex:none;border-radius:50%;background:#09090b;color:#fff;display:flex;align-items:center;justify-content:center;font:600 12.5px Geist">W4</span>
+                  <div style="min-width:0">
+                    <div style="font:600 13px Geist;color:#18181b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">walnut 4096</div>
+                    <div style="font:400 11.5px Geist;color:#a1a1aa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="96e1f7faf8e3e2d6e5fef7e4f3e5fafff5f3e5b8fff9">[email&#160;protected]</a></div>
+                  </div>
+                </div>
+                <div style="height:1px;background:#f0f0f1;margin:2px 4px 5px"></div>
+                <div onClick="{{ closeAvatar }}" style="height:34px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:8px;font:400 13px Geist;color:#3f3f46;cursor:pointer" style-hover="background:#f4f4f5"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9"></path><path d="M14 17H5"></path><circle cx="17" cy="17" r="3"></circle><circle cx="7" cy="7" r="3"></circle></svg>Settings</div>
+                <div onClick="{{ closeAvatar }}" style="height:34px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:8px;font:400 13px Geist;color:#3f3f46;cursor:pointer" style-hover="background:#f4f4f5"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z"></path><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><path d="M12 17h.01"></path></svg>Help &amp; support</div>
+                <div style="height:1px;background:#f0f0f1;margin:5px 4px"></div>
+                <div onClick="{{ closeAvatar }}" style="height:34px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:8px;font:400 13px Geist;color:#dc2626;cursor:pointer" style-hover="background:#fef2f2"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m16 17 5-5-5-5"></path><path d="M21 12H9"></path><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path></svg>Sign out</div>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+      </header>
+
+      <!-- CONTENT -->
+      <div style="flex:1;overflow:hidden;display:flex;justify-content:center;padding:28px 32px">
+        <div style="width:100%;max-width:1180px;display:flex;flex-direction:column">
+          <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:20px">
+            <div style="flex:1;min-width:0">
+              <h1 style="margin:0;font:600 24px Geist;letter-spacing:-.02em;color:#09090b">Artifacts</h1>
+              <p style="margin:5px 0 0;font:400 13px Geist;color:#71717a">Manage, review and publish uploaded artifacts across your workspace.</p>
+            </div>
+            <button style="height:38px;display:flex;align-items:center;gap:7px;padding:0 15px;border:none;border-radius:8px;background:#18181b;font:500 13px Geist;color:#fff;cursor:pointer">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>
+              New artifact
+            </button>
+          </div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid #f0f0f1">
+            <div style="display:flex;align-items:center;gap:12px;font:400 12.5px Geist;color:#71717a">
+              <span><span style="color:#18181b;font-weight:500">10</span> artifacts</span>
+              <span style="width:3px;height:3px;border-radius:50%;background:#d4d4d8"></span>
+              <span>Sorted by <span style="color:#3f3f46;font-weight:500">last modified</span></span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <button style="height:34px;display:flex;align-items:center;gap:7px;padding:0 12px;border:1px solid #e4e4e7;border-radius:8px;background:#fff;font:500 12.5px Geist;color:#52525b;cursor:pointer">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M7 12h10"></path><path d="M10 18h4"></path></svg>Filter
+              </button>
+              <div style="display:inline-flex;align-items:center;gap:2px;padding:3px;background:#f4f4f5;border-radius:8px">
+                <span style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;background:#fff;box-shadow:0 1px 2px rgba(9,9,11,.08);color:#18181b"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"></rect><rect width="7" height="7" x="14" y="3" rx="1"></rect><rect width="7" height="7" x="14" y="14" rx="1"></rect><rect width="7" height="7" x="3" y="14" rx="1"></rect></svg></span>
+                <span style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:6px;color:#a1a1aa"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg></span>
+              </div>
+            </div>
+          </div>
+
+          <div style="flex:1;overflow:auto;margin:0 -4px;padding:0 4px 4px">
+            <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:14px">
+              <sc-for list="{{ cards }}" as="c" hint-placeholder-count="10">
+                <div style="position:relative;background:#fff;border:1px solid #e4e4e7;border-radius:11px;overflow:visible;box-shadow:0 1px 2px rgba(9,9,11,.05);transition:box-shadow .15s,border-color .15s" style-hover="border-color:#d4d4d8;box-shadow:0 6px 18px -10px rgba(9,9,11,.22)">
+                  <div style="position:relative;height:132px;border-radius:11px 11px 0 0;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:{{ c.thumbBg }}">
+                    <div>{{ c.thumbInner }}</div>
+                    <div style="position:absolute;bottom:8px;right:8px;display:flex;align-items:center;gap:6px;z-index:3">
+                      <button onClick="{{ c.onPresent }}" title="Start presentation" style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(228,228,231,.9);border-radius:7px;background:rgba(255,255,255,.94);cursor:pointer">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="#18181b" stroke="none"><path d="M8 5v14l11-7z"></path></svg>
+                      </button>
+                      <button onClick="{{ c.onShare }}" title="Share" style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(228,228,231,.9);border-radius:7px;background:rgba(255,255,255,.94);cursor:pointer">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
+                      </button>
+                    </div>
+                    <sc-if value="{{ c.shared }}" hint-placeholder-val="{{ false }}">
+                      <span title="Shared" style="position:absolute;top:8px;left:8px;display:flex;align-items:center;gap:5px;height:22px;padding:0 8px 0 7px;border-radius:999px;background:rgba(255,255,255,.94);border:1px solid rgba(228,228,231,.9);font:500 10.5px Geist;color:#3f3f46;z-index:3">
+                        <span style="width:6px;height:6px;border-radius:50%;background:#16a34a"></span>Shared
+                      </span>
+                    </sc-if>
+                  </div>
+                  <button onClick="{{ c.onToggle }}" title="More actions" style="position:absolute;top:8px;right:8px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(228,228,231,.9);border-radius:7px;background:rgba(255,255,255,.94);cursor:pointer;z-index:3">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="#52525b" stroke="none"><circle cx="12" cy="5" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="12" cy="19" r="1.6"></circle></svg>
+                  </button>
+                  <sc-if value="{{ c.menuOpen }}" hint-placeholder-val="{{ false }}">
+                    <div style="position:absolute;top:40px;right:8px;width:184px;background:#fff;border:1px solid #e4e4e7;border-radius:10px;box-shadow:0 12px 32px -8px rgba(9,9,11,.28);padding:5px;z-index:20">
+                      <div onClick="{{ c.onClose }}" style="height:32px;display:flex;align-items:center;gap:9px;padding:0 9px;border-radius:7px;font:400 12.5px Geist;color:#3f3f46;cursor:pointer" style-hover="background:#f4f4f5"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M10 14 21 3"></path><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>Open</div>
+                      <div onClick="{{ c.onClose }}" style="height:32px;display:flex;align-items:center;gap:9px;padding:0 9px;border-radius:7px;font:400 12.5px Geist;color:#3f3f46;cursor:pointer" style-hover="background:#f4f4f5"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"></path><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m7 10 5 5 5-5"></path></svg>Export</div>
+                      <div onClick="{{ c.onClose }}" style="height:32px;display:flex;align-items:center;gap:9px;padding:0 9px;border-radius:7px;font:400 12.5px Geist;color:#3f3f46;cursor:pointer" style-hover="background:#f4f4f5"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>Rename</div>
+                      <div style="height:1px;background:#f0f0f1;margin:4px 6px"></div>
+                      <div onClick="{{ c.onClose }}" style="height:32px;display:flex;align-items:center;gap:9px;padding:0 9px;border-radius:7px;font:400 12.5px Geist;color:#dc2626;cursor:pointer" style-hover="background:#fef2f2"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>Delete</div>
+                    </div>
+                  </sc-if>
+                  <div style="padding:11px 12px 13px;border-top:1px solid #f4f4f5">
+                    <div style="font:500 13px Geist;color:#18181b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ c.name }}</div>
+                    <div style="margin-top:3px;font:400 10.5px Geist Mono,monospace;color:#a1a1aa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ c.meta }}</div>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= SHARE / MANAGE DIALOG ================= -->
+      <sc-if value="{{ shareDialogOpen }}" hint-placeholder-val="{{ false }}">
+        <div onClick="{{ closeShare }}" style="position:absolute;inset:0;z-index:60;background:rgba(9,9,11,.42);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center">
+          <div onClick="{{ stop }}" style="width:440px;background:#fff;border:1px solid #e4e4e7;border-radius:14px;box-shadow:0 30px 70px -20px rgba(9,9,11,.5);padding:20px;animation:sl-pop .16s ease-out">
+
+            <!-- header: title + status fused in subtitle -->
+            <div style="display:flex;align-items:flex-start;gap:12px">
+              <div style="flex:1;min-width:0">
+                <div style="font:600 15.5px Geist;color:#09090b;letter-spacing:-.01em">{{ dialogTitle }}</div>
+                <div style="margin-top:3px;display:flex;align-items:center;gap:6px;font:400 12px Geist;color:#71717a;min-width:0">
+                  <sc-if value="{{ isManage }}" hint-placeholder-val="{{ false }}"><span style="width:7px;height:7px;border-radius:50%;background:#16a34a;flex:none"></span></sc-if>
+                  <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ dialogSubtitle }}</span>
+                </div>
+              </div>
+              <button onClick="{{ closeShare }}" style="width:28px;height:28px;flex:none;display:flex;align-items:center;justify-content:center;border:none;border-radius:7px;background:none;color:#a1a1aa;cursor:pointer" style-hover="background:#f4f4f5;color:#3f3f46">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+              </button>
+            </div>
+
+            <!-- link row -->
+            <div style="margin-top:16px;display:flex;gap:8px">
+              <div style="flex:1;min-width:0;height:38px;display:flex;align-items:center;gap:8px;padding:0 11px;border:1px solid #e4e4e7;border-radius:8px;background:#fafafa">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+                <span style="flex:1;min-width:0;font:400 12.5px Geist Mono,monospace;color:#3f3f46;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">shareslices.io/s/{{ shareSlug }}</span>
+              </div>
+              <button onClick="{{ onCopy }}" style="height:38px;flex:none;display:flex;align-items:center;gap:6px;padding:0 14px;border:none;border-radius:8px;background:#18181b;color:#fff;font:500 12.5px Geist;cursor:pointer">
+                <div style="display:flex">{{ copyIcon }}</div>{{ copyLabel }}
+              </button>
+            </div>
+
+            <!-- access (view only) -->
+            <div style="margin-top:10px;display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid #e4e4e7;border-radius:9px">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+              <span style="flex:1;min-width:0;font:500 12.5px Geist;color:#18181b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Anyone with the link</span>
+              <span style="flex:none;display:flex;align-items:center;gap:5px;height:24px;padding:0 9px;border-radius:6px;background:#f4f4f5;font:500 11px Geist;color:#3f3f46">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                Can view
+              </span>
+            </div>
+
+            <!-- expiration: label + segmented on one row -->
+            <div style="margin-top:14px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+              <span style="font:500 12.5px Geist;color:#18181b">Link expiration</span>
+              <div style="display:inline-flex;align-items:center;gap:2px;padding:3px;background:#f4f4f5;border-radius:8px">
+                <sc-for list="{{ expirySeg }}" as="s" hint-placeholder-count="2">
+                  <span onClick="{{ s.onSelect }}" style="height:28px;display:flex;align-items:center;padding:0 12px;border-radius:6px;background:{{ s.bg }};box-shadow:{{ s.shadow }};font:500 12px Geist;color:{{ s.color }};cursor:pointer;white-space:nowrap">{{ s.label }}</span>
+                </sc-for>
+              </div>
+            </div>
+
+            <!-- expiration date (single, end only) -->
+            <sc-if value="{{ dateSelected }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:10px;height:38px;display:flex;align-items:center;gap:8px;padding:0 11px;border:1px solid #e4e4e7;border-radius:8px;background:#fff;cursor:pointer">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#71717a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M3 10h18"></path><path d="M8 2v4"></path><path d="M16 2v4"></path></svg>
+                <span style="flex:1;font:400 12.5px Geist;color:#18181b">Aug 08, 2026</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m6 9 6 6 6-6"></path></svg>
+              </div>
+            </sc-if>
+
+            <!-- footer: CREATE -->
+            <sc-if value="{{ isCreate }}" hint-placeholder-val="{{ true }}">
+              <div style="margin-top:18px;display:flex;align-items:center;justify-content:flex-end;gap:9px">
+                <button onClick="{{ closeShare }}" style="height:38px;padding:0 15px;border:1px solid #e4e4e7;border-radius:8px;background:#fff;font:500 12.5px Geist;color:#18181b;cursor:pointer" style-hover="background:#f4f4f5">Cancel</button>
+                <button onClick="{{ closeShare }}" style="height:38px;padding:0 15px;border:none;border-radius:8px;background:#18181b;color:#fff;font:500 12.5px Geist;cursor:pointer">Create link</button>
+              </div>
+            </sc-if>
+
+            <!-- footer: MANAGE -->
+            <sc-if value="{{ isManage }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:18px;display:flex;align-items:center;gap:9px">
+                <button onClick="{{ onRevoke }}" style="height:38px;display:flex;align-items:center;gap:7px;padding:0 14px;border:1px solid #fecaca;border-radius:8px;background:#fff;color:#dc2626;font:500 12.5px Geist;cursor:pointer" style-hover="background:#fef2f2">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64A9 9 0 1 1 5.64 6.64"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>
+                  Revoke link
+                </button>
+                <div style="flex:1"></div>
+                <button onClick="{{ closeShare }}" style="height:38px;padding:0 15px;border:none;border-radius:8px;background:#18181b;color:#fff;font:500 12.5px Geist;cursor:pointer">Done</button>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ================= REVOKE CONFIRM (separate dialog) ================= -->
+      <sc-if value="{{ revokeDialogOpen }}" hint-placeholder-val="{{ false }}">
+        <div onClick="{{ onCancelRevoke }}" style="position:absolute;inset:0;z-index:70;background:rgba(9,9,11,.5);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center">
+          <div onClick="{{ stop }}" style="width:396px;background:#fff;border:1px solid #e4e4e7;border-radius:14px;box-shadow:0 30px 70px -20px rgba(9,9,11,.55);padding:22px;animation:sl-pop .16s ease-out">
+            <div style="display:flex;align-items:flex-start;gap:13px">
+              <span style="width:38px;height:38px;flex:none;border-radius:10px;background:#fef2f2;border:1px solid #fecaca;display:flex;align-items:center;justify-content:center">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>
+              </span>
+              <div style="flex:1;min-width:0">
+                <div style="font:600 15px Geist;color:#09090b;letter-spacing:-.01em">Revoke share link?</div>
+                <div style="margin-top:5px;font:400 12.5px Geist;color:#71717a;line-height:1.55">Anyone with the current link to <span style="color:#3f3f46;font-weight:500">{{ shareName }}</span> will immediately lose access. A new link is generated if you share again.</div>
+              </div>
+            </div>
+            <div style="margin-top:20px;display:flex;justify-content:flex-end;gap:9px">
+              <button onClick="{{ onCancelRevoke }}" style="height:38px;padding:0 15px;border:1px solid #e4e4e7;border-radius:8px;background:#fff;font:500 12.5px Geist;color:#18181b;cursor:pointer" style-hover="background:#f4f4f5">Cancel</button>
+              <button onClick="{{ onConfirmRevoke }}" style="height:38px;padding:0 15px;border:none;border-radius:8px;background:#dc2626;color:#fff;font:500 12.5px Geist;cursor:pointer">Revoke link</button>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- SCREEN 2 · CREATE vs MANAGE (aligned)                       -->
+  <!-- ============================================================ -->
+  <div id="screen-dialogs">
+    <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:18px">
+      <span style="font:600 15px Geist;color:#18181b">2 · Share &amp; Manage — aligned</span>
+      <span style="font:400 12px Geist;color:#a1a1aa">Identical layout · status fused into header · compact single-line rows</span>
+    </div>
+    <div style="display:flex;gap:24px;flex-wrap:wrap">
+
+      <!-- CREATE -->
+      <div data-screen-label="Create dialog" style="width:440px;background:#fff;border:1px solid #e4e4e7;border-radius:14px;box-shadow:0 20px 50px -28px rgba(9,9,11,.4);padding:20px">
+        <div style="display:flex;align-items:flex-start;gap:12px">
+          <div style="flex:1;min-width:0">
+            <div style="font:600 15.5px Geist;color:#09090b;letter-spacing:-.01em">Share artifact</div>
+            <div style="margin-top:3px;font:400 12px Geist;color:#71717a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Anyone with the link · Can view</div>
+          </div>
+          <button style="width:28px;height:28px;flex:none;display:flex;align-items:center;justify-content:center;border:none;border-radius:7px;background:none;color:#a1a1aa;cursor:pointer" style-hover="background:#f4f4f5;color:#3f3f46"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
+        </div>
+        <div style="margin-top:16px;display:flex;gap:8px">
+          <div style="flex:1;min-width:0;height:38px;display:flex;align-items:center;gap:8px;padding:0 11px;border:1px solid #e4e4e7;border-radius:8px;background:#fafafa">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+            <span style="flex:1;min-width:0;font:400 12.5px Geist Mono,monospace;color:#3f3f46;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">shareslices.io/s/q3-board-9f2a</span>
+          </div>
+          <button style="height:38px;flex:none;display:flex;align-items:center;gap:6px;padding:0 14px;border:none;border-radius:8px;background:#18181b;color:#fff;font:500 12.5px Geist;cursor:pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>Copy</button>
+        </div>
+        <div style="margin-top:10px;display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid #e4e4e7;border-radius:9px">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+          <span style="flex:1;font:500 12.5px Geist;color:#18181b">Anyone with the link</span>
+          <span style="flex:none;display:flex;align-items:center;gap:5px;height:24px;padding:0 9px;border-radius:6px;background:#f4f4f5;font:500 11px Geist;color:#3f3f46"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>Can view</span>
+        </div>
+        <div style="margin-top:14px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+          <span style="font:500 12.5px Geist;color:#18181b">Link expiration</span>
+          <div style="display:inline-flex;align-items:center;gap:2px;padding:3px;background:#f4f4f5;border-radius:8px">
+            <span style="height:28px;display:flex;align-items:center;padding:0 12px;border-radius:6px;background:#fff;box-shadow:0 1px 2px rgba(9,9,11,.08);font:500 12px Geist;color:#18181b">Permanent</span>
+            <span style="height:28px;display:flex;align-items:center;padding:0 12px;border-radius:6px;font:500 12px Geist;color:#71717a">Set date</span>
+          </div>
+        </div>
+        <div style="margin-top:18px;display:flex;justify-content:flex-end;gap:9px">
+          <button style="height:38px;padding:0 15px;border:1px solid #e4e4e7;border-radius:8px;background:#fff;font:500 12.5px Geist;color:#18181b;cursor:pointer" style-hover="background:#f4f4f5">Cancel</button>
+          <button style="height:38px;padding:0 15px;border:none;border-radius:8px;background:#18181b;color:#fff;font:500 12.5px Geist;cursor:pointer">Create link</button>
+        </div>
+      </div>
+
+      <!-- MANAGE -->
+      <div data-screen-label="Manage dialog" style="width:440px;background:#fff;border:1px solid #e4e4e7;border-radius:14px;box-shadow:0 20px 50px -28px rgba(9,9,11,.4);padding:20px">
+        <div style="display:flex;align-items:flex-start;gap:12px">
+          <div style="flex:1;min-width:0">
+            <div style="font:600 15.5px Geist;color:#09090b;letter-spacing:-.01em">Manage share</div>
+            <div style="margin-top:3px;display:flex;align-items:center;gap:6px;font:400 12px Geist;color:#71717a;overflow:hidden">
+              <span style="width:7px;height:7px;border-radius:50%;background:#16a34a;flex:none"></span>
+              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Link active · Expires Aug 08, 2026</span>
+            </div>
+          </div>
+          <button style="width:28px;height:28px;flex:none;display:flex;align-items:center;justify-content:center;border:none;border-radius:7px;background:none;color:#a1a1aa;cursor:pointer" style-hover="background:#f4f4f5;color:#3f3f46"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
+        </div>
+        <div style="margin-top:16px;display:flex;gap:8px">
+          <div style="flex:1;min-width:0;height:38px;display:flex;align-items:center;gap:8px;padding:0 11px;border:1px solid #e4e4e7;border-radius:8px;background:#fafafa">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+            <span style="flex:1;min-width:0;font:400 12.5px Geist Mono,monospace;color:#3f3f46;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">shareslices.io/s/q3-board-9f2a</span>
+          </div>
+          <button style="height:38px;flex:none;display:flex;align-items:center;gap:6px;padding:0 14px;border:none;border-radius:8px;background:#18181b;color:#fff;font:500 12.5px Geist;cursor:pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>Copy</button>
+        </div>
+        <div style="margin-top:10px;display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid #e4e4e7;border-radius:9px">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#52525b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+          <span style="flex:1;font:500 12.5px Geist;color:#18181b">Anyone with the link</span>
+          <span style="flex:none;display:flex;align-items:center;gap:5px;height:24px;padding:0 9px;border-radius:6px;background:#f4f4f5;font:500 11px Geist;color:#3f3f46"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>Can view</span>
+        </div>
+        <div style="margin-top:14px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+          <span style="font:500 12.5px Geist;color:#18181b">Link expiration</span>
+          <div style="display:inline-flex;align-items:center;gap:2px;padding:3px;background:#f4f4f5;border-radius:8px">
+            <span style="height:28px;display:flex;align-items:center;padding:0 12px;border-radius:6px;font:500 12px Geist;color:#71717a">Permanent</span>
+            <span style="height:28px;display:flex;align-items:center;padding:0 12px;border-radius:6px;background:#fff;box-shadow:0 1px 2px rgba(9,9,11,.08);font:500 12px Geist;color:#18181b">Set date</span>
+          </div>
+        </div>
+        <div style="margin-top:10px;height:38px;display:flex;align-items:center;gap:8px;padding:0 11px;border:1px solid #e4e4e7;border-radius:8px;background:#fff">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#71717a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M3 10h18"></path><path d="M8 2v4"></path><path d="M16 2v4"></path></svg>
+          <span style="flex:1;font:400 12.5px Geist;color:#18181b">Aug 08, 2026</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="m6 9 6 6 6-6"></path></svg>
+        </div>
+        <div style="margin-top:18px;display:flex;align-items:center;gap:9px">
+          <button style="height:38px;display:flex;align-items:center;gap:7px;padding:0 14px;border:1px solid #fecaca;border-radius:8px;background:#fff;color:#dc2626;font:500 12.5px Geist;cursor:pointer" style-hover="background:#fef2f2"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64A9 9 0 1 1 5.64 6.64"></path><line x1="12" y1="2" x2="12" y2="12"></line></svg>Revoke link</button>
+          <div style="flex:1"></div>
+          <button style="height:38px;padding:0 15px;border:none;border-radius:8px;background:#18181b;color:#fff;font:500 12.5px Geist;cursor:pointer">Done</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- SCREEN 3 · REVOKE CONFIRM (separate)                        -->
+  <!-- ============================================================ -->
+  <div id="screen-revoke">
+    <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:18px">
+      <span style="font:600 15px Geist;color:#18181b">3 · Revoke confirmation — separate dialog</span>
+      <span style="font:400 12px Geist;color:#a1a1aa">Not mixed into manage · replaces it with a focused confirm step</span>
+    </div>
+    <div data-screen-label="Revoke confirm" style="width:520px;border-radius:14px;border:1px solid #e4e4e7;box-shadow:0 24px 60px -32px rgba(9,9,11,.28);background:#e9e9ec;display:flex;align-items:center;justify-content:center;padding:48px 34px">
+      <div style="width:396px;background:#fff;border:1px solid #e4e4e7;border-radius:14px;box-shadow:0 30px 70px -20px rgba(9,9,11,.45);padding:22px">
+        <div style="display:flex;align-items:flex-start;gap:13px">
+          <span style="width:38px;height:38px;flex:none;border-radius:10px;background:#fef2f2;border:1px solid #fecaca;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg></span>
+          <div style="flex:1;min-width:0">
+            <div style="font:600 15px Geist;color:#09090b;letter-spacing:-.01em">Revoke share link?</div>
+            <div style="margin-top:5px;font:400 12.5px Geist;color:#71717a;line-height:1.55">Anyone with the current link to <span style="color:#3f3f46;font-weight:500">Q3 Board Deck</span> will immediately lose access. A new link is generated if you share again.</div>
+          </div>
+        </div>
+        <div style="margin-top:20px;display:flex;justify-content:flex-end;gap:9px">
+          <button style="height:38px;padding:0 15px;border:1px solid #e4e4e7;border-radius:8px;background:#fff;font:500 12.5px Geist;color:#18181b;cursor:pointer" style-hover="background:#f4f4f5">Cancel</button>
+          <button style="height:38px;padding:0 15px;border:none;border-radius:8px;background:#dc2626;color:#fff;font:500 12.5px Geist;cursor:pointer">Revoke link</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { openMenu: null, avatarOpen: false, shareIdx: null, expiry: 'permanent', copied: false, revokeConfirm: false, revoked: {} };
+
+  componentDidMount() {
+    this._onDoc = () => {
+      if (this.state.openMenu !== null || this.state.avatarOpen) this.setState({ openMenu: null, avatarOpen: false });
+    };
+    document.addEventListener('click', this._onDoc);
+  }
+  componentWillUnmount() { document.removeEventListener('click', this._onDoc); if (this._t) clearTimeout(this._t); }
+
+  stripe(a, b) { return `repeating-linear-gradient(135deg, ${a} 0 9px, ${b} 9px 18px)`; }
+  slug(name) { return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-9f2a'; }
+
+  fileGlyph() {
+    return React.createElement('svg', {width:34,height:34,viewBox:'0 0 24 24',fill:'none',stroke:'#a1a1aa',strokeWidth:1.4,strokeLinecap:'round',strokeLinejoin:'round'},
+      React.createElement('path',{key:'a',d:'M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z'}),
+      React.createElement('path',{key:'b',d:'M14 2v5h5'})
+    );
+  }
+  copyGlyph(done) {
+    const p = done
+      ? [React.createElement('path',{key:'c',d:'M20 6 9 17l-5-5'})]
+      : [React.createElement('rect',{key:'r',width:14,height:14,x:8,y:8,rx:2}),
+         React.createElement('path',{key:'p',d:'M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2'})];
+    return React.createElement('svg', {width:14,height:14,viewBox:'0 0 24 24',fill:'none',stroke:'#fff',strokeWidth:1.9,strokeLinecap:'round',strokeLinejoin:'round'}, p);
+  }
+
+  setExpiry(k) { this.setState({ expiry: k }); }
+
+  renderVals() {
+    const blue = ['#eef2ff','#f7f9ff'], warm = ['#faf5ef','#fdfaf6'], green = ['#eef6f0','#f7fbf8'];
+    const rows = [
+      { name:'Q3 Board Deck',      pal:blue,  meta:'Jul 10, 08:12', shared:true, expiry:'date' },
+      { name:'Series B Narrative', pal:warm,  meta:'Jul 09, 17:40' },
+      { name:'Onboarding Guide',   pal:blue,  meta:'Jul 10, 06:55' },
+      { name:'Pricing Explainer',  pal:green, meta:'Jul 10, 10:03' },
+      { name:'Launch Metrics',     pal:green, meta:'Jul 10, 09:58' },
+      { name:'Design Review v2',   pal:warm,  meta:'Jul 07, 14:21' },
+      { name:'Company Handbook',   pal:green, meta:'Jul 05, 11:09', shared:true, expiry:'permanent' },
+      { name:'Roadmap FY26',       pal:blue,  meta:'Jul 03, 16:30' },
+      { name:'Brand Guidelines',   pal:warm,  meta:'Jul 08, 13:47' },
+      { name:'Sales Playbook',     pal:blue,  meta:'Jul 10, 09:50' },
+    ];
+
+    const revoked = this.state.revoked;
+    const cards = rows.map((r, i) => ({
+      name: r.name,
+      meta: r.meta,
+      shared: !!r.shared && !revoked[i],
+      thumbBg: this.stripe(r.pal[0], r.pal[1]),
+      thumbInner: this.fileGlyph(),
+      menuOpen: this.state.openMenu === i,
+      onToggle: (e) => { e.stopPropagation(); this.setState(s => ({ openMenu: s.openMenu === i ? null : i, avatarOpen: false })); },
+      onClose: (e) => { e.stopPropagation(); this.setState({ openMenu: null }); },
+      onPresent: (e) => { e.stopPropagation(); },
+      onShare: (e) => {
+        e.stopPropagation();
+        const isShared = !!r.shared && !revoked[i];
+        this.setState({ shareIdx: i, openMenu: null, avatarOpen: false, copied: false, revokeConfirm: false, expiry: isShared ? r.expiry : 'permanent' });
+      },
+    }));
+
+    const ex = this.state.expiry;
+    const segDefs = [{ key:'permanent', label:'Permanent' }, { key:'date', label:'Set date' }];
+    const expirySeg = segDefs.map(s => {
+      const sel = ex === s.key;
+      return {
+        label: s.label,
+        bg: sel ? '#fff' : 'transparent',
+        color: sel ? '#18181b' : '#71717a',
+        shadow: sel ? '0 1px 2px rgba(9,9,11,.08)' : 'none',
+        onSelect: (e) => { e.stopPropagation(); this.setExpiry(s.key); },
+      };
+    });
+
+    const idx = this.state.shareIdx;
+    const row = idx !== null ? rows[idx] : null;
+    const isManage = row ? (!!row.shared && !revoked[idx]) : false;
+    const activeSummary = row ? (row.expiry === 'date' ? 'Link active · Expires Aug 08, 2026' : 'Link active · Never expires') : '';
+
+    return {
+      cards,
+      avatarOpen: this.state.avatarOpen,
+      onAvatar: (e) => { e.stopPropagation(); this.setState(s => ({ avatarOpen: !s.avatarOpen, openMenu: null })); },
+      closeAvatar: (e) => { e.stopPropagation(); this.setState({ avatarOpen: false }); },
+
+      shareDialogOpen: idx !== null && !this.state.revokeConfirm,
+      revokeDialogOpen: idx !== null && isManage && this.state.revokeConfirm,
+      shareName: row ? row.name : '',
+      shareSlug: row ? this.slug(row.name) : '',
+      dialogTitle: isManage ? 'Manage share' : 'Share artifact',
+      dialogSubtitle: isManage ? activeSummary : 'Anyone with the link · Can view',
+      isManage,
+      isCreate: idx !== null && !isManage,
+
+      stop: (e) => { e.stopPropagation(); },
+      closeShare: (e) => { e.stopPropagation(); this.setState({ shareIdx: null, revokeConfirm: false }); },
+      expirySeg,
+      dateSelected: ex === 'date',
+      copyLabel: this.state.copied ? 'Copied' : 'Copy',
+      copyIcon: this.copyGlyph(this.state.copied),
+      onCopy: (e) => {
+        e.stopPropagation();
+        this.setState({ copied: true });
+        if (this._t) clearTimeout(this._t);
+        this._t = setTimeout(() => this.setState({ copied: false }), 1600);
+      },
+      onRevoke: (e) => { e.stopPropagation(); this.setState({ revokeConfirm: true }); },
+      onCancelRevoke: (e) => { e.stopPropagation(); this.setState({ revokeConfirm: false }); },
+      onConfirmRevoke: (e) => {
+        e.stopPropagation();
+        this.setState(s => ({ revoked: { ...s.revoked, [idx]: true }, revokeConfirm: false, shareIdx: null }));
+      },
+    };
+  }
+}
+</script>
+</body>
+</html>

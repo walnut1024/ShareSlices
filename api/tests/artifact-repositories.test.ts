@@ -110,6 +110,22 @@ describe("Artifact repository adapters", () => {
   });
 
   it("resolves the resource records needed by the application modules", async () => {
+    const validationReport = {
+      primaryIssue: null,
+      issues: [],
+      warnings: [
+        {
+          code: "entry_file_inferred",
+          message: "Entry file inferred.",
+          action: null,
+          details: { entryFile: "report.html" }
+        }
+      ]
+    };
+    await databasePool.query(
+      "update artifact_upload_session set validation_report = $1 where id = 'upload-1'",
+      [validationReport]
+    );
     await expect(repositories.shareLinks.findActiveByArtifact("artifact-1")).resolves.toMatchObject({
       id: "link-1",
       slug: "share-slug-0000000001"
@@ -119,7 +135,8 @@ describe("Artifact repository adapters", () => {
     });
     await expect(repositories.uploadSessions.findOwned("owner-1", "upload-1")).resolves.toMatchObject({
       artifactId: "artifact-1",
-      state: "committed"
+      state: "committed",
+      validationReport
     });
     await expect(repositories.processingJobs.findByUploadSession("upload-1")).resolves.toMatchObject({
       id: "job-1",
@@ -138,6 +155,126 @@ describe("Artifact repository adapters", () => {
     await expect(
       repositories.idempotency.find("owner-1", "publish", "artifact-1", "publish-key")
     ).resolves.toMatchObject({ id: "idempotency-1", state: "completed", responseStatus: 201 });
+  });
+
+  it("rejects malformed validation report JSONB instead of trusting its static type", async () => {
+    const notice = {
+      code: "invalid_zip",
+      message: "The ZIP is invalid.",
+      action: "Upload a valid ZIP.",
+      details: {}
+    };
+    for (const malformed of [
+      { primaryIssue: null, issues: [], warnings: [], legacyFailure: "invalid_zip" },
+      { primaryIssue: { code: "invalid_zip" }, issues: [], warnings: [] },
+      { primaryIssue: null, issues: "not-an-array", warnings: [] },
+      { primaryIssue: { ...notice, details: { actualBytes: 1.5 } }, issues: [], warnings: [] },
+      { primaryIssue: { ...notice, details: { actualBytes: Number.MAX_SAFE_INTEGER + 1 } }, issues: [], warnings: [] },
+      { primaryIssue: { ...notice, details: { actualBytes: "01" } }, issues: [], warnings: [] },
+      { primaryIssue: { ...notice, message: "" }, issues: [], warnings: [] },
+      { primaryIssue: { ...notice, action: "" }, issues: [], warnings: [] },
+      { primaryIssue: { ...notice, code: "Invalid-Zip" }, issues: [], warnings: [] },
+      { primaryIssue: null, issues: Array.from({ length: 21 }, () => notice), warnings: [] },
+      { primaryIssue: null, issues: [], warnings: Array.from({ length: 21 }, () => notice) },
+      { primaryIssue: notice, issues: Array.from({ length: 20 }, () => notice), warnings: [] }
+    ]) {
+      await databasePool.query(
+        "update artifact_upload_session set validation_report = $1 where id = 'upload-1'",
+        [malformed]
+      );
+      await expect(repositories.uploadSessions.findOwned("owner-1", "upload-1")).rejects.toThrow(
+        "Database contains an inconsistent Artifact validation report."
+      );
+    }
+
+    await databasePool.query(
+      "update artifact_upload_session set validation_report = $1 where id = 'upload-1'",
+      [{ primaryIssue: { ...notice, details: { actualBytes: "18446744073709551615" } }, issues: [], warnings: [] }]
+    );
+    await expect(repositories.uploadSessions.findOwned("owner-1", "upload-1")).resolves.toMatchObject({
+      validationReport: { primaryIssue: { details: { actualBytes: "18446744073709551615" } } }
+    });
+  });
+
+  it("clears a stale report when manually retrying", async () => {
+    await databasePool.query(
+      `update artifact_upload_session
+       set state = 'failed', retryable = true,
+           failure_reason_code = 'object_store_timeout', failure_summary = 'Failed.',
+           validation_report = '{"primaryIssue":{"code":"invalid_zip"},"issues":[],"warnings":[]}'::jsonb
+       where id = 'upload-1'`
+    );
+    await databasePool.query(
+      `insert into artifact_idempotency_record
+       (id, owner_user_id, operation, target_resource_id, key, request_hash, state)
+       values ('retry-idempotency', 'owner-1', 'retry_upload', 'artifact-1', 'retry-key', $1, 'pending')`,
+      ["c".repeat(64)]
+    );
+
+    await repositories.recovery.queueManualRetry({
+      uploadSessionId: "upload-1",
+      processingJobId: "job-retry",
+      maxAttempts: 3,
+      idempotencyRecordId: "retry-idempotency",
+      requestHash: "d".repeat(64),
+      responseStatus: 202,
+      responseBody: { uploadSessionId: "upload-1" }
+    });
+
+    await expect(repositories.uploadSessions.findCurrent("artifact-1")).resolves.toMatchObject({
+      id: "upload-1",
+      validationReport: null
+    });
+  });
+
+  it("supersedes the previous report and exposes a null report for the replacement", async () => {
+    const activePolicy = await repositories.uploadPolicies.getActive();
+    if (!activePolicy) throw new Error("Expected seeded upload policy.");
+    await databasePool.query(
+      `insert into artifact_upload_session (
+         id, artifact_id, policy_revision, archive_size_bytes, expanded_size_bytes,
+         file_count, single_file_size_bytes, formats, raw_object_key, raw_sha256,
+         raw_size_bytes, state, retryable, failure_reason_code, failure_summary,
+         validation_report
+       ) values (
+         'upload-old', 'artifact-2', 'v0.0.1-default', 52428800, 209715200,
+         1000, 52428800, '[]'::jsonb, 'raw/artifact-2/upload-old.zip', $1,
+         100, 'failed', false, 'invalid_zip', 'Replace the file.',
+         '{"primaryIssue":{"code":"invalid_zip","message":"The uploaded file is not a valid ZIP.","action":"Create a new ZIP and upload it again.","details":{}},"issues":[],"warnings":[]}'::jsonb
+       )`,
+      ["e".repeat(64)]
+    );
+    await databasePool.query(
+      `insert into artifact_idempotency_record
+       (id, owner_user_id, operation, target_resource_id, key, request_hash, state)
+       values ('replace-idempotency', 'owner-2', 'replace_upload', 'artifact-2', 'replace-key', $1, 'pending')`,
+      ["f".repeat(64)]
+    );
+
+    await repositories.recovery.commitReplacement({
+      artifactId: "artifact-2",
+      previousUploadSessionId: "upload-old",
+      uploadSessionId: "upload-new",
+      policy: activePolicy,
+      rawObjectKey: "raw/artifact-2/upload-new.zip",
+      rawSha256: "1".repeat(64),
+      rawSizeBytes: 120,
+      processingJobId: "job-new",
+      maxAttempts: 3,
+      idempotencyRecordId: "replace-idempotency",
+      requestHash: "2".repeat(64),
+      responseStatus: 202,
+      responseBody: { uploadSessionId: "upload-new" }
+    });
+
+    await expect(repositories.uploadSessions.findCurrent("artifact-2")).resolves.toMatchObject({
+      id: "upload-new",
+      validationReport: null
+    });
+    await expect(repositories.uploadSessions.findOwned("owner-2", "upload-old")).resolves.toMatchObject({
+      validationReport: expect.objectContaining({ primaryIssue: expect.objectContaining({ code: "invalid_zip" }) }),
+      supersededAt: expect.any(Date)
+    });
   });
 
   it("claims idempotency once and atomically commits the accepted Artifact graph", async () => {

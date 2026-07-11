@@ -8,11 +8,11 @@ use futures_util::{StreamExt, TryStreamExt, stream};
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 use thiserror::Error;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use zip::ZipArchive;
 
 use crate::{
-    archive_validation::{ArchiveError, ValidatedEntry, validate_zip},
+    archive_validation::{ArchiveError, ArchiveValidationFailure, ValidatedEntry, validate_zip},
     format_rules::PolicySnapshot,
     job_store::{CommitOutcome, JobStoreError, ReadyVersionCommit, ReadyVersionStore},
     manifest::{ManifestAsset, ReadyManifest},
@@ -47,7 +47,7 @@ pub enum ProcessingError {
     #[error("temporary archive operation failed: {0}")]
     TemporaryArchive(#[source] io::Error),
     #[error(transparent)]
-    Archive(#[from] ArchiveError),
+    Archive(Box<ArchiveValidationFailure>),
     #[error("archive extraction task failed: {0}")]
     ExtractionTask(String),
     #[error("archive entry {path} changed between validation and expansion")]
@@ -59,7 +59,10 @@ pub enum ProcessingError {
     #[error("ready-Version commit lost its active processing lease")]
     LeaseLost,
     #[error("attempt failed ({primary}) and staging cleanup also failed ({cleanup})")]
-    FailureCleanup { primary: String, cleanup: String },
+    FailureCleanup {
+        primary: Box<ProcessingError>,
+        cleanup: String,
+    },
     #[error("ready Version committed but staging cleanup failed: {0}")]
     CleanupAfterCommit(String),
 }
@@ -80,8 +83,8 @@ pub async fn process_attempt(
 ) -> Result<AttemptCompletion, ProcessingError> {
     validate_input(&input)?;
     let result = prepare_manifest(storage, &input).await;
-    let manifest = match result {
-        Ok(manifest) => manifest,
+    let (manifest, validation_report) = match result {
+        Ok(prepared) => prepared,
         Err(error) => return cleanup_failed_attempt(storage, &input.staging_prefix, error).await,
     };
 
@@ -95,6 +98,7 @@ pub async fn process_attempt(
         upload_session_id: input.upload_session_id,
         version_id: input.version_id,
         manifest: manifest.clone(),
+        validation_report,
     };
     let outcome = match ready_versions.commit_ready_version(&commit).await {
         Ok(CommitOutcome::LeaseLost) => {
@@ -144,17 +148,39 @@ fn validate_input(input: &ProcessingAttemptInput) -> Result<(), ProcessingError>
 async fn prepare_manifest(
     storage: &dyn ObjectStorage,
     input: &ProcessingAttemptInput,
-) -> Result<ReadyManifest, ProcessingError> {
+) -> Result<(ReadyManifest, crate::validation_report::ValidationReport), ProcessingError> {
     let archive_file = NamedTempFile::new().map_err(ProcessingError::TemporaryArchive)?;
     let mut archive_writer = tokio::fs::File::from_std(
         archive_file
             .reopen()
             .map_err(ProcessingError::TemporaryArchive)?,
     );
-    let mut raw = storage.read_raw_archive(&input.raw_object_key).await?;
-    tokio::io::copy(&mut raw, &mut archive_writer)
+    let limit = input.policy.archive_size_bytes();
+    let mut raw = storage
+        .read_raw_archive(&input.raw_object_key)
+        .await?
+        .take(limit + 1);
+    let copied = tokio::io::copy(&mut raw, &mut archive_writer)
         .await
         .map_err(ProcessingError::TemporaryArchive)?;
+    if copied > limit {
+        return Err(ProcessingError::Archive(Box::new(
+            ArchiveValidationFailure {
+                error: ArchiveError::Format(crate::format_rules::FormatError::ArchiveSizeExceeded),
+                report: crate::validation_report::ValidationReport::failure(
+                    crate::validation_report::ValidationNotice::for_code(
+                        "archive_too_large",
+                        crate::validation_report::ValidationDetails {
+                            actual_bytes: Some(copied),
+                            limit_bytes: Some(limit),
+                            ..Default::default()
+                        },
+                    ),
+                    Vec::new(),
+                ),
+            },
+        )));
+    }
     archive_writer
         .flush()
         .await
@@ -166,11 +192,17 @@ async fn prepare_manifest(
     let policy = input.policy.clone();
     let validated = tokio::task::spawn_blocking(move || {
         let file = StdFile::open(validation_path).map_err(ProcessingError::TemporaryArchive)?;
-        validate_zip(file, &policy).map_err(ProcessingError::Archive)
+        validate_zip(file, &policy).map_err(|failure| ProcessingError::Archive(Box::new(failure)))
     })
     .await
     .map_err(|error| ProcessingError::ExtractionTask(error.to_string()))??;
 
+    let entry_path = validated.entry_path().to_owned();
+    let validation_report = crate::validation_report::ValidationReport {
+        primary_issue: None,
+        issues: Vec::new(),
+        warnings: validated.warnings().to_vec(),
+    };
     let staging_prefix = input.staging_prefix.clone();
     let committed_prefix = format!("versions/by-upload/{}/", input.upload_session_id);
     let mut assets = stream::iter(validated.entries().iter().cloned().map(|entry| {
@@ -186,7 +218,7 @@ async fn prepare_manifest(
     .try_collect::<Vec<_>>()
     .await?;
     assets.sort_by(|left, right| left.path.cmp(&right.path));
-    Ok(ReadyManifest::new(assets))
+    Ok((ReadyManifest::new(entry_path, assets), validation_report))
 }
 
 async fn stage_entry(
@@ -196,8 +228,8 @@ async fn stage_entry(
     committed_prefix: String,
     entry: ValidatedEntry,
 ) -> Result<ManifestAsset, ProcessingError> {
-    let path = entry.path().to_owned();
-    let extraction_path = path.clone();
+    let path = entry.effective_path().to_owned();
+    let extraction_path = entry.source_path().to_owned();
     let expected_size = entry.size_bytes();
     let extracted = tokio::task::spawn_blocking(move || {
         extract_entry(&archive_path, &extraction_path, expected_size)
@@ -258,7 +290,7 @@ async fn cleanup_failed_attempt<T>(
     match storage.remove_staging_prefix(staging_prefix).await {
         Ok(_) => Err(primary),
         Err(cleanup) => Err(ProcessingError::FailureCleanup {
-            primary: primary.to_string(),
+            primary: Box::new(primary),
             cleanup: cleanup.to_string(),
         }),
     }
@@ -275,8 +307,18 @@ fn extract_entry(
     expected_size: u64,
 ) -> Result<ExtractedEntry, ProcessingError> {
     let archive_file = StdFile::open(archive_path).map_err(ProcessingError::TemporaryArchive)?;
-    let mut archive = ZipArchive::new(archive_file)
-        .map_err(|_| ProcessingError::Archive(ArchiveError::InvalidZip))?;
+    let mut archive = ZipArchive::new(archive_file).map_err(|_| {
+        ProcessingError::Archive(Box::new(ArchiveValidationFailure {
+            error: ArchiveError::InvalidZip,
+            report: crate::validation_report::ValidationReport::failure(
+                crate::validation_report::ValidationNotice::for_code(
+                    "invalid_zip",
+                    crate::validation_report::ValidationDetails::default(),
+                ),
+                Vec::new(),
+            ),
+        }))
+    })?;
     let mut entry = archive
         .by_name(entry_path)
         .map_err(|_| ProcessingError::EntryChanged {

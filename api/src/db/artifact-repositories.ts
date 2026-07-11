@@ -1,5 +1,6 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { z } from "zod";
 import type {
   ArtifactRecord,
   ArtifactRepositories,
@@ -9,12 +10,59 @@ import type {
   ShareLinkRecord,
   UploadPolicySnapshot,
   UploadSessionRecord,
+  ValidationReport,
   VersionRecord
 } from "../application/artifacts/repositories.js";
 import { db } from "./client.js";
 import * as schema from "./schema.js";
 
 type Database = NodePgDatabase<typeof schema>;
+
+const nonEmptyString = z.string().min(1);
+const nonNegativeSafeInteger = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+const nonNegativeIntegerString = z.string().regex(/^(0|[1-9][0-9]*)$/);
+const exactNonNegativeInteger = z.union([nonNegativeSafeInteger, nonNegativeIntegerString]);
+const validationDetailsSchema = z.strictObject({
+  path: nonEmptyString.optional(),
+  paths: z.array(nonEmptyString).optional(),
+  candidates: z.array(nonEmptyString).optional(),
+  extension: nonEmptyString.optional(),
+  validationKind: nonEmptyString.optional(),
+  actualBytes: exactNonNegativeInteger.optional(),
+  limitBytes: exactNonNegativeInteger.optional(),
+  actualCount: exactNonNegativeInteger.optional(),
+  limitCount: exactNonNegativeInteger.optional(),
+  ignoredCount: exactNonNegativeInteger.optional(),
+  directory: nonEmptyString.optional(),
+  entryFile: nonEmptyString.optional()
+});
+const validationNoticeSchema = z.strictObject({
+  code: nonEmptyString.regex(/^[a-z][a-z0-9_]*$/),
+  message: nonEmptyString,
+  action: nonEmptyString.nullable(),
+  details: validationDetailsSchema
+});
+const validationReportSchema = z
+  .strictObject({
+    primaryIssue: validationNoticeSchema.nullable(),
+    issues: z.array(validationNoticeSchema).max(20),
+    warnings: z.array(validationNoticeSchema).max(20)
+  })
+  .superRefine((report, context) => {
+    if ((report.primaryIssue === null ? 0 : 1) + report.issues.length > 20) {
+      context.addIssue({
+        code: "custom",
+        message: "A validation report cannot contain more than 20 blocking issues."
+      });
+    }
+  });
+
+function parseValidationReport(value: unknown): ValidationReport | null {
+  if (value === null) return null;
+  const parsed = validationReportSchema.safeParse(value);
+  if (parsed.success) return value as ValidationReport;
+  throw new Error("Database contains an inconsistent Artifact validation report.");
+}
 
 function artifactRecord(row: typeof schema.artifact.$inferSelect): ArtifactRecord {
   return row;
@@ -34,6 +82,7 @@ function uploadSessionRecord(row: typeof schema.artifactUploadSession.$inferSele
     rawSha256: row.rawSha256,
     failureReasonCode: row.failureReasonCode,
     failureSummary: row.failureSummary,
+    validationReport: parseValidationReport(row.validationReport),
     supersededAt: row.supersededAt
   };
 }
@@ -113,6 +162,40 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
           .returning();
         return row ? artifactRecord(row) : null;
       },
+      async deleteOwned(ownerUserId, artifactId) {
+        return database.transaction(async (transaction) => {
+          const owned = await transaction.query.artifact.findFirst({
+            columns: { id: true },
+            where: and(eq(schema.artifact.id, artifactId), eq(schema.artifact.ownerUserId, ownerUserId))
+          });
+          if (!owned) return null;
+          const [rawObjects, committedObjects, attempts] = await Promise.all([
+            transaction
+              .select({ key: schema.artifactUploadSession.rawObjectKey })
+              .from(schema.artifactUploadSession)
+              .where(eq(schema.artifactUploadSession.artifactId, artifactId)),
+            transaction
+              .select({ key: schema.artifactAsset.objectKey })
+              .from(schema.artifactAsset)
+              .innerJoin(schema.artifactVersion, eq(schema.artifactVersion.id, schema.artifactAsset.versionId))
+              .where(eq(schema.artifactVersion.artifactId, artifactId)),
+            transaction
+              .select({ prefix: schema.artifactProcessingAttempt.stagingPrefix })
+              .from(schema.artifactProcessingAttempt)
+              .innerJoin(schema.artifactProcessingJob, eq(schema.artifactProcessingJob.id, schema.artifactProcessingAttempt.jobId))
+              .innerJoin(schema.artifactUploadSession, eq(schema.artifactUploadSession.id, schema.artifactProcessingJob.uploadSessionId))
+              .where(eq(schema.artifactUploadSession.artifactId, artifactId))
+          ]);
+          await transaction.delete(schema.artifactPublication).where(eq(schema.artifactPublication.artifactId, artifactId));
+          await transaction.delete(schema.artifactVersion).where(eq(schema.artifactVersion.artifactId, artifactId));
+          await transaction.delete(schema.artifactIdempotencyRecord).where(eq(schema.artifactIdempotencyRecord.targetResourceId, artifactId));
+          await transaction.delete(schema.artifact).where(eq(schema.artifact.id, artifactId));
+          return {
+            objectKeys: [...new Set([...rawObjects, ...committedObjects].map(({ key }) => key))],
+            stagingPrefixes: [...new Set(attempts.map(({ prefix }) => prefix))]
+          };
+        });
+      },
       async hasReadyVersion(artifactId) {
         const row = await database.query.artifactVersion.findFirst({
           columns: { id: true },
@@ -135,6 +218,19 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
         const row = await database.query.artifactShareLink.findFirst({
           where: eq(schema.artifactShareLink.slug, slug)
         });
+        return row ? shareLinkRecord(row) : null;
+      },
+      async updateExpirationOwned(ownerUserId, artifactId, expiresAt) {
+        const owned = await database.query.artifact.findFirst({
+          columns: { id: true },
+          where: and(eq(schema.artifact.id, artifactId), eq(schema.artifact.ownerUserId, ownerUserId))
+        });
+        if (!owned) return null;
+        const [row] = await database
+          .update(schema.artifactShareLink)
+          .set({ expiresAt })
+          .where(and(eq(schema.artifactShareLink.artifactId, artifactId), eq(schema.artifactShareLink.status, "active")))
+          .returning();
         return row ? shareLinkRecord(row) : null;
       }
     },
@@ -325,6 +421,7 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
               retryable: false,
               failureReasonCode: null,
               failureSummary: null,
+              validationReport: null,
               updatedAt: new Date()
             })
             .where(

@@ -5,18 +5,50 @@ export type ArtifactAction =
   | "preview"
   | "publish"
   | "unpublish"
-  | "copy_share_link";
+  | "copy_share_link"
+  | "export"
+  | "delete";
 
 export type Artifact = {
   id: string;
   name: string;
+  updatedAt: string;
   uploadSessionId: string | null;
   processingState: "accepted" | "processing" | "ready" | "failed";
-  shareLink: { url: string; state: "active" | "expired" | "retired" };
+  shareLink: { url: string; state: "active" | "expired" | "retired"; expiresAt: string | null };
   readyVersion: { id: string; state: "ready" } | null;
   publication: { id: string; versionId: string; publishedAt: string } | null;
   failure: { code: string; message: string; recoverable: boolean } | null;
+  validationReport: ValidationReport | null;
   allowedActions: ArtifactAction[];
+};
+
+export type ValidationDetails = {
+  path?: string;
+  paths?: string[];
+  candidates?: string[];
+  extension?: string;
+  validationKind?: string;
+  actualBytes?: number | string;
+  limitBytes?: number | string;
+  actualCount?: number | string;
+  limitCount?: number | string;
+  ignoredCount?: number | string;
+  directory?: string;
+  entryFile?: string;
+};
+
+export type ValidationNotice = {
+  code: string;
+  message: string;
+  action: string | null;
+  details: ValidationDetails;
+};
+
+export type ValidationReport = {
+  primaryIssue: ValidationNotice | null;
+  issues: ValidationNotice[];
+  warnings: ValidationNotice[];
 };
 
 export type UploadPolicy = {
@@ -36,14 +68,16 @@ export type ArtifactAccepted = {
 };
 
 type ErrorResponse = {
-  error?: { code?: string; message?: string };
+  error?: { code?: string; message?: string; action?: string; details?: ValidationDetails };
 };
 
 export class ArtifactApiError extends Error {
   constructor(
     message: string,
     public readonly code: string,
-    public readonly status: number
+    public readonly status: number,
+    public readonly action?: string,
+    public readonly details?: ValidationDetails
   ) {
     super(message);
     this.name = "ArtifactApiError";
@@ -55,7 +89,9 @@ async function responseError(response: Response): Promise<ArtifactApiError> {
   return new ArtifactApiError(
     body?.error?.message ?? "The request could not be completed.",
     body?.error?.code ?? "request_failed",
-    response.status
+    response.status,
+    body?.error?.action,
+    body?.error?.details
   );
 }
 
@@ -96,6 +132,23 @@ export async function updateArtifactName(artifactId: string, name: string): Prom
     body: JSON.stringify({ name })
   });
   return response.artifact;
+}
+
+export async function updateShareLinkExpiration(artifactId: string, expiresAt: string | null): Promise<Artifact> {
+  const response = await request<{ artifact: Artifact }>(`/api/artifacts/${encodeURIComponent(artifactId)}/share-link`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ expiresAt })
+  });
+  return response.artifact;
+}
+
+export async function deleteArtifact(artifactId: string): Promise<void> {
+  await requestWithoutBody(`/api/artifacts/${encodeURIComponent(artifactId)}`, { method: "DELETE" });
+}
+
+export function artifactExportUrl(versionId: string): string {
+  return `/api/versions/${encodeURIComponent(versionId)}/export`;
 }
 
 export async function retryUploadSession(uploadSessionId: string, idempotencyKey: string): Promise<ArtifactAccepted> {
@@ -174,7 +227,9 @@ export function createArtifact(input: {
         new ArtifactApiError(
           error.error?.message ?? "The upload could not be completed.",
           error.error?.code ?? "upload_failed",
-          request.status
+          request.status,
+          error.error?.action,
+          error.error?.details
         )
       );
     };

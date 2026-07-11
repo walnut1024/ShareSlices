@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import type { ValidationDetails } from "../application/artifacts/repositories.js";
 
 export type FieldError = {
   path: string;
@@ -6,11 +7,17 @@ export type FieldError = {
   message: string;
 };
 
+export type ErrorDetails = {
+  action?: string;
+  details?: ValidationDetails;
+};
+
 export type ErrorCode =
   | "invalid_request"
   | "email_already_registered"
   | "invalid_login"
   | "unauthenticated"
+  | "forbidden"
   | "artifact_not_found"
   | "upload_session_not_found"
   | "version_not_found"
@@ -28,6 +35,7 @@ const messages: Record<ErrorCode, string> = {
   email_already_registered: "An account already exists for this email.",
   invalid_login: "Email or password is incorrect.",
   unauthenticated: "Sign in to continue.",
+  forbidden: "Request origin is not allowed.",
   artifact_not_found: "Artifact not found.",
   upload_session_not_found: "Upload session not found.",
   version_not_found: "Version not found.",
@@ -55,9 +63,10 @@ export function requestId(c: Context): string {
 
 export function errorJson(
   c: Context,
-  status: 400 | 401 | 404 | 409 | 413 | 429 | 500,
+  status: 400 | 401 | 403 | 404 | 409 | 413 | 429 | 500,
   code: ErrorCode,
-  fields?: FieldError[]
+  fields?: FieldError[],
+  details?: ErrorDetails
 ) {
   const id = requestId(c);
   c.header("X-Request-Id", id);
@@ -68,7 +77,9 @@ export function errorJson(
         code,
         message: messages[code],
         requestId: id,
-        ...(fields && fields.length > 0 ? { fields } : {})
+        ...(fields && fields.length > 0 ? { fields } : {}),
+        ...(details?.action ? { action: details.action } : {}),
+        ...(details?.details ? { details: details.details } : {})
       }
     },
     status

@@ -17,12 +17,13 @@ import { MultipartUploadError, parseArtifactMultipartUpload } from "./multipart-
 export type ArtifactRouteDependencies = {
   authApi: Pick<typeof auth.api, "getSession">;
   repositories: Pick<ArtifactRepositories, "uploadPolicies">;
-  management: Pick<ArtifactManagementService, "list" | "get" | "rename">;
+  management: Pick<ArtifactManagementService, "list" | "get" | "rename" | "setShareExpiration" | "delete">;
   intake: Pick<ArtifactIntakeService, "create">;
   recovery: Pick<ArtifactRecoveryService, "retry" | "replace">;
 };
 
 const updateArtifactSchema = z.object({ name: z.string() }).strict();
+const updateShareLinkSchema = z.object({ expiresAt: z.string().datetime({ offset: true }).nullable() }).strict();
 
 export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {}): Hono {
   const defaultRepositories = createArtifactRepositories();
@@ -31,7 +32,8 @@ export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {
     repositories: { uploadPolicies: defaultRepositories.uploadPolicies },
     management: new ArtifactManagementService({
       repositories: defaultRepositories,
-      viewerOrigin: env.VIEWER_ORIGIN
+      viewerOrigin: env.VIEWER_ORIGIN,
+      storage: createConfiguredObjectStorage()
     }),
     intake: new ArtifactIntakeService({
       repositories: defaultRepositories,
@@ -48,6 +50,13 @@ export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {
     ...overrides
   };
   const app = new Hono();
+
+  function archiveTooLarge(c: Parameters<typeof errorJson>[0], limitBytes: number) {
+    return errorJson(c, 413, "archive_too_large", undefined, {
+      action: "Reduce the ZIP below the upload limit and try again.",
+      details: { limitBytes }
+    });
+  }
 
   async function ownerUserId(headers: Headers): Promise<string | null> {
     const session = await dependencies.authApi.getSession({
@@ -128,12 +137,12 @@ export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {
       upload.abort();
       if (error instanceof MultipartUploadError) {
         return error.code === "archive_too_large"
-          ? errorJson(c, 413, "archive_too_large")
+          ? archiveTooLarge(c, policy.archiveSizeBytes)
           : errorJson(c, 400, "invalid_request");
       }
       if (error instanceof ArtifactIntakeError) {
         if (error.code === "archive_too_large") {
-          return errorJson(c, 413, "archive_too_large");
+          return archiveTooLarge(c, policy.archiveSizeBytes);
         }
         if (error.code === "operation_in_progress" || error.code === "idempotency_conflict") {
           return errorJson(c, 409, error.code);
@@ -202,7 +211,7 @@ export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {
       upload.abort();
       if (error instanceof MultipartUploadError) {
         return error.code === "archive_too_large"
-          ? errorJson(c, 413, "archive_too_large")
+          ? archiveTooLarge(c, policy.archiveSizeBytes)
           : errorJson(c, 400, "invalid_request");
       }
       if (error instanceof ArtifactRecoveryError) {
@@ -210,7 +219,7 @@ export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {
           return errorJson(c, 404, "artifact_not_found");
         }
         if (error.code === "archive_too_large") {
-          return errorJson(c, 413, "archive_too_large");
+          return archiveTooLarge(c, policy.archiveSizeBytes);
         }
         if (
           error.code === "operation_in_progress" ||
@@ -279,6 +288,46 @@ export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {
         return error.code === "artifact_not_found"
           ? errorJson(c, 404, "artifact_not_found")
           : errorJson(c, 400, "invalid_request");
+      }
+      throw error;
+    }
+  });
+
+  app.patch("/api/artifacts/:artifactId/share-link", async (c) => {
+    const ownerId = await ownerUserId(c.req.raw.headers);
+    if (!ownerId) return errorJson(c, 401, "unauthenticated");
+    const parsed = updateShareLinkSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return errorJson(c, 400, "invalid_request");
+    try {
+      const artifact = await dependencies.management.setShareExpiration(
+        ownerId,
+        c.req.param("artifactId"),
+        parsed.data.expiresAt
+      );
+      c.header("X-Request-Id", requestId(c));
+      return c.json({ artifact });
+    } catch (error) {
+      if (error instanceof ArtifactManagementError) {
+        return error.code === "artifact_not_found"
+          ? errorJson(c, 404, "artifact_not_found")
+          : errorJson(c, 400, "invalid_request");
+      }
+      throw error;
+    }
+  });
+
+  app.delete("/api/artifacts/:artifactId", async (c) => {
+    const ownerId = await ownerUserId(c.req.raw.headers);
+    if (!ownerId) return errorJson(c, 401, "unauthenticated");
+    try {
+      await dependencies.management.delete(ownerId, c.req.param("artifactId"));
+      c.header("X-Request-Id", requestId(c));
+      return c.body(null, 204);
+    } catch (error) {
+      if (error instanceof ArtifactManagementError) {
+        if (error.code === "artifact_not_found") return errorJson(c, 404, "artifact_not_found");
+        if (error.code === "invalid_artifact_state") return errorJson(c, 409, "invalid_artifact_state");
+        return errorJson(c, 400, "invalid_request");
       }
       throw error;
     }

@@ -227,12 +227,13 @@ describe("PostgreSQL reconciliation repository", () => {
       expect.objectContaining({ id: "job-requeue", state: "queued", lease_owner: null, lease_expires_at: null })
     ]);
     const exhaustedUpload = await databasePool.query(
-      `select state, retryable, failure_reason_code from artifact_upload_session where id = 'upload-exhausted'`
+      `select state, retryable, failure_reason_code, failure_summary from artifact_upload_session where id = 'upload-exhausted'`
     );
     expect(exhaustedUpload.rows[0]).toEqual({
       state: "failed",
       retryable: true,
-      failure_reason_code: "processing_lease_expired"
+      failure_reason_code: "processing_lease_expired",
+      failure_summary: "Processing was interrupted."
     });
     const attempts = await databasePool.query(
       `select id, state, reason_code, finished_at from artifact_processing_attempt order by id`

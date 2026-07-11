@@ -28,6 +28,10 @@ Programmers and automation workflows can integrate directly, but product decisio
 
 Users sign up and sign in with email first. Product planning also includes phone, Google, and WeChat sign-in methods.
 
+After a successful Web sign-in, ShareSlices opens the signed-in user's Artifact list without requiring a separate confirmation action.
+
+A signed-in user can sign out of the current browser Session from the Web account menu. Sign out leaves every other Session active; signing out all Sessions remains part of later account-management work.
+
 The account identity is anchored by a ShareSlices user ID. Email, phone, Google identity, and WeChat identity are authentication methods attached to that user. ShareSlices maps a proven authentication method to one user instead of creating duplicate accounts for the same person.
 
 Email verification is a deployment policy. A deployment or future administration setting can require or skip email verification for email sign up and sign in. Phone sign in requires a verified one-time code. Google sign in uses the Google provider subject as the external identity. WeChat sign in uses `unionid` when available and otherwise falls back to the current-app `openid`.
@@ -60,7 +64,7 @@ Share is the core user outcome. Upload and publish exist to make sharing reliabl
 
 Upload creates history. Publish changes what viewers see. Share gives people the stable link.
 
-The Skill and CLI handle collection and submission. The web app lets the signed-in user review their artifacts, preview versions, publish a version, and copy the share link.
+The Skill and CLI handle collection and submission. The web app lets the signed-in user review their artifacts, preview and export ready versions, publish a version, manage Share link expiration, rename or delete an Artifact, and copy the Share link.
 
 ## Core workflow
 
@@ -106,7 +110,9 @@ The default upload limits are:
 - Expanded regular files: 1,000
 - Single expanded file: 50 MiB
 
-The first upload capability accepts one ZIP whose root contains `index.html`. It accepts document-oriented static web resources and rejects audio, video, WebAssembly, arbitrary binary attachments, nested archives, links, and special files.
+The first upload capability accepts one ZIP with an unambiguous root HTML entry. It accepts document-oriented static web resources and rejects audio, video, WebAssembly, arbitrary binary attachments, nested archives, links, and special files.
+
+ShareSlices ignores known operating-system metadata that does not belong to Artifact content. When a safe normalization leaves no root `index.html`, ShareSlices may use the only unambiguous root HTML file as the entry file. It does not guess when multiple entry candidates remain. Validation failures identify the affected file, the violated rule, relevant actual and allowed values, and a user-actionable correction whenever that information is available.
 
 The default enabled formats are:
 
@@ -141,7 +147,7 @@ Signed-in users manage only artifacts they own.
 
 An owner can unpublish and republish an artifact without changing its active share link. Removing the current publication makes the active link show an unpublished status page.
 
-Whether an owner can delete an artifact entirely or prune old versions remains open. ShareSlices exposes no user-facing deletion until those retention decisions are made.
+An owner can permanently delete an Artifact. Deletion removes its management record, Versions, Publication, Share link, and stored raw, staging, and committed objects. Deletion is unavailable while the Artifact is accepted or processing. Version pruning without deleting the Artifact remains future work.
 
 ## Public sharing model
 
@@ -151,7 +157,7 @@ Owner and Viewer are contextual roles, not separate account types. A person who 
 
 Preview uses the owner's current signed-in management session to render one ready Version without changing publication state. Version 0.0.1 does not create a separate Preview session, grant, expiry, or shareable Preview link.
 
-An artifact has at most one active share link. The first share link does not expire by default. Future link rotation creates a new active link and retires the old link without changing the artifact, its versions, or its publication.
+An artifact has at most one active Share link. The link is permanent by default. The owner can set or clear an expiration date; once that time passes, Viewer requests return the expired-link state. Link rotation and manual revocation remain future work.
 
 Viewer HTML routes represent known link state as follows:
 

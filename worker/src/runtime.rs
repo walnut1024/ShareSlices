@@ -19,6 +19,7 @@ use shareslices_worker::{
         ProcessingError, ProcessingOperation, RetryDecision, RetryPolicy, TerminalOutcome,
         ValidationFailure,
     },
+    validation_report::ValidationReport,
 };
 use sqlx::{PgPool, Row};
 use thiserror::Error;
@@ -337,6 +338,7 @@ where
                     &claim,
                     ProcessingOperation::CommitReadyVersion,
                     classify_input_error(&error),
+                    None,
                     error.to_string(),
                 )
                 .await;
@@ -354,9 +356,15 @@ where
             .with_context(claim_context(&claim))
             .emit(),
             Err(error) => {
-                let (operation, classified) = classify_attempt_error(&error);
-                self.record_failure(&claim, operation, classified, error.to_string())
-                    .await;
+                let (operation, classified, validation_report) = classify_attempt_error(&error);
+                self.record_failure(
+                    &claim,
+                    operation,
+                    classified,
+                    validation_report,
+                    error.to_string(),
+                )
+                .await;
             }
         }
     }
@@ -411,6 +419,7 @@ where
         claim: &ClaimedJob,
         operation: ProcessingOperation,
         error: ProcessingError,
+        validation_report: Option<ValidationReport>,
         message: String,
     ) {
         let attempt = u32::try_from(claim.attempt_number).unwrap_or(u32::MAX);
@@ -442,9 +451,11 @@ where
         });
         let failure = JobFailure {
             reason_code: fields.reason_code().to_owned(),
+            summary: fields.failure_summary().to_owned(),
             retry_at,
             retryable,
             exception: Some(exception),
+            validation_report,
         };
         let context = EventContext {
             retry_reason_code: Some(fields.reason_code()),
@@ -539,27 +550,38 @@ fn classify_input_error(error: &InputError) -> ProcessingError {
     }
 }
 
-fn classify_attempt_error(error: &AttemptError) -> (ProcessingOperation, ProcessingError) {
+fn classify_attempt_error(
+    error: &AttemptError,
+) -> (
+    ProcessingOperation,
+    ProcessingError,
+    Option<ValidationReport>,
+) {
     match error {
         AttemptError::Archive(error) => (
             ProcessingOperation::ValidateArchive,
-            classify_archive_error(*error),
+            classify_archive_error(error.error),
+            Some(error.report.clone()),
         ),
         AttemptError::Storage(_) => (
             ProcessingOperation::WriteStagingObject,
             ProcessingError::ObjectStoreUnavailable,
+            None,
         ),
         AttemptError::Commit(JobStoreError::Database(error)) => (
             ProcessingOperation::CommitReadyVersion,
             classify_database_error(error),
+            None,
         ),
         AttemptError::Commit(_) => (
             ProcessingOperation::CommitReadyVersion,
             ProcessingError::WorkerInfrastructure,
+            None,
         ),
         AttemptError::LeaseLost => (
             ProcessingOperation::CommitReadyVersion,
             ProcessingError::LeaseLost,
+            None,
         ),
         AttemptError::TemporaryArchive(_)
         | AttemptError::ExtractionTask(_)
@@ -569,21 +591,22 @@ fn classify_attempt_error(error: &AttemptError) -> (ProcessingOperation, Process
         | AttemptError::CleanupAfterCommit(_) => (
             ProcessingOperation::ValidateArchive,
             ProcessingError::WorkerInfrastructure,
+            None,
         ),
-        AttemptError::FailureCleanup { .. } => (
-            ProcessingOperation::WriteStagingObject,
-            ProcessingError::Unclassified,
-        ),
+        AttemptError::FailureCleanup { primary, .. } => classify_attempt_error(primary),
     }
 }
 
 fn classify_archive_error(error: ArchiveError) -> ProcessingError {
     let failure = match error {
-        ArchiveError::InvalidZip | ArchiveError::DuplicatePath => ValidationFailure::InvalidZip,
+        ArchiveError::InvalidZip => ValidationFailure::InvalidZip,
+        ArchiveError::DuplicatePath => ValidationFailure::DuplicateArchivePath,
         ArchiveError::UnsafePath => ValidationFailure::ArchivePathTraversal,
         ArchiveError::UnsupportedFileType => ValidationFailure::UnsupportedFileType,
         ArchiveError::NestedArchive => ValidationFailure::NestedArchive,
-        ArchiveError::MissingRootIndex => ValidationFailure::MissingRootIndex,
+        ArchiveError::MissingEntryFile | ArchiveError::AmbiguousEntryFile => {
+            ValidationFailure::MissingRootIndex
+        }
         ArchiveError::Format(FormatError::ArchiveSizeExceeded) => {
             ValidationFailure::ArchiveSizeExceeded
         }
@@ -682,12 +705,22 @@ mod tests {
     #[tokio::test]
     async fn deterministic_validation_failure_is_terminal() {
         let store = Arc::new(FakeStore::with_claim(claim(1, 3)));
-        let processor = FakeProcessor::fail(AttemptError::Archive(ArchiveError::UnsafePath));
+        let processor = FakeProcessor::fail(AttemptError::FailureCleanup {
+            primary: Box::new(AttemptError::Archive(Box::new(
+                shareslices_worker::archive_validation::ArchiveValidationFailure {
+                    error: ArchiveError::UnsafePath,
+                    report: shareslices_worker::validation_report::ValidationReport::default(),
+                },
+            ))),
+            cleanup: "injected cleanup failure".to_owned(),
+        });
         let runtime = runtime(Arc::clone(&store), processor);
 
         assert!(runtime.run_iteration().await);
         let failures = store.failures.lock().expect("failure lock");
         assert_eq!(failures[0].reason_code, "archive_path_traversal");
+        assert_eq!(failures[0].summary, "The ZIP contains an unsafe file path.");
+        assert!(failures[0].validation_report.is_some());
         assert!(failures[0].retry_at.is_none());
         assert!(!failures[0].retryable);
     }
@@ -910,7 +943,7 @@ mod tests {
     fn completion() -> AttemptCompletion {
         AttemptCompletion {
             commit_outcome: CommitOutcome::Committed,
-            manifest: ReadyManifest::new(Vec::new()),
+            manifest: ReadyManifest::new("index.html".to_owned(), Vec::new()),
             removed_staging_objects: 0,
         }
     }

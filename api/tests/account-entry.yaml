@@ -1,3 +1,4 @@
+# cspell:ignore dont
 base_url: "http://127.0.0.1:7456"
 failure_base_url: "http://127.0.0.1:7457"
 cases:
@@ -182,6 +183,24 @@ cases:
     request:
       method: POST
       path: /api/sessions
+      client: browser_a
+      json:
+        email: "ada-{run_id}@example.com"
+        password: "correct horse battery staple"
+    expect:
+      status: 201
+      set_cookie: true
+      json_paths:
+        signedIn: true
+      user.name: Ada Lovelace
+      user.email: "ada-{run_id}@example.com"
+    save_cookie: session
+
+  - id: login_second_browser
+    request:
+      method: POST
+      path: /api/sessions
+      client: browser_b
       json:
         email: "ada-{run_id}@example.com"
         password: "correct horse battery staple"
@@ -191,19 +210,118 @@ cases:
       json_paths:
         signedIn: true
         user.name: Ada Lovelace
-        user.email: "ada-{run_id}@example.com"
-    save_cookie: session
+    save_cookie: second_session
 
   - id: current_user_with_login
     request:
       method: GET
       path: /api/users/me
-      cookie_ref: session
+      client: browser_a
     expect:
       status: 200
       json_paths:
         user.name: Ada Lovelace
         user.email: "ada-{run_id}@example.com"
+
+  - id: reject_untrusted_sign_out_origin
+    request:
+      method: DELETE
+      path: /api/sessions/current
+      client: browser_b
+      headers:
+        Origin: https://untrusted.example
+    expect:
+      status: 403
+      no_set_cookie: true
+      headers:
+        Cache-Control: no-store
+      json_paths:
+        error.code: forbidden
+
+  - id: second_browser_stays_authenticated_after_origin_rejection
+    request:
+      method: GET
+      path: /api/users/me
+      client: browser_b
+    expect:
+      status: 200
+      json_paths:
+        user.name: Ada Lovelace
+
+  - id: sign_out_current_browser
+    request:
+      method: DELETE
+      path: /api/sessions/current
+      client: browser_a
+      headers:
+        Origin: http://127.0.0.1:5173
+    expect:
+      status: 204
+      set_cookie: true
+      headers:
+        Cache-Control: no-store
+      set_cookie_count: 3
+      set_cookie_each_contains:
+        - Max-Age=0
+      set_cookie_contains:
+        - shareslices_session=
+        - better-auth.session_data=
+        - better-auth.dont_remember=
+      cookies_absent:
+        - shareslices_session
+      empty_body: true
+
+  - id: revoked_cookie_is_unauthenticated
+    request:
+      method: GET
+      path: /api/users/me
+      cookie_ref: session
+    expect:
+      status: 401
+      json_paths:
+        error.code: unauthenticated
+
+  - id: repeated_sign_out_is_unauthenticated
+    request:
+      method: DELETE
+      path: /api/sessions/current
+      client: browser_a
+      headers:
+        Origin: http://127.0.0.1:5173
+    expect:
+      status: 401
+      headers:
+        Cache-Control: no-store
+      json_paths:
+        error.code: unauthenticated
+
+  - id: second_browser_remains_authenticated
+    request:
+      method: GET
+      path: /api/users/me
+      client: browser_b
+    expect:
+      status: 200
+      json_paths:
+        user.name: Ada Lovelace
+
+  - id: sign_out_persistence_failure
+    server: failure
+    request:
+      method: DELETE
+      path: /api/sessions/current
+      headers:
+        Origin: http://127.0.0.1:5173
+        Cookie: shareslices_session=contract-fixture-session
+        X-Contract-Fixture: sign-out-revoke-failure
+    expect:
+      status: 500
+      no_set_cookie: true
+      headers:
+        Cache-Control: no-store
+      json_paths:
+        error.code: internal_error
+        error.message: Internal server error.
 
   - id: ready_database_unavailable
     server: failure

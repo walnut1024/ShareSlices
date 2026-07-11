@@ -70,6 +70,56 @@ async fn writes_path_sorted_manifest_with_hashes_content_types_and_bounded_concu
 }
 
 #[tokio::test]
+async fn named_entry_uses_source_paths_for_extraction_and_effective_paths_for_storage() {
+    let storage = TrackingStorage::new(Duration::ZERO);
+    storage
+        .inner
+        .put_raw_for_test(
+            "raw/upload-1.zip",
+            archive(&[
+                ("report/腾讯文档盘点分析报告.html", b"<html></html>"),
+                (
+                    "report/assets/app.js",
+                    b"document.body.dataset.ready='true'",
+                ),
+                (
+                    "report/__MACOSX/._腾讯文档盘点分析报告.html",
+                    b"binary metadata",
+                ),
+            ]),
+        )
+        .await;
+    let versions = RecordingVersionStore::default();
+
+    let completion = process_attempt(&storage, &versions, input(2))
+        .await
+        .expect("processing succeeds");
+
+    assert_eq!(completion.manifest.entry_path, "腾讯文档盘点分析报告.html");
+    assert_eq!(
+        completion
+            .manifest
+            .files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect::<Vec<_>>(),
+        ["assets/app.js", "腾讯文档盘点分析报告.html"]
+    );
+    assert_eq!(
+        storage
+            .inner
+            .committed_object_for_test("versions/by-upload/upload-1/腾讯文档盘点分析报告.html")
+            .await
+            .expect("committed entry")
+            .bytes,
+        b"<html></html>"
+    );
+    let commit = versions.commits.lock().await;
+    assert!(commit[0].validation_report.primary_issue.is_none());
+    assert_eq!(commit[0].validation_report.warnings.len(), 3);
+}
+
+#[tokio::test]
 async fn failed_attempt_cleans_only_its_isolated_staging_prefix() {
     let storage = TrackingStorage::new(Duration::ZERO);
     storage
@@ -124,7 +174,7 @@ async fn invalid_archive_stages_nothing_and_still_runs_cleanup() {
         .inner
         .put_raw_for_test(
             "raw/upload-1.zip",
-            archive(&[("nested/index.html", b"<html></html>")]),
+            archive(&[("notes.txt", b"no root HTML entry")]),
         )
         .await;
     let versions = RecordingVersionStore::default();
@@ -139,13 +189,47 @@ async fn invalid_archive_stages_nothing_and_still_runs_cleanup() {
 }
 
 #[tokio::test]
+async fn raw_archive_copy_stops_at_limit_plus_one_and_returns_typed_failure() {
+    let storage = TrackingStorage::new(Duration::ZERO);
+    storage
+        .inner
+        .put_raw_for_test("raw/upload-1.zip", vec![0; 1024 * 1024 + 32])
+        .await;
+    let versions = RecordingVersionStore::default();
+
+    let error = process_attempt(&storage, &versions, input(2))
+        .await
+        .expect_err("oversized raw archive must fail before ZIP validation");
+
+    let ProcessingError::Archive(failure) = error else {
+        panic!("unexpected error: {error}");
+    };
+    assert_eq!(
+        failure.report.primary_issue.as_ref().unwrap().code,
+        "archive_too_large"
+    );
+    assert_eq!(
+        failure
+            .report
+            .primary_issue
+            .as_ref()
+            .unwrap()
+            .details
+            .actual_bytes,
+        Some(1024 * 1024 + 1)
+    );
+    assert_eq!(storage.cleanup_calls.load(Ordering::SeqCst), 1);
+    assert!(versions.commits.lock().await.is_empty());
+}
+
+#[tokio::test]
 async fn cleanup_failure_preserves_the_primary_failure_for_reconciliation_handoff() {
     let storage = TrackingStorage::new(Duration::ZERO);
     storage
         .inner
         .put_raw_for_test(
             "raw/upload-1.zip",
-            archive(&[("nested/index.html", b"<html></html>")]),
+            archive(&[("notes.txt", b"no root HTML entry")]),
         )
         .await;
     storage.fail_cleanup.store(true, Ordering::SeqCst);
@@ -158,7 +242,13 @@ async fn cleanup_failure_preserves_the_primary_failure_for_reconciliation_handof
     let ProcessingError::FailureCleanup { primary, cleanup } = error else {
         panic!("unexpected error: {error}");
     };
-    assert!(primary.contains("index.html"));
+    let ProcessingError::Archive(failure) = primary.as_ref() else {
+        panic!("typed validation primary was lost: {primary}");
+    };
+    assert_eq!(
+        failure.report.primary_issue.as_ref().unwrap().code,
+        "missing_entry_file"
+    );
     assert!(cleanup.contains("injected cleanup failure"));
 }
 

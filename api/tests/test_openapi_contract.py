@@ -26,6 +26,7 @@ ARTIFACT_OPERATIONS = {
     ("post", "/api/artifacts"),
     ("get", "/api/artifacts/{artifactId}"),
     ("patch", "/api/artifacts/{artifactId}"),
+    ("delete", "/api/artifacts/{artifactId}"),
     ("post", "/api/artifacts/{artifactId}/upload-sessions"),
     ("post", "/api/upload-sessions/{uploadSessionId}:retry"),
     ("get", "/api/versions/{versionId}/content/"),
@@ -85,3 +86,46 @@ def test_openapi_artifact_contract_and_local_references() -> None:
     assert schemas["ArtifactAcceptedResponse"]["example"]["uploadSessionId"]
     assert schemas["Artifact"]["example"]["id"] == "artifact-example"
     assert schemas["PublicationResponse"]["example"]["publication"]["versionId"] == "version-example"
+
+    validation_details = schemas["ValidationDetails"]
+    assert validation_details["additionalProperties"] is False
+    assert set(validation_details["properties"]) == {
+        "path",
+        "paths",
+        "candidates",
+        "extension",
+        "validationKind",
+        "actualBytes",
+        "limitBytes",
+        "actualCount",
+        "limitCount",
+        "ignoredCount",
+        "directory",
+        "entryFile",
+    }
+    assert schemas["ValidationNotice"]["required"] == ["code", "message", "action", "details"]
+    assert schemas["ValidationReport"]["required"] == ["primaryIssue", "issues", "warnings"]
+    assert schemas["ValidationReport"]["properties"]["issues"]["maxItems"] == 20
+    assert schemas["ValidationReport"]["properties"]["warnings"]["maxItems"] == 20
+    exact_integer = schemas["ValidationDetails"]["properties"]["actualBytes"]["oneOf"]
+    assert exact_integer[0]["maximum"] == 9_007_199_254_740_991
+    assert exact_integer[1] == {"type": "string", "pattern": "^(0|[1-9][0-9]*)$"}
+
+    artifact_validation_report = schemas["Artifact"]["properties"]["validationReport"]
+    assert artifact_validation_report == {
+        "oneOf": [
+            {"$ref": "#/components/schemas/ValidationReport"},
+            {"type": "null"},
+        ]
+    }
+
+    error_properties = schemas["ErrorBody"]["properties"]
+    assert error_properties["action"]["type"] == "string"
+    assert error_properties["details"] == {"$ref": "#/components/schemas/ValidationDetails"}
+    upload_too_large = document["components"]["responses"]["UploadTooLarge"]["content"]["application/json"][
+        "examples"
+    ]["tooLarge"]["value"]["error"]
+    assert upload_too_large["code"] == "archive_too_large"
+    assert upload_too_large["action"] == "Reduce the ZIP below the upload limit and try again."
+    assert upload_too_large["details"] == {"limitBytes": 52_428_800}
+    assert "actualBytes" not in upload_too_large["details"]

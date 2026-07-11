@@ -50,13 +50,14 @@ describe("Publication content repository", () => {
       );
     }
     await pool.query(
-      `insert into artifact_manifest (version_id, entry_path, file_count, total_size_bytes)
-       values ('version-1', 'index.html', 1, 14)`
+      `insert into artifact_asset (version_id, path, object_key, size_bytes, content_type, sha256)
+       values ('version-1', '腾讯文档盘点分析报告.html', 'committed/version-1/腾讯文档盘点分析报告.html', 14, 'text/html', $1),
+              ('version-1', 'assets/app.js', 'committed/version-1/assets/app.js', 10, 'text/javascript', $2)`,
+      ["a".repeat(64), "b".repeat(64)]
     );
     await pool.query(
-      `insert into artifact_asset (version_id, path, object_key, size_bytes, content_type, sha256)
-       values ('version-1', 'index.html', 'committed/version-1/index.html', 14, 'text/html', $1)`,
-      ["a".repeat(64)]
+      `insert into artifact_manifest (version_id, entry_path, file_count, total_size_bytes)
+       values ('version-1', '腾讯文档盘点分析报告.html', 2, 24)`
     );
   });
 
@@ -72,9 +73,13 @@ describe("Publication content repository", () => {
       artifactId: "artifact-1"
     });
     await expect(repository.findOwnedReadyVersion("other-1", "version-1")).resolves.toBeNull();
-    await expect(repository.findAsset("version-1", "index.html")).resolves.toMatchObject({
-      objectKey: "committed/version-1/index.html",
+    await expect(repository.findEntryAsset("version-1")).resolves.toMatchObject({
+      path: "腾讯文档盘点分析报告.html",
+      objectKey: "committed/version-1/腾讯文档盘点分析报告.html",
       contentType: "text/html"
+    });
+    await expect(repository.findAsset("version-1", "assets/app.js")).resolves.toMatchObject({
+      objectKey: "committed/version-1/assets/app.js"
     });
     await expect(repository.findAsset("version-1", "missing.js")).resolves.toBeNull();
   });

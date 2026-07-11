@@ -122,5 +122,9 @@ def run_contract(spec_path: Path = SPEC_PATH) -> None:
                 cookies[cookie_name] = response.cookies.copy()
 
 
+def test_artifact_flow_contract() -> None:
+    run_contract()
+
+
 if __name__ == "__main__":
     run_contract()

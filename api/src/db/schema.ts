@@ -1,4 +1,5 @@
 import { relations, sql } from "drizzle-orm";
+import type { ValidationReport } from "../application/artifacts/repositories.js";
 import {
   bigint,
   boolean,
@@ -195,6 +196,7 @@ export const artifactUploadSession = pgTable(
     state: text("state").default("accepted").notNull(),
     failureReasonCode: text("failure_reason_code"),
     failureSummary: text("failure_summary"),
+    validationReport: jsonb("validation_report").$type<ValidationReport>(),
     retryable: boolean("retryable").default(false).notNull(),
     supersededAt: timestamp("superseded_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -311,24 +313,6 @@ export const artifactVersion = pgTable(
   ]
 );
 
-export const artifactManifest = pgTable(
-  "artifact_manifest",
-  {
-    versionId: text("version_id")
-      .primaryKey()
-      .references(() => artifactVersion.id, { onDelete: "cascade" }),
-    entryPath: text("entry_path").default("index.html").notNull(),
-    fileCount: integer("file_count").notNull(),
-    totalSizeBytes: bigint("total_size_bytes", { mode: "number" }).notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
-  },
-  (table) => [
-    check("artifact_manifest_entry_path_check", sql`${table.entryPath} = 'index.html'`),
-    check("artifact_manifest_file_count_check", sql`${table.fileCount} > 0`),
-    check("artifact_manifest_total_size_check", sql`${table.totalSizeBytes} >= 0`)
-  ]
-);
-
 export const artifactAsset = pgTable(
   "artifact_asset",
   {
@@ -346,6 +330,32 @@ export const artifactAsset = pgTable(
     check("artifact_asset_path_check", sql`${table.path} <> '' and ${table.path} !~ '(^/|(^|/)\\.\\.(/|$))'`),
     check("artifact_asset_size_check", sql`${table.sizeBytes} >= 0`),
     check("artifact_asset_sha256_check", sql`${table.sha256} ~ '^[0-9a-f]{64}$'`)
+  ]
+);
+
+export const artifactManifest = pgTable(
+  "artifact_manifest",
+  {
+    versionId: text("version_id")
+      .primaryKey()
+      .references(() => artifactVersion.id, { onDelete: "cascade" }),
+    entryPath: text("entry_path").default("index.html").notNull(),
+    fileCount: integer("file_count").notNull(),
+    totalSizeBytes: bigint("total_size_bytes", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.versionId, table.entryPath],
+      foreignColumns: [artifactAsset.versionId, artifactAsset.path],
+      name: "artifact_manifest_entry_asset_fk"
+    }),
+    check(
+      "artifact_manifest_entry_path_check",
+      sql`${table.entryPath} <> '' and ${table.entryPath} !~ '(^/|(^|/)\\.\\.(/|$))'`
+    ),
+    check("artifact_manifest_file_count_check", sql`${table.fileCount} > 0`),
+    check("artifact_manifest_total_size_check", sql`${table.totalSizeBytes} >= 0`)
   ]
 );
 

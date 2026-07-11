@@ -82,6 +82,30 @@ fn deterministic_validation_failures_never_retry() {
 }
 
 #[test]
+fn invalid_content_has_a_user_actionable_failure_summary() {
+    let policy = RetryPolicy::new(|_| panic!("jitter must not run"));
+    let error = ProcessingError::Validation(ValidationFailure::InvalidContent);
+    let terminal = policy.decide(ProcessingOperation::ValidateArchive, 1, &error);
+    let fields = policy.log_fields(ProcessingOperation::ValidateArchive, 1, &error, &terminal);
+
+    assert_eq!(
+        fields.failure_summary(),
+        "The ZIP contains a file with invalid content."
+    );
+    assert_ne!(fields.failure_summary(), fields.reason_code());
+}
+
+#[test]
+fn duplicate_archive_paths_keep_the_matching_legacy_reason_code() {
+    let policy = RetryPolicy::new(|_| panic!("jitter must not run"));
+    let error = ProcessingError::Validation(ValidationFailure::DuplicateArchivePath);
+    let terminal = policy.decide(ProcessingOperation::ValidateArchive, 1, &error);
+    let fields = policy.log_fields(ProcessingOperation::ValidateArchive, 1, &error, &terminal);
+
+    assert_eq!(fields.reason_code(), "duplicate_archive_path");
+}
+
+#[test]
 fn typed_dependency_failures_have_stable_reason_codes() {
     let policy = RetryPolicy::new(|base| base);
     let cases = [

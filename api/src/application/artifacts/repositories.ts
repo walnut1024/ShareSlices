@@ -11,6 +11,34 @@ export type UploadPolicySnapshot = {
   }>;
 };
 
+export type ValidationDetails = {
+  path?: string;
+  paths?: string[];
+  candidates?: string[];
+  extension?: string;
+  validationKind?: string;
+  actualBytes?: number | string;
+  limitBytes?: number | string;
+  actualCount?: number | string;
+  limitCount?: number | string;
+  ignoredCount?: number | string;
+  directory?: string;
+  entryFile?: string;
+};
+
+export type ValidationNotice = {
+  code: string;
+  message: string;
+  action: string | null;
+  details: ValidationDetails;
+};
+
+export type ValidationReport = {
+  primaryIssue: ValidationNotice | null;
+  issues: ValidationNotice[];
+  warnings: ValidationNotice[];
+};
+
 export type ArtifactRecord = {
   id: string;
   ownerUserId: string;
@@ -28,6 +56,11 @@ export type ShareLinkRecord = {
   expiresAt: Date | null;
 };
 
+export type ArtifactDeletionRecord = {
+  objectKeys: string[];
+  stagingPrefixes: string[];
+};
+
 export type UploadSessionRecord = {
   id: string;
   artifactId: string;
@@ -37,6 +70,7 @@ export type UploadSessionRecord = {
   rawSha256: string;
   failureReasonCode: string | null;
   failureSummary: string | null;
+  validationReport: ValidationReport | null;
   supersededAt: Date | null;
 };
 
@@ -138,12 +172,14 @@ export interface ArtifactRepository {
   listOwned(ownerUserId: string): Promise<ArtifactRecord[]>;
   findOwned(ownerUserId: string, artifactId: string): Promise<ArtifactRecord | null>;
   updateName(ownerUserId: string, artifactId: string, name: string): Promise<ArtifactRecord | null>;
+  deleteOwned(ownerUserId: string, artifactId: string): Promise<ArtifactDeletionRecord | null>;
   hasReadyVersion(artifactId: string): Promise<boolean>;
 }
 
 export interface ShareLinkRepository {
   findActiveByArtifact(artifactId: string): Promise<ShareLinkRecord | null>;
   findBySlug(slug: string): Promise<ShareLinkRecord | null>;
+  updateExpirationOwned(ownerUserId: string, artifactId: string, expiresAt: Date | null): Promise<ShareLinkRecord | null>;
 }
 
 export interface UploadSessionRepository {

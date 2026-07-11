@@ -3,11 +3,16 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../App";
 
+const preflightArtifactZip = vi.hoisted(() => vi.fn());
+vi.mock("../artifacts/archive-preflight-client", () => ({ preflightArtifactZip }));
+
 const user = { id: "user-1", name: "Ada", email: "ada@example.com" };
 
 describe("Artifact management", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    preflightArtifactZip.mockReset();
+    preflightArtifactZip.mockResolvedValue({ primaryIssue: null, issues: [], warnings: [] });
   });
 
   it("routes an authenticated user to the Artifact list", async () => {
@@ -22,6 +27,142 @@ describe("Artifact management", () => {
     expect(await screen.findByRole("heading", { name: "Artifacts" })).toBeInTheDocument();
     expect(await screen.findByRole("link", { name: "Report" })).toHaveAttribute("href", "/artifacts/artifact-1");
     expect(screen.getByText("Processing")).toBeInTheDocument();
+  });
+
+  it("renders management chrome and Artifact tiles with shadcn components", async () => {
+    window.history.replaceState(null, "", "/artifacts");
+    stubFetch([
+      json({ user }),
+      json({ artifacts: [artifact({ allowedActions: ["rename", "copy_share_link"] })] })
+    ]);
+
+    render(<App />);
+
+    const artifactLink = await screen.findByRole("link", { name: "Report" });
+    expect(document.querySelector('[data-slot="avatar"]')).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="toggle-group"]')).toBeInTheDocument();
+    expect(artifactLink.closest('[data-slot="card"]')).toBeInTheDocument();
+    expect(screen.getByText("Accepted").closest(".group\\/badge")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "More actions for Report" })).toHaveClass("group/button");
+  });
+
+  it("shows the current identity and Sign out in the avatar menu", async () => {
+    const interaction = userEvent.setup();
+    window.history.replaceState(null, "", "/artifacts");
+    stubFetch([json({ user }), json({ artifacts: [] })]);
+
+    render(<App />);
+    await interaction.click(await screen.findByRole("button", { name: "Open account menu" }));
+
+    expect(await screen.findByText("ada@example.com")).toBeInTheDocument();
+    expect(await screen.findByRole("menuitem", { name: "Sign out" })).toBeInTheDocument();
+  });
+
+  it("signs out and replaces the management location with Log in", async () => {
+    const interaction = userEvent.setup();
+    window.history.replaceState(null, "", "/artifacts");
+    const fetchMock = stubFetch([json({ user }), json({ artifacts: [] }), new Response(null, { status: 204 })]);
+
+    render(<App />);
+    await interaction.click(await screen.findByRole("button", { name: "Open account menu" }));
+    await interaction.click(await screen.findByRole("menuitem", { name: "Sign out" }));
+
+    expect(await screen.findByRole("heading", { name: "Log in" })).toBeInTheDocument();
+    expect(window.location.pathname + window.location.search).toBe("/?view=login");
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/sessions/current",
+      expect.objectContaining({ method: "DELETE", credentials: "include" })
+    );
+  });
+
+  it("treats an expired Session as signed out", async () => {
+    const interaction = userEvent.setup();
+    window.history.replaceState(null, "", "/artifacts");
+    stubFetch([
+      json({ user }),
+      json({ artifacts: [] }),
+      json({ error: { code: "unauthenticated", message: "Sign in to continue." } }, 401)
+    ]);
+
+    render(<App />);
+    await interaction.click(await screen.findByRole("button", { name: "Open account menu" }));
+    await interaction.click(await screen.findByRole("menuitem", { name: "Sign out" }));
+
+    expect(await screen.findByRole("heading", { name: "Log in" })).toBeInTheDocument();
+    expect(window.location.pathname + window.location.search).toBe("/?view=login");
+  });
+
+  it("keeps the user signed in and shows neutral feedback when sign out fails", async () => {
+    const interaction = userEvent.setup();
+    window.history.replaceState(null, "", "/artifacts");
+    stubFetch([
+      json({ user }),
+      json({ artifacts: [] }),
+      json({ error: { code: "internal_error", message: "Internal server error." } }, 500)
+    ]);
+
+    render(<App />);
+    await interaction.click(await screen.findByRole("button", { name: "Open account menu" }));
+    await interaction.click(await screen.findByRole("menuitem", { name: "Sign out" }));
+
+    expect(await screen.findByText("Could not sign out. Try again.")).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/artifacts");
+    expect(screen.getByRole("heading", { name: "Artifacts" })).toBeInTheDocument();
+  });
+
+  it("prevents another sign-out request while one is pending", async () => {
+    const interaction = userEvent.setup();
+    let resolveSignOut!: (response: Response) => void;
+    const pendingSignOut = new Promise<Response>((resolve) => {
+      resolveSignOut = resolve;
+    });
+    const responses: Array<Response | Promise<Response>> = [json({ user }), json({ artifacts: [] }), pendingSignOut];
+    const fetchMock = vi.fn(async () => {
+      const response = responses.shift();
+      if (!response) throw new Error("Unexpected fetch call.");
+      return response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.history.replaceState(null, "", "/artifacts");
+
+    render(<App />);
+    await interaction.click(await screen.findByRole("button", { name: "Open account menu" }));
+    await interaction.click(await screen.findByRole("menuitem", { name: "Sign out" }));
+    await interaction.click(screen.getByRole("button", { name: "Open account menu" }));
+
+    expect(await screen.findByRole("menuitem", { name: "Sign out" })).toHaveAttribute("data-disabled");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    resolveSignOut(new Response(null, { status: 204 }));
+    expect(await screen.findByRole("heading", { name: "Log in" })).toBeInTheDocument();
+  });
+
+  it("filters and searches the Artifact tile grid", async () => {
+    const interaction = userEvent.setup();
+    window.history.replaceState(null, "", "/artifacts");
+    stubFetch([
+      json({ user }),
+      json({
+        artifacts: [
+          artifact({ id: "artifact-ready", name: "Launch brief", processingState: "ready", readyVersion: { id: "version-1", state: "ready" } }),
+          artifact({ id: "artifact-live", name: "Board deck", processingState: "ready", readyVersion: { id: "version-2", state: "ready" }, publication: { id: "publication-1", versionId: "version-2", publishedAt: "2026-07-10T00:00:00.000Z" } }),
+          artifact({ id: "artifact-processing", name: "Pricing", processingState: "processing" })
+        ]
+      })
+    ]);
+
+    render(<App />);
+
+    await screen.findByRole("link", { name: "Launch brief" });
+    await interaction.click(screen.getByRole("button", { name: "Filter" }));
+    await interaction.click(await screen.findByRole("menuitem", { name: "Published" }));
+    expect(screen.getByRole("link", { name: "Board deck" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Launch brief" })).not.toBeInTheDocument();
+
+    await interaction.click(screen.getByRole("button", { name: "Filter" }));
+    await interaction.click(await screen.findByRole("menuitem", { name: "All artifacts" }));
+    await interaction.type(screen.getByRole("textbox", { name: "Search artifacts" }), "pricing");
+    expect(screen.getByRole("link", { name: "Pricing" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Board deck" })).not.toBeInTheDocument();
   });
 
   it("sends an unauthenticated management visitor to log in", async () => {
@@ -49,7 +190,7 @@ describe("Artifact management", () => {
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Report" })).toBeInTheDocument();
-    expect(screen.getByText("Ready to publish")).toBeInTheDocument();
+    expect(screen.getByText("Ready to publish")).toHaveAttribute("data-slot", "badge");
     expect(screen.getByRole("button", { name: "Preview" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Publish" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Unpublish" })).not.toBeInTheDocument();
@@ -69,6 +210,7 @@ describe("Artifact management", () => {
 
     await interaction.click(await screen.findByRole("button", { name: "Rename" }));
     const name = screen.getByLabelText("Artifact name");
+    expect(name.closest('[data-slot="field"]')).toBeInTheDocument();
     await interaction.clear(name);
     await interaction.type(name, "Quarterly report");
     await interaction.click(screen.getByRole("button", { name: "Save name" }));
@@ -79,9 +221,10 @@ describe("Artifact management", () => {
 
   it("validates a create form before uploading", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts/new");
+    window.history.replaceState(null, "", "/artifacts");
     stubFetch([
       json({ user }),
+      json({ artifacts: [] }),
       json({
         policy: {
           revision: "policy-1",
@@ -95,15 +238,203 @@ describe("Artifact management", () => {
     ]);
 
     render(<App />);
+    await interaction.click(await screen.findByRole("button", { name: "New artifact" }));
     await screen.findByRole("heading", { name: "New artifact" });
+    expect(screen.getByText("Choose a ZIP file").closest("label")).toHaveAttribute("data-slot", "label");
     await interaction.type(screen.getByLabelText("Artifact name"), "Report");
     await interaction.upload(
       screen.getByLabelText("ZIP file"),
       new File(["oversized"], "report.zip", { type: "application/zip" })
     );
-    await interaction.click(screen.getByRole("button", { name: "Upload artifact" }));
+    await interaction.click(screen.getByRole("button", { name: "Upload" }));
 
     expect(await screen.findByText("This ZIP exceeds the 4 B upload limit.")).toBeInTheDocument();
+  });
+
+  it("blocks create before upload when ZIP preflight finds a primary issue", async () => {
+    const interaction = userEvent.setup();
+    window.history.replaceState(null, "", "/artifacts");
+    stubFetch([
+      json({ user }),
+      json({ artifacts: [] }),
+      json({ policy: uploadPolicy() })
+    ]);
+    const send = vi.fn();
+    vi.stubGlobal("XMLHttpRequest", class {
+      upload = {};
+      open() {}
+      setRequestHeader() {}
+      send = send;
+    });
+    preflightArtifactZip.mockResolvedValue({
+      primaryIssue: {
+        code: "unsupported_format",
+        message: "A file format is not supported.",
+        action: "Remove or convert the file, then upload a new ZIP.",
+        details: {
+          path: "notes.md",
+          extension: ".md",
+          actualBytes: 2,
+          limitBytes: 1,
+          actualCount: 3,
+          limitCount: 2,
+          candidates: ["a.html", "b.html"]
+        }
+      },
+      issues: [],
+      warnings: []
+    });
+
+    render(<App />);
+    await interaction.click(await screen.findByRole("button", { name: "New artifact" }));
+    await interaction.type(screen.getByLabelText("Artifact name"), "Report");
+    await interaction.upload(screen.getByLabelText("ZIP file"), new File(["zip"], "report.zip", { type: "application/zip" }));
+    await interaction.click(screen.getByRole("button", { name: "Upload" }));
+
+    expect(await screen.findByText("A file format is not supported.")).toBeInTheDocument();
+    expect(screen.getByText("Remove or convert the file, then upload a new ZIP.")).toBeInTheDocument();
+    expect(screen.getByText("notes.md")).toBeInTheDocument();
+    expect(screen.getByText("2 B")).toBeInTheDocument();
+    expect(screen.getByText("1 B")).toBeInTheDocument();
+    expect(screen.getByText("3 files")).toBeInTheDocument();
+    expect(screen.getByText("2 files")).toBeInTheDocument();
+    expect(screen.getByText("a.html")).toBeInTheDocument();
+    expect(screen.getByText("b.html")).toBeInTheDocument();
+    expect(screen.getByText("A file format is not supported.").closest('[data-slot="alert"]')).toBeInTheDocument();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("shows a structured server upload limit rejection in the create dialog", async () => {
+    const interaction = userEvent.setup();
+    window.history.replaceState(null, "", "/artifacts");
+    stubFetch([json({ user }), json({ artifacts: [] }), json({ policy: uploadPolicy() })]);
+    preflightArtifactZip.mockResolvedValue({ primaryIssue: null, issues: [], warnings: [] });
+    vi.stubGlobal("XMLHttpRequest", class {
+      status = 0;
+      responseText = "";
+      withCredentials = false;
+      upload = { onprogress: null as ((event: ProgressEvent) => void) | null };
+      onerror: (() => void) | null = null;
+      onload: (() => void) | null = null;
+      open() {}
+      setRequestHeader() {}
+      send() {
+        this.status = 413;
+        this.responseText = JSON.stringify({
+          error: {
+            code: "archive_too_large",
+            message: "ZIP exceeds the upload limit.",
+            action: "Reduce the ZIP below the upload limit and try again.",
+            details: { limitBytes: 52_428_800 }
+          }
+        });
+        this.onload?.();
+      }
+    });
+
+    render(<App />);
+    await interaction.click(await screen.findByRole("button", { name: "New artifact" }));
+    await interaction.type(screen.getByLabelText("Artifact name"), "Report");
+    await interaction.upload(screen.getByLabelText("ZIP file"), new File(["zip"], "report.zip", { type: "application/zip" }));
+    await interaction.click(screen.getByRole("button", { name: "Upload" }));
+
+    expect(await screen.findByText("ZIP exceeds the upload limit.")).toBeInTheDocument();
+    expect(screen.getByText("Reduce the ZIP below the upload limit and try again.")).toBeInTheDocument();
+    expect(screen.getByText("50 MiB")).toBeInTheDocument();
+  });
+
+  it("continues create with neutral feedback when ZIP preflight cannot run", async () => {
+    const interaction = userEvent.setup();
+    window.history.replaceState(null, "", "/artifacts");
+    stubFetch([
+      json({ user }),
+      json({ artifacts: [] }),
+      json({ policy: uploadPolicy() }),
+      json({ artifact: artifact() })
+    ]);
+    vi.stubGlobal("XMLHttpRequest", acceptedUploadRequest());
+    preflightArtifactZip.mockRejectedValue(new Error("worker failed"));
+
+    render(<App />);
+    await interaction.click(await screen.findByRole("button", { name: "New artifact" }));
+    await interaction.type(screen.getByLabelText("Artifact name"), "Report");
+    await interaction.upload(screen.getByLabelText("ZIP file"), new File(["zip"], "report.zip", { type: "application/zip" }));
+    await interaction.click(screen.getByRole("button", { name: "Upload" }));
+
+    expect(await screen.findByRole("heading", { name: "Report" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/artifacts/artifact-1");
+  });
+
+  it("uses the ZIP filename when the Artifact name is empty", async () => {
+    const interaction = userEvent.setup();
+    window.history.replaceState(null, "", "/artifacts");
+    stubFetch([
+      json({ user }),
+      json({ artifacts: [] }),
+      json({
+        policy: {
+          revision: "policy-1",
+          maxArchiveBytes: 1_000,
+          maxExpandedBytes: 2_000,
+          maxFileCount: 10,
+          maxFileBytes: 1_000,
+          enabledExtensions: [".html"]
+        }
+      })
+    ]);
+
+    render(<App />);
+    await interaction.click(await screen.findByRole("button", { name: "New artifact" }));
+    const name = screen.getByLabelText("Artifact name");
+    const file = screen.getByLabelText("ZIP file");
+
+    await interaction.upload(file, new File(["zip"], "quarterly-report.zip", { type: "application/zip" }));
+    expect(name).toHaveValue("quarterly-report");
+
+    await interaction.clear(name);
+    await interaction.type(name, "Custom report");
+    await interaction.upload(file, new File(["zip"], "replacement.zip", { type: "application/zip" }));
+    expect(name).toHaveValue("Custom report");
+  });
+
+  it("opens New artifact in a dialog without changing the route", async () => {
+    const interaction = userEvent.setup();
+    window.history.replaceState(null, "", "/artifacts");
+    stubFetch([
+      json({ user }),
+      json({ artifacts: [] }),
+      json({
+        policy: {
+          revision: "policy-1",
+          maxArchiveBytes: 1_000,
+          maxExpandedBytes: 2_000,
+          maxFileCount: 10,
+          maxFileBytes: 1_000,
+          enabledExtensions: [".html"]
+        }
+      })
+    ]);
+
+    render(<App />);
+    await interaction.click(await screen.findByRole("button", { name: "New artifact" }));
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "New artifact" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/artifacts");
+
+    await interaction.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("redirects the removed New artifact route to the Artifact list", async () => {
+    window.history.replaceState(null, "", "/artifacts/new");
+    stubFetch([json({ user }), json({ artifacts: [] })]);
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Artifacts" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/artifacts");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("keeps accepted and published states distinct", async () => {
@@ -151,9 +482,10 @@ describe("Artifact management", () => {
 
   it("navigates an accepted upload to its stable Artifact detail", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts/new");
+    window.history.replaceState(null, "", "/artifacts");
     stubFetch([
       json({ user }),
+      json({ artifacts: [] }),
       json({
         policy: {
           revision: "policy-1",
@@ -169,10 +501,11 @@ describe("Artifact management", () => {
     vi.stubGlobal("XMLHttpRequest", acceptedUploadRequest());
 
     render(<App />);
+    await interaction.click(await screen.findByRole("button", { name: "New artifact" }));
     await screen.findByRole("heading", { name: "New artifact" });
     await interaction.type(screen.getByLabelText("Artifact name"), "Report");
     await interaction.upload(screen.getByLabelText("ZIP file"), new File(["zip"], "report.zip", { type: "application/zip" }));
-    await interaction.click(screen.getByRole("button", { name: "Upload artifact" }));
+    await interaction.click(screen.getByRole("button", { name: "Upload" }));
 
     expect(await screen.findByRole("heading", { name: "Report" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/artifacts/artifact-1");
@@ -198,7 +531,7 @@ describe("Artifact management", () => {
     await interaction.click(await screen.findByRole("button", { name: "Refresh status" }));
 
     expect(await screen.findByText("Ready to publish")).toBeInTheDocument();
-    expect(screen.getByText("Status refreshed.")).toBeInTheDocument();
+    expect(screen.getByText("Status refreshed.").closest('[data-slot="alert"]')).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Publish" })).toBeEnabled();
   });
 
@@ -246,6 +579,7 @@ describe("Artifact management", () => {
           allowedActions: ["rename", "replace_file", "copy_share_link"]
         })
       }),
+      json({ policy: uploadPolicy() }),
       json({
         artifactId: "artifact-1",
         uploadSessionId: "upload-2",
@@ -254,16 +588,127 @@ describe("Artifact management", () => {
       }, 202),
       json({ artifact: artifact({ uploadSessionId: "upload-2", processingState: "accepted" }) })
     ]);
+    preflightArtifactZip.mockRejectedValueOnce(new Error("worker failed"));
 
     render(<App />);
     expect(await screen.findByText("Replace the file with a corrected ZIP to continue.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Replacement ZIP")).toHaveAttribute("data-slot", "input");
     await interaction.upload(
       screen.getByLabelText("Replacement ZIP"),
       new File(["zip"], "corrected.zip", { type: "application/zip" })
     );
 
     expect(await screen.findByText("Replacement uploaded and queued.")).toBeInTheDocument();
+    expect(screen.getByText("ZIP preflight is unavailable. Server validation still applies.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Refresh status" })).toBeEnabled();
+  });
+
+  it("shows structured validation details before the legacy failure", async () => {
+    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    stubFetch([
+      json({ user }),
+      json({
+        artifact: artifact({
+          processingState: "failed",
+          failure: { code: "single_file_size_exceeded", message: "Legacy failure summary.", recoverable: false },
+          validationReport: {
+            primaryIssue: {
+              code: "single_file_too_large",
+              message: "A file exceeds the allowed size.",
+              action: "Reduce or split the file, then upload a new ZIP.",
+              details: {
+                path: "data/report.json",
+                actualBytes: "18446744073709551615",
+                limitBytes: 52_428_800
+              }
+            },
+            issues: [],
+            warnings: []
+          },
+          allowedActions: ["replace_file"]
+        })
+      })
+    ]);
+
+    render(<App />);
+
+    expect(await screen.findByText("A file exceeds the allowed size.")).toBeInTheDocument();
+    expect(screen.getByText("data/report.json")).toBeInTheDocument();
+    expect(screen.getByText("18446744073709551615 B")).toBeInTheDocument();
+    expect(screen.getByText("50 MiB")).toBeInTheDocument();
+    expect(screen.getByText("Reduce or split the file, then upload a new ZIP.")).toBeInTheDocument();
+    expect(screen.queryByText("Legacy failure summary.")).not.toBeInTheDocument();
+  });
+
+  it("shows ready normalization warnings without removing ready actions", async () => {
+    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    stubFetch([
+      json({ user }),
+      json({
+        artifact: artifact({
+          processingState: "ready",
+          readyVersion: { id: "version-1", state: "ready" },
+          validationReport: {
+            primaryIssue: null,
+            issues: [],
+            warnings: [
+              {
+                code: "ignored_system_metadata",
+                message: "System metadata files were ignored.",
+                action: null,
+                details: { ignoredCount: 2, paths: ["__MACOSX/._report.html", ".DS_Store"] }
+              },
+              {
+                code: "entry_file_inferred",
+                message: "The only root HTML file was selected as the entry file.",
+                action: null,
+                details: { entryFile: "report.html" }
+              }
+            ]
+          },
+          allowedActions: ["preview", "publish", "copy_share_link"]
+        })
+      })
+    ]);
+
+    render(<App />);
+
+    const metadataWarning = await screen.findByText("System metadata files were ignored.");
+    expect(metadataWarning.closest('[data-slot="alert"]')).not.toHaveAttribute("data-variant", "destructive");
+    expect(screen.getByText("2 files ignored")).toBeInTheDocument();
+    expect(screen.getByText("__MACOSX/._report.html")).toBeInTheDocument();
+    expect(screen.getByText("The only root HTML file was selected as the entry file.")).toBeInTheDocument();
+    expect(screen.getByText("report.html")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Preview" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Publish" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Copy Share link" })).toBeEnabled();
+  });
+
+  it("blocks replacement before upload when ZIP preflight finds a primary issue", async () => {
+    const interaction = userEvent.setup();
+    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    const fetchMock = stubFetch([
+      json({ user }),
+      json({ artifact: artifact({ processingState: "failed", allowedActions: ["replace_file"] }) }),
+      json({ policy: uploadPolicy() })
+    ]);
+    preflightArtifactZip.mockResolvedValue({
+      primaryIssue: {
+        code: "missing_entry_file",
+        message: "The ZIP has no root HTML entry file.",
+        action: "Add one HTML file at the ZIP root.",
+        details: { candidates: ["nested/report.html"] }
+      },
+      issues: [],
+      warnings: []
+    });
+
+    render(<App />);
+    await interaction.upload(await screen.findByLabelText("Replacement ZIP"), new File(["zip"], "replacement.zip", { type: "application/zip" }));
+
+    expect(await screen.findByText("The ZIP has no root HTML entry file.")).toBeInTheDocument();
+    expect(screen.getByText("Add one HTML file at the ZIP root.")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("opens the authenticated ready-Version Preview", async () => {
@@ -421,12 +866,14 @@ function artifact(overrides: Record<string, unknown> = {}) {
   return {
     id: "artifact-1",
     name: "Report",
+    updatedAt: "2026-07-10T00:00:00.000Z",
     uploadSessionId: "upload-1",
     processingState: "accepted",
-    shareLink: { url: "https://view.example.test/a/share-1/", state: "active" },
+    shareLink: { url: "https://view.example.test/a/share-1/", state: "active", expiresAt: null },
     readyVersion: null,
     publication: null,
     failure: null,
+    validationReport: null,
     allowedActions: ["rename", "copy_share_link"],
     ...overrides
   };
@@ -434,6 +881,17 @@ function artifact(overrides: Record<string, unknown> = {}) {
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+}
+
+function uploadPolicy() {
+  return {
+    revision: "policy-1",
+    maxArchiveBytes: 1_000,
+    maxExpandedBytes: 2_000,
+    maxFileCount: 10,
+    maxFileBytes: 1_000,
+    enabledExtensions: [".html"]
+  };
 }
 
 function stubFetch(responses: Response[]) {

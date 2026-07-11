@@ -44,6 +44,11 @@ async function parseJson<T>(response: Response): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function responseError(response: Response): Promise<AccountApiError> {
+  const error = await parseJson<ErrorResponse>(response);
+  return new AccountApiError(error.error.message, error.error.code, error.error.fields);
+}
+
 async function request<T>(path: string, body?: unknown): Promise<T> {
   const init: RequestInit = {
     method: body === undefined ? "GET" : "POST",
@@ -60,8 +65,7 @@ async function request<T>(path: string, body?: unknown): Promise<T> {
   });
 
   if (!response.ok) {
-    const error = await parseJson<ErrorResponse>(response);
-    throw new AccountApiError(error.error.message, error.error.code, error.error.fields);
+    throw await responseError(response);
   }
 
   return parseJson<T>(response);
@@ -74,6 +78,17 @@ export async function createUser(input: CreateUserInput): Promise<User> {
 
 export async function createSession(input: CreateSessionInput): Promise<CreateSessionResult> {
   return request<CreateSessionResult>("/api/sessions", input);
+}
+
+export async function deleteCurrentSession(): Promise<void> {
+  const response = await fetch("/api/sessions/current", {
+    method: "DELETE",
+    credentials: "include"
+  });
+
+  if (!response.ok) {
+    throw await responseError(response);
+  }
 }
 
 export async function getCurrentUser(): Promise<User | null> {

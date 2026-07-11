@@ -9,6 +9,12 @@ import {
 function repository(): PublicationContentRepository {
   return {
     findOwnedReadyVersion: vi.fn().mockResolvedValue({ id: "version-1", artifactId: "artifact-1" }),
+    findOwnedVersionExport: vi.fn().mockResolvedValue({ artifactName: "Report", assets: [] }),
+    findEntryAsset: vi.fn().mockResolvedValue({
+      versionId: "version-1", path: "腾讯文档盘点分析报告.html",
+      objectKey: "committed/version-1/腾讯文档盘点分析报告.html", sizeBytes: 14,
+      contentType: "text/html", sha256: "a".repeat(64)
+    }),
     findAsset: vi.fn().mockResolvedValue({
       versionId: "version-1",
       path: "index.html",
@@ -53,6 +59,18 @@ describe("PublicationViewerService", () => {
     await expect(service.preview("other-user", "version-1", "index.html")).rejects.toEqual(
       new PublicationViewerError("version_not_found")
     );
+  });
+
+  it("resolves Preview and Viewer roots through the manifest entry", async () => {
+    const store = repository();
+    const service = new PublicationViewerService(store);
+    await expect(service.preview("owner-1", "version-1", "")).resolves.toMatchObject({
+      path: "腾讯文档盘点分析报告.html"
+    });
+    await expect(service.resolveViewer("stable-slug", "")).resolves.toMatchObject({
+      path: "腾讯文档盘点分析报告.html"
+    });
+    expect(store.findEntryAsset).toHaveBeenCalledTimes(2);
   });
 
   it("publishes with a stable request hash and maps repository conflicts", async () => {

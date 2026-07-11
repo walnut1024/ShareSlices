@@ -7,6 +7,22 @@ rust = "1.96.1"
 description = "Install workspace dependencies"
 run = "pnpm install"
 
+[tasks.dev-infra]
+description = "Start local PostgreSQL and object storage"
+run = "docker compose up -d --wait postgres object-storage && docker compose run --rm object-storage-init"
+
+[tasks.dev]
+description = "Run Web, API, and Worker locally with containerized infrastructure"
+run = "node tools/dev.mjs"
+
+[tasks.dev-compose]
+description = "Build and run the full stack in containers"
+run = "docker compose build && docker compose up -d --force-recreate"
+
+[tasks.dev-down]
+description = "Stop local development and production-simulation containers"
+run = "docker compose down"
+
 [tasks.check]
 description = "Run the local quality gate"
 run = "pnpm run check"

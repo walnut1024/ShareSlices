@@ -4,6 +4,7 @@ import { ZodError } from "zod";
 import { auth } from "../auth/auth.js";
 import { loginInputSchema, registrationInputSchema } from "../auth/email.js";
 import { userExistsByEmail, userExistsById } from "../db/account-queries.js";
+import { env } from "../env.js";
 import { errorJson, type FieldError, requestId } from "./http-error.js";
 
 type AuthUser = {
@@ -13,7 +14,10 @@ type AuthUser = {
 };
 
 export type AccountRouteDependencies = {
-  authApi: Pick<typeof auth.api, "signUpEmail" | "signInEmail" | "getSession">;
+  authApi: Pick<
+    typeof auth.api,
+    "signUpEmail" | "signInEmail" | "getSession" | "revokeSession" | "signOut"
+  >;
   userExistsByEmail: typeof userExistsByEmail;
   userExistsById: typeof userExistsById;
 };
@@ -56,10 +60,21 @@ function fieldMessage(code: string): string {
   return "Invalid field.";
 }
 
-function copyAuthSetCookie(from: Headers, to: Headers): void {
-  const setCookie = from.get("set-cookie");
-  if (setCookie) {
+function copyAuthSetCookies(from: Headers, to: Headers): void {
+  for (const setCookie of from.getSetCookie()) {
     to.append("Set-Cookie", setCookie);
+  }
+}
+
+function isTrustedOrigin(origin: string | undefined): boolean {
+  if (!origin) {
+    return true;
+  }
+
+  try {
+    return new URL(origin).origin === new URL(env.WEB_ORIGIN).origin;
+  } catch {
+    return false;
   }
 }
 
@@ -131,7 +146,7 @@ export function accountRoutes(overrides: Partial<AccountRouteDependencies> = {})
         }
       });
 
-      copyAuthSetCookie(headers, c.res.headers);
+      copyAuthSetCookies(headers, c.res.headers);
 
       const id = requestId(c);
       c.header("X-Request-Id", id);
@@ -148,6 +163,39 @@ export function accountRoutes(overrides: Partial<AccountRouteDependencies> = {})
       }
       throw error;
     }
+  });
+
+  app.delete("/api/sessions/current", async (c) => {
+    c.header("Cache-Control", "no-store");
+
+    if (!isTrustedOrigin(c.req.header("origin"))) {
+      return errorJson(c, 403, "forbidden");
+    }
+
+    const session = await dependencies.authApi.getSession({
+      headers: c.req.raw.headers,
+      query: { disableRefresh: true }
+    });
+
+    if (!session) {
+      return errorJson(c, 401, "unauthenticated");
+    }
+
+    const revocation = await dependencies.authApi.revokeSession({
+      headers: c.req.raw.headers,
+      body: { token: session.session.token }
+    });
+    if (!revocation.status) {
+      throw new Error("Current Session revocation failed.");
+    }
+    const { headers } = await dependencies.authApi.signOut({
+      headers: c.req.raw.headers,
+      returnHeaders: true
+    });
+
+    copyAuthSetCookies(headers, c.res.headers);
+    c.header("X-Request-Id", requestId(c));
+    return c.body(null, 204);
   });
 
   app.get("/api/users/me", async (c) => {

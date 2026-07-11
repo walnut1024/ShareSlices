@@ -12,6 +12,13 @@ archives:
     index.html: '<!doctype html><title>Replacement</title>'
   invalid_missing_entry:
     notes.txt: missing index
+  macos_named_entry:
+    腾讯文档盘点分析报告.html: "<!doctype html><title>Report</title>"
+    __MACOSX/._腾讯文档盘点分析报告.html:
+      base64: AAUAAAJiaW5hcnk=
+  ambiguous_entry:
+    report.html: "<!doctype html><title>Report</title>"
+    slides.html: "<!doctype html><title>Slides</title>"
 
 cases:
   - id: upload_policy_requires_authentication
@@ -320,6 +327,72 @@ cases:
       status: 409
       json_paths:
         error.code: invalid_artifact_state
+
+  - id: create_macos_named_entry_artifact
+    request:
+      method: POST
+      path: /api/artifacts
+      cookie_ref: owner
+      headers:
+        Idempotency-Key: "macos-named-{run_id}"
+      multipart:
+        name: macOS Named Entry
+        archive: macos_named_entry
+    expect:
+      status: 202
+    save:
+      macos_named_artifact_id: artifactId
+
+  - id: wait_for_macos_named_entry_ready
+    request:
+      method: GET
+      path: "/api/artifacts/{macos_named_artifact_id}"
+      cookie_ref: owner
+    poll:
+      json_path: artifact.processingState
+      equals: ready
+      timeout_seconds: 60
+    expect:
+      status: 200
+      json_paths:
+        artifact.processingState: ready
+        artifact.validationReport.warnings.0.code: ignored_system_metadata
+        artifact.validationReport.warnings.0.details.ignoredCount: 1
+        artifact.validationReport.warnings.0.details.paths.0: __MACOSX/._腾讯文档盘点分析报告.html
+        artifact.validationReport.warnings.1.code: entry_file_inferred
+        artifact.validationReport.warnings.1.details.entryFile: 腾讯文档盘点分析报告.html
+
+  - id: create_ambiguous_entry_artifact
+    request:
+      method: POST
+      path: /api/artifacts
+      cookie_ref: owner
+      headers:
+        Idempotency-Key: "ambiguous-entry-{run_id}"
+      multipart:
+        name: Ambiguous Entry
+        archive: ambiguous_entry
+    expect:
+      status: 202
+    save:
+      ambiguous_artifact_id: artifactId
+
+  - id: wait_for_ambiguous_entry_failure
+    request:
+      method: GET
+      path: "/api/artifacts/{ambiguous_artifact_id}"
+      cookie_ref: owner
+    poll:
+      json_path: artifact.processingState
+      equals: failed
+      timeout_seconds: 60
+    expect:
+      status: 200
+      json_paths:
+        artifact.processingState: failed
+        artifact.validationReport.primaryIssue.code: ambiguous_entry_file
+        artifact.validationReport.primaryIssue.details.candidates.0: report.html
+        artifact.validationReport.primaryIssue.details.candidates.1: slides.html
 
   - id: replace_invalid_file
     request:

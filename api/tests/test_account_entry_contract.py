@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import ExitStack
 import os
 from pathlib import Path
 import subprocess
@@ -119,14 +120,22 @@ def test_account_entry_contract(contract: dict[str, Any], failure_server: str) -
     cookies: dict[str, requests.cookies.RequestsCookieJar] = {}
     responses: dict[str, dict[str, Any]] = {}
 
-    with requests.Session() as session:
-        session.trust_env = False
+    with ExitStack() as stack:
+        clients: dict[str, requests.Session] = {}
+
+        def browser(name: str) -> requests.Session:
+            if name not in clients:
+                clients[name] = stack.enter_context(requests.Session())
+                clients[name].trust_env = False
+            return clients[name]
+
         for case in rendered_contract["cases"]:
             request_spec = case["request"]
             method = request_spec["method"].lower()
             base_url = failure_server if case.get("server") == "failure" else default_base_url
             url = f"{base_url}{request_spec['path']}"
             request_cookies = None
+            session = browser(request_spec.get("client", "default"))
 
             if "cookie_ref" in request_spec:
                 request_cookies = cookies[request_spec["cookie_ref"]]
@@ -136,6 +145,7 @@ def test_account_entry_contract(contract: dict[str, Any], failure_server: str) -
                 url,
                 json=request_spec.get("json"),
                 cookies=request_cookies,
+                headers=request_spec.get("headers"),
                 timeout=10,
             )
 
@@ -148,7 +158,28 @@ def test_account_entry_contract(contract: dict[str, Any], failure_server: str) -
             if expect.get("no_set_cookie"):
                 assert response.headers.get("set-cookie") is None, case["id"]
 
-            body = response.json()
+            for name, value in expect.get("headers", {}).items():
+                assert response.headers.get(name) == value, case["id"]
+
+            set_cookie_values = response.raw.headers.getlist("Set-Cookie")
+            if "set_cookie_count" in expect:
+                assert len(set_cookie_values) == expect["set_cookie_count"], case["id"]
+
+            for value in expect.get("set_cookie_each_contains", []):
+                assert set_cookie_values, case["id"]
+                assert all(value in cookie for cookie in set_cookie_values), case["id"]
+
+            for value in expect.get("set_cookie_contains", []):
+                assert any(value in cookie for cookie in set_cookie_values), case["id"]
+
+            for name in expect.get("cookies_absent", []):
+                assert session.cookies.get(name) is None, case["id"]
+
+            if expect.get("empty_body"):
+                assert response.content == b"", case["id"]
+                body: dict[str, Any] = {}
+            else:
+                body = response.json()
 
             if "json" in expect:
                 assert body == expect["json"], case["id"]

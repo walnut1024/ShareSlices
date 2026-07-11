@@ -12,7 +12,10 @@ describe("account entry screens", () => {
   it("shows dedicated register form without deferred actions", () => {
     render(<App />);
 
+    expect(screen.getByRole("main").querySelector('[data-slot="card"]')).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Create your account" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Give Every Idea An Audience" })).toBeInTheDocument();
+    expect(screen.getByText("Bring your team’s best thinking together and keep sharing as it evolves.")).toBeInTheDocument();
     expect(screen.getByLabelText("Name")).toBeInTheDocument();
     expect(screen.getByLabelText("Email")).toBeInTheDocument();
     expect(screen.getByLabelText("Password")).toBeInTheDocument();
@@ -84,6 +87,8 @@ describe("account entry screens", () => {
     const user = userEvent.setup();
     render(<App />);
 
+    expect(screen.queryByText(/forgot/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Bring your team’s best thinking together and keep sharing as it evolves.")).toBeInTheDocument();
     await user.type(screen.getByLabelText("Email"), "unknown@example.com");
     await user.type(screen.getByLabelText("Password"), "wrong password");
     await user.click(screen.getByRole("button", { name: "Log in" }));
@@ -118,7 +123,7 @@ describe("account entry screens", () => {
     expect(screen.queryByText("Invalid request.")).not.toBeInTheDocument();
   });
 
-  it("shows signed-in confirmation after successful login", async () => {
+  it("opens the Artifact list after successful login", async () => {
     window.history.replaceState(null, "", "/?view=login");
     vi.stubGlobal(
       "fetch",
@@ -137,6 +142,8 @@ describe("account entry screens", () => {
     await user.type(screen.getByLabelText("Password"), "correct horse battery staple");
     await user.click(screen.getByRole("button", { name: "Log in" }));
 
-    expect(await screen.findByText("Signed in as Ada.")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Artifacts" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/artifacts");
+    expect(screen.queryByText(/signed in as/i)).not.toBeInTheDocument();
   });
 });

@@ -1,9 +1,11 @@
+import type { ObjectStorage } from "../../storage/object-storage.js";
 import type {
   ArtifactRecord,
   ArtifactRepositories,
   PublicationRecord,
   ShareLinkRecord,
   UploadSessionRecord,
+  ValidationReport,
   VersionRecord
 } from "./repositories.js";
 
@@ -15,6 +17,7 @@ type ManagementRepositories = Pick<
 type ArtifactManagementOptions = {
   repositories: ManagementRepositories;
   viewerOrigin: string;
+  storage: Pick<ObjectStorage, "deleteObject" | "removeStagingPrefix">;
 };
 
 export type ArtifactAction =
@@ -24,23 +27,32 @@ export type ArtifactAction =
   | "preview"
   | "publish"
   | "unpublish"
-  | "copy_share_link";
+  | "copy_share_link"
+  | "export"
+  | "delete";
 
 export type ArtifactManagementState = {
   id: string;
   name: string;
+  updatedAt: string;
   uploadSessionId: string | null;
   processingState: "accepted" | "processing" | "ready" | "failed";
-  shareLink: { url: string; state: "active" | "expired" | "retired" };
+  shareLink: { url: string; state: "active" | "expired" | "retired"; expiresAt: string | null };
   readyVersion: { id: string; state: "ready" } | null;
   publication: { id: string; versionId: string; publishedAt: string } | null;
   failure: { code: string; message: string; recoverable: boolean } | null;
+  validationReport: ValidationReport | null;
   allowedActions: ArtifactAction[];
 };
 
 export class ArtifactManagementError extends Error {
-  constructor(readonly code: "artifact_not_found" | "invalid_artifact_name") {
-    super(code === "artifact_not_found" ? "Artifact not found." : "Artifact name must contain 1 to 120 characters.");
+  constructor(readonly code: "artifact_not_found" | "invalid_artifact_name" | "invalid_expiration" | "invalid_artifact_state") {
+    super({
+      artifact_not_found: "Artifact not found.",
+      invalid_artifact_name: "Artifact name must contain 1 to 120 characters.",
+      invalid_expiration: "Share link expiration must be in the future.",
+      invalid_artifact_state: "Artifact cannot be deleted while processing."
+    }[code]);
     this.name = "ArtifactManagementError";
   }
 }
@@ -69,16 +81,27 @@ function actions(
   } else if (state === "ready") {
     result.push("preview", publication ? "unpublish" : "publish");
   }
+  if (state === "ready") result.push("export");
+  if (state === "ready" || state === "failed") result.push("delete");
   return result;
+}
+
+function failureMessage(session: UploadSessionRecord): string | null {
+  if (!session.failureReasonCode || !session.failureSummary) return null;
+  if (session.failureSummary !== session.failureReasonCode) return session.failureSummary;
+  if (session.failureReasonCode === "invalid_content") return "The ZIP contains a file with invalid content.";
+  return session.retryable ? "Processing could not be completed." : "The ZIP could not be processed.";
 }
 
 export class ArtifactManagementService {
   readonly #repositories: ManagementRepositories;
   readonly #viewerOrigin: string;
+  readonly #storage: Pick<ObjectStorage, "deleteObject" | "removeStagingPrefix">;
 
   constructor(options: ArtifactManagementOptions) {
     this.#repositories = options.repositories;
     this.#viewerOrigin = options.viewerOrigin;
+    this.#storage = options.storage;
   }
 
   async list(ownerUserId: string): Promise<ArtifactManagementState[]> {
@@ -106,6 +129,30 @@ export class ArtifactManagementService {
     return this.#state(artifact);
   }
 
+  async setShareExpiration(ownerUserId: string, artifactId: string, requestedExpiration: string | null): Promise<ArtifactManagementState> {
+    const expiresAt = requestedExpiration === null ? null : new Date(requestedExpiration);
+    if (expiresAt && (!Number.isFinite(expiresAt.getTime()) || expiresAt <= new Date())) {
+      throw new ArtifactManagementError("invalid_expiration");
+    }
+    if (!(await this.#repositories.shareLinks.updateExpirationOwned(ownerUserId, artifactId, expiresAt))) {
+      throw new ArtifactManagementError("artifact_not_found");
+    }
+    return this.get(ownerUserId, artifactId);
+  }
+
+  async delete(ownerUserId: string, artifactId: string): Promise<void> {
+    const current = await this.get(ownerUserId, artifactId);
+    if (current.processingState === "accepted" || current.processingState === "processing") {
+      throw new ArtifactManagementError("invalid_artifact_state");
+    }
+    const deleted = await this.#repositories.artifacts.deleteOwned(ownerUserId, artifactId);
+    if (!deleted) throw new ArtifactManagementError("artifact_not_found");
+    await Promise.all([
+      ...deleted.objectKeys.map((key) => this.#storage.deleteObject(key)),
+      ...deleted.stagingPrefixes.map((prefix) => this.#storage.removeStagingPrefix(prefix))
+    ]);
+  }
+
   async #state(artifact: ArtifactRecord): Promise<ArtifactManagementState> {
     const [shareLink, uploadSession, version, publication] = await Promise.all([
       this.#repositories.shareLinks.findActiveByArtifact(artifact.id),
@@ -117,9 +164,11 @@ export class ArtifactManagementService {
       throw new Error("Artifact has no active Share link.");
     }
     const state = processingState(uploadSession, version);
+    const message = uploadSession ? failureMessage(uploadSession) : null;
     return {
       id: artifact.id,
       name: artifact.name,
+      updatedAt: artifact.updatedAt.toISOString(),
       uploadSessionId: uploadSession?.id ?? null,
       processingState: state,
       shareLink: this.#shareLink(shareLink),
@@ -128,13 +177,14 @@ export class ArtifactManagementService {
         ? { id: publication.id, versionId: publication.versionId, publishedAt: publication.createdAt.toISOString() }
         : null,
       failure:
-        state === "failed" && uploadSession?.failureReasonCode && uploadSession.failureSummary
+        state === "failed" && uploadSession?.failureReasonCode && message
           ? {
               code: uploadSession.failureReasonCode,
-              message: uploadSession.failureSummary,
+              message,
               recoverable: uploadSession.retryable
             }
           : null,
+      validationReport: uploadSession?.validationReport ?? null,
       allowedActions: actions(state, uploadSession, publication)
     };
   }
@@ -142,7 +192,8 @@ export class ArtifactManagementService {
   #shareLink(link: ShareLinkRecord): ArtifactManagementState["shareLink"] {
     return {
       url: new URL(`/a/${link.slug}/`, this.#viewerOrigin).toString(),
-      state: link.status as ArtifactManagementState["shareLink"]["state"]
+      state: link.status as ArtifactManagementState["shareLink"]["state"],
+      expiresAt: link.expiresAt?.toISOString() ?? null
     };
   }
 }

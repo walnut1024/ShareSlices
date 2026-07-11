@@ -131,6 +131,45 @@ describe("Artifact API client", () => {
     expect(created.requestHeaders.get("Idempotency-Key")).toBe("idem-1");
   });
 
+  it("preserves structured upload errors returned by XMLHttpRequest", async () => {
+    class RejectedXMLHttpRequest {
+      status = 0;
+      responseText = "";
+      withCredentials = false;
+      upload = { onprogress: null };
+      onerror: (() => void) | null = null;
+      onload: (() => void) | null = null;
+
+      open() {}
+      setRequestHeader() {}
+      send() {
+        this.status = 413;
+        this.responseText = JSON.stringify({
+          error: {
+            code: "archive_too_large",
+            message: "ZIP exceeds the upload limit.",
+            action: "Reduce the ZIP below the upload limit and try again.",
+            details: { limitBytes: 52_428_800 }
+          }
+        });
+        this.onload?.();
+      }
+    }
+    vi.stubGlobal("XMLHttpRequest", RejectedXMLHttpRequest);
+
+    await expect(createArtifact({
+      name: "Report",
+      file: new File(["zip"], "artifact.zip", { type: "application/zip" }),
+      idempotencyKey: "idem-1"
+    })).rejects.toMatchObject({
+      code: "archive_too_large",
+      status: 413,
+      message: "ZIP exceeds the upload limit.",
+      action: "Reduce the ZIP below the upload limit and try again.",
+      details: { limitBytes: 52_428_800 }
+    });
+  });
+
   it("sends recovery operations to the current Upload session and stable Artifact", async () => {
     const fetchMock = vi
       .fn()

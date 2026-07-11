@@ -71,7 +71,7 @@ export function createReconciliationRepository(
           await transaction.execute(sql`
             update artifact_upload_session
             set state = 'failed', failure_reason_code = 'processing_lease_expired',
-                failure_summary = 'processing_lease_expired', retryable = true,
+                failure_summary = 'Processing was interrupted.', retryable = true,
                 updated_at = now()
             where id = ${job.uploadSessionId}
           `);

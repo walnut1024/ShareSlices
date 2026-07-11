@@ -42,6 +42,50 @@ export function createPublicationContentRepository(
       return row ?? null;
     },
 
+    async findEntryAsset(versionId) {
+      const [row] = await database
+        .select({
+          versionId: schema.artifactAsset.versionId,
+          path: schema.artifactAsset.path,
+          objectKey: schema.artifactAsset.objectKey,
+          sizeBytes: schema.artifactAsset.sizeBytes,
+          contentType: schema.artifactAsset.contentType,
+          sha256: schema.artifactAsset.sha256
+        })
+        .from(schema.artifactManifest)
+        .innerJoin(
+          schema.artifactAsset,
+          and(
+            eq(schema.artifactAsset.versionId, schema.artifactManifest.versionId),
+            eq(schema.artifactAsset.path, schema.artifactManifest.entryPath)
+          )
+        )
+        .where(eq(schema.artifactManifest.versionId, versionId))
+        .limit(1);
+      return row ?? null;
+    },
+
+    async findOwnedVersionExport(ownerUserId, versionId) {
+      const [version] = await database
+        .select({ artifactName: schema.artifact.name })
+        .from(schema.artifactVersion)
+        .innerJoin(schema.artifact, eq(schema.artifact.id, schema.artifactVersion.artifactId))
+        .where(
+          and(
+            eq(schema.artifactVersion.id, versionId),
+            eq(schema.artifactVersion.state, "ready"),
+            eq(schema.artifact.ownerUserId, ownerUserId)
+          )
+        )
+        .limit(1);
+      if (!version) return null;
+      const assets = await database.query.artifactAsset.findMany({
+        where: eq(schema.artifactAsset.versionId, versionId),
+        orderBy: [schema.artifactAsset.path]
+      });
+      return { artifactName: version.artifactName, assets };
+    },
+
     async publish(input): Promise<PublishResult> {
       return database.transaction(async (transaction) => {
         const [artifact] = await transaction

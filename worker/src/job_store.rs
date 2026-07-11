@@ -7,7 +7,10 @@ use thiserror::Error;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::manifest::ReadyManifest;
+use crate::{
+    manifest::ReadyManifest,
+    validation_report::{ValidationReport, primary_issue_matches_legacy_reason},
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClaimedJob {
@@ -23,9 +26,11 @@ pub struct ClaimedJob {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct JobFailure {
     pub reason_code: String,
+    pub summary: String,
     pub retry_at: Option<OffsetDateTime>,
     pub retryable: bool,
     pub exception: Option<Value>,
+    pub validation_report: Option<ValidationReport>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -35,6 +40,7 @@ pub struct ReadyVersionCommit {
     pub upload_session_id: String,
     pub version_id: String,
     pub manifest: ReadyManifest,
+    pub validation_report: ValidationReport,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -292,12 +298,33 @@ impl JobStore for PostgresJobStore {
             .execute(&mut *transaction)
             .await?;
         } else {
+            if let Some(report) = &failure.validation_report {
+                let primary_issue = report.primary_issue.as_ref().ok_or_else(|| {
+                    JobStoreError::InconsistentState(
+                        "failed validation report must contain a primary issue".to_owned(),
+                    )
+                })?;
+                if !primary_issue_matches_legacy_reason(&failure.reason_code, &primary_issue.code) {
+                    return Err(JobStoreError::InconsistentState(format!(
+                        "validation report primary issue {} does not match legacy reason {}",
+                        primary_issue.code, failure.reason_code
+                    )));
+                }
+            }
+            let validation_report = failure
+                .validation_report
+                .as_ref()
+                .map(serde_json::to_value)
+                .transpose()
+                .map_err(|error| JobStoreError::InconsistentState(error.to_string()))?;
             fail_job_and_upload(
                 &mut transaction,
                 job_id,
                 &upload_session_id,
                 &failure.reason_code,
+                &failure.summary,
                 failure.retryable,
+                validation_report.as_ref(),
             )
             .await?;
         }
@@ -358,7 +385,9 @@ impl JobStore for PostgresJobStore {
                     &job_id,
                     &upload_session_id,
                     "processing_lease_expired",
+                    "Processing was interrupted.",
                     true,
+                    None,
                 )
                 .await?;
             }
@@ -459,22 +488,24 @@ async fn insert_manifest(
     transaction: &mut Transaction<'_, Postgres>,
     commit: &ReadyVersionCommit,
 ) -> Result<(), JobStoreError> {
+    if commit
+        .manifest
+        .files
+        .iter()
+        .filter(|asset| asset.path == commit.manifest.entry_path)
+        .count()
+        != 1
+    {
+        return Err(JobStoreError::InconsistentState(
+            "manifest entry path must identify exactly one asset".to_owned(),
+        ));
+    }
     let file_count = i32::try_from(commit.manifest.file_count()).map_err(|_| {
         JobStoreError::InconsistentState("manifest file count exceeds i32".to_owned())
     })?;
     let total_size_bytes = i64::try_from(commit.manifest.total_size_bytes()).map_err(|_| {
         JobStoreError::InconsistentState("manifest total size exceeds i64".to_owned())
     })?;
-    sqlx::query(
-        "insert into artifact_manifest (version_id, entry_path, file_count, total_size_bytes) values ($1, $2, $3, $4)",
-    )
-    .bind(&commit.version_id)
-    .bind(&commit.manifest.entry_path)
-    .bind(file_count)
-    .bind(total_size_bytes)
-    .execute(&mut **transaction)
-    .await?;
-
     for asset in &commit.manifest.files {
         let size_bytes = i64::try_from(asset.size_bytes).map_err(|_| {
             JobStoreError::InconsistentState(format!(
@@ -494,6 +525,15 @@ async fn insert_manifest(
         .execute(&mut **transaction)
         .await?;
     }
+    sqlx::query(
+        "insert into artifact_manifest (version_id, entry_path, file_count, total_size_bytes) values ($1, $2, $3, $4)",
+    )
+    .bind(&commit.version_id)
+    .bind(&commit.manifest.entry_path)
+    .bind(file_count)
+    .bind(total_size_bytes)
+    .execute(&mut **transaction)
+    .await?;
     Ok(())
 }
 
@@ -502,6 +542,13 @@ async fn finish_ready_states(
     commit: &ReadyVersionCommit,
     attempt_number: i32,
 ) -> Result<(), JobStoreError> {
+    if commit.validation_report.primary_issue.is_some() {
+        return Err(JobStoreError::InconsistentState(
+            "ready validation report must not contain a primary issue".to_owned(),
+        ));
+    }
+    let validation_report = serde_json::to_value(&commit.validation_report)
+        .map_err(|error| JobStoreError::InconsistentState(error.to_string()))?;
     finish_attempt(
         transaction,
         &commit.job_id,
@@ -527,11 +574,12 @@ async fn finish_ready_states(
         r"
         update artifact_upload_session
         set state = 'committed', failure_reason_code = null, failure_summary = null,
-            retryable = false, updated_at = now()
+            retryable = false, validation_report = $2, updated_at = now()
         where id = $1 and state = 'processing'
         ",
     )
     .bind(&commit.upload_session_id)
+    .bind(validation_report)
     .execute(&mut **transaction)
     .await?;
     if upload_update.rows_affected() != 1 {
@@ -628,7 +676,9 @@ async fn fail_job_and_upload(
     job_id: &str,
     upload_session_id: &str,
     reason_code: &str,
+    failure_summary: &str,
     retryable: bool,
+    validation_report: Option<&Value>,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         r"
@@ -645,13 +695,16 @@ async fn fail_job_and_upload(
         r"
         update artifact_upload_session
         set state = 'failed', failure_reason_code = $2,
-            failure_summary = $2, retryable = $3, updated_at = now()
+            failure_summary = $3, retryable = $4, validation_report = $5,
+            updated_at = now()
         where id = $1
         ",
     )
     .bind(upload_session_id)
     .bind(reason_code)
+    .bind(failure_summary)
     .bind(retryable)
+    .bind(validation_report)
     .execute(&mut **transaction)
     .await?;
     Ok(())

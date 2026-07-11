@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../src/http/app.js";
+import { ArtifactIntakeError } from "../src/application/artifacts/artifact-intake.js";
 import { apiLogger } from "../src/logging/index.js";
 
 function artifactDependencies(session: { user: { id: string } } | null) {
@@ -44,7 +45,9 @@ function managementDependencies() {
     management: {
       list: vi.fn().mockResolvedValue([artifact]),
       get: vi.fn().mockResolvedValue(artifact),
-      rename: vi.fn().mockResolvedValue({ ...artifact, name: "Renamed" })
+      rename: vi.fn().mockResolvedValue({ ...artifact, name: "Renamed" }),
+      setShareExpiration: vi.fn().mockResolvedValue(artifact),
+      delete: vi.fn().mockResolvedValue(undefined)
     }
   };
 }
@@ -137,6 +140,38 @@ describe("Artifact routes", () => {
     expect(dependencies.intake.create).not.toHaveBeenCalled();
   });
 
+  it("returns the configured archive limit and corrective action for synchronous size rejection", async () => {
+    const dependencies = artifactDependencies({ user: { id: "owner-1" } });
+    dependencies.intake.create.mockImplementation(async (input) => {
+      for await (const _chunk of input.body) {
+        // Consume the multipart stream before simulating intake rejection.
+      }
+      await input.completed;
+      throw new ArtifactIntakeError("archive_too_large");
+    });
+    const app = buildApp({ artifact: dependencies } as never);
+    const form = new FormData();
+    form.append("name", "Too large");
+    form.append("file", new Blob(["zip-content"], { type: "application/zip" }), "artifact.zip");
+
+    const response = await app.request("/api/artifacts", {
+      method: "POST",
+      headers: { "Idempotency-Key": "too-large-key" },
+      body: form
+    });
+
+    expect(response.status).toBe(413);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      error: {
+        code: "archive_too_large",
+        action: "Reduce the ZIP below the upload limit and try again.",
+        details: { limitBytes: 52_428_800 }
+      }
+    });
+    expect(body.error.details).not.toHaveProperty("actualBytes");
+  });
+
   it("routes manual Retry without exposing Processing Jobs", async () => {
     const dependencies = artifactDependencies({ user: { id: "owner-1" } });
     dependencies.recovery.retry.mockResolvedValue({
@@ -218,5 +253,23 @@ describe("Artifact routes", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ artifact: { id: "artifact-1", name: "Renamed" } });
     expect(dependencies.management.rename).toHaveBeenCalledWith("owner-1", "artifact-1", "Renamed");
+  });
+
+  it("updates Share link expiration and deletes an eligible Artifact", async () => {
+    const dependencies = managementDependencies();
+    const app = buildApp({ artifact: dependencies } as never);
+    const expiresAt = "2026-08-08T23:59:59.999Z";
+
+    const expiration = await app.request("/api/artifacts/artifact-1/share-link", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ expiresAt })
+    });
+    const deleted = await app.request("/api/artifacts/artifact-1", { method: "DELETE" });
+
+    expect(expiration.status).toBe(200);
+    expect(dependencies.management.setShareExpiration).toHaveBeenCalledWith("owner-1", "artifact-1", expiresAt);
+    expect(deleted.status).toBe(204);
+    expect(dependencies.management.delete).toHaveBeenCalledWith("owner-1", "artifact-1");
   });
 });

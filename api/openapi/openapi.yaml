@@ -5,9 +5,10 @@ info:
   description: >
     This OpenAPI document describes the current ShareSlices HTTP API contract
     for account entry and the version 0.0.1 Artifact upload, Preview, Publish,
-    and Viewer flow. Password recovery, email verification, sign out,
-    additional sign-in methods, CLI integration, link rotation, private
-    sharing, and administration are outside this contract.
+    and Viewer flow, including current-browser-session sign out. Password
+    recovery, email verification, additional sign-in methods, CLI integration,
+    link rotation, private sharing, and administration are outside this
+    contract.
 
     The 429 responses are reserved for a future rate limiting change and are
     not implemented; contract tests exclude them until that change ships.
@@ -199,6 +200,38 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
+  /api/sessions/current:
+    delete:
+      tags:
+        - sessions
+      operationId: deleteCurrentSession
+      summary: Sign out of the current browser Session.
+      description: >
+        Revokes only the Session identified by the authenticated browser
+        cookie, expires every current-Session cookie, and leaves other Sessions
+        active. A repeated request after revocation is unauthenticated.
+      security:
+        - sessionCookie: []
+      responses:
+        "204":
+          description: Current Session revoked and its cookies expired.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            Set-Cookie:
+              description: >
+                Repeated once for each current-Session cookie that the browser
+                must expire.
+              schema:
+                type: string
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+        "401":
+          $ref: "#/components/responses/CurrentSessionUnauthenticated"
+        "403":
+          $ref: "#/components/responses/CurrentSessionForbidden"
+        "500":
+          $ref: "#/components/responses/CurrentSessionInternalError"
   /api/users/me:
     get:
       tags:
@@ -370,6 +403,55 @@ paths:
           $ref: "#/components/responses/ArtifactNotFound"
         "500":
           $ref: "#/components/responses/InternalError"
+    delete:
+      tags:
+        - artifacts
+      operationId: deleteArtifact
+      summary: Permanently delete an eligible owned Artifact.
+      security:
+        - sessionCookie: []
+      responses:
+        "204":
+          description: Artifact and associated stored content deleted.
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/ArtifactNotFound"
+        "409":
+          $ref: "#/components/responses/OperationConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/artifacts/{artifactId}/share-link:
+    parameters:
+      - $ref: "#/components/parameters/ArtifactId"
+    patch:
+      tags:
+        - artifacts
+      operationId: updateArtifactShareLink
+      summary: Set or clear the stable Share link expiration.
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateShareLinkRequest"
+      responses:
+        "200":
+          description: Share link expiration updated without changing its slug.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/ArtifactNotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /api/artifacts/{artifactId}/upload-sessions:
     parameters:
       - $ref: "#/components/parameters/ArtifactId"
@@ -468,6 +550,30 @@ paths:
           $ref: "#/components/responses/VersionNotFound"
         "409":
           $ref: "#/components/responses/VersionNotReady"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/versions/{versionId}/export:
+    parameters:
+      - $ref: "#/components/parameters/VersionId"
+    get:
+      tags:
+        - artifacts
+      operationId: exportArtifactVersion
+      summary: Download an owned ready Version as a ZIP.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: ZIP assembled from committed Version assets.
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/VersionNotFound"
         "500":
           $ref: "#/components/responses/InternalError"
   /api/versions/{versionId}/content/{assetPath}:
@@ -726,7 +832,7 @@ components:
         type: integer
         minimum: 1
     NoStore:
-      description: Prevents storage of Preview, Viewer, and known-link state responses.
+      description: Prevents storage of sensitive or state-dependent responses.
       required: true
       schema:
         type: string
@@ -800,6 +906,60 @@ components:
                 error:
                   code: unauthenticated
                   message: Sign in to continue.
+                  requestId: req_000000000000000000000000
+    CurrentSessionUnauthenticated:
+      description: Current signed-in state is missing or invalid.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            unauthenticated:
+              value:
+                error:
+                  code: unauthenticated
+                  message: Sign in to continue.
+                  requestId: req_000000000000000000000000
+    CurrentSessionForbidden:
+      description: The sign-out request origin is not allowed.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            forbidden:
+              value:
+                error:
+                  code: forbidden
+                  message: Request origin is not allowed.
+                  requestId: req_000000000000000000000000
+    CurrentSessionInternalError:
+      description: Current-Session sign out encountered an unexpected failure.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Cache-Control:
+          $ref: "#/components/headers/NoStore"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            internalError:
+              value:
+                error:
+                  code: internal_error
+                  message: Internal server error.
                   requestId: req_000000000000000000000000
     ArtifactNotFound:
       description: Artifact is unknown or is not owned by the current user.
@@ -928,6 +1088,9 @@ components:
                 error:
                   code: archive_too_large
                   message: ZIP exceeds the upload limit.
+                  action: Reduce the ZIP below the upload limit and try again.
+                  details:
+                    limitBytes: 52428800
                   requestId: req_000000000000000000000000
     RateLimited:
       description: >
@@ -1186,6 +1349,17 @@ components:
           type: string
           minLength: 1
           maxLength: 120
+    UpdateShareLinkRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - expiresAt
+      properties:
+        expiresAt:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
     ArtifactAcceptedResponse:
       type: object
       additionalProperties: false
@@ -1249,10 +1423,12 @@ components:
           versionId: version-example
           publishedAt: "2026-07-10T08:00:00Z"
         failure: null
+        validationReport: null
         allowedActions: [rename, copy_share_link, preview, unpublish]
       required:
         - id
         - name
+        - updatedAt
         - uploadSessionId
         - processingState
         - shareLink
@@ -1266,6 +1442,9 @@ components:
           type: string
           minLength: 1
           maxLength: 120
+        updatedAt:
+          type: string
+          format: date-time
         uploadSessionId:
           description: Current Upload session ID used for Retry when one exists.
           oneOf:
@@ -1289,6 +1468,10 @@ components:
           oneOf:
             - $ref: "#/components/schemas/ProcessingFailure"
             - type: "null"
+        validationReport:
+          oneOf:
+            - $ref: "#/components/schemas/ValidationReport"
+            - type: "null"
         allowedActions:
           type: array
           uniqueItems: true
@@ -1302,6 +1485,8 @@ components:
               - publish
               - unpublish
               - copy_share_link
+              - export
+              - delete
     ProcessingState:
       type: string
       enum:
@@ -1325,6 +1510,11 @@ components:
             - active
             - expired
             - retired
+        expiresAt:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
     VersionSummary:
       type: object
       additionalProperties: false
@@ -1355,6 +1545,112 @@ components:
           minLength: 1
         recoverable:
           type: boolean
+    ValidationDetails:
+      type: object
+      additionalProperties: false
+      properties:
+        path:
+          type: string
+        paths:
+          type: array
+          items:
+            type: string
+        candidates:
+          type: array
+          items:
+            type: string
+        extension:
+          type: string
+        validationKind:
+          type: string
+        actualBytes:
+          oneOf:
+            - type: integer
+              format: int64
+              minimum: 0
+              maximum: 9007199254740991
+            - type: string
+              pattern: "^(0|[1-9][0-9]*)$"
+        limitBytes:
+          oneOf:
+            - type: integer
+              format: int64
+              minimum: 0
+              maximum: 9007199254740991
+            - type: string
+              pattern: "^(0|[1-9][0-9]*)$"
+        actualCount:
+          oneOf:
+            - type: integer
+              format: int64
+              minimum: 0
+              maximum: 9007199254740991
+            - type: string
+              pattern: "^(0|[1-9][0-9]*)$"
+        limitCount:
+          oneOf:
+            - type: integer
+              format: int64
+              minimum: 0
+              maximum: 9007199254740991
+            - type: string
+              pattern: "^(0|[1-9][0-9]*)$"
+        ignoredCount:
+          oneOf:
+            - type: integer
+              format: int64
+              minimum: 0
+              maximum: 9007199254740991
+            - type: string
+              pattern: "^(0|[1-9][0-9]*)$"
+        directory:
+          type: string
+        entryFile:
+          type: string
+    ValidationNotice:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+        - action
+        - details
+      properties:
+        code:
+          type: string
+          pattern: "^[a-z][a-z0-9_]*$"
+        message:
+          type: string
+          minLength: 1
+        action:
+          oneOf:
+            - type: string
+              minLength: 1
+            - type: "null"
+        details:
+          $ref: "#/components/schemas/ValidationDetails"
+    ValidationReport:
+      type: object
+      additionalProperties: false
+      required:
+        - primaryIssue
+        - issues
+        - warnings
+      properties:
+        primaryIssue:
+          oneOf:
+            - $ref: "#/components/schemas/ValidationNotice"
+            - type: "null"
+        issues:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/ValidationNotice"
+        warnings:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/ValidationNotice"
     CreatePublicationRequest:
       type: object
       additionalProperties: false
@@ -1421,6 +1717,11 @@ components:
           type: string
           minLength: 1
           description: Stable request identifier matching the X-Request-Id response header.
+        action:
+          type: string
+          minLength: 1
+        details:
+          $ref: "#/components/schemas/ValidationDetails"
         fields:
           type: array
           items:

@@ -12,7 +12,7 @@ Project-level engineering guidance for agents working on ShareSlices.
 
 ## Technology choices
 
-- Frontend: React, TypeScript, Vite, Tailwind CSS v4, shadcn/ui.
+- Frontend: React, TypeScript, Vite, Tailwind CSS v4, shadcn/ui with Base UI primitives.
 - Frontend design reference: Vercel Geist tokens from `https://vercel.com/design.md`.
 - API: TypeScript with Hono.
 - API runtime: Node.js unless deployment constraints require another Hono runtime.
@@ -76,7 +76,7 @@ Project-level engineering guidance for agents working on ShareSlices.
 - Target desktop browsers only. Use `1440x900` as the default design and screenshot viewport; the minimum supported viewport is `1280x720`.
 - Do not design, implement, test, review, or propose mobile or tablet layouts. Do not add mobile breakpoints, responsive navigation, mobile stacking, touch-specific interactions, or mobile screenshots unless the user explicitly changes the product scope.
 - Behavior below the minimum supported viewport is not an acceptance criterion. Frontend plans and implementation reports must not spend tokens discussing mobile responsiveness or mobile compatibility.
-- Use shadcn/ui components as local source components.
+- Use shadcn/ui Base UI components for Web interface primitives and compositions, installed as local source components through the shadcn CLI. Do not mix shadcn component bases in this project. When touching a hand-written UI primitive, migrate that component and its usages to the shadcn Base UI variant instead of expanding mixed primitive stacks.
 - Use lucide icons for common actions.
 - Use Tailwind CSS v4 with the Vite plugin and CSS-first configuration.
 - Keep design tokens in CSS. Align visual tokens with the Geist reference where practical.
@@ -158,6 +158,8 @@ Migration readiness:
 
 Deployment profiles for version 0.0.1:
 
-- Local development and local automated testing use Docker Compose.
+- Local development uses containerized PostgreSQL and object storage with the Web, API, and Worker running as local processes through `mise run dev` for fast feedback.
+- Local production simulation and end-to-end validation use the full Docker Compose stack through `mise run dev-compose`.
+- Unit tests, static checks, and other local quality gates run directly through `mise run check`.
 - Shared testing and intranet production use Kubernetes without requiring domain names.
 - Public production uses Kubernetes with configured public domain names.

@@ -1,22 +1,23 @@
 import type { Artifact } from "../api/artifacts";
+import { Badge } from "./ui/badge";
 
 export function artifactStatus(artifact: Artifact): { label: string; className: string } {
   if (artifact.processingState === "failed") {
-    return { label: "Needs attention", className: "border-red-200 bg-red-50 text-red-700" };
+    return { label: "Needs attention", className: "border-destructive/20 bg-destructive/10 text-destructive" };
   }
   if (artifact.processingState === "accepted") {
-    return { label: "Accepted", className: "border-blue-200 bg-blue-50 text-blue-700" };
+    return { label: "Accepted", className: "border-[var(--info)]/20 bg-[var(--info)]/10 text-[var(--info)]" };
   }
   if (artifact.processingState === "processing") {
-    return { label: "Processing", className: "border-amber-200 bg-amber-50 text-amber-800" };
+    return { label: "Processing", className: "border-[var(--warning)]/20 bg-[var(--warning)]/10 text-[var(--warning)]" };
   }
   if (artifact.publication) {
-    return { label: "Published", className: "border-emerald-200 bg-emerald-50 text-emerald-700" };
+    return { label: "Published", className: "border-[var(--success)]/20 bg-[var(--success)]/10 text-[var(--success)]" };
   }
   return { label: "Ready to publish", className: "border-neutral-200 bg-neutral-100 text-neutral-700" };
 }
 
 export function ArtifactStatus({ artifact }: { artifact: Artifact }) {
   const status = artifactStatus(artifact);
-  return <span className={`inline-flex h-6 items-center rounded-full border px-2 text-xs font-medium ${status.className}`}>{status.label}</span>;
+  return <Badge variant="outline" className={status.className}>{status.label}</Badge>;
 }

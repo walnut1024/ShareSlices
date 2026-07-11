@@ -1,8 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import { ArtifactManagementError, ArtifactManagementService } from "../src/application/artifacts/artifact-management.js";
-import type { ArtifactRepositories } from "../src/application/artifacts/repositories.js";
+import type { ArtifactRepositories, ValidationReport } from "../src/application/artifacts/repositories.js";
 
-function harness(options: { state?: string; retryable?: boolean; ready?: boolean; published?: boolean } = {}) {
+function harness(options: {
+  state?: string;
+  retryable?: boolean;
+  ready?: boolean;
+  published?: boolean;
+  failureReasonCode?: string;
+  failureSummary?: string;
+  validationReport?: ValidationReport | null;
+} = {}) {
   const artifact = {
     id: "artifact-1",
     ownerUserId: "owner-1",
@@ -17,6 +25,10 @@ function harness(options: { state?: string; retryable?: boolean; ready?: boolean
       updateName: vi.fn(async (ownerId: string, artifactId: string, name: string) =>
         ownerId === "owner-1" && artifactId === "artifact-1" ? { ...artifact, name } : null
       ),
+      deleteOwned: vi.fn().mockResolvedValue({
+        objectKeys: ["raw/artifact-1.zip", "versions/artifact-1/index.html"],
+        stagingPrefixes: ["staging/artifact-1/"]
+      }),
       hasReadyVersion: vi.fn()
     },
     shareLinks: {
@@ -28,7 +40,15 @@ function harness(options: { state?: string; retryable?: boolean; ready?: boolean
         retiredAt: null,
         expiresAt: null
       }),
-      findBySlug: vi.fn()
+      findBySlug: vi.fn(),
+      updateExpirationOwned: vi.fn().mockResolvedValue({
+        id: "link-1",
+        artifactId: "artifact-1",
+        slug: "share-slug-0000000001",
+        status: "active",
+        retiredAt: null,
+        expiresAt: null
+      })
     },
     uploadSessions: {
       findOwned: vi.fn(),
@@ -39,8 +59,9 @@ function harness(options: { state?: string; retryable?: boolean; ready?: boolean
         retryable: options.retryable ?? false,
         rawObjectKey: "raw/artifact-1/upload-1.zip",
         rawSha256: "a".repeat(64),
-        failureReasonCode: options.state === "failed" ? "object_store_timeout" : null,
-        failureSummary: options.state === "failed" ? "Processing dependency failed." : null,
+        failureReasonCode: options.state === "failed" ? options.failureReasonCode ?? "object_store_timeout" : null,
+        failureSummary: options.state === "failed" ? options.failureSummary ?? "Processing dependency failed." : null,
+        validationReport: options.validationReport ?? null,
         supersededAt: null
       })
     },
@@ -76,9 +97,15 @@ function harness(options: { state?: string; retryable?: boolean; ready?: boolean
     ArtifactRepositories,
     "artifacts" | "shareLinks" | "uploadSessions" | "versions" | "publications"
   >;
+  const storage = { deleteObject: vi.fn(), removeStagingPrefix: vi.fn() };
   return {
     repositories,
-    service: new ArtifactManagementService({ repositories, viewerOrigin: "http://10.0.0.25:8080" })
+    storage,
+    service: new ArtifactManagementService({
+      repositories,
+      viewerOrigin: "http://10.0.0.25:8080",
+      storage
+    })
   };
 }
 
@@ -89,13 +116,15 @@ describe("ArtifactManagementService", () => {
     await expect(service.get("owner-1", "artifact-1")).resolves.toEqual({
       id: "artifact-1",
       name: "Report",
+      updatedAt: "2026-07-10T00:00:00.000Z",
       uploadSessionId: "upload-1",
       processingState: "ready",
-      shareLink: { url: "http://10.0.0.25:8080/a/share-slug-0000000001/", state: "active" },
+      shareLink: { url: "http://10.0.0.25:8080/a/share-slug-0000000001/", state: "active", expiresAt: null },
       readyVersion: { id: "version-1", state: "ready" },
       publication: null,
       failure: null,
-      allowedActions: ["rename", "copy_share_link", "preview", "publish"]
+      validationReport: null,
+      allowedActions: ["rename", "copy_share_link", "preview", "publish", "export", "delete"]
     });
   });
 
@@ -110,8 +139,70 @@ describe("ArtifactManagementService", () => {
         message: "Processing dependency failed.",
         recoverable: true
       },
-      allowedActions: ["rename", "copy_share_link", "retry"]
+      allowedActions: ["rename", "copy_share_link", "retry", "delete"]
     });
+  });
+
+  it("replaces a legacy reason-code summary with user-facing guidance", async () => {
+    const { service } = harness({
+      state: "failed",
+      retryable: false,
+      failureReasonCode: "invalid_content",
+      failureSummary: "invalid_content"
+    });
+
+    await expect(service.get("owner-1", "artifact-1")).resolves.toMatchObject({
+      failure: {
+        code: "invalid_content",
+        message: "The ZIP contains a file with invalid content.",
+        recoverable: false
+      }
+    });
+  });
+
+  it("projects the stored validation report unchanged while preserving the scalar failure", async () => {
+    const validationReport: ValidationReport = {
+      primaryIssue: {
+        code: "single_file_too_large",
+        message: "The file exceeds the allowed size.",
+        action: "Reduce or split the file, then upload a new ZIP.",
+        details: { path: "data/report.json", actualBytes: 66_479_718, limitBytes: 52_428_800 }
+      },
+      issues: [],
+      warnings: []
+    };
+    const { service } = harness({
+      state: "failed",
+      failureReasonCode: "single_file_size_exceeded",
+      failureSummary: "single_file_size_exceeded",
+      validationReport
+    });
+
+    const artifact = await service.get("owner-1", "artifact-1");
+
+    expect(artifact.validationReport).toBe(validationReport);
+    expect(artifact.failure).toEqual({
+      code: "single_file_size_exceeded",
+      message: "The ZIP could not be processed.",
+      recoverable: false
+    });
+  });
+
+  it("updates expiration and permanently deletes an eligible Artifact", async () => {
+    const { service, repositories, storage } = harness({ ready: true });
+
+    const updated = await service.setShareExpiration("owner-1", "artifact-1", "2099-08-08T00:00:00.000Z");
+    await service.delete("owner-1", "artifact-1");
+
+    expect(updated.id).toBe("artifact-1");
+    expect(repositories.shareLinks.updateExpirationOwned).toHaveBeenCalledWith(
+      "owner-1",
+      "artifact-1",
+      new Date("2099-08-08T00:00:00.000Z")
+    );
+    expect(repositories.artifacts.deleteOwned).toHaveBeenCalledWith("owner-1", "artifact-1");
+    expect(storage.deleteObject).toHaveBeenCalledTimes(2);
+    expect(storage.removeStagingPrefix).toHaveBeenCalledWith("staging/artifact-1/");
   });
 
   it("trims a mutable name without changing Artifact identity", async () => {

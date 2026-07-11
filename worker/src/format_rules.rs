@@ -226,6 +226,13 @@ impl PolicySnapshot {
         self.expanded_size_bytes
     }
 
+    pub(crate) const fn archive_size_bytes(&self) -> u64 {
+        self.archive_size_bytes
+    }
+    pub(crate) const fn file_count(&self) -> u64 {
+        self.file_count
+    }
+
     pub(crate) const fn single_file_size_bytes(&self) -> u64 {
         self.single_file_size_bytes
     }

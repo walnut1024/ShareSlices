@@ -1,4 +1,6 @@
 import { Hono, type Context } from "hono";
+import { Readable } from "node:stream";
+import { ZipArchive } from "archiver";
 import { z } from "zod";
 import { auth } from "../auth/auth.js";
 import {
@@ -15,7 +17,7 @@ import { errorJson, requestId } from "./http-error.js";
 
 export type PublicationViewerRouteDependencies = {
   authApi: Pick<typeof auth.api, "getSession">;
-  service: Pick<PublicationViewerService, "preview" | "publish" | "unpublish" | "resolveViewer">;
+  service: Pick<PublicationViewerService, "preview" | "exportVersion" | "publish" | "unpublish" | "resolveViewer">;
   storage: Pick<ObjectStorage, "readCommittedObject">;
   managementOrigin: string;
 };
@@ -128,8 +130,35 @@ export function publicationViewerRoutes(
     }
   }
 
-  app.get("/api/versions/:versionId/content/", (c) => preview(c, "index.html"));
+  app.get("/api/versions/:versionId/content/", (c) => preview(c, ""));
   app.get("/api/versions/:versionId/content/*", (c) => preview(c, wildcardPath(c, "/content/")));
+
+  app.get("/api/versions/:versionId/export", async (c) => {
+    const ownerId = await ownerUserId(c.req.raw.headers);
+    if (!ownerId) return errorJson(c, 401, "unauthenticated");
+    try {
+      const exported = await dependencies.service.exportVersion(ownerId, c.req.param("versionId"));
+      const archive = new ZipArchive({ zlib: { level: 9 } });
+      for (const asset of exported.assets) {
+        const object = await dependencies.storage.readCommittedObject(asset.objectKey);
+        archive.append(Readable.from(object.body), { name: asset.path });
+      }
+      void archive.finalize();
+      const fileName = `${exported.artifactName.replaceAll(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "artifact"}.zip`;
+      return new Response(Readable.toWeb(archive) as ReadableStream<Uint8Array>, {
+        status: 200,
+        headers: {
+          "Cache-Control": "no-store",
+          "Content-Disposition": `attachment; filename="${fileName}"`,
+          "Content-Type": "application/zip",
+          "X-Request-Id": requestId(c)
+        }
+      });
+    } catch (error) {
+      if (error instanceof PublicationViewerError) return errorJson(c, 404, "version_not_found");
+      throw error;
+    }
+  });
 
   app.post("/api/artifacts/:artifactId/publications", async (c) => {
     const ownerId = await ownerUserId(c.req.raw.headers);
@@ -213,7 +242,7 @@ export function publicationViewerRoutes(
     }
   }
 
-  app.get("/a/:shareSlug/", (c) => viewer(c, "index.html"));
+  app.get("/a/:shareSlug/", (c) => viewer(c, ""));
   app.get("/a/:shareSlug/*", (c) =>
     viewer(c, wildcardPath(c, `/a/${c.req.param("shareSlug") ?? ""}/`))
   );

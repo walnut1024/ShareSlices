@@ -6,6 +6,7 @@ use std::io::{self, Read};
 use shareslices_worker::format_rules::{
     FormatError, PolicyError, PolicySnapshot, default_format_rules,
 };
+use shareslices_worker::validation_report::{ValidationDetails, ValidationNotice};
 
 #[test]
 fn default_rules_match_the_product_contract() {
@@ -136,6 +137,63 @@ fn binary_validation_consumes_the_complete_file() {
 struct FailingReader<T> {
     bytes: Cursor<T>,
     fail_after: u64,
+}
+
+#[test]
+fn serializes_every_validation_notice_with_closed_typed_details() {
+    let codes = [
+        "archive_too_large",
+        "invalid_zip",
+        "unsafe_archive_path",
+        "duplicate_archive_path",
+        "unsupported_file_type",
+        "nested_archive",
+        "unsupported_format",
+        "invalid_file_content",
+        "expanded_size_exceeded",
+        "file_count_exceeded",
+        "single_file_too_large",
+        "missing_entry_file",
+        "ambiguous_entry_file",
+        "ignored_system_metadata",
+        "wrapper_directory_removed",
+        "entry_file_inferred",
+    ];
+    let details = ValidationDetails {
+        path: Some("index.html".into()),
+        paths: Some((0..25).map(|n| format!("path-{n}")).collect()),
+        candidates: Some((0..25).map(|n| format!("candidate-{n}")).collect()),
+        extension: Some(".html".into()),
+        validation_kind: Some("content".into()),
+        actual_bytes: Some(2),
+        limit_bytes: Some(1),
+        actual_count: Some(2),
+        limit_count: Some(1),
+        ignored_count: Some(1),
+        directory: Some("site".into()),
+        entry_file: Some("index.html".into()),
+    };
+    for code in codes {
+        let notice = ValidationNotice::for_code(code, details.clone());
+        let value = serde_json::to_value(&notice).expect("serializable notice");
+        assert_eq!(value["code"], code);
+        assert_eq!(value["details"]["paths"].as_array().unwrap().len(), 20);
+        assert_eq!(value["details"]["candidates"].as_array().unwrap().len(), 20);
+    }
+}
+
+#[test]
+fn report_caps_primary_plus_additional_blocking_issues_at_twenty() {
+    use shareslices_worker::validation_report::ValidationReport;
+    let mut report = ValidationReport::default();
+    for _ in 0..25 {
+        report.push_issue(ValidationNotice::for_code(
+            "invalid_zip",
+            ValidationDetails::default(),
+        ));
+    }
+    assert!(report.primary_issue.is_some());
+    assert_eq!(report.issues.len(), 19);
 }
 
 impl<T: AsRef<[u8]>> Read for FailingReader<T> {

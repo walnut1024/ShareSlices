@@ -15,6 +15,7 @@ pub enum ProcessingError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ValidationFailure {
     InvalidZip,
+    DuplicateArchivePath,
     ArchivePathTraversal,
     UnsupportedFileType,
     NestedArchive,
@@ -111,6 +112,7 @@ where
         RetryLogFields {
             event_name,
             reason_code: classification.reason_code,
+            failure_summary: classification.failure_summary,
             operation: operation.as_str(),
             attempt,
             maximum_attempts: classification.maximum_attempts,
@@ -126,31 +128,65 @@ where
 struct Classification {
     class: RetryClass,
     reason_code: &'static str,
+    failure_summary: &'static str,
     maximum_attempts: u32,
 }
 
 fn classify(error: ProcessingError) -> Classification {
-    let (class, reason_code, maximum_attempts) = match error {
+    let (class, reason_code, failure_summary, maximum_attempts) = match error {
         ProcessingError::Validation(failure) => (
             RetryClass::DeterministicValidation,
             failure.reason_code(),
+            failure.failure_summary(),
             1,
         ),
-        ProcessingError::ObjectStoreTimeout => (RetryClass::Transient, "object_store_timeout", 3),
-        ProcessingError::ObjectStoreUnavailable => {
-            (RetryClass::Transient, "object_store_unavailable", 3)
-        }
-        ProcessingError::DatabaseTimeout => (RetryClass::Transient, "database_timeout", 3),
-        ProcessingError::DatabaseUnavailable => (RetryClass::Transient, "database_unavailable", 3),
-        ProcessingError::LeaseLost => (RetryClass::Transient, "processing_lease_lost", 3),
-        ProcessingError::WorkerInfrastructure => {
-            (RetryClass::Transient, "worker_infrastructure_failure", 3)
-        }
-        ProcessingError::Unclassified => (RetryClass::Unclassified, "unclassified_error", 2),
+        ProcessingError::ObjectStoreTimeout => (
+            RetryClass::Transient,
+            "object_store_timeout",
+            "Processing timed out while accessing storage.",
+            3,
+        ),
+        ProcessingError::ObjectStoreUnavailable => (
+            RetryClass::Transient,
+            "object_store_unavailable",
+            "Processing could not access storage.",
+            3,
+        ),
+        ProcessingError::DatabaseTimeout => (
+            RetryClass::Transient,
+            "database_timeout",
+            "Processing timed out while saving progress.",
+            3,
+        ),
+        ProcessingError::DatabaseUnavailable => (
+            RetryClass::Transient,
+            "database_unavailable",
+            "Processing could not save progress.",
+            3,
+        ),
+        ProcessingError::LeaseLost => (
+            RetryClass::Transient,
+            "processing_lease_lost",
+            "Processing was interrupted.",
+            3,
+        ),
+        ProcessingError::WorkerInfrastructure => (
+            RetryClass::Transient,
+            "worker_infrastructure_failure",
+            "Processing could not be completed.",
+            3,
+        ),
+        ProcessingError::Unclassified => (
+            RetryClass::Unclassified,
+            "unclassified_error",
+            "Processing could not be completed.",
+            2,
+        ),
     };
     Classification {
         class,
         reason_code,
+        failure_summary,
         maximum_attempts,
     }
 }
@@ -159,6 +195,7 @@ impl ValidationFailure {
     const fn reason_code(self) -> &'static str {
         match self {
             Self::InvalidZip => "invalid_zip",
+            Self::DuplicateArchivePath => "duplicate_archive_path",
             Self::ArchivePathTraversal => "archive_path_traversal",
             Self::UnsupportedFileType => "unsupported_file_type",
             Self::NestedArchive => "nested_archive",
@@ -169,6 +206,23 @@ impl ValidationFailure {
             Self::ExpandedSizeExceeded => "expanded_size_exceeded",
             Self::FileCountExceeded => "file_count_exceeded",
             Self::SingleFileSizeExceeded => "single_file_size_exceeded",
+        }
+    }
+
+    const fn failure_summary(self) -> &'static str {
+        match self {
+            Self::InvalidZip => "The ZIP file is invalid.",
+            Self::DuplicateArchivePath => "The ZIP contains duplicate file paths.",
+            Self::ArchivePathTraversal => "The ZIP contains an unsafe file path.",
+            Self::UnsupportedFileType => "The ZIP contains an unsupported file type.",
+            Self::NestedArchive => "The ZIP contains another archive.",
+            Self::MissingRootIndex => "The ZIP must contain index.html at its root.",
+            Self::UnsupportedExtension => "The ZIP contains a file type that is not allowed.",
+            Self::InvalidContent => "The ZIP contains a file with invalid content.",
+            Self::ArchiveSizeExceeded => "The ZIP exceeds the upload size limit.",
+            Self::ExpandedSizeExceeded => "The extracted files exceed the total size limit.",
+            Self::FileCountExceeded => "The ZIP contains too many files.",
+            Self::SingleFileSizeExceeded => "A file in the ZIP exceeds the per-file size limit.",
         }
     }
 }
@@ -188,6 +242,7 @@ impl ProcessingOperation {
 pub struct RetryLogFields {
     event_name: &'static str,
     reason_code: &'static str,
+    failure_summary: &'static str,
     operation: &'static str,
     attempt: u32,
     maximum_attempts: u32,
@@ -203,6 +258,11 @@ impl RetryLogFields {
     #[must_use]
     pub const fn reason_code(self) -> &'static str {
         self.reason_code
+    }
+
+    #[must_use]
+    pub const fn failure_summary(self) -> &'static str {
+        self.failure_summary
     }
 
     #[must_use]
