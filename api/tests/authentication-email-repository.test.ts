@@ -51,6 +51,19 @@ describe("authentication email repository", () => {
     expect(deliveries.rows[0].encrypted_payload).not.toContain("123456");
   });
 
+  it("reuses one pending verification for the same email and purpose", async () => {
+    const email = `pending-${crypto.randomUUID()}@example.com`;
+    const first = await createVerificationAttempt({ email, purpose: "registration" });
+    const second = await createVerificationAttempt({ email, purpose: "registration" });
+
+    expect(second.id).toBe(first.id);
+    const attempts = await pool.query(
+      "select count(*)::int as count from email_verification_attempt where email = $1 and purpose = 'registration' and consumed_at is null",
+      [email]
+    );
+    expect(attempts.rows[0].count).toBe(1);
+  });
+
   it("suppresses new delivery while the deployment circuit breaker is open", async () => {
     await pool.query(
       "update authentication_email_circuit_breaker set state = 'open', reason_code = 'test', resume_at = now() + interval '5 minutes' where id = 'global'"

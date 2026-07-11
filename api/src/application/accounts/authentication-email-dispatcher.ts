@@ -114,6 +114,15 @@ export async function dispatchOneAuthenticationEmail(workerId: string = randomUU
 }
 
 export async function reconcileExpiredAuthenticationEmailState(): Promise<void> {
+  await pool.query(
+    `update password_reset_grant set encrypted_code = '', claimed_at = null
+     where expires_at < now() and encrypted_code <> ''`
+  );
+  await pool.query(
+    `update authentication_email_delivery d set encrypted_payload = ''
+     from email_verification_attempt a
+     where d.attempt_id = a.id and a.expires_at < now() and d.encrypted_payload <> ''`
+  );
   await pool.query("delete from password_reset_grant where expires_at < now() - interval '24 hours'");
   await pool.query("delete from email_verification_attempt where expires_at < now() - interval '24 hours'");
 }

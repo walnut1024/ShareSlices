@@ -14,7 +14,9 @@ import {
   createVerificationAttempt,
   findVerificationAttempt,
   markVerificationAttemptVerified,
-  consumePasswordResetGrant
+  claimPasswordResetGrant,
+  completePasswordResetGrant,
+  releasePasswordResetGrant
 } from "../db/authentication-email-repository.js";
 import { env } from "../env.js";
 import { errorJson, type FieldError, requestId } from "./http-error.js";
@@ -46,7 +48,9 @@ export type AccountRouteDependencies = {
   findVerificationAttempt: typeof findVerificationAttempt;
   markVerificationAttemptVerified: typeof markVerificationAttemptVerified;
   createPasswordResetGrant: typeof createPasswordResetGrant;
-  consumePasswordResetGrant: typeof consumePasswordResetGrant;
+  claimPasswordResetGrant: typeof claimPasswordResetGrant;
+  completePasswordResetGrant: typeof completePasswordResetGrant;
+  releasePasswordResetGrant: typeof releasePasswordResetGrant;
   requireEmailVerification: boolean;
 };
 
@@ -116,7 +120,9 @@ export function accountRoutes(overrides: Partial<AccountRouteDependencies> = {})
     findVerificationAttempt,
     markVerificationAttemptVerified,
     createPasswordResetGrant,
-    consumePasswordResetGrant,
+    claimPasswordResetGrant,
+    completePasswordResetGrant,
+    releasePasswordResetGrant,
     requireEmailVerification: env.REQUIRE_EMAIL_VERIFICATION,
     ...overrides
   };
@@ -282,8 +288,7 @@ export function accountRoutes(overrides: Partial<AccountRouteDependencies> = {})
           headers: authHeaders(c)
         });
       } catch (error) {
-        const response = verificationError(c, error);
-        if (response) return response;
+        if (!(error instanceof AuthenticationEmailDeliveryError)) throw error;
       }
     }
     return verificationResponse(c, attempt);
@@ -305,6 +310,7 @@ export function accountRoutes(overrides: Partial<AccountRouteDependencies> = {})
         attempt.id,
         encryptAuthenticationEmail({ email: attempt.email, otp: code, type: "forget-password" }, env.AUTH_EMAIL_ENCRYPTION_KEY)
       );
+      await dependencies.markVerificationAttemptVerified(attempt.id);
       c.header("Cache-Control", "no-store");
       c.header("X-Request-Id", requestId(c));
       return c.json({ resetGrant: grant, expiresIn: 600 });
@@ -328,7 +334,7 @@ export function accountRoutes(overrides: Partial<AccountRouteDependencies> = {})
     ) {
       return errorJson(c, 400, "invalid_request");
     }
-    const grant = await dependencies.consumePasswordResetGrant(body.resetGrant);
+    const grant = await dependencies.claimPasswordResetGrant(body.resetGrant);
     if (!grant) return errorJson(c, 400, "invalid_reset_grant");
     const payload = decryptAuthenticationEmail(grant.encryptedCode, env.AUTH_EMAIL_ENCRYPTION_KEY);
     try {
@@ -336,10 +342,12 @@ export function accountRoutes(overrides: Partial<AccountRouteDependencies> = {})
         body: { email: grant.email, otp: payload.otp ?? "", password: body.password },
         headers: authHeaders(c)
       });
+      await dependencies.completePasswordResetGrant(body.resetGrant);
       c.header("Cache-Control", "no-store");
       c.header("X-Request-Id", requestId(c));
       return c.json({ reset: true });
     } catch (error) {
+      await dependencies.releasePasswordResetGrant(body.resetGrant);
       return verificationError(c, error);
     }
   });
@@ -354,6 +362,23 @@ export function accountRoutes(overrides: Partial<AccountRouteDependencies> = {})
     if (dependencies.requireEmailVerification) {
       const user = await dependencies.findUserByEmail(parsed.data.email);
       if (user && !user.emailVerified) {
+        try {
+          const signedIn = await dependencies.authApi.signInEmail({
+            returnHeaders: true,
+            body: parsed.data
+          });
+          const token = (signedIn.response as { token?: string }).token;
+          if (!token) throw new Error("Credential verification did not return a disposable Session.");
+          const revoked = await dependencies.authApi.revokeSession({ headers: authHeaders(c), body: { token } });
+          if (!(revoked as { status: boolean }).status) {
+            throw new Error("Disposable credential-verification Session was not revoked.");
+          }
+        } catch (error) {
+          if (error instanceof APIError && error.statusCode === 401) {
+            return errorJson(c, 401, "invalid_login");
+          }
+          throw error;
+        }
         const attempt = await dependencies.createVerificationAttempt({
           email: parsed.data.email,
           purpose: "registration"

@@ -49,13 +49,47 @@ export async function createVerificationAttempt(input: {
   synthetic?: boolean;
 }): Promise<VerificationAttempt> {
   const attempt = newVerificationAttempt(input);
-  await pool.query(
-    `insert into email_verification_attempt
-      (id, purpose, email, destination_hint, synthetic, expires_at)
-     values ($1, $2, $3, $4, $5, $6)`,
-    [attempt.id, attempt.purpose, attempt.email, attempt.destinationHint, attempt.synthetic, attempt.expiresAt]
-  );
-  return attempt;
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    await client.query("select pg_advisory_xact_lock(hashtext($1))", [`verification:${input.purpose}:${input.email}`]);
+    await client.query(
+      `update email_verification_attempt set consumed_at = now()
+       where email = $1 and purpose = $2 and consumed_at is null and expires_at <= now()`,
+      [input.email, input.purpose]
+    );
+    const existing = await client.query<AttemptRow>(
+      `select id, purpose, email, destination_hint, synthetic, expires_at, verified_at, consumed_at
+       from email_verification_attempt
+       where email = $1 and purpose = $2 and consumed_at is null
+       order by created_at desc limit 1`,
+      [input.email, input.purpose]
+    );
+    if (existing.rows[0]) {
+      if (existing.rows[0].synthetic && !input.synthetic) {
+        await client.query(
+          "update email_verification_attempt set synthetic = false where id = $1",
+          [existing.rows[0].id]
+        );
+        existing.rows[0].synthetic = false;
+      }
+      await client.query("commit");
+      return mapAttempt(existing.rows[0]);
+    }
+    await client.query(
+      `insert into email_verification_attempt
+        (id, purpose, email, destination_hint, synthetic, expires_at)
+       values ($1, $2, $3, $4, $5, $6)`,
+      [attempt.id, attempt.purpose, attempt.email, attempt.destinationHint, attempt.synthetic, attempt.expiresAt]
+    );
+    await client.query("commit");
+    return attempt;
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function findVerificationAttempt(id: string): Promise<VerificationAttempt | null> {
@@ -83,7 +117,8 @@ export async function findLatestVerificationAttempt(
 
 export async function markVerificationAttemptVerified(id: string): Promise<void> {
   await pool.query(
-    `update email_verification_attempt set verified_at = coalesce(verified_at, now())
+    `update email_verification_attempt
+     set verified_at = coalesce(verified_at, now()), consumed_at = coalesce(consumed_at, now())
      where id = $1 and consumed_at is null and expires_at > now()`,
     [id]
   );
@@ -102,7 +137,7 @@ export async function createPasswordResetGrant(attemptId: string, encryptedCode:
   return id;
 }
 
-export async function consumePasswordResetGrant(id: string): Promise<{
+export async function claimPasswordResetGrant(id: string): Promise<{
   email: string;
   encryptedCode: string;
 } | null> {
@@ -113,7 +148,7 @@ export async function consumePasswordResetGrant(id: string): Promise<{
       `select a.email, g.encrypted_code
        from password_reset_grant g
        join email_verification_attempt a on a.id = g.attempt_id
-       where g.id = $1 and g.consumed_at is null and g.expires_at > now()
+       where g.id = $1 and g.claimed_at is null and g.consumed_at is null and g.expires_at > now()
        for update of g`,
       [id]
     );
@@ -122,7 +157,7 @@ export async function consumePasswordResetGrant(id: string): Promise<{
       await client.query("rollback");
       return null;
     }
-    await client.query("update password_reset_grant set consumed_at = now() where id = $1", [id]);
+    await client.query("update password_reset_grant set claimed_at = now() where id = $1", [id]);
     await client.query("commit");
     return { email: grant.email, encryptedCode: grant.encrypted_code };
   } catch (error) {
@@ -131,6 +166,22 @@ export async function consumePasswordResetGrant(id: string): Promise<{
   } finally {
     client.release();
   }
+}
+
+export async function completePasswordResetGrant(id: string): Promise<void> {
+  await pool.query(
+    `update password_reset_grant
+     set consumed_at = now(), claimed_at = null, encrypted_code = ''
+     where id = $1 and claimed_at is not null and consumed_at is null`,
+    [id]
+  );
+}
+
+export async function releasePasswordResetGrant(id: string): Promise<void> {
+  await pool.query(
+    "update password_reset_grant set claimed_at = null where id = $1 and consumed_at is null",
+    [id]
+  );
 }
 
 async function countDeliveries(client: PoolClient, where: string, parameters: unknown[]): Promise<number> {

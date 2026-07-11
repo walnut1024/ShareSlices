@@ -2,6 +2,7 @@ import { APIError } from "better-auth";
 import { describe, expect, it, vi } from "vitest";
 import { buildApp } from "../src/http/app.js";
 import { encryptAuthenticationEmail } from "../src/application/accounts/authentication-email.js";
+import { AuthenticationEmailDeliveryError } from "../src/application/accounts/authentication-email.js";
 
 function dependencies() {
   const attempt = {
@@ -23,12 +24,14 @@ function dependencies() {
     findVerificationAttempt: vi.fn().mockResolvedValue(attempt),
     markVerificationAttemptVerified: vi.fn().mockResolvedValue(undefined),
     createPasswordResetGrant: vi.fn().mockResolvedValue("grant-1"),
-    consumePasswordResetGrant: vi.fn(),
+    claimPasswordResetGrant: vi.fn(),
+    completePasswordResetGrant: vi.fn().mockResolvedValue(undefined),
+    releasePasswordResetGrant: vi.fn().mockResolvedValue(undefined),
     authApi: {
       signUpEmail: vi.fn().mockResolvedValue({ user: { id: "user-1" } }),
-      signInEmail: vi.fn(),
+      signInEmail: vi.fn().mockResolvedValue({ response: { token: "disposable-session" }, headers: new Headers() }),
       getSession: vi.fn(),
-      revokeSession: vi.fn(),
+      revokeSession: vi.fn().mockResolvedValue({ status: true }),
       signOut: vi.fn(),
       sendVerificationOTP: vi.fn().mockResolvedValue({ success: true }),
       verifyEmailOTP: vi.fn().mockResolvedValue({ status: true }),
@@ -82,6 +85,22 @@ describe("account verification routes", () => {
     expect(response.headers.get("set-cookie")).toBeNull();
   });
 
+  it("does not send verification when an unverified account submits a wrong password", async () => {
+    const account = dependencies();
+    account.findUserByEmail.mockResolvedValue({ id: "user-1", emailVerified: false });
+    account.authApi.signInEmail.mockRejectedValue(new APIError("UNAUTHORIZED", { message: "Invalid credentials" }));
+    const app = buildTestApp({ account });
+    const response = await app.request("/api/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "ada@example.com", password: "wrong-password" })
+    });
+
+    expect(response.status).toBe(401);
+    expect(account.authApi.sendVerificationOTP).not.toHaveBeenCalled();
+    expect(account.createVerificationAttempt).not.toHaveBeenCalled();
+  });
+
   it("keeps password reset neutral for an unknown email", async () => {
     const account = dependencies();
     account.findUserByEmail.mockResolvedValue(null);
@@ -99,6 +118,26 @@ describe("account verification routes", () => {
 
     expect(response.status).toBe(202);
     expect(account.authApi.requestPasswordResetEmailOTP).not.toHaveBeenCalled();
+  });
+
+  it("keeps password reset neutral when a known email is delivery limited", async () => {
+    const account = dependencies();
+    account.findUserByEmail.mockResolvedValue({ id: "user-1", emailVerified: true });
+    account.createVerificationAttempt.mockResolvedValue({
+      ...(await account.createVerificationAttempt()),
+      purpose: "password_reset",
+      synthetic: false
+    });
+    account.authApi.requestPasswordResetEmailOTP.mockRejectedValue(new AuthenticationEmailDeliveryError("limited"));
+    const app = buildTestApp({ account });
+    const response = await app.request("/api/password-reset-attempts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "ada@example.com" })
+    });
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toHaveProperty("verification.id");
   });
 
   it("maps invalid OTP failures to a neutral verification error", async () => {
@@ -122,7 +161,7 @@ describe("account verification routes", () => {
       purpose: "password_reset",
       synthetic: false
     });
-    account.consumePasswordResetGrant.mockResolvedValue({
+    account.claimPasswordResetGrant.mockResolvedValue({
       email: "ada@example.com",
       encryptedCode: encryptAuthenticationEmail(
         { email: "ada@example.com", otp: "123456", type: "forget-password" },
@@ -149,6 +188,8 @@ describe("account verification routes", () => {
     expect(account.authApi.resetPasswordEmailOTP).toHaveBeenCalledWith(
       expect.objectContaining({ body: { email: "ada@example.com", otp: "123456", password: "new-password" } })
     );
+    expect(account.completePasswordResetGrant).toHaveBeenCalledWith("grant-1");
+    expect(account.releasePasswordResetGrant).not.toHaveBeenCalled();
     expect(completion.headers.get("set-cookie")).toBeNull();
   });
 });

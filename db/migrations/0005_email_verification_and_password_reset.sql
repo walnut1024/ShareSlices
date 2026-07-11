@@ -12,6 +12,9 @@ create table if not exists email_verification_attempt (
 
 create index if not exists email_verification_attempt_email_purpose_idx
   on email_verification_attempt(email, purpose, created_at desc);
+create unique index if not exists email_verification_attempt_one_pending_idx
+  on email_verification_attempt(email, purpose)
+  where consumed_at is null;
 
 create table if not exists password_reset_grant (
   id text primary key,
@@ -19,8 +22,11 @@ create table if not exists password_reset_grant (
   encrypted_code text not null,
   created_at timestamptz not null default now(),
   expires_at timestamptz not null,
+  claimed_at timestamptz,
   consumed_at timestamptz
 );
+
+alter table password_reset_grant add column if not exists claimed_at timestamptz;
 
 create unique index if not exists password_reset_grant_attempt_idx
   on password_reset_grant(attempt_id);

@@ -111,7 +111,12 @@ export const emailVerificationAttempt = pgTable(
     verifiedAt: timestamp("verified_at", { withTimezone: true }),
     consumedAt: timestamp("consumed_at", { withTimezone: true })
   },
-  (table) => [index("email_verification_attempt_email_purpose_idx").on(table.email, table.purpose, table.createdAt)]
+  (table) => [
+    index("email_verification_attempt_email_purpose_idx").on(table.email, table.purpose, table.createdAt),
+    uniqueIndex("email_verification_attempt_one_pending_idx")
+      .on(table.email, table.purpose)
+      .where(sql`${table.consumedAt} is null`)
+  ]
 );
 
 export const passwordResetGrant = pgTable(
@@ -124,6 +129,7 @@ export const passwordResetGrant = pgTable(
     encryptedCode: text("encrypted_code").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
     consumedAt: timestamp("consumed_at", { withTimezone: true })
   },
   (table) => [uniqueIndex("password_reset_grant_attempt_idx").on(table.attemptId)]
