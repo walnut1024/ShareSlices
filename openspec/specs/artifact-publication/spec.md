@@ -8,24 +8,12 @@ TBD - created by archiving change v0-0-1-first-share-flow. Update Purpose after 
 
 ### Requirement: Manage owned Artifacts
 
-The Web management surface SHALL let a signed-in user list Artifacts they own and open an owned Artifact detail. Management responses MUST NOT expose another user's Artifact.
+The Web management surface SHALL present owned Artifacts in the prototype dashboard and expose only state-valid Preview, Share, Rename, Export, Delete, Retry, and Replace file actions. Analytics and manual Share link revocation SHALL NOT be exposed.
 
-The detail SHALL include the Artifact name, first-upload processing state, ready Version state when present, publication state, active Share link, actionable failure summary when present, and only the actions currently allowed by that state.
+#### Scenario: Owner uses a ready Artifact card
 
-#### Scenario: Owner lists Artifacts
-
-- **WHEN** a signed-in user opens the Artifacts management surface
-- **THEN** the system lists only Artifacts owned by that user with enough state to open the corresponding detail
-
-#### Scenario: Owner opens Artifact detail
-
-- **WHEN** the owner requests one of their Artifacts
-- **THEN** the system returns its management state and currently allowed actions
-
-#### Scenario: User requests another owner's Artifact
-
-- **WHEN** a signed-in user requests management state for an Artifact they do not own
-- **THEN** the system denies access without exposing the Artifact's management data
+- **WHEN** a signed-in owner opens the Artifact dashboard
+- **THEN** a ready Artifact card provides Preview, Share, Rename, Export, and Delete actions as permitted by its state
 
 ### Requirement: Use a mutable Artifact name
 
@@ -48,19 +36,17 @@ The system SHALL trim an Artifact name and require 1 through 120 characters. Nam
 
 ### Requirement: Maintain one active Share link
 
-The system SHALL create one active Share link for the Artifact during initial creation. Its Share slug MUST be generated from at least 128 bits of cryptographically secure randomness, contain no Artifact name or identifier, and be protected by a database uniqueness constraint.
+The system SHALL preserve one stable Share link per Artifact and SHALL let the owner set or clear its expiration. A missing expiration means permanent. Viewer requests after the expiration MUST return the expired-link state. Manual revocation and link rotation are outside this change.
 
-Version 0.0.1 MUST keep the same active Share link through Preview, Publish, Unpublish, and republish operations.
+#### Scenario: Owner creates a dated link
 
-#### Scenario: Artifact receives its active Share link
+- **WHEN** the owner publishes a ready Version with a future expiration
+- **THEN** the stable Share link serves that Version until the expiration and then returns the expired-link state
 
-- **WHEN** initial Artifact creation succeeds
-- **THEN** the Artifact has one active Share link with a unique opaque Share slug
+#### Scenario: Owner makes the link permanent
 
-#### Scenario: Publication state changes
-
-- **WHEN** the owner publishes, unpublishes, or republishes the ready Version
-- **THEN** the Artifact's active Share link remains unchanged
+- **WHEN** the owner clears expiration on the active Share link
+- **THEN** the link remains active without a time limit and its slug does not change
 
 ### Requirement: Preview the ready Version
 
@@ -122,3 +108,26 @@ The owner SHALL be able to Unpublish an Artifact by deleting its current Publica
 
 - **WHEN** a user who does not own the Artifact attempts to Publish or Unpublish it
 - **THEN** the system denies the operation and leaves Publication unchanged
+
+### Requirement: Export a ready Artifact
+
+The owner SHALL be able to download a ZIP containing every committed asset of the ready Version with normalized relative paths. Export MUST require a signed-in owner and MUST NOT expose object-storage locations.
+
+#### Scenario: Owner exports ready content
+
+- **WHEN** the owner selects Export for a ready Artifact
+- **THEN** the API streams a ZIP named from the Artifact without changing its Version or Publication
+
+### Requirement: Delete an Artifact permanently
+
+The owner SHALL be able to permanently delete an Artifact that is not accepted or processing. Deletion SHALL remove its database resources and make all associated stored objects unavailable. Another user MUST NOT be able to delete it.
+
+#### Scenario: Owner confirms deletion
+
+- **WHEN** the owner confirms Delete for a ready or failed Artifact
+- **THEN** the Artifact disappears from management and its Viewer link no longer resolves
+
+#### Scenario: Owner attempts deletion during processing
+
+- **WHEN** the Artifact is accepted or processing
+- **THEN** the system rejects deletion without changing the Artifact
