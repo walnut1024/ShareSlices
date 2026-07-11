@@ -14,7 +14,7 @@ function Brand() {
   );
 }
 
-export function AuthScreenLayout({ children, footer }: { children: ReactNode; footer?: ReactNode }) {
+export function AuthLayout({ children, footer }: { children: ReactNode; footer?: ReactNode }) {
   return (
     <main className="flex min-h-screen items-center justify-center bg-neutral-50 px-8 py-8">
       <Card className="min-h-[640px] w-[880px] flex-row gap-0 overflow-hidden py-0">

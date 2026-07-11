@@ -3,11 +3,11 @@ import { toast } from "sonner";
 import { AccountApiError, deleteCurrentSession, getCurrentUser, type User } from "./api/account";
 import { ManagementShell } from "./components/ManagementShell";
 import { Spinner } from "./components/ui/spinner";
-import { ArtifactDetailScreen } from "./screens/ArtifactDetailScreen";
-import { ArtifactListScreen } from "./screens/ArtifactListScreen";
-import { DeviceAuthorizationScreen } from "./screens/DeviceAuthorizationScreen";
-import { LoginScreen } from "./screens/LoginScreen";
-import { RegisterScreen } from "./screens/RegisterScreen";
+import { ArtifactPage } from "./screens/ArtifactPage";
+import { ArtifactsPage } from "./screens/ArtifactsPage";
+import { DeviceAuthorizationPage } from "./screens/DeviceAuthorizationPage";
+import { LoginPage } from "./screens/LoginPage";
+import { RegisterPage } from "./screens/RegisterPage";
 
 function accountView(): "register" | "login" {
   return new URLSearchParams(window.location.search).get("view") === "login" ? "login" : "register";
@@ -84,19 +84,19 @@ export default function App() {
   }, [managementRoute, user]);
 
   if (location.startsWith("/device")) {
-    return <DeviceAuthorizationScreen />;
+    return <DeviceAuthorizationPage />;
   }
 
   if (!managementRoute) {
     const view = accountView();
-    return view === "register" ? <RegisterScreen /> : <LoginScreen onSignedIn={onSignedIn} />;
+    return view === "register" ? <RegisterPage /> : <LoginPage onSignedIn={onSignedIn} />;
   }
 
   if (checkingSession) {
     return <main className="flex min-h-screen items-center justify-center gap-2 bg-neutral-50 text-sm text-muted-foreground"><Spinner />Checking session...</main>;
   }
   if (!user) {
-    return <LoginScreen onSignedIn={onSignedIn} />;
+    return <LoginPage onSignedIn={onSignedIn} />;
   }
 
   const detailMatch = window.location.pathname.match(/^\/artifacts\/([^/]+)$/);
@@ -104,12 +104,12 @@ export default function App() {
   return (
     <ManagementShell user={user} signingOut={signingOut} onSignOut={onSignOut}>
       {detailArtifactId ? (
-        <ArtifactDetailScreen
+        <ArtifactPage
           artifactId={decodeURIComponent(detailArtifactId)}
           onSessionExpired={onSessionExpired}
         />
       ) : (
-        <ArtifactListScreen onAccepted={(artifactId) => navigate(`/artifacts/${encodeURIComponent(artifactId)}`)} />
+        <ArtifactsPage onAccepted={(artifactId) => navigate(`/artifacts/${encodeURIComponent(artifactId)}`)} />
       )}
     </ManagementShell>
   );

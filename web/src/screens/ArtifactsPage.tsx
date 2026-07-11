@@ -57,7 +57,7 @@ import { CreateArtifactDialog } from "./CreateArtifactDialog";
 type ArtifactFilter = "all" | "published" | "ready" | "processing" | "attention";
 type ViewMode = "grid" | "list";
 
-export function ArtifactListScreen({ onAccepted }: { onAccepted: (artifactId: string) => void }) {
+export function ArtifactsPage({ onAccepted }: { onAccepted: (artifactId: string) => void }) {
   const [artifacts, setArtifacts] = useState<Artifact[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<ArtifactFilter>("all");
@@ -231,39 +231,39 @@ function ArtifactTile({
 
   return (
     <li className="relative">
-      <Card className="relative gap-0 overflow-visible py-0 transition-[border-color,box-shadow,transform] hover:-translate-y-px hover:border-foreground/15 hover:shadow-lg">
+      <Card className="relative gap-0 overflow-visible py-0 shadow-[0_1px_2px_rgba(9,9,11,0.05)] ring-border transition-[box-shadow,outline-color] hover:shadow-[0_6px_18px_-10px_rgba(9,9,11,0.22)] hover:ring-foreground/20">
         <a aria-label={artifact.name} className="absolute inset-0 z-0 rounded-xl" href={detailUrl} />
         <CardContent className={`pointer-events-none relative flex h-[132px] items-center justify-center overflow-hidden rounded-t-xl p-0 ${previewClass(artifact, index)}`}>
           <FileText aria-hidden="true" className="size-9 text-muted-foreground/55" />
-          <div className="absolute top-2 left-2"><StatusBadge artifact={artifact} /></div>
+          <div className="absolute top-2 left-2"><StatusBadge artifact={artifact} overlay /></div>
           <div className="pointer-events-auto absolute right-2 bottom-2 z-10 flex gap-1.5">
-            {previewUrl ? (
-              <Tooltip><TooltipTrigger render={<Button aria-label={`Start presentation for ${artifact.name}`} className="bg-white/95 shadow-sm" size="icon-xs" variant="outline" onClick={() => window.open(previewUrl, "_blank")} />}><Play aria-hidden="true" /></TooltipTrigger><TooltipContent>Start presentation</TooltipContent></Tooltip>
+            {previewUrl && artifact.allowedActions.includes("preview") ? (
+              <Tooltip><TooltipTrigger render={<Button aria-label={`Start presentation for ${artifact.name}`} className="bg-background/95 shadow-none" size="icon-xs" variant="outline" onClick={() => window.open(previewUrl, "_blank")} />}><Play aria-hidden="true" /></TooltipTrigger><TooltipContent>Start presentation</TooltipContent></Tooltip>
             ) : null}
-            {ready ? (
-              <Tooltip><TooltipTrigger render={<Button aria-label={`Share ${artifact.name}`} className="bg-white/95 shadow-sm" size="icon-xs" variant="outline" onClick={onShare} />}><Share2 aria-hidden="true" /></TooltipTrigger><TooltipContent>{artifact.publication ? "Manage share" : "Share"}</TooltipContent></Tooltip>
+            {ready && artifact.allowedActions.includes("copy_share_link") ? (
+              <Tooltip><TooltipTrigger render={<Button aria-label={`Share ${artifact.name}`} className="bg-background/95 shadow-none" size="icon-xs" variant="outline" onClick={onShare} />}><Share2 aria-hidden="true" /></TooltipTrigger><TooltipContent>{artifact.publication ? "Manage share" : "Share"}</TooltipContent></Tooltip>
             ) : null}
           </div>
         </CardContent>
-        <CardFooter className="pointer-events-none flex-col items-start gap-0 border-t px-3 pt-2.5 pb-3">
+        <CardFooter className="pointer-events-none flex-col items-start gap-0 border-t border-muted px-3 pt-[11px] pb-[13px]">
           <span className="w-full truncate text-[13px] font-medium">{artifact.name}</span>
           <span className="mt-0.5 truncate font-mono text-[10.5px] text-muted-foreground">{formatModified(artifact.updatedAt)}</span>
         </CardFooter>
       </Card>
-      <div className="absolute top-2 right-2"><ArtifactMenu artifact={artifact} detailUrl={detailUrl} onRename={onRename} onDelete={onDelete} /></div>
+      <div className="absolute top-2 right-2"><ArtifactMenu artifact={artifact} detailUrl={detailUrl} overlay onRename={onRename} onDelete={onDelete} /></div>
     </li>
   );
 }
 
-function ArtifactMenu({ artifact, detailUrl, onRename, onDelete }: { artifact: Artifact; detailUrl: string; onRename: () => void; onDelete: () => void }) {
+function ArtifactMenu({ artifact, detailUrl, overlay = false, onRename, onDelete }: { artifact: Artifact; detailUrl: string; overlay?: boolean; onRename: () => void; onDelete: () => void }) {
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger render={<Button aria-label={`More actions for ${artifact.name}`} className="bg-white/95 shadow-sm" size="icon-xs" variant="outline" />}><MoreVertical aria-hidden="true" /></DropdownMenuTrigger>
+      <DropdownMenuTrigger render={<Button aria-label={`More actions for ${artifact.name}`} className={overlay ? "bg-background/95 shadow-none" : "bg-white/95 shadow-sm"} size="icon-xs" variant="outline" />}><MoreVertical aria-hidden="true" /></DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-44">
         <DropdownMenuGroup>
           <DropdownMenuItem onClick={() => { window.location.href = detailUrl; }}><ExternalLink />Open</DropdownMenuItem>
           {artifact.allowedActions.includes("export") && artifact.readyVersion ? <DropdownMenuItem onClick={() => { window.location.href = artifactExportUrl(artifact.readyVersion!.id); }}><Download />Export</DropdownMenuItem> : null}
-          <DropdownMenuItem onClick={onRename}><Pencil />Rename</DropdownMenuItem>
+          {artifact.allowedActions.includes("rename") ? <DropdownMenuItem onClick={onRename}><Pencil />Rename</DropdownMenuItem> : null}
         </DropdownMenuGroup>
         {artifact.allowedActions.includes("delete") ? <><DropdownMenuSeparator /><DropdownMenuGroup><DropdownMenuItem variant="destructive" onClick={onDelete}><Trash2 />Delete</DropdownMenuItem></DropdownMenuGroup></> : null}
       </DropdownMenuContent>
@@ -300,9 +300,9 @@ function DeleteDialog({ artifact, pending, onClose, onConfirm }: { artifact: Art
   );
 }
 
-function StatusBadge({ artifact }: { artifact: Artifact }) {
+function StatusBadge({ artifact, overlay = false }: { artifact: Artifact; overlay?: boolean }) {
   const label = artifact.processingState === "failed" ? "Needs attention" : artifact.processingState === "ready" ? artifact.publication ? "Shared" : "Ready" : artifact.processingState === "processing" ? "Processing" : "Accepted";
-  return <Badge className="bg-white/95 shadow-sm" variant="outline">{artifact.publication ? <span className="size-1.5 rounded-full bg-[var(--success)]" /> : null}{label}</Badge>;
+  return <Badge className={overlay ? "bg-background/95 shadow-none" : "bg-white/95 shadow-sm"} variant="outline">{artifact.publication ? <span className="size-1.5 rounded-full bg-[var(--success)]" /> : null}{label}</Badge>;
 }
 
 function EmptyState({ title, description }: { title: string; description: string }) {

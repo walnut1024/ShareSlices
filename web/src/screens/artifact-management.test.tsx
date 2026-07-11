@@ -39,11 +39,31 @@ describe("Artifact management", () => {
     render(<App />);
 
     const artifactLink = await screen.findByRole("link", { name: "Report" });
+    const artifactCard = artifactLink.closest('[data-slot="card"]');
     expect(document.querySelector('[data-slot="avatar"]')).toBeInTheDocument();
     expect(document.querySelector('[data-slot="toggle-group"]')).toBeInTheDocument();
-    expect(artifactLink.closest('[data-slot="card"]')).toBeInTheDocument();
+    expect(artifactCard).toHaveClass("shadow-[0_1px_2px_rgba(9,9,11,0.05)]");
+    expect(artifactCard?.querySelector('[data-slot="card-content"]')).toHaveClass("h-[132px]");
     expect(screen.getByText("Accepted").closest(".group\\/badge")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "More actions for Report" })).toHaveClass("group/button");
+  });
+
+  it("hides grid card actions that the server does not allow", async () => {
+    const interaction = userEvent.setup();
+    window.history.replaceState(null, "", "/artifacts");
+    stubFetch([
+      json({ user }),
+      json({ artifacts: [artifact({ processingState: "ready", readyVersion: { id: "version-1", state: "ready" }, allowedActions: [] })] })
+    ]);
+
+    render(<App />);
+
+    await screen.findByRole("link", { name: "Report" });
+    expect(screen.queryByRole("button", { name: "Start presentation for Report" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Share Report" })).not.toBeInTheDocument();
+    await interaction.click(screen.getByRole("button", { name: "More actions for Report" }));
+    expect(await screen.findByRole("menuitem", { name: "Open" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Rename" })).not.toBeInTheDocument();
   });
 
   it("shows the current identity and Sign out in the avatar menu", async () => {

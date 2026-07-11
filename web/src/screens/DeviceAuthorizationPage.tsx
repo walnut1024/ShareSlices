@@ -44,7 +44,7 @@ function Code({ value }: { value: string }) {
   );
 }
 
-export function DeviceAuthorizationScreen() {
+export function DeviceAuthorizationPage() {
   const rawUserCode = new URLSearchParams(window.location.search).get("user_code")?.trim() ?? "";
   const cleanUserCode = rawUserCode.replaceAll("-", "");
   const userCode = cleanUserCode.length === 8

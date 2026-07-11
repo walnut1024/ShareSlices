@@ -26,7 +26,7 @@ type PendingAction = "refresh" | "retry" | "replace_file" | "preview" | "publish
 type ActionFeedback = { kind: "success" | "error"; message: string };
 type IdempotentAction = "retry" | "replace_file" | "publish";
 
-export function ArtifactDetailScreen({
+export function ArtifactPage({
   artifactId,
   onSessionExpired
 }: {

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { AccountApiError, createUser } from "../api/account";
-import { AuthScreenLayout } from "../components/AuthScreenLayout";
+import { AuthLayout } from "../components/AuthLayout";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { Button } from "../components/ui/button";
 import { Field, FieldError, FieldGroup, FieldLabel } from "../components/ui/field";
@@ -8,7 +8,7 @@ import { Input } from "../components/ui/input";
 
 type Errors = Partial<Record<"name" | "email" | "password" | "form", string>>;
 
-export function RegisterScreen() {
+export function RegisterPage() {
   const [errors, setErrors] = useState<Errors>({});
   const [createdName, setCreatedName] = useState<string | null>(null);
 
@@ -58,7 +58,7 @@ export function RegisterScreen() {
   }
 
   return (
-    <AuthScreenLayout>
+    <AuthLayout>
       <header>
         <h1 className="m-0 text-[26px] font-semibold tracking-[-0.02em]">Create your account</h1>
         <p className="mb-[26px] mt-1.5 text-sm leading-[1.45] text-neutral-500">
@@ -103,6 +103,6 @@ export function RegisterScreen() {
       <p className="mb-0 mt-[18px] text-[13.5px] text-neutral-500">
         Already have an account? <a className="font-medium text-neutral-950 hover:underline" href="/?view=login">Log in</a>
       </p>
-    </AuthScreenLayout>
+    </AuthLayout>
   );
 }

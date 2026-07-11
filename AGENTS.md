@@ -73,6 +73,7 @@ Project-level engineering guidance for agents working on ShareSlices.
 ## Frontend guidance
 
 - Build the Web UI as a quiet management surface, not a marketing site.
+- Name route-level Web components with the `*Page` suffix. Name reusable containers for their concrete role, such as `*Layout`, `*Shell`, `*Section`, or `*Panel`; do not introduce `*Screen` component or file names.
 - Target desktop browsers only. Use `1440x900` as the default design and screenshot viewport; the minimum supported viewport is `1280x720`.
 - Do not design, implement, test, review, or propose mobile or tablet layouts. Do not add mobile breakpoints, responsive navigation, mobile stacking, touch-specific interactions, or mobile screenshots unless the user explicitly changes the product scope.
 - Behavior below the minimum supported viewport is not an acceptance criterion. Frontend plans and implementation reports must not spend tokens discussing mobile responsiveness or mobile compatibility.
