@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { createSession, type User } from "../api/account";
+import { createSession, type User, type VerificationState } from "../api/account";
 import { Alert, AlertDescription } from "./ui/alert";
 import { Button } from "./ui/button";
 import { Field, FieldGroup, FieldLabel } from "./ui/field";
@@ -8,9 +8,11 @@ import { Input } from "./ui/input";
 export function LoginForm({
   buttonLabel = "Log in",
   onSignedIn
+  ,onVerificationRequired
 }: {
   buttonLabel?: string;
   onSignedIn?: ((user: User) => void | Promise<void>) | undefined;
+  onVerificationRequired?: ((verification: VerificationState["verification"]) => void) | undefined;
 }) {
   const [message, setMessage] = useState<string | null>(null);
 
@@ -24,7 +26,11 @@ export function LoginForm({
         email: String(form.get("email") ?? "").trim(),
         password: String(form.get("password") ?? "")
       });
-      await onSignedIn?.(result.user);
+      if ("verification" in result) {
+        onVerificationRequired?.(result.verification);
+      } else {
+        await onSignedIn?.(result.user);
+      }
     } catch {
       setMessage("Email or password is incorrect.");
     }

@@ -18,9 +18,7 @@ describe("account API client", () => {
     );
 
     await expect(createUser({ name: "Ada", email: "ada@example.com", password: "password123" })).resolves.toEqual({
-      id: "user_1",
-      name: "Ada",
-      email: "ada@example.com"
+      user: { id: "user_1", name: "Ada", email: "ada@example.com" }
     });
 
     expect(fetch).toHaveBeenCalledWith(

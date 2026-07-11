@@ -65,6 +65,10 @@ def failure_server(contract: dict[str, Any]) -> str:
             "WORKER_JOB_LEASE_SECONDS": "30",
             "WORKER_JOB_HEARTBEAT_SECONDS": "10",
             "WORKER_JOB_MAX_ATTEMPTS": "3",
+            "MINIMUM_CLI_VERSION": "0.1.0",
+            "REQUIRE_EMAIL_VERIFICATION": "false",
+            "AUTH_EMAIL_ENCRYPTION_KEY": "contract-email-encryption-key-at-least-32-bytes",
+            "AUTH_EMAIL_DELIVERY_MODE": "capture",
             "PORT": "7457",
             "NODE_ENV": "test",
         }

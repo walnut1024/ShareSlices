@@ -98,6 +98,79 @@ export const deviceCode = pgTable(
   (table) => [index("device_code_user_id_idx").on(table.userId)]
 );
 
+export const emailVerificationAttempt = pgTable(
+  "email_verification_attempt",
+  {
+    id: text("id").primaryKey(),
+    purpose: text("purpose").notNull(),
+    email: text("email").notNull(),
+    destinationHint: text("destination_hint").notNull(),
+    synthetic: boolean("synthetic").default(false).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    consumedAt: timestamp("consumed_at", { withTimezone: true })
+  },
+  (table) => [index("email_verification_attempt_email_purpose_idx").on(table.email, table.purpose, table.createdAt)]
+);
+
+export const passwordResetGrant = pgTable(
+  "password_reset_grant",
+  {
+    id: text("id").primaryKey(),
+    attemptId: text("attempt_id")
+      .notNull()
+      .references(() => emailVerificationAttempt.id, { onDelete: "cascade" }),
+    encryptedCode: text("encrypted_code").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true })
+  },
+  (table) => [uniqueIndex("password_reset_grant_attempt_idx").on(table.attemptId)]
+);
+
+export const authenticationEmailDelivery = pgTable(
+  "authentication_email_delivery",
+  {
+    id: text("id").primaryKey(),
+    attemptId: text("attempt_id")
+      .notNull()
+      .references(() => emailVerificationAttempt.id, { onDelete: "cascade" }),
+    emailHash: text("email_hash").notNull(),
+    purpose: text("purpose").notNull(),
+    sourceIpHash: text("source_ip_hash").notNull(),
+    encryptedPayload: text("encrypted_payload").notNull(),
+    idempotencyKey: text("idempotency_key"),
+    state: text("state").default("pending").notNull(),
+    availableAt: timestamp("available_at", { withTimezone: true }).defaultNow().notNull(),
+    leaseOwner: text("lease_owner"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    attemptCount: integer("attempt_count").default(0).notNull(),
+    providerMessageId: text("provider_message_id"),
+    failureReasonCode: text("failure_reason_code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true })
+  },
+  (table) => [
+    uniqueIndex("authentication_email_delivery_idempotency_idx")
+      .on(table.idempotencyKey)
+      .where(sql`${table.idempotencyKey} is not null`),
+    index("authentication_email_delivery_attempt_idx").on(table.attemptId, table.createdAt),
+    index("authentication_email_delivery_email_idx").on(table.emailHash, table.purpose, table.createdAt),
+    index("authentication_email_delivery_source_idx").on(table.sourceIpHash, table.createdAt),
+    index("authentication_email_delivery_dispatch_idx").on(table.state, table.availableAt)
+  ]
+);
+
+export const authenticationEmailCircuitBreaker = pgTable("authentication_email_circuit_breaker", {
+  id: text("id").primaryKey(),
+  state: text("state").default("closed").notNull(),
+  reasonCode: text("reason_code"),
+  openedAt: timestamp("opened_at", { withTimezone: true }),
+  resumeAt: timestamp("resume_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
+});
+
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
   accounts: many(account),

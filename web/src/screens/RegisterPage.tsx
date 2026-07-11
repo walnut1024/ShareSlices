@@ -1,8 +1,15 @@
 import { useState } from "react";
-import { AccountApiError, createUser } from "../api/account";
+import {
+  AccountApiError,
+  createUser,
+  resendRegistrationEmail,
+  verifyRegistrationEmail,
+  type VerificationState
+} from "../api/account";
 import { AuthLayout } from "../components/AuthLayout";
+import { VerificationCodeForm } from "../components/VerificationCodeForm";
 import { Alert, AlertDescription } from "../components/ui/alert";
-import { Button } from "../components/ui/button";
+import { Button, buttonVariants } from "../components/ui/button";
 import { Field, FieldError, FieldGroup, FieldLabel } from "../components/ui/field";
 import { Input } from "../components/ui/input";
 
@@ -11,6 +18,8 @@ type Errors = Partial<Record<"name" | "email" | "password" | "form", string>>;
 export function RegisterPage() {
   const [errors, setErrors] = useState<Errors>({});
   const [createdName, setCreatedName] = useState<string | null>(null);
+  const [verification, setVerification] = useState<VerificationState["verification"] | null>(null);
+  const [verified, setVerified] = useState(false);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -38,8 +47,12 @@ export function RegisterPage() {
     }
 
     try {
-      const user = await createUser({ name, email, password });
-      setCreatedName(user.name);
+      const result = await createUser({ name, email, password });
+      if ("verification" in result) {
+        setVerification(result.verification);
+      } else {
+        setCreatedName(result.user.name);
+      }
     } catch (error) {
       if (error instanceof AccountApiError && error.fields.length > 0) {
         const fieldErrors: Errors = {};
@@ -55,6 +68,32 @@ export function RegisterPage() {
       }
       setErrors({ form: error instanceof Error ? error.message : "Registration failed." });
     }
+  }
+
+  if (verification) {
+    return (
+      <AuthLayout>
+        {verified ? (
+          <>
+            <header><h1 className="m-0 text-[26px] font-semibold tracking-[-0.02em]">Email verified</h1></header>
+            <p className="mb-6 mt-2 text-sm text-neutral-500">Your email is verified. Log in to continue.</p>
+            <a className={buttonVariants({ className: "w-full" })} href="/?view=login">Log in</a>
+          </>
+        ) : (
+          <VerificationCodeForm
+            destination={verification.destination}
+            initialWait={verification.resendAvailableIn}
+            buttonLabel="Verify email"
+            onVerify={async (code) => {
+              await verifyRegistrationEmail(verification.id, code);
+              setVerified(true);
+            }}
+            onResend={async () => (await resendRegistrationEmail(verification.id)).verification.resendAvailableIn}
+            onChangeEmail={() => setVerification(null)}
+          />
+        )}
+      </AuthLayout>
+    );
   }
 
   return (

@@ -1,9 +1,21 @@
 import { APIError } from "better-auth";
 import { Hono } from "hono";
 import { ZodError } from "zod";
+import {
+  AuthenticationEmailDeliveryError,
+  decryptAuthenticationEmail,
+  encryptAuthenticationEmail
+} from "../application/accounts/authentication-email.js";
 import { auth } from "../auth/auth.js";
 import { loginInputSchema, registrationInputSchema } from "../auth/email.js";
-import { userExistsByEmail, userExistsById } from "../db/account-queries.js";
+import { findUserByEmail, userExistsByEmail, userExistsById } from "../db/account-queries.js";
+import {
+  createPasswordResetGrant,
+  createVerificationAttempt,
+  findVerificationAttempt,
+  markVerificationAttemptVerified,
+  consumePasswordResetGrant
+} from "../db/authentication-email-repository.js";
 import { env } from "../env.js";
 import { errorJson, type FieldError, requestId } from "./http-error.js";
 
@@ -16,10 +28,26 @@ type AuthUser = {
 export type AccountRouteDependencies = {
   authApi: Pick<
     typeof auth.api,
-    "signUpEmail" | "signInEmail" | "getSession" | "revokeSession" | "signOut"
+    | "signUpEmail"
+    | "signInEmail"
+    | "getSession"
+    | "revokeSession"
+    | "signOut"
+    | "sendVerificationOTP"
+    | "verifyEmailOTP"
+    | "requestPasswordResetEmailOTP"
+    | "checkVerificationOTP"
+    | "resetPasswordEmailOTP"
   >;
   userExistsByEmail: typeof userExistsByEmail;
   userExistsById: typeof userExistsById;
+  findUserByEmail: typeof findUserByEmail;
+  createVerificationAttempt: typeof createVerificationAttempt;
+  findVerificationAttempt: typeof findVerificationAttempt;
+  markVerificationAttemptVerified: typeof markVerificationAttemptVerified;
+  createPasswordResetGrant: typeof createPasswordResetGrant;
+  consumePasswordResetGrant: typeof consumePasswordResetGrant;
+  requireEmailVerification: boolean;
 };
 
 function toUserResponse(user: AuthUser) {
@@ -83,9 +111,50 @@ export function accountRoutes(overrides: Partial<AccountRouteDependencies> = {})
     authApi: auth.api,
     userExistsByEmail,
     userExistsById,
+    findUserByEmail,
+    createVerificationAttempt,
+    findVerificationAttempt,
+    markVerificationAttemptVerified,
+    createPasswordResetGrant,
+    consumePasswordResetGrant,
+    requireEmailVerification: env.REQUIRE_EMAIL_VERIFICATION,
     ...overrides
   };
   const app = new Hono();
+
+  function verificationResponse(c: Parameters<typeof requestId>[0], attempt: { id: string; destinationHint: string }) {
+    c.header("Cache-Control", "no-store");
+    c.header("X-Request-Id", requestId(c));
+    return c.json(
+      {
+        verification: {
+          id: attempt.id,
+          destination: attempt.destinationHint,
+          expiresIn: 600,
+          resendAvailableIn: env.AUTH_EMAIL_RESEND_SECONDS
+        }
+      },
+      202
+    );
+  }
+
+  function authHeaders(c: Parameters<typeof requestId>[0]): Headers {
+    const headers = new Headers(c.req.raw.headers);
+    const forwarded = c.req.header("x-forwarded-for") ?? c.req.header("cf-connecting-ip") ?? "unknown";
+    headers.set("x-forwarded-for", forwarded);
+    return headers;
+  }
+
+  function verificationError(c: Parameters<typeof requestId>[0], error: unknown) {
+    if (error instanceof AuthenticationEmailDeliveryError) {
+      if (error.result === "unavailable") return errorJson(c, 500, "email_unavailable");
+      return errorJson(c, 429, "rate_limited");
+    }
+    if (error instanceof APIError && (error.statusCode === 400 || error.statusCode === 403)) {
+      return errorJson(c, 400, "invalid_verification");
+    }
+    throw error;
+  }
 
   app.post("/api/users", async (c) => {
     const parsed = registrationInputSchema.safeParse(await c.req.json().catch(() => null));
@@ -94,8 +163,38 @@ export function accountRoutes(overrides: Partial<AccountRouteDependencies> = {})
       return errorJson(c, 400, "invalid_request", zodFields(parsed.error));
     }
 
-    if (await dependencies.userExistsByEmail(parsed.data.email)) {
+    if (!dependencies.requireEmailVerification && await dependencies.userExistsByEmail(parsed.data.email)) {
       return errorJson(c, 409, "email_already_registered");
+    }
+
+    if (dependencies.requireEmailVerification) {
+      const existing = await dependencies.findUserByEmail(parsed.data.email);
+      if (!existing) {
+        try {
+          await dependencies.authApi.signUpEmail({
+            body: parsed.data
+          });
+        } catch (error) {
+          if (!(error instanceof APIError && error.statusCode === 422)) throw error;
+        }
+      }
+      const attempt = await dependencies.createVerificationAttempt({
+        email: parsed.data.email,
+        purpose: "registration",
+        synthetic: existing?.emailVerified ?? false
+      });
+      if (!existing?.emailVerified) {
+        try {
+          await dependencies.authApi.sendVerificationOTP({
+            body: { email: parsed.data.email, type: "email-verification" },
+            headers: authHeaders(c)
+          });
+        } catch (error) {
+          const response = verificationError(c, error);
+          if (response) return response;
+        }
+      }
+      return verificationResponse(c, attempt);
     }
 
     let response: { user: AuthUser };
@@ -130,11 +229,146 @@ export function accountRoutes(overrides: Partial<AccountRouteDependencies> = {})
     return c.json(toUserResponse(user), 201);
   });
 
+  app.post("/api/email-verifications/:verificationId/deliveries", async (c) => {
+    const attempt = await dependencies.findVerificationAttempt(c.req.param("verificationId"));
+    if (!attempt || attempt.purpose !== "registration" || attempt.synthetic) {
+      return errorJson(c, 400, "invalid_verification");
+    }
+    try {
+      await dependencies.authApi.sendVerificationOTP({
+        body: { email: attempt.email, type: "email-verification" },
+        headers: authHeaders(c)
+      });
+      return verificationResponse(c, attempt);
+    } catch (error) {
+      return verificationError(c, error);
+    }
+  });
+
+  app.post("/api/email-verifications/:verificationId/verify", async (c) => {
+    const body = await c.req.json().catch(() => null) as { code?: unknown } | null;
+    const attempt = await dependencies.findVerificationAttempt(c.req.param("verificationId"));
+    if (!attempt || attempt.purpose !== "registration" || typeof body?.code !== "string") {
+      return errorJson(c, 400, "invalid_verification");
+    }
+    try {
+      await dependencies.authApi.verifyEmailOTP({
+        body: { email: attempt.email, otp: body.code.replaceAll(" ", "") },
+        headers: authHeaders(c)
+      });
+      await dependencies.markVerificationAttemptVerified(attempt.id);
+      c.header("Cache-Control", "no-store");
+      c.header("X-Request-Id", requestId(c));
+      return c.json({ verified: true });
+    } catch (error) {
+      return verificationError(c, error);
+    }
+  });
+
+  app.post("/api/password-reset-attempts", async (c) => {
+    const body = await c.req.json().catch(() => null) as { email?: unknown } | null;
+    const parsed = loginInputSchema.pick({ email: true }).safeParse(body);
+    if (!parsed.success) return errorJson(c, 400, "invalid_request", zodFields(parsed.error));
+    const user = await dependencies.findUserByEmail(parsed.data.email);
+    const attempt = await dependencies.createVerificationAttempt({
+      email: parsed.data.email,
+      purpose: "password_reset",
+      synthetic: !user
+    });
+    if (user) {
+      try {
+        await dependencies.authApi.requestPasswordResetEmailOTP({
+          body: { email: parsed.data.email },
+          headers: authHeaders(c)
+        });
+      } catch (error) {
+        const response = verificationError(c, error);
+        if (response) return response;
+      }
+    }
+    return verificationResponse(c, attempt);
+  });
+
+  app.post("/api/password-reset-attempts/:attemptId/verify", async (c) => {
+    const body = await c.req.json().catch(() => null) as { code?: unknown } | null;
+    const attempt = await dependencies.findVerificationAttempt(c.req.param("attemptId"));
+    if (!attempt || attempt.purpose !== "password_reset" || attempt.synthetic || typeof body?.code !== "string") {
+      return errorJson(c, 400, "invalid_verification");
+    }
+    const code = body.code.replaceAll(" ", "");
+    try {
+      await dependencies.authApi.checkVerificationOTP({
+        body: { email: attempt.email, otp: code, type: "forget-password" },
+        headers: authHeaders(c)
+      });
+      const grant = await dependencies.createPasswordResetGrant(
+        attempt.id,
+        encryptAuthenticationEmail({ email: attempt.email, otp: code, type: "forget-password" }, env.AUTH_EMAIL_ENCRYPTION_KEY)
+      );
+      c.header("Cache-Control", "no-store");
+      c.header("X-Request-Id", requestId(c));
+      return c.json({ resetGrant: grant, expiresIn: 600 });
+    } catch (error) {
+      return verificationError(c, error);
+    }
+  });
+
+  app.post("/api/password-resets", async (c) => {
+    const body = await c.req.json().catch(() => null) as {
+      resetGrant?: unknown;
+      password?: unknown;
+      confirmPassword?: unknown;
+    } | null;
+    if (
+      typeof body?.resetGrant !== "string" ||
+      typeof body.password !== "string" ||
+      body.password.length < 8 ||
+      body.password.length > 128 ||
+      body.password !== body.confirmPassword
+    ) {
+      return errorJson(c, 400, "invalid_request");
+    }
+    const grant = await dependencies.consumePasswordResetGrant(body.resetGrant);
+    if (!grant) return errorJson(c, 400, "invalid_reset_grant");
+    const payload = decryptAuthenticationEmail(grant.encryptedCode, env.AUTH_EMAIL_ENCRYPTION_KEY);
+    try {
+      await dependencies.authApi.resetPasswordEmailOTP({
+        body: { email: grant.email, otp: payload.otp ?? "", password: body.password },
+        headers: authHeaders(c)
+      });
+      c.header("Cache-Control", "no-store");
+      c.header("X-Request-Id", requestId(c));
+      return c.json({ reset: true });
+    } catch (error) {
+      return verificationError(c, error);
+    }
+  });
+
   app.post("/api/sessions", async (c) => {
     const parsed = loginInputSchema.safeParse(await c.req.json().catch(() => null));
 
     if (!parsed.success) {
       return errorJson(c, 400, "invalid_request", zodFields(parsed.error));
+    }
+
+    if (dependencies.requireEmailVerification) {
+      const user = await dependencies.findUserByEmail(parsed.data.email);
+      if (user && !user.emailVerified) {
+        const attempt = await dependencies.createVerificationAttempt({
+          email: parsed.data.email,
+          purpose: "registration"
+        });
+        try {
+          await dependencies.authApi.sendVerificationOTP({
+            body: { email: parsed.data.email, type: "email-verification" },
+            headers: authHeaders(c)
+          });
+        } catch (error) {
+          const response = verificationError(c, error);
+          if (response) return response;
+        }
+        return verificationResponse(c, attempt);
+      }
     }
 
     try {

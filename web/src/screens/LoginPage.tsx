@@ -1,7 +1,35 @@
 import { AuthLayout } from "../components/AuthLayout";
 import { LoginForm } from "../components/LoginForm";
+import { useState } from "react";
+import { resendRegistrationEmail, verifyRegistrationEmail, type VerificationState } from "../api/account";
+import { VerificationCodeForm } from "../components/VerificationCodeForm";
 
 export function LoginPage({ onSignedIn }: { onSignedIn?: (user: { id: string; name: string; email: string }) => void }) {
+  const [verification, setVerification] = useState<VerificationState["verification"] | null>(null);
+  const [verified, setVerified] = useState(false);
+
+  if (verification) {
+    return (
+      <AuthLayout>
+        {verified ? (
+          <>
+            <h1 className="m-0 text-[26px] font-semibold tracking-[-0.02em]">Email verified</h1>
+            <p className="mb-6 mt-2 text-sm text-neutral-500">Log in again to continue.</p>
+            <button className="text-sm font-medium hover:underline" onClick={() => { setVerification(null); setVerified(false); }}>Return to login</button>
+          </>
+        ) : (
+          <VerificationCodeForm
+            destination={verification.destination}
+            initialWait={verification.resendAvailableIn}
+            buttonLabel="Verify email"
+            onVerify={async (code) => { await verifyRegistrationEmail(verification.id, code); setVerified(true); }}
+            onResend={async () => (await resendRegistrationEmail(verification.id)).verification.resendAvailableIn}
+            onChangeEmail={() => setVerification(null)}
+          />
+        )}
+      </AuthLayout>
+    );
+  }
   return (
     <AuthLayout footer={<>Protected by encryption · <span className="text-neutral-500">Privacy Policy</span></>}>
       <header>
@@ -10,7 +38,8 @@ export function LoginPage({ onSignedIn }: { onSignedIn?: (user: { id: string; na
           Log in to manage and publish your artifacts.
         </p>
       </header>
-      <LoginForm onSignedIn={onSignedIn} />
+      <LoginForm onSignedIn={onSignedIn} onVerificationRequired={setVerification} />
+      <p className="mb-0 mt-4 text-right text-[13px]"><a className="font-medium text-neutral-950 hover:underline" href="/?view=reset">Forgot password?</a></p>
       <p className="mb-0 mt-[22px] text-[13.5px] text-neutral-500">
         New to ShareSlices? <a className="font-medium text-neutral-950 hover:underline" href="/?view=register">Create an account</a>
       </p>

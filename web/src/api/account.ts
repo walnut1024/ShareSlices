@@ -20,6 +20,15 @@ export type CreateSessionResult = {
   user: User;
 };
 
+export type VerificationState = {
+  verification: {
+    id: string;
+    destination: string;
+    expiresIn: number;
+    resendAvailableIn: number;
+  };
+};
+
 type ErrorResponse = {
   error: {
     code: string;
@@ -71,13 +80,36 @@ async function request<T>(path: string, body?: unknown): Promise<T> {
   return parseJson<T>(response);
 }
 
-export async function createUser(input: CreateUserInput): Promise<User> {
-  const response = await request<{ user: User }>("/api/users", input);
-  return response.user;
+export async function createUser(input: CreateUserInput): Promise<{ user: User } | VerificationState> {
+  return request<{ user: User } | VerificationState>("/api/users", input);
 }
 
-export async function createSession(input: CreateSessionInput): Promise<CreateSessionResult> {
-  return request<CreateSessionResult>("/api/sessions", input);
+export async function createSession(input: CreateSessionInput): Promise<CreateSessionResult | VerificationState> {
+  return request<CreateSessionResult | VerificationState>("/api/sessions", input);
+}
+
+export async function verifyRegistrationEmail(verificationId: string, code: string): Promise<void> {
+  await request(`/api/email-verifications/${encodeURIComponent(verificationId)}/verify`, { code });
+}
+
+export async function resendRegistrationEmail(verificationId: string): Promise<VerificationState> {
+  return request(`/api/email-verifications/${encodeURIComponent(verificationId)}/deliveries`, {});
+}
+
+export async function requestPasswordReset(email: string): Promise<VerificationState> {
+  return request("/api/password-reset-attempts", { email });
+}
+
+export async function verifyPasswordResetCode(attemptId: string, code: string): Promise<{ resetGrant: string; expiresIn: number }> {
+  return request(`/api/password-reset-attempts/${encodeURIComponent(attemptId)}/verify`, { code });
+}
+
+export async function resetPassword(input: {
+  resetGrant: string;
+  password: string;
+  confirmPassword: string;
+}): Promise<void> {
+  await request("/api/password-resets", input);
 }
 
 export async function deleteCurrentSession(): Promise<void> {

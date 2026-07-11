@@ -17,7 +17,11 @@ import {
   artifactUploadPolicyFormat,
   artifactUploadSession,
   artifactVersion,
-  deviceCode
+  authenticationEmailCircuitBreaker,
+  authenticationEmailDelivery,
+  deviceCode,
+  emailVerificationAttempt,
+  passwordResetGrant
 } from "../src/db/schema.js";
 
 const { Client } = pg;
@@ -102,6 +106,24 @@ describe("artifact database foundation", () => {
     expect(columns.rows.map((row) => row.column_name)).toEqual(
       expect.arrayContaining(["device_code", "user_code", "expires_at", "status"])
     );
+  });
+
+  it("defines durable authentication email verification and delivery state", async () => {
+    expect(getTableConfig(emailVerificationAttempt).columns.map((column) => column.name)).toEqual(
+      expect.arrayContaining(["purpose", "email", "destination_hint", "synthetic", "expires_at", "verified_at", "consumed_at"])
+    );
+    expect(getTableConfig(passwordResetGrant).columns.map((column) => column.name)).toEqual(
+      expect.arrayContaining(["attempt_id", "encrypted_code", "expires_at", "consumed_at"])
+    );
+    expect(getTableConfig(authenticationEmailDelivery).columns.map((column) => column.name)).toEqual(
+      expect.arrayContaining(["email_hash", "source_ip_hash", "encrypted_payload", "state", "lease_owner", "lease_expires_at"])
+    );
+    expect(getTableConfig(authenticationEmailCircuitBreaker).columns.map((column) => column.name)).toEqual(
+      expect.arrayContaining(["state", "reason_code", "resume_at"])
+    );
+
+    const breaker = await client.query("select id, state from authentication_email_circuit_breaker");
+    expect(breaker.rows).toEqual([{ id: "global", state: "closed" }]);
   });
 
   it("seeds the exact active upload policy defaults", async () => {

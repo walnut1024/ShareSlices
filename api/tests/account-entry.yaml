@@ -116,6 +116,18 @@ cases:
       json_paths:
         error.code: unauthenticated
 
+  - id: request_password_reset_unknown_email
+    request:
+      method: POST
+      path: /api/password-reset-attempts
+      json:
+        email: "missing-{run_id}@example.com"
+    expect:
+      status: 202
+      json_paths:
+        verification.expiresIn: 600
+      no_set_cookie: true
+
   - id: login_wrong_password
     request:
       method: POST

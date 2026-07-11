@@ -139,6 +139,15 @@ paths:
                       id: user_000000000000000000000000
                       name: Ada Lovelace
                       email: ada@example.com
+        "202":
+          description: Registration accepted and email verification is required.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerificationState"
         "400":
           $ref: "#/components/responses/InvalidRequest"
         "409":
@@ -147,6 +156,160 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
+  /api/email-verifications/{verificationId}/deliveries:
+    post:
+      tags: [users]
+      operationId: createEmailVerificationDelivery
+      summary: Request another registration verification email.
+      parameters:
+        - $ref: "#/components/parameters/VerificationId"
+      responses:
+        "202":
+          description: Delivery accepted or already pending during the server waiting period.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerificationState"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/email-verifications/{verificationId}/verify:
+    post:
+      tags: [users]
+      operationId: verifyRegistrationEmail
+      summary: Verify a registration email code.
+      parameters:
+        - $ref: "#/components/parameters/VerificationId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerificationCodeRequest"
+      responses:
+        "200":
+          description: Email verified without creating a Session.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [verified]
+                properties:
+                  verified:
+                    type: boolean
+                    const: true
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /api/password-reset-attempts:
+    post:
+      tags: [users]
+      operationId: createPasswordResetAttempt
+      summary: Request a neutral password-reset attempt.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        "202":
+          description: Neutral accepted response for registered and unregistered emails.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerificationState"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/password-reset-attempts/{attemptId}/verify:
+    post:
+      tags: [users]
+      operationId: verifyPasswordResetAttempt
+      summary: Verify a password-reset email code.
+      parameters:
+        - name: attemptId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerificationCodeRequest"
+      responses:
+        "200":
+          description: Restricted reset grant created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [resetGrant, expiresIn]
+                properties:
+                  resetGrant:
+                    type: string
+                  expiresIn:
+                    type: integer
+                    const: 600
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /api/password-resets:
+    post:
+      tags: [users]
+      operationId: createPasswordReset
+      summary: Set a new password using a restricted reset grant.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [resetGrant, password, confirmPassword]
+              properties:
+                resetGrant:
+                  type: string
+                password:
+                  type: string
+                  minLength: 8
+                  maxLength: 128
+                confirmPassword:
+                  type: string
+                  minLength: 8
+                  maxLength: 128
+      responses:
+        "200":
+          description: Password changed and existing Sessions revoked.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reset]
+                properties:
+                  reset:
+                    type: boolean
+                    const: true
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
   /api/sessions:
     post:
       tags:
@@ -193,6 +356,12 @@ paths:
                       id: user_000000000000000000000000
                       name: Ada Lovelace
                       email: ada@example.com
+        "202":
+          description: Credentials accepted but registration email verification is required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerificationState"
         "400":
           $ref: "#/components/responses/InvalidRequest"
         "401":
@@ -951,6 +1120,14 @@ components:
       scheme: bearer
       description: Opaque independently revocable CLI Session credential.
   parameters:
+    VerificationId:
+      name: verificationId
+      in: path
+      required: true
+      description: Opaque email verification identifier.
+      schema:
+        type: string
+        minLength: 1
     CliVersion:
       name: ShareSlices-CLI-Version
       in: header
@@ -1372,9 +1549,8 @@ components:
                   requestId: req_000000000000000000000000
     RateLimited:
       description: >
-        Reserved. The request was rejected because too many attempts were
-        made. Rate limiting is not implemented yet; this response is
-        documented for forward compatibility and excluded from contract tests.
+        The request was rejected because the protected operation exceeded a
+        server-owned delivery or attempt limit.
       headers:
         X-Request-Id:
           $ref: "#/components/headers/RequestId"
@@ -1408,6 +1584,35 @@ components:
                   message: Internal server error.
                   requestId: req_000000000000000000000000
   schemas:
+    VerificationState:
+      type: object
+      additionalProperties: false
+      required: [verification]
+      properties:
+        verification:
+          type: object
+          additionalProperties: false
+          required: [id, destination, expiresIn, resendAvailableIn]
+          properties:
+            id:
+              type: string
+            destination:
+              type: string
+              description: Masked email destination.
+            expiresIn:
+              type: integer
+              const: 600
+            resendAvailableIn:
+              type: integer
+              minimum: 0
+    VerificationCodeRequest:
+      type: object
+      additionalProperties: false
+      required: [code]
+      properties:
+        code:
+          type: string
+          pattern: "^[0-9 ]{6,7}$"
     CreateCliAuthorizationRequest:
       type: object
       additionalProperties: false

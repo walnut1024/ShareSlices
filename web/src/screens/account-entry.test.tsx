@@ -9,7 +9,7 @@ describe("account entry screens", () => {
     window.history.replaceState(null, "", "/?view=register");
   });
 
-  it("shows dedicated register form without deferred actions", () => {
+  it("shows the focused register form", () => {
     render(<App />);
 
     expect(screen.getByRole("main").querySelector('[data-slot="card"]')).toBeInTheDocument();
@@ -21,6 +21,86 @@ describe("account entry screens", () => {
     expect(screen.getByLabelText("Password")).toBeInTheDocument();
     expect(screen.queryByText(new RegExp(["password", "reset"].join(" "), "i"))).not.toBeInTheDocument();
     expect(screen.queryByText(new RegExp(["goo", "gle"].join(""), "i"))).not.toBeInTheDocument();
+  });
+
+  it("enters and completes registration email verification", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith("/verify")) {
+        return new Response(JSON.stringify({ verified: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      return new Response(JSON.stringify({
+        verification: { id: "verification-1", destination: "a***@example.com", expiresIn: 600, resendAvailableIn: 60 }
+      }), { status: 202, headers: { "content-type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.type(screen.getByLabelText("Name"), "Ada");
+    await user.type(screen.getByLabelText("Email"), "ada@example.com");
+    await user.type(screen.getByLabelText("Password"), "password123");
+    await user.click(screen.getByRole("button", { name: "Create account" }));
+
+    expect(await screen.findByRole("heading", { name: "Check your email" })).toBeInTheDocument();
+    expect(screen.getByText(/a\*\*\*@example.com/)).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Verification code"), "123 456");
+    await user.click(screen.getByRole("button", { name: "Verify email" }));
+    expect(await screen.findByRole("heading", { name: "Email verified" })).toBeInTheDocument();
+  });
+
+  it("opens the neutral password-reset code state", async () => {
+    window.history.replaceState(null, "", "/?view=reset");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      verification: { id: "reset-1", destination: "u***@example.com", expiresIn: 600, resendAvailableIn: 60 }
+    }), { status: 202, headers: { "content-type": "application/json" } })));
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.type(screen.getByLabelText("Email"), "unknown@example.com");
+    await user.click(screen.getByRole("button", { name: "Send verification code" }));
+
+    expect(await screen.findByRole("heading", { name: "Check your email" })).toBeInTheDocument();
+    expect(screen.getByText(/u\*\*\*@example.com/)).toBeInTheDocument();
+  });
+
+  it("completes password reset and returns to login", async () => {
+    window.history.replaceState(null, "", "/?view=reset");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith("/verify")) {
+        return new Response(JSON.stringify({ resetGrant: "grant-1", expiresIn: 600 }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (path === "/api/password-resets") {
+        return new Response(JSON.stringify({ reset: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      return new Response(JSON.stringify({
+        verification: { id: "reset-1", destination: "a***@example.com", expiresIn: 600, resendAvailableIn: 60 }
+      }), { status: 202, headers: { "content-type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.type(screen.getByLabelText("Email"), "ada@example.com");
+    await user.click(screen.getByRole("button", { name: "Send verification code" }));
+    await user.type(await screen.findByLabelText("Verification code"), "123456");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.type(await screen.findByLabelText("New password"), "new-password");
+    await user.type(screen.getByLabelText("Confirm new password"), "new-password");
+    await user.click(screen.getByRole("button", { name: "Reset password" }));
+
+    expect(await screen.findByRole("heading", { name: "Password reset" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Log in" })).toHaveAttribute("href", "/?view=login");
   });
 
   it("shows field feedback for invalid registration input", async () => {
@@ -87,7 +167,7 @@ describe("account entry screens", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    expect(screen.queryByText(/forgot/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Forgot password?")).toBeInTheDocument();
     expect(screen.getByText("Bring your team’s best thinking together and keep sharing as it evolves.")).toBeInTheDocument();
     await user.type(screen.getByLabelText("Email"), "unknown@example.com");
     await user.type(screen.getByLabelText("Password"), "wrong password");

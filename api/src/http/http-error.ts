@@ -16,6 +16,10 @@ export type ErrorCode =
   | "invalid_request"
   | "email_already_registered"
   | "invalid_login"
+  | "verification_required"
+  | "invalid_verification"
+  | "email_unavailable"
+  | "invalid_reset_grant"
   | "unauthenticated"
   | "forbidden"
   | "artifact_not_found"
@@ -40,6 +44,10 @@ const messages: Record<ErrorCode, string> = {
   invalid_request: "Invalid request.",
   email_already_registered: "An account already exists for this email.",
   invalid_login: "Email or password is incorrect.",
+  verification_required: "Verify your email to continue.",
+  invalid_verification: "The verification code is invalid or expired.",
+  email_unavailable: "Email is temporarily unavailable. Try again later.",
+  invalid_reset_grant: "The password reset is invalid or expired.",
   unauthenticated: "Sign in to continue.",
   forbidden: "Request origin is not allowed.",
   artifact_not_found: "Artifact not found.",
