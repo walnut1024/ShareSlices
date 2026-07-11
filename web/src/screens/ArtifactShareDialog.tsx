@@ -90,7 +90,7 @@ export function ArtifactShareDialog({
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[440px]" showCloseButton={!pending}>
+      <DialogContent className="min-w-0 sm:max-w-[440px]" showCloseButton={!pending}>
         <DialogHeader>
           <DialogTitle>{published ? "Manage share" : "Share artifact"}</DialogTitle>
           <DialogDescription className="flex items-center gap-1.5">
@@ -99,7 +99,7 @@ export function ArtifactShareDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex gap-2">
+        <div className="flex min-w-0 gap-2">
           <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border bg-muted/50 px-2.5">
             <Link2 aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="truncate font-mono text-xs text-foreground">{artifact.shareLink.url}</span>

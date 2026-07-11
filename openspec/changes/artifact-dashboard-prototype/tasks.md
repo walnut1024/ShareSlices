@@ -18,4 +18,4 @@
 ## 4. Verification
 
 - [x] 4.1 Run focused tests, typechecks, and builds.
-- [ ] 4.2 Verify the dashboard at 1440×900 and run `mise run check`.
+- [x] 4.2 Verify the dashboard at 1440×900 and run `mise run check`.
