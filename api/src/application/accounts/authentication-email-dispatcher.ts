@@ -115,7 +115,8 @@ export async function dispatchOneAuthenticationEmail(workerId: string = randomUU
 
 export async function reconcileExpiredAuthenticationEmailState(): Promise<void> {
   await pool.query(
-    "update password_reset_grant set claimed_at = null where claimed_at < now() - interval '1 minute' and consumed_at is null"
+    `update password_reset_grant set claimed_at = null, claim_token = null
+     where claimed_at < now() - interval '1 minute' and consumed_at is null`
   );
   await pool.query(
     `update password_reset_grant set encrypted_code = '', claimed_at = null

@@ -184,6 +184,112 @@ cases:
       json_paths:
         error.code: invalid_reset_grant
 
+  - id: register_verification_required_contract
+    server: failure
+    request:
+      method: POST
+      path: /api/users
+      json:
+        name: Contract
+        email: contract-success@example.com
+        password: password123
+    expect:
+      status: 202
+      no_set_cookie: true
+      json_paths:
+        verification.id: contract-registration
+
+  - id: resend_registration_verification_contract
+    server: failure
+    request:
+      method: POST
+      path: /api/email-verifications/contract-registration/deliveries
+      json: {}
+    expect:
+      status: 202
+      json_paths:
+        verification.id: contract-registration
+
+  - id: verify_registration_contract
+    server: failure
+    request:
+      method: POST
+      path: /api/email-verifications/contract-registration/verify
+      json:
+        code: "123456"
+    expect:
+      status: 200
+      no_set_cookie: true
+      json:
+        verified: true
+
+  - id: resend_registration_rate_limited_contract
+    server: failure
+    request:
+      method: POST
+      path: /api/email-verifications/contract-registration/deliveries
+      headers:
+        X-Contract-Fixture: rate-limited
+      json: {}
+    expect:
+      status: 429
+      json_paths:
+        error.code: rate_limited
+
+  - id: resend_registration_email_unavailable_contract
+    server: failure
+    request:
+      method: POST
+      path: /api/email-verifications/contract-registration/deliveries
+      headers:
+        X-Contract-Fixture: email-unavailable
+      json: {}
+    expect:
+      status: 500
+      json_paths:
+        error.code: email_unavailable
+
+  - id: request_password_reset_contract
+    server: failure
+    request:
+      method: POST
+      path: /api/password-reset-attempts
+      json:
+        email: contract-success@example.com
+    expect:
+      status: 202
+      no_set_cookie: true
+      json_paths:
+        verification.id: contract-reset
+
+  - id: verify_password_reset_contract
+    server: failure
+    request:
+      method: POST
+      path: /api/password-reset-attempts/contract-reset/verify
+      json:
+        code: "123456"
+    expect:
+      status: 200
+      no_set_cookie: true
+      json_paths:
+        resetGrant: contract-grant
+
+  - id: complete_password_reset_contract
+    server: failure
+    request:
+      method: POST
+      path: /api/password-resets
+      json:
+        resetGrant: contract-grant
+        password: new-password
+        confirmPassword: new-password
+    expect:
+      status: 200
+      no_set_cookie: true
+      json:
+        reset: true
+
   - id: login_wrong_password
     request:
       method: POST

@@ -23,10 +23,12 @@ create table if not exists password_reset_grant (
   created_at timestamptz not null default now(),
   expires_at timestamptz not null,
   claimed_at timestamptz,
+  claim_token text,
   consumed_at timestamptz
 );
 
 alter table password_reset_grant add column if not exists claimed_at timestamptz;
+alter table password_reset_grant add column if not exists claim_token text;
 
 create unique index if not exists password_reset_grant_attempt_idx
   on password_reset_grant(attempt_id);

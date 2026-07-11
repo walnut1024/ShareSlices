@@ -169,8 +169,10 @@ export async function createPasswordResetGrant(attemptId: string, encryptedCode:
 export async function claimPasswordResetGrant(id: string): Promise<{
   email: string;
   encryptedCode: string;
+  claimToken: string;
 } | null> {
   const client = await pool.connect();
+  const claimToken = randomUUID();
   try {
     await client.query("begin");
     const result = await client.query<{ email: string; encrypted_code: string }>(
@@ -188,9 +190,12 @@ export async function claimPasswordResetGrant(id: string): Promise<{
       await client.query("rollback");
       return null;
     }
-    await client.query("update password_reset_grant set claimed_at = now() where id = $1", [id]);
+    await client.query(
+      "update password_reset_grant set claimed_at = now(), claim_token = $2 where id = $1",
+      [id, claimToken]
+    );
     await client.query("commit");
-    return { email: grant.email, encryptedCode: grant.encrypted_code };
+    return { email: grant.email, encryptedCode: grant.encrypted_code, claimToken };
   } catch (error) {
     await client.query("rollback");
     throw error;
@@ -199,19 +204,20 @@ export async function claimPasswordResetGrant(id: string): Promise<{
   }
 }
 
-export async function completePasswordResetGrant(id: string): Promise<void> {
+export async function completePasswordResetGrant(id: string, claimToken: string): Promise<void> {
   await pool.query(
     `update password_reset_grant
-     set consumed_at = now(), claimed_at = null, encrypted_code = ''
-     where id = $1 and claimed_at is not null and consumed_at is null`,
-    [id]
+     set consumed_at = now(), claimed_at = null, claim_token = null, encrypted_code = ''
+     where id = $1 and claim_token = $2 and claimed_at is not null and consumed_at is null`,
+    [id, claimToken]
   );
 }
 
-export async function releasePasswordResetGrant(id: string): Promise<void> {
+export async function releasePasswordResetGrant(id: string, claimToken: string): Promise<void> {
   await pool.query(
-    "update password_reset_grant set claimed_at = null where id = $1 and consumed_at is null",
-    [id]
+    `update password_reset_grant set claimed_at = null, claim_token = null
+     where id = $1 and claim_token = $2 and consumed_at is null`,
+    [id, claimToken]
   );
 }
 

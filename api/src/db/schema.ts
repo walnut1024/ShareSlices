@@ -130,6 +130,7 @@ export const passwordResetGrant = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    claimToken: text("claim_token"),
     consumedAt: timestamp("consumed_at", { withTimezone: true })
   },
   (table) => [uniqueIndex("password_reset_grant_attempt_idx").on(table.attemptId)]

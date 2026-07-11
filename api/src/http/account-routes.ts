@@ -359,12 +359,12 @@ export function accountRoutes(overrides: Partial<AccountRouteDependencies> = {})
         body: { email: grant.email, otp: payload.otp ?? "", password: body.password },
         headers: authHeaders(c)
       });
-      await dependencies.completePasswordResetGrant(body.resetGrant);
+      await dependencies.completePasswordResetGrant(body.resetGrant, grant.claimToken);
       c.header("Cache-Control", "no-store");
       c.header("X-Request-Id", requestId(c));
       return c.json({ reset: true });
     } catch (error) {
-      await dependencies.releasePasswordResetGrant(body.resetGrant);
+      await dependencies.releasePasswordResetGrant(body.resetGrant, grant.claimToken);
       return verificationError(c, error);
     }
   });

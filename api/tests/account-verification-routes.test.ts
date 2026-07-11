@@ -168,7 +168,8 @@ describe("account verification routes", () => {
       encryptedCode: encryptAuthenticationEmail(
         { email: "ada@example.com", otp: "123456", type: "forget-password" },
         "test-email-encryption-key-at-least-32-bytes"
-      )
+      ),
+      claimToken: "claim-1"
     });
     const app = buildTestApp({ account });
 
@@ -190,7 +191,7 @@ describe("account verification routes", () => {
     expect(account.authApi.resetPasswordEmailOTP).toHaveBeenCalledWith(
       expect.objectContaining({ body: { email: "ada@example.com", otp: "123456", password: "new-password" } })
     );
-    expect(account.completePasswordResetGrant).toHaveBeenCalledWith("grant-1");
+    expect(account.completePasswordResetGrant).toHaveBeenCalledWith("grant-1", "claim-1");
     expect(account.releasePasswordResetGrant).not.toHaveBeenCalled();
     expect(completion.headers.get("set-cookie")).toBeNull();
   });
