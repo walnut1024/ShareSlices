@@ -18,6 +18,7 @@ const validEnv = {
   WORKER_JOB_LEASE_SECONDS: "30",
   WORKER_JOB_HEARTBEAT_SECONDS: "10",
   WORKER_JOB_MAX_ATTEMPTS: "3",
+  MINIMUM_CLI_VERSION: "0.1.0",
   PORT: "7456",
   NODE_ENV: "test"
 };
@@ -31,8 +32,13 @@ describe("API environment", () => {
       WORKER_JOB_POLL_INTERVAL_MS: 1000,
       WORKER_JOB_LEASE_SECONDS: 30,
       WORKER_JOB_HEARTBEAT_SECONDS: 10,
-      WORKER_JOB_MAX_ATTEMPTS: 3
+      WORKER_JOB_MAX_ATTEMPTS: 3,
+      MINIMUM_CLI_VERSION: "0.1.0"
     });
+  });
+
+  it("requires a semantic minimum CLI version", () => {
+    expect(() => readEnv({ ...validEnv, MINIMUM_CLI_VERSION: "latest" })).toThrow();
   });
 
   it("rejects an invalid Viewer address", () => {

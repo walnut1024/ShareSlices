@@ -9,17 +9,26 @@ Engineering rules that constrain all designs live in `AGENTS.md`. Product behavi
 
 ## Top-level seams
 
-Status: current for the 0.0.1 runtime seams; CLI and Skill entry remain target.
+Status: current for the 0.0.1 runtime seams and CLI authentication; Skill entry remains target.
 
 | Seam | Status | Interface owner | Production Adapter | Test Adapter |
 | --- | --- | --- | --- | --- |
 | User and Artifact requests into API | current | `api/src/http/` | Hono route handlers | HTTP and YAML/Python contract tests |
 | Hono HTTP into business behavior | current | `api/src/application/` | Hono handler mapping | Direct Module tests |
-| Authenticated request into user account | current | `api/src/http/account-routes.ts` | Better Auth Adapter | Fake auth Adapter |
+| Authenticated request into user account | current | `api/src/http/` | Better Auth Cookie, Device Authorization, and Bearer Adapters | Fake auth Adapter plus YAML/Python contracts |
 | Application data persistence | current | `api/src/application/*` | Drizzle Adapter | Local PostgreSQL or in-memory Adapter |
 | Raw and processed object access | current | Application and worker Modules | S3-compatible Adapter | In-memory object Adapter |
 | Processing job handoff | current | `db/migrations/` schema plus job Interfaces | Drizzle enqueue Adapter and SQLx claim Adapter | Local PostgreSQL and fake Adapters |
-| Agent entry | target | `cli/` command Interface | Skill shell Adapter | CLI fixture Adapter |
+| Agent entry | current for authentication | `cli/` command Interface | Rust CLI with operating-system credential store | In-memory credential and fake HTTP Adapters |
+
+## CLI authentication Modules
+
+Status: current
+
+- `cli/src/auth_commands.rs` owns the `auth login`, `auth status`, and `auth logout` command behavior behind `AuthApi` and `CredentialStore` Interfaces; `cli/src/lib.rs` is the public facade. The production Adapters use the checked HTTP API and the operating-system credential store; tests use fake HTTP and in-memory credentials.
+- `api/src/http/cli-auth-routes.ts` is the product-owned HTTP Adapter over Better Auth Device Authorization and Bearer Sessions. It validates the fixed CLI client and transient version/operating-system compatibility metadata without persisting device identity.
+- `web/src/screens/DeviceAuthorizationScreen.tsx` owns the Cookie-authenticated `/device?user_code=...` approval flow. It preserves the verification code through login, exposes no account switch, and replaces approval with the terminal-return success state.
+- JSON management routes accept Cookie or Bearer Sessions through the existing `getSession` seam. Preview content remains Cookie-only and Viewer content remains public according to Publication state.
 
 ## Hono runtime Modules
 

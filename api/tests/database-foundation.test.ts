@@ -16,7 +16,8 @@ import {
   artifactUploadPolicy,
   artifactUploadPolicyFormat,
   artifactUploadSession,
-  artifactVersion
+  artifactVersion,
+  deviceCode
 } from "../src/db/schema.js";
 
 const { Client } = pg;
@@ -71,6 +72,36 @@ describe("artifact database foundation", () => {
 
   beforeEach(async () => {
     await client.query('truncate artifact, "user" cascade');
+  });
+
+  it("defines transient device authorization without client device metadata", async () => {
+    const config = getTableConfig(deviceCode);
+    expect(config.name).toBe("device_code");
+    expect(config.columns.map((column) => column.name)).toEqual(
+      expect.arrayContaining([
+        "device_code",
+        "user_code",
+        "user_id",
+        "expires_at",
+        "status",
+        "last_polled_at",
+        "polling_interval",
+        "client_id",
+        "scope"
+      ])
+    );
+    expect(config.columns.map((column) => column.name)).not.toEqual(
+      expect.arrayContaining(["client_version", "client_os", "device_name"])
+    );
+
+    const columns = await client.query(
+      `select column_name from information_schema.columns
+       where table_schema = $1 and table_name = 'device_code'`,
+      [schemaName]
+    );
+    expect(columns.rows.map((row) => row.column_name)).toEqual(
+      expect.arrayContaining(["device_code", "user_code", "expires_at", "status"])
+    );
   });
 
   it("seeds the exact active upload policy defaults", async () => {

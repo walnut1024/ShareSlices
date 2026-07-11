@@ -4,6 +4,11 @@ import { cors } from "hono/cors";
 import { env } from "../env.js";
 import { apiLogger, exceptionAttributes, parseTraceParent } from "../logging/index.js";
 import { accountRoutes, type AccountRouteDependencies } from "./account-routes.js";
+import {
+  checkCliCompatibility,
+  cliAuthRoutes,
+  type CliAuthDependencies
+} from "./cli-auth-routes.js";
 import { artifactRoutes, type ArtifactRouteDependencies } from "./artifact-routes.js";
 import { errorJson, requestId } from "./http-error.js";
 import {
@@ -14,6 +19,7 @@ import { systemRoutes, type SystemRouteDependencies } from "./system-routes.js";
 
 export type AppDependencies = {
   account?: Partial<AccountRouteDependencies>;
+  cliAuth?: Partial<CliAuthDependencies>;
   artifact?: Partial<ArtifactRouteDependencies>;
   publicationViewer?: Partial<PublicationViewerRouteDependencies>;
   system?: Partial<SystemRouteDependencies>;
@@ -50,8 +56,17 @@ export function buildApp(dependencies: AppDependencies = {}): Hono {
     })
   );
 
+  app.use("/api/*", async (c, next) => {
+    if (c.req.header("authorization")?.toLowerCase().startsWith("bearer ")) {
+      const incompatible = checkCliCompatibility(c, dependencies.cliAuth?.minimumCliVersion ?? env.MINIMUM_CLI_VERSION);
+      if (incompatible) return incompatible;
+    }
+    await next();
+  });
+
   app.route("/", systemRoutes(dependencies.system));
   app.route("/", accountRoutes(dependencies.account));
+  app.route("/", cliAuthRoutes(dependencies.cliAuth));
   app.route("/", artifactRoutes(dependencies.artifact));
   app.route("/", publicationViewerRoutes(dependencies.publicationViewer));
 

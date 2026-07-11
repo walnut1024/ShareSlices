@@ -27,6 +27,12 @@ export type ErrorCode =
   | "idempotency_conflict"
   | "invalid_artifact_state"
   | "archive_too_large"
+  | "cli_upgrade_required"
+  | "authorization_pending"
+  | "slow_down"
+  | "expired_token"
+  | "access_denied"
+  | "invalid_grant"
   | "rate_limited"
   | "internal_error";
 
@@ -45,6 +51,12 @@ const messages: Record<ErrorCode, string> = {
   idempotency_conflict: "Idempotency key was used with different input.",
   invalid_artifact_state: "Artifact state does not allow this operation.",
   archive_too_large: "ZIP exceeds the upload limit.",
+  cli_upgrade_required: "Update ShareSlices CLI to continue.",
+  authorization_pending: "Authorization is still pending.",
+  slow_down: "Authorization polling is too frequent.",
+  expired_token: "Authorization has expired.",
+  access_denied: "Authorization was denied.",
+  invalid_grant: "Authorization is no longer valid.",
   rate_limited: "Too many attempts. Try again later.",
   internal_error: "Internal server error."
 };
@@ -63,7 +75,7 @@ export function requestId(c: Context): string {
 
 export function errorJson(
   c: Context,
-  status: 400 | 401 | 403 | 404 | 409 | 413 | 429 | 500,
+  status: 400 | 401 | 403 | 404 | 409 | 413 | 426 | 429 | 500,
   code: ErrorCode,
   fields?: FieldError[],
   details?: ErrorDetails

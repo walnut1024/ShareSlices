@@ -14,4 +14,5 @@ process.env.WORKER_JOB_POLL_INTERVAL_MS ??= "1000";
 process.env.WORKER_JOB_LEASE_SECONDS ??= "30";
 process.env.WORKER_JOB_HEARTBEAT_SECONDS ??= "10";
 process.env.WORKER_JOB_MAX_ATTEMPTS ??= "3";
+process.env.MINIMUM_CLI_VERSION ??= "0.1.0";
 process.env.NODE_ENV ??= "test";

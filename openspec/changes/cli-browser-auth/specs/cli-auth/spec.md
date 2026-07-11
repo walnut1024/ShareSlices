@@ -16,6 +16,25 @@ The system SHALL let an unauthenticated ShareSlices CLI start a short-lived devi
 - **WHEN** a caller requests device authorization with an unrecognized client identifier
 - **THEN** the server rejects the request without creating a pending authorization
 
+### Requirement: Negotiate CLI compatibility
+
+The ShareSlices CLI MUST send its semantic version and a bounded operating-system identifier on its API requests. The server SHALL use these values at the HTTP seam for compatibility decisions and safe diagnostics and MUST NOT persist them as user, Session, authorization, or device data. A missing, malformed, or older-than-supported CLI version on a CLI request MUST return `426 Upgrade Required` with code `cli_upgrade_required`, the minimum supported version, and an actionable upgrade instruction.
+
+#### Scenario: Supported CLI starts authorization
+
+- **WHEN** a CLI at or above the minimum supported version starts authorization with a recognized operating-system identifier
+- **THEN** the compatibility check passes and authorization creation continues without persisting the client metadata
+
+#### Scenario: Old CLI must upgrade
+
+- **WHEN** a CLI below the minimum supported version starts authorization or makes an authenticated management request
+- **THEN** the server returns `426 cli_upgrade_required` with the current and minimum versions and performs no authorization creation or management mutation
+
+#### Scenario: Invalid compatibility metadata
+
+- **WHEN** a CLI request omits the required version or sends malformed version or operating-system metadata
+- **THEN** the server rejects the request without creating product state or persisting the metadata
+
 ### Requirement: Open or explain the browser step
 
 `shareslices auth login` SHALL print the verification URL and human-readable user code before attempting to open the code-complete URL in the default browser. Failure to open the browser MUST NOT cancel polling or hide the manual instructions.
@@ -32,12 +51,17 @@ The system SHALL let an unauthenticated ShareSlices CLI start a short-lived devi
 
 ### Requirement: Authenticate and explicitly decide in the Web UI
 
-The verification page SHALL require a valid browser Cookie Session, preserve the pending destination through email/password login, and show the signed-in account plus **ShareSlices CLI** before allowing approval or denial. Opening the page or entering a user code MUST NOT approve access without an explicit user action.
+The verification page SHALL require a valid browser Cookie Session, preserve `/device?user_code=...` through email/password login, keep the verification code visible for comparison with the terminal, and show the signed-in account plus **ShareSlices CLI** before allowing approval or denial. The authorization flow MUST NOT offer account switching. Opening the page or entering a user code MUST NOT approve access without an explicit user action.
 
 #### Scenario: Signed-out user follows the verification URL
 
 - **WHEN** a signed-out user opens a valid verification URL
 - **THEN** the Web UI sends the user through login and returns to the same pending authorization after successful login
+
+#### Scenario: Compare the code before login
+
+- **WHEN** a signed-out user opens a valid code-complete verification URL
+- **THEN** the login screen identifies the ShareSlices CLI request, prominently shows the verification code, and asks the user to compare it with the terminal
 
 #### Scenario: User approves the CLI
 
@@ -53,6 +77,20 @@ The verification page SHALL require a valid browser Cookie Session, preserve the
 
 - **WHEN** an authorization already claimed by one user is submitted by a different signed-in user
 - **THEN** the server rejects the decision without changing the claimed authorization
+
+#### Scenario: Authorization offers no account switch
+
+- **WHEN** a signed-in user reviews the account that will authorize the CLI
+- **THEN** the page shows that account without a switch-account action or device, CLI-version, Scope, Session-ID, token-lifetime, refresh, or credential-store details
+
+### Requirement: Confirm browser authorization completion
+
+After approval, the Web UI SHALL replace the review state on the same `/device?user_code=...` route with a success state that identifies the authorized account, directs the user back to the terminal, and says the window can be closed. The success state MUST NOT display the Bearer credential, Session ID, device information, CLI version, Scope, expiry, refresh behavior, or credential-store implementation.
+
+#### Scenario: Approval completes in the browser
+
+- **WHEN** the signed-in user approves a valid pending CLI authorization
+- **THEN** the same route shows **CLI authorized**, identifies the account, and directs the user to return to the terminal and close the window
 
 ### Requirement: Poll within server limits
 
@@ -148,6 +186,11 @@ JSON management API routes that resolve the current user SHALL accept either the
 
 - **WHEN** credential validation fails because of a network or server error
 - **THEN** the CLI reports that failure and does not claim that the user is signed out
+
+#### Scenario: Session is no longer valid
+
+- **WHEN** status confirms that the stored CLI Session is expired or revoked
+- **THEN** the CLI reports that the user must run `shareslices auth login` again without showing a Session ID, Scope, credential-store path, fixed lifetime, or refresh state
 
 ### Requirement: Avoid duplicate interactive login
 

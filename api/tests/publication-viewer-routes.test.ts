@@ -73,6 +73,23 @@ describe("Publication, Preview, and Viewer routes", () => {
     expect(deps.service.preview).not.toHaveBeenCalled();
   });
 
+  it("keeps Preview cookie-only when a valid Bearer Session is present", async () => {
+    const deps = await dependencies();
+    const app = buildApp({ publicationViewer: deps } as never);
+
+    const response = await app.request("/api/versions/version-1/content/", {
+      headers: {
+        authorization: "Bearer cli-session",
+        "ShareSlices-CLI-Version": "0.1.0",
+        "ShareSlices-CLI-OS": "macos"
+      }
+    });
+
+    expect(response.status).toBe(401);
+    expect(deps.authApi.getSession).not.toHaveBeenCalled();
+    expect(deps.service.preview).not.toHaveBeenCalled();
+  });
+
   it("streams Preview entry and relative assets with no-store", async () => {
     const deps = await dependencies();
     const app = buildApp({ publicationViewer: deps } as never);

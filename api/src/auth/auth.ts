@@ -1,5 +1,6 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { bearer, deviceAuthorization } from "better-auth/plugins";
 import { db } from "../db/client.js";
 import { env } from "../env.js";
 import * as schema from "../db/schema.js";
@@ -16,6 +17,15 @@ export const auth = betterAuth({
     enabled: true,
     autoSignIn: false
   },
+  plugins: [
+    deviceAuthorization({
+      verificationUri: `${env.WEB_ORIGIN}/device`,
+      expiresIn: "10m",
+      interval: "5s",
+      validateClient: (clientId) => clientId === "shareslices-cli"
+    }),
+    bearer()
+  ],
   advanced: {
     cookies: {
       session_token: {

@@ -26,6 +26,7 @@ const defaults = {
   WORKER_JOB_LEASE_SECONDS: "30",
   WORKER_JOB_HEARTBEAT_SECONDS: "10",
   WORKER_JOB_MAX_ATTEMPTS: "3",
+  MINIMUM_CLI_VERSION: "0.1.0",
   PORT: "7456",
   NODE_ENV: "development"
 };

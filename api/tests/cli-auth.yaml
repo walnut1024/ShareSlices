@@ -1,0 +1,222 @@
+base_url: "http://127.0.0.1:7456"
+cli_headers:
+  ShareSlices-CLI-Version: "0.1.0"
+  ShareSlices-CLI-OS: macos
+cases:
+  - id: old_cli_must_upgrade
+    request:
+      method: POST
+      path: /api/cli-authorizations
+      headers:
+        ShareSlices-CLI-Version: "0.0.9"
+        ShareSlices-CLI-OS: macos
+      json:
+        clientId: shareslices-cli
+    expect:
+      status: 426
+      json_paths:
+        error.code: cli_upgrade_required
+        error.details.minimumVersion: "0.1.0"
+
+  - id: invalid_cli_os
+    request:
+      method: POST
+      path: /api/cli-authorizations
+      headers:
+        ShareSlices-CLI-Version: "0.1.0"
+        ShareSlices-CLI-OS: amiga
+      json:
+        clientId: shareslices-cli
+    expect:
+      status: 426
+      json_paths:
+        error.code: cli_upgrade_required
+
+  - id: register_browser_user
+    request:
+      method: POST
+      path: /api/users
+      json:
+        name: CLI Ada
+        email: "cli-ada-{run_id}@example.com"
+        password: correct horse battery staple
+    expect:
+      status: 201
+
+  - id: login_browser_user
+    request:
+      method: POST
+      path: /api/sessions
+      client: browser
+      json:
+        email: "cli-ada-{run_id}@example.com"
+        password: correct horse battery staple
+    expect:
+      status: 201
+
+  - id: start_cli_authorization
+    request:
+      method: POST
+      path: /api/cli-authorizations
+      cli_headers: true
+      json:
+        clientId: shareslices-cli
+    expect:
+      status: 201
+      headers:
+        Cache-Control: no-store
+    save:
+      device_code: authorization.deviceCode
+      user_code: authorization.userCode
+
+  - id: claim_requires_browser_session
+    request:
+      method: GET
+      path: "/api/cli-authorizations/{user_code}"
+    expect:
+      status: 401
+      json_paths:
+        error.code: unauthenticated
+
+  - id: claim_cli_authorization
+    request:
+      method: GET
+      path: "/api/cli-authorizations/{user_code}"
+      client: browser
+    expect:
+      status: 200
+      json_paths:
+        authorization.status: pending
+
+  - id: approve_cli_authorization
+    request:
+      method: POST
+      path: "/api/cli-authorizations/{user_code}:approve"
+      client: browser
+    expect:
+      status: 204
+
+  - id: exchange_cli_authorization
+    request:
+      method: POST
+      path: /api/cli-sessions
+      cli_headers: true
+      json:
+        clientId: shareslices-cli
+        deviceCode: "{device_code}"
+    expect:
+      status: 201
+      headers:
+        Cache-Control: no-store
+    save:
+      bearer: session.accessToken
+
+  - id: exchange_is_one_time
+    request:
+      method: POST
+      path: /api/cli-sessions
+      cli_headers: true
+      json:
+        clientId: shareslices-cli
+        deviceCode: "{device_code}"
+    expect:
+      status: 400
+      json_paths:
+        error.code: invalid_grant
+
+  - id: bearer_reads_current_user
+    request:
+      method: GET
+      path: /api/users/me
+      cli_headers: true
+      bearer: bearer
+    expect:
+      status: 200
+      json_paths:
+        user.name: CLI Ada
+
+  - id: old_bearer_cannot_use_management_api
+    request:
+      method: GET
+      path: /api/users/me
+      headers:
+        ShareSlices-CLI-Version: "0.0.9"
+        ShareSlices-CLI-OS: macos
+      bearer: bearer
+    expect:
+      status: 426
+      json_paths:
+        error.code: cli_upgrade_required
+
+  - id: bearer_cannot_preview
+    request:
+      method: GET
+      path: /api/versions/not-a-version/content/
+      cli_headers: true
+      bearer: bearer
+    expect:
+      status: 401
+      json_paths:
+        error.code: unauthenticated
+
+  - id: sign_out_cli_session
+    request:
+      method: DELETE
+      path: /api/cli-sessions/current
+      cli_headers: true
+      bearer: bearer
+    expect:
+      status: 204
+
+  - id: revoked_bearer_is_unauthenticated
+    request:
+      method: GET
+      path: /api/users/me
+      cli_headers: true
+      bearer: bearer
+    expect:
+      status: 401
+      json_paths:
+        error.code: unauthenticated
+
+  - id: start_denied_authorization
+    request:
+      method: POST
+      path: /api/cli-authorizations
+      cli_headers: true
+      json:
+        clientId: shareslices-cli
+    expect:
+      status: 201
+    save:
+      denied_device_code: authorization.deviceCode
+      denied_user_code: authorization.userCode
+
+  - id: claim_denied_authorization
+    request:
+      method: GET
+      path: "/api/cli-authorizations/{denied_user_code}"
+      client: browser
+    expect:
+      status: 200
+
+  - id: deny_cli_authorization
+    request:
+      method: POST
+      path: "/api/cli-authorizations/{denied_user_code}:deny"
+      client: browser
+    expect:
+      status: 204
+
+  - id: denied_authorization_has_no_session
+    request:
+      method: POST
+      path: /api/cli-sessions
+      cli_headers: true
+      json:
+        clientId: shareslices-cli
+        deviceCode: "{denied_device_code}"
+    expect:
+      status: 400
+      json_paths:
+        error.code: access_denied

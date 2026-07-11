@@ -6,9 +6,8 @@ info:
     This OpenAPI document describes the current ShareSlices HTTP API contract
     for account entry and the version 0.0.1 Artifact upload, Preview, Publish,
     and Viewer flow, including current-browser-session sign out. Password
-    recovery, email verification, additional sign-in methods, CLI integration,
-    link rotation, private sharing, and administration are outside this
-    contract.
+    recovery, email verification, additional account sign-in methods, link
+    rotation, private sharing, and administration are outside this contract.
 
     The 429 responses are reserved for a future rate limiting change and are
     not implemented; contract tests exclude them until that change ships.
@@ -26,6 +25,8 @@ tags:
     description: ShareSlices user account entry operations.
   - name: sessions
     description: Browser signed-in state operations.
+  - name: cli-auth
+    description: Interactive CLI browser authorization and CLI Session operations.
   - name: artifacts
     description: Signed-in Artifact management operations.
   - name: upload-policies
@@ -232,6 +233,149 @@ paths:
           $ref: "#/components/responses/CurrentSessionForbidden"
         "500":
           $ref: "#/components/responses/CurrentSessionInternalError"
+  /api/cli-authorizations:
+    post:
+      tags:
+        - cli-auth
+      operationId: createCliAuthorization
+      summary: Start interactive browser authorization for the ShareSlices CLI.
+      parameters:
+        - $ref: "#/components/parameters/CliVersion"
+        - $ref: "#/components/parameters/CliOperatingSystem"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCliAuthorizationRequest"
+      responses:
+        "201":
+          description: Short-lived authorization created.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CliAuthorizationCreatedResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "426":
+          $ref: "#/components/responses/CliUpgradeRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/cli-authorizations/{userCode}:
+    parameters:
+      - $ref: "#/components/parameters/UserCode"
+    get:
+      tags:
+        - cli-auth
+      operationId: getCliAuthorization
+      summary: Validate and claim a pending CLI authorization.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Authorization state returned and claimed by the current user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CliAuthorizationResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/cli-authorizations/{userCode}:approve:
+    parameters:
+      - $ref: "#/components/parameters/UserCode"
+    post:
+      tags:
+        - cli-auth
+      operationId: approveCliAuthorization
+      summary: Approve a claimed CLI authorization.
+      security:
+        - sessionCookie: []
+      responses:
+        "204":
+          description: Authorization approved.
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/cli-authorizations/{userCode}:deny:
+    parameters:
+      - $ref: "#/components/parameters/UserCode"
+    post:
+      tags:
+        - cli-auth
+      operationId: denyCliAuthorization
+      summary: Deny a claimed CLI authorization.
+      security:
+        - sessionCookie: []
+      responses:
+        "204":
+          description: Authorization denied.
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/cli-sessions:
+    post:
+      tags:
+        - cli-auth
+      operationId: createCliSession
+      summary: Poll or exchange a device code for an independent CLI Session.
+      parameters:
+        - $ref: "#/components/parameters/CliVersion"
+        - $ref: "#/components/parameters/CliOperatingSystem"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCliSessionRequest"
+      responses:
+        "201":
+          description: CLI Session created. The response is never cacheable.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CliSessionCreatedResponse"
+        "400":
+          $ref: "#/components/responses/DeviceAuthorizationIncomplete"
+        "426":
+          $ref: "#/components/responses/CliUpgradeRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/cli-sessions/current:
+    delete:
+      tags:
+        - cli-auth
+      operationId: deleteCurrentCliSession
+      summary: Sign out only the calling CLI Session.
+      parameters:
+        - $ref: "#/components/parameters/CliVersion"
+        - $ref: "#/components/parameters/CliOperatingSystem"
+      security:
+        - sessionBearer: []
+      responses:
+        "204":
+          description: Current CLI Session revoked.
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "426":
+          $ref: "#/components/responses/CliUpgradeRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /api/users/me:
     get:
       tags:
@@ -243,6 +387,10 @@ paths:
         exposing authentication-library internals.
       security:
         - sessionCookie: []
+        - sessionBearer: []
+      parameters:
+        - $ref: "#/components/parameters/CliVersionWhenBearer"
+        - $ref: "#/components/parameters/CliOperatingSystemWhenBearer"
       responses:
         "200":
           description: Signed-in state is valid.
@@ -272,6 +420,10 @@ paths:
       summary: Read the active upload policy for optional preflight.
       security:
         - sessionCookie: []
+        - sessionBearer: []
+      parameters:
+        - $ref: "#/components/parameters/CliVersionWhenBearer"
+        - $ref: "#/components/parameters/CliOperatingSystemWhenBearer"
       responses:
         "200":
           description: Active upload policy returned.
@@ -294,6 +446,10 @@ paths:
       summary: List Artifacts owned by the current user.
       security:
         - sessionCookie: []
+        - sessionBearer: []
+      parameters:
+        - $ref: "#/components/parameters/CliVersionWhenBearer"
+        - $ref: "#/components/parameters/CliOperatingSystemWhenBearer"
       responses:
         "200":
           description: Owned Artifacts returned.
@@ -318,8 +474,11 @@ paths:
         Upload session, Share link, and processing job.
       security:
         - sessionCookie: []
+        - sessionBearer: []
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/CliVersionWhenBearer"
+        - $ref: "#/components/parameters/CliOperatingSystemWhenBearer"
       requestBody:
         required: true
         content:
@@ -356,6 +515,10 @@ paths:
       summary: Read one owned Artifact and its current management state.
       security:
         - sessionCookie: []
+        - sessionBearer: []
+      parameters:
+        - $ref: "#/components/parameters/CliVersionWhenBearer"
+        - $ref: "#/components/parameters/CliOperatingSystemWhenBearer"
       responses:
         "200":
           description: Owned Artifact returned.
@@ -379,6 +542,10 @@ paths:
       summary: Change an Artifact's mutable name.
       security:
         - sessionCookie: []
+        - sessionBearer: []
+      parameters:
+        - $ref: "#/components/parameters/CliVersionWhenBearer"
+        - $ref: "#/components/parameters/CliOperatingSystemWhenBearer"
       requestBody:
         required: true
         content:
@@ -410,6 +577,10 @@ paths:
       summary: Permanently delete an eligible owned Artifact.
       security:
         - sessionCookie: []
+        - sessionBearer: []
+      parameters:
+        - $ref: "#/components/parameters/CliVersionWhenBearer"
+        - $ref: "#/components/parameters/CliOperatingSystemWhenBearer"
       responses:
         "204":
           description: Artifact and associated stored content deleted.
@@ -431,6 +602,10 @@ paths:
       summary: Set or clear the stable Share link expiration.
       security:
         - sessionCookie: []
+        - sessionBearer: []
+      parameters:
+        - $ref: "#/components/parameters/CliVersionWhenBearer"
+        - $ref: "#/components/parameters/CliOperatingSystemWhenBearer"
       requestBody:
         required: true
         content:
@@ -462,8 +637,11 @@ paths:
       summary: Replace failed input before the first ready Version.
       security:
         - sessionCookie: []
+        - sessionBearer: []
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/CliVersionWhenBearer"
+        - $ref: "#/components/parameters/CliOperatingSystemWhenBearer"
       requestBody:
         required: true
         content:
@@ -502,8 +680,11 @@ paths:
       summary: Retry a recoverable failed Upload session.
       security:
         - sessionCookie: []
+        - sessionBearer: []
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/CliVersionWhenBearer"
+        - $ref: "#/components/parameters/CliOperatingSystemWhenBearer"
       responses:
         "202":
           description: Retry accepted.
@@ -562,6 +743,10 @@ paths:
       summary: Download an owned ready Version as a ZIP.
       security:
         - sessionCookie: []
+        - sessionBearer: []
+      parameters:
+        - $ref: "#/components/parameters/CliVersionWhenBearer"
+        - $ref: "#/components/parameters/CliOperatingSystemWhenBearer"
       responses:
         "200":
           description: ZIP assembled from committed Version assets.
@@ -618,8 +803,11 @@ paths:
       summary: Publish a ready Version atomically.
       security:
         - sessionCookie: []
+        - sessionBearer: []
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/CliVersionWhenBearer"
+        - $ref: "#/components/parameters/CliOperatingSystemWhenBearer"
       requestBody:
         required: true
         content:
@@ -657,6 +845,10 @@ paths:
       summary: Unpublish while retaining the active Share link.
       security:
         - sessionCookie: []
+        - sessionBearer: []
+      parameters:
+        - $ref: "#/components/parameters/CliVersionWhenBearer"
+        - $ref: "#/components/parameters/CliOperatingSystemWhenBearer"
       responses:
         "204":
           description: Artifact is unpublished; repeated deletes have the same effect.
@@ -754,7 +946,50 @@ components:
       in: cookie
       name: shareslices_session
       description: Browser session cookie established by successful email/password login.
+    sessionBearer:
+      type: http
+      scheme: bearer
+      description: Opaque independently revocable CLI Session credential.
   parameters:
+    CliVersion:
+      name: ShareSlices-CLI-Version
+      in: header
+      required: true
+      schema:
+        type: string
+        pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+      description: Semantic version of the current ShareSlices CLI process; not persisted.
+    CliOperatingSystem:
+      name: ShareSlices-CLI-OS
+      in: header
+      required: true
+      schema:
+        type: string
+        enum: [linux, macos, windows]
+      description: Coarse operating-system identifier used for compatibility; not persisted.
+    CliVersionWhenBearer:
+      name: ShareSlices-CLI-Version
+      in: header
+      required: false
+      schema:
+        type: string
+        pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+      description: Required when the selected security scheme is sessionBearer; not persisted.
+    CliOperatingSystemWhenBearer:
+      name: ShareSlices-CLI-OS
+      in: header
+      required: false
+      schema:
+        type: string
+        enum: [linux, macos, windows]
+      description: Required when the selected security scheme is sessionBearer; not persisted.
+    UserCode:
+      name: userCode
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[A-Z2-9]{4}-?[A-Z2-9]{4}$"
     ArtifactId:
       name: artifactId
       in: path
@@ -839,6 +1074,49 @@ components:
         enum:
           - no-store
   responses:
+    Forbidden:
+      description: The authenticated user cannot perform this operation.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            forbidden:
+              value:
+                error:
+                  code: forbidden
+                  message: Request is not allowed.
+                  requestId: req_000000000000000000000000
+    CliUpgradeRequired:
+      description: The CLI is missing compatible metadata or must be upgraded.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            upgrade:
+              value:
+                error:
+                  code: cli_upgrade_required
+                  message: Update ShareSlices CLI to continue.
+                  action: Update ShareSlices CLI to 0.1.0 or newer.
+                  requestId: req_000000000000000000000000
+                  details:
+                    currentVersion: 0.0.9
+                    minimumVersion: 0.1.0
+    DeviceAuthorizationIncomplete:
+      description: Authorization is pending, slowed, expired, denied, or invalid.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            pending:
+              value:
+                error:
+                  code: authorization_pending
+                  message: Authorization is still pending.
+                  requestId: req_000000000000000000000000
     InvalidRequest:
       description: The request shape or field values are invalid.
       headers:
@@ -1130,6 +1408,85 @@ components:
                   message: Internal server error.
                   requestId: req_000000000000000000000000
   schemas:
+    CreateCliAuthorizationRequest:
+      type: object
+      additionalProperties: false
+      required: [clientId]
+      properties:
+        clientId:
+          type: string
+          const: shareslices-cli
+    CliAuthorizationCreatedResponse:
+      type: object
+      additionalProperties: false
+      required: [authorization]
+      properties:
+        authorization:
+          type: object
+          additionalProperties: false
+          required: [deviceCode, userCode, verificationUri, verificationUriComplete, expiresIn, interval]
+          properties:
+            deviceCode:
+              type: string
+            userCode:
+              type: string
+            verificationUri:
+              type: string
+              format: uri
+            verificationUriComplete:
+              type: string
+              format: uri
+            expiresIn:
+              type: integer
+              minimum: 1
+            interval:
+              type: integer
+              minimum: 1
+    CliAuthorizationResponse:
+      type: object
+      additionalProperties: false
+      required: [authorization]
+      properties:
+        authorization:
+          type: object
+          additionalProperties: false
+          required: [userCode, status]
+          properties:
+            userCode:
+              type: string
+            status:
+              type: string
+              enum: [pending, approved, denied]
+    CreateCliSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [clientId, deviceCode]
+      properties:
+        clientId:
+          type: string
+          const: shareslices-cli
+        deviceCode:
+          type: string
+          minLength: 1
+    CliSessionCreatedResponse:
+      type: object
+      additionalProperties: false
+      required: [session]
+      properties:
+        session:
+          type: object
+          additionalProperties: false
+          required: [accessToken, tokenType, expiresIn]
+          properties:
+            accessToken:
+              type: string
+              minLength: 1
+            tokenType:
+              type: string
+              const: Bearer
+            expiresIn:
+              type: integer
+              minimum: 1
     HealthResponse:
       type: object
       additionalProperties: false

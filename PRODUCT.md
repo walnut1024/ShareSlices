@@ -38,6 +38,10 @@ Email verification is a deployment policy. A deployment or future administration
 
 External identity sign in should prove the provider account first, then resolve or create the ShareSlices user account through the same account resolution rules. Provider profile fields such as nickname and avatar do not prove ownership and must not merge accounts.
 
+The first CLI sign-in method uses the browser. The CLI shows a short verification code and opens a ShareSlices Web page where the user signs in, confirms the same code, and explicitly approves or denies the CLI. Approval creates a CLI Session that is independent from the approving browser Session. Signing out from the CLI revokes only that CLI Session and leaves browser and other CLI Sessions active.
+
+The CLI stores its credential only in the operating system credential store. It never asks for or stores the user's email password. The CLI sends its version and operating-system identifier to the API for compatibility checks; ShareSlices does not store that information as a device identity. An unsupported CLI version must be upgraded before authorization or authenticated submissions can continue. AK/SK credentials and other unattended sign-in methods remain future work.
+
 ## Roadmap: user administration
 
 Administrative user account management covers user search, user deactivation, user reactivation, soft deletion, forced sign out, session revocation, email verification policy, and administrative audit history.

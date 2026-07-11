@@ -5,6 +5,7 @@ import { ManagementShell } from "./components/ManagementShell";
 import { Spinner } from "./components/ui/spinner";
 import { ArtifactDetailScreen } from "./screens/ArtifactDetailScreen";
 import { ArtifactListScreen } from "./screens/ArtifactListScreen";
+import { DeviceAuthorizationScreen } from "./screens/DeviceAuthorizationScreen";
 import { LoginScreen } from "./screens/LoginScreen";
 import { RegisterScreen } from "./screens/RegisterScreen";
 
@@ -81,6 +82,10 @@ export default function App() {
       active = false;
     };
   }, [managementRoute, user]);
+
+  if (location.startsWith("/device")) {
+    return <DeviceAuthorizationScreen />;
+  }
 
   if (!managementRoute) {
     const view = accountView();

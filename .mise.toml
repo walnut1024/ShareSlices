@@ -58,3 +58,7 @@ run = "pnpm run rust:test"
 [tasks.rust-check]
 description = "Run the Rust quality gate"
 run = "pnpm run rust:check"
+
+[tasks.cli-test]
+description = "Run ShareSlices CLI tests"
+run = "cargo test -p shareslices-cli"

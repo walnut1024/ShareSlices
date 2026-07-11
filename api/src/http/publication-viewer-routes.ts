@@ -114,6 +114,9 @@ export function publicationViewerRoutes(
   }
 
   async function preview(c: Context, rawPath: string) {
+    if (c.req.header("authorization")) {
+      return errorJson(c, 401, "unauthenticated");
+    }
     const ownerId = await ownerUserId(c.req.raw.headers);
     if (!ownerId) {
       return errorJson(c, 401, "unauthenticated");

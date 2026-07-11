@@ -8,6 +8,8 @@ Better Auth 1.6.23, already resolved in the repository lockfile, provides Device
 
 The CLI must work when invoked by an agent, but this first auth capability remains interactive: a person approves access in a desktop browser. AK/SK credentials for unattended automation are a later capability.
 
+The Web interaction reference is `docs/high-fidelity/ShareSlices CLI Auth.dc.html`. It defines three 1280×800 desktop states on the same `/device?user_code=...` route: sign in while comparing the terminal code, review the signed-in account and explicitly approve or deny, and confirm authorization before returning to the terminal. The reference does not define account switching, device display, delegated scopes, Session IDs, token lifetime copy, refresh behavior, or credential-store internals.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -17,6 +19,7 @@ The CLI must work when invoked by an agent, but this first auth capability remai
 - Store the CLI credential only in the operating system credential store.
 - Let existing management routes resolve either the existing Cookie Session or the new Bearer Session to the same ShareSlices user ID.
 - Provide deterministic login, status, and logout behavior suitable for direct use and Skill orchestration.
+- Detect an unsupported CLI version before authorization or a later management submission and tell the user to upgrade rather than continue with an incompatible client.
 - Keep every public request and response in checked OpenAPI and cover the API cases through YAML/Python contract tests.
 
 **Non-Goals:**
@@ -26,6 +29,7 @@ The CLI must work when invoked by an agent, but this first auth capability remai
 - Storing credentials in plaintext files, shell configuration, command history, environment variables, or agent-readable output.
 - Changing email/password registration and login or revoking the browser Session that approves the CLI.
 - Implementing Artifact packaging or upload commands beyond the authenticated HTTP client seam needed by later CLI work.
+- Persisting, displaying, or using CLI operating-system metadata as a device identity.
 
 ## Decisions
 
@@ -46,11 +50,27 @@ The checked HTTP surface is:
 
 The Web verification route is `/device?user_code=...`. If the browser is not signed in, the existing login screen retains that relative destination and returns there after login. Once signed in, the page claims the code, identifies the requesting client as **ShareSlices CLI**, and requires an explicit **Approve** or **Deny** action. Merely opening the URL never approves it.
 
+The verification code remains visible before and after login so the user can compare it with the terminal. The authorization page shows the signed-in account but offers no account-switch action. Approval replaces the review state with the high-fidelity success state on the same route; denial and invalid or expired codes use focused terminal states with no account, device, token, or Session detail.
+
 Alternatives rejected:
 
 - Email/password input in the CLI exposes a reusable account credential to terminal and agent surfaces.
 - A localhost callback flow assumes the CLI can bind a reachable port and adds callback and state handling without improving this limited-input workflow.
 - Copying the browser cookie prevents independent client lifecycle and violates the distinction between Session and cookie.
+
+### Negotiate CLI compatibility without creating device identity
+
+Every request made by the Rust CLI includes `ShareSlices-CLI-Version` and `ShareSlices-CLI-OS` headers. The version is the binary's semantic package version; the operating-system value is a bounded canonical identifier derived at build time. These headers describe the current client process only. The API validates them at the HTTP seam, uses them for compatibility decisions and safe diagnostics, and does not store them in the user, Session, or device-authorization records.
+
+The server owns a configured minimum supported CLI version. A missing, malformed, or older version on a CLI route returns `426 Upgrade Required` with stable code `cli_upgrade_required`, the received version when safe, the minimum supported version, and an actionable upgrade message. The CLI stops before creating an authorization or submitting a management mutation and prints current and minimum versions without exposing credentials. A supported version continues normally; the operating-system value is available to distinguish a known platform incompatibility but is not shown on the browser approval page.
+
+The same headers live in the shared Rust HTTP client rather than only in `auth login`, so later upload commands inherit the compatibility check. This change proves the behavior on CLI auth and current-user requests; Artifact upload command implementation remains out of scope.
+
+Alternatives rejected:
+
+- Persisting a device record would create a device-management product surface that is not needed for compatibility.
+- Showing operating system or CLI version on the approval page would imply device identity and add noise without changing the user's authorization decision.
+- Checking only during installation would miss a server compatibility floor raised after the binary was installed.
 
 ### Wrap Better Auth and keep the checked contract language-neutral
 
@@ -89,6 +109,8 @@ The auth commands use stable exit categories for signed-out, denied or expired a
 
 ## Risks / Trade-offs
 
+- Generated high-fidelity `.dc.html` canvases and their support assets are excluded from CSpell because they contain serialized design-tool data rather than maintained source prose. Markdown product and design documentation remains spellchecked.
+
 - [A user code is claimed by the wrong signed-in browser account] -> Show the signed-in account and requesting client before approval, require an explicit action, bind the claimed code to that user, and reject approval by another Session.
 - [Polling creates unnecessary load] -> Enforce the server-provided minimum interval, return `slow_down` for early polling, and bound every authorization by expiry.
 - [A device or Session token leaks through output or logs] -> Keep secrets out of DTO diagnostics, CLI output, structured logs, and files; add redaction and negative assertions to tests.
@@ -96,6 +118,8 @@ The auth commands use stable exit categories for signed-out, denied or expired a
 - [Enabling Bearer accidentally expands Preview access] -> Add Bearer only to JSON management contracts; keep Preview content routes Cookie-only and cover both schemes in contract tests.
 - [Better Auth plugin behavior changes across upgrades] -> Pin behavior through ShareSlices route tests, migration checks, and checked OpenAPI rather than relying on unwrapped plugin routes.
 - [A CLI Session has broad personal management access] -> Require visible approval and independent revocation now; defer scoped AK/SK credentials rather than imply scopes the API does not enforce.
+- [A compatibility floor strands an old CLI with an unclear failure] -> Return `426 cli_upgrade_required` with current and minimum versions before authorization or mutation and cover the exact CLI output in tests.
+- [Client metadata becomes accidental device tracking] -> Accept only bounded version and operating-system headers, keep them out of persistence and browser UI, and redact them to coarse values in diagnostics.
 
 ## Migration Plan
 

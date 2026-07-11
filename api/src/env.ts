@@ -20,6 +20,7 @@ const envSchema = z
     WORKER_JOB_LEASE_SECONDS: z.coerce.number().int().positive(),
     WORKER_JOB_HEARTBEAT_SECONDS: z.coerce.number().int().positive(),
     WORKER_JOB_MAX_ATTEMPTS: z.coerce.number().int().positive(),
+    MINIMUM_CLI_VERSION: z.string().regex(/^\d+\.\d+\.\d+$/),
     PORT: z.coerce.number().int().positive().default(7456),
     NODE_ENV: z.enum(["development", "test", "production"]).default("development")
   })

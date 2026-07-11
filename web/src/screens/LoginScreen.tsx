@@ -1,30 +1,7 @@
-import { useState } from "react";
-import { createSession } from "../api/account";
 import { AuthScreenLayout } from "../components/AuthScreenLayout";
-import { Alert, AlertDescription } from "../components/ui/alert";
-import { Button } from "../components/ui/button";
-import { Field, FieldGroup, FieldLabel } from "../components/ui/field";
-import { Input } from "../components/ui/input";
+import { LoginForm } from "../components/LoginForm";
 
 export function LoginScreen({ onSignedIn }: { onSignedIn?: (user: { id: string; name: string; email: string }) => void }) {
-  const [message, setMessage] = useState<string | null>(null);
-
-  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const email = String(form.get("email") ?? "").trim();
-    const password = String(form.get("password") ?? "");
-
-    setMessage(null);
-
-    try {
-      const result = await createSession({ email, password });
-      onSignedIn?.(result.user);
-    } catch {
-      setMessage("Email or password is incorrect.");
-    }
-  }
-
   return (
     <AuthScreenLayout footer={<>Protected by encryption · <span className="text-neutral-500">Privacy Policy</span></>}>
       <header>
@@ -33,22 +10,7 @@ export function LoginScreen({ onSignedIn }: { onSignedIn?: (user: { id: string; 
           Log in to manage and publish your artifacts.
         </p>
       </header>
-      <form className="flex flex-col gap-6" onSubmit={onSubmit}>
-        <FieldGroup>
-          <Field>
-            <FieldLabel htmlFor="email">Email</FieldLabel>
-            <Input id="email" name="email" type="email" autoComplete="email" placeholder="you@company.com" />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="password">Password</FieldLabel>
-            <Input id="password" name="password" type="password" autoComplete="current-password" placeholder="••••••••••" />
-          </Field>
-        </FieldGroup>
-        {message ? <Alert><AlertDescription>{message}</AlertDescription></Alert> : null}
-        <Button type="submit" className="w-full">
-          Log in
-        </Button>
-      </form>
+      <LoginForm onSignedIn={onSignedIn} />
       <p className="mb-0 mt-[22px] text-[13.5px] text-neutral-500">
         New to ShareSlices? <a className="font-medium text-neutral-950 hover:underline" href="/?view=register">Create an account</a>
       </p>
