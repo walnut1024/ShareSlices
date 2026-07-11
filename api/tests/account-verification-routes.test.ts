@@ -27,6 +27,8 @@ function dependencies() {
     claimPasswordResetGrant: vi.fn(),
     completePasswordResetGrant: vi.fn().mockResolvedValue(undefined),
     releasePasswordResetGrant: vi.fn().mockResolvedValue(undefined),
+    verifyPasswordCredential: vi.fn().mockResolvedValue(true),
+    terminateVerificationAttempt: vi.fn().mockResolvedValue(undefined),
     authApi: {
       signUpEmail: vi.fn().mockResolvedValue({ user: { id: "user-1" } }),
       signInEmail: vi.fn().mockResolvedValue({ response: { token: "disposable-session" }, headers: new Headers() }),
@@ -88,7 +90,7 @@ describe("account verification routes", () => {
   it("does not send verification when an unverified account submits a wrong password", async () => {
     const account = dependencies();
     account.findUserByEmail.mockResolvedValue({ id: "user-1", emailVerified: false });
-    account.authApi.signInEmail.mockRejectedValue(new APIError("UNAUTHORIZED", { message: "Invalid credentials" }));
+    account.verifyPasswordCredential.mockResolvedValue(false);
     const app = buildTestApp({ account });
     const response = await app.request("/api/sessions", {
       method: "POST",

@@ -14,6 +14,16 @@ export async function findUserByEmail(email: string): Promise<{ id: string; emai
   return value ? { id: value.id, emailVerified: value.email_verified } : null;
 }
 
+export async function findPasswordHashByEmail(email: string): Promise<string | null> {
+  const result = await pool.query<{ password: string | null }>(
+    `select a.password from account a
+     join "user" u on u.id = a.user_id
+     where u.email = $1 and a.provider_id = 'credential' limit 1`,
+    [email]
+  );
+  return result.rows[0]?.password ?? null;
+}
+
 export async function userExistsById(userId: string): Promise<boolean> {
   const result = await pool.query('select 1 from "user" where id = $1 limit 1', [userId]);
   return (result.rowCount ?? 0) > 0;

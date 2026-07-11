@@ -8,6 +8,7 @@ import {
   encryptAuthenticationEmail
 } from "../application/accounts/authentication-email.js";
 import { db } from "../db/client.js";
+import { findPasswordHashByEmail } from "../db/account-queries.js";
 import {
   acceptAuthenticationEmailDelivery,
   createVerificationAttempt,
@@ -90,3 +91,9 @@ export const auth = betterAuth({
     }
   }
 });
+
+export async function verifyPasswordCredential(email: string, password: string): Promise<boolean> {
+  const hash = await findPasswordHashByEmail(email);
+  if (!hash) return false;
+  return (await auth.$context).password.verify({ hash, password });
+}
