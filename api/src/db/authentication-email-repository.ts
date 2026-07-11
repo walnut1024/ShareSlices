@@ -160,7 +160,8 @@ export async function createPasswordResetGrant(attemptId: string, encryptedCode:
      values ($1, $2, $3, now() + interval '10 minutes')
      on conflict (attempt_id) do update set
        id = excluded.id, encrypted_code = excluded.encrypted_code,
-       created_at = now(), expires_at = excluded.expires_at, consumed_at = null`,
+       created_at = now(), expires_at = excluded.expires_at, consumed_at = null,
+       claimed_at = null, claim_token = null`,
     [id, attemptId, encryptedCode]
   );
   return id;
@@ -180,7 +181,7 @@ export async function claimPasswordResetGrant(id: string): Promise<{
        from password_reset_grant g
        join email_verification_attempt a on a.id = g.attempt_id
        where g.id = $1
-         and (g.claimed_at is null or g.claimed_at < now() - interval '1 minute')
+         and g.claimed_at is null
          and g.consumed_at is null and g.expires_at > now()
        for update of g`,
       [id]

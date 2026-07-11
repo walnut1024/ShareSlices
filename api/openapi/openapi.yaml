@@ -203,8 +203,6 @@ paths:
                     const: true
         "400":
           $ref: "#/components/responses/InvalidRequest"
-        "429":
-          $ref: "#/components/responses/RateLimited"
   /api/password-reset-attempts:
     post:
       tags: [users]
@@ -231,10 +229,6 @@ paths:
                 $ref: "#/components/schemas/VerificationState"
         "400":
           $ref: "#/components/responses/InvalidRequest"
-        "429":
-          $ref: "#/components/responses/RateLimited"
-        "500":
-          $ref: "#/components/responses/InternalError"
   /api/password-reset-attempts/{attemptId}/verify:
     post:
       tags: [users]
@@ -268,8 +262,6 @@ paths:
                     const: 600
         "400":
           $ref: "#/components/responses/InvalidRequest"
-        "429":
-          $ref: "#/components/responses/RateLimited"
   /api/password-resets:
     post:
       tags: [users]
@@ -308,8 +300,6 @@ paths:
                     const: true
         "400":
           $ref: "#/components/responses/InvalidRequest"
-        "429":
-          $ref: "#/components/responses/RateLimited"
   /api/sessions:
     post:
       tags:
