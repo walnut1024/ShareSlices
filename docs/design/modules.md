@@ -84,6 +84,7 @@ type ArtifactIntakeService = {
 type ArtifactManagementService = {
   list(ownerUserId: string): Promise<ArtifactManagementState[]>;
   get(ownerUserId: string, artifactId: string): Promise<ArtifactManagementState>;
+  listReadyVersions(ownerUserId: string, artifactId: string): Promise<ReadyVersionListItem[]>;
   rename(ownerUserId: string, artifactId: string, name: string): Promise<ArtifactManagementState>;
   setShareExpiration(ownerUserId: string, artifactId: string, expiresAt: string | null): Promise<ArtifactManagementState>;
   delete(ownerUserId: string, artifactId: string): Promise<void>;
