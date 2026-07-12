@@ -17,6 +17,41 @@ const FIELDS: &[&str] = &[
     "updatedAt",
 ];
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UploadTargetChoice {
+    New,
+    Existing,
+}
+
+/// Prompts for the kind of Upload target when no explicit flag was supplied.
+///
+/// # Errors
+/// Returns an error when prompting is unavailable, cancelled, or output fails.
+pub fn select_upload_target(
+    prompts_enabled: bool,
+    is_terminal: bool,
+    input: &mut dyn BufRead,
+    output: &mut dyn Write,
+) -> Result<UploadTargetChoice, ArtifactError> {
+    if !prompts_enabled || !is_terminal {
+        return Err(ArtifactError::SelectionUnavailable);
+    }
+    writeln!(output, "1: Upload a new Artifact").map_err(|_| ArtifactError::Server)?;
+    writeln!(output, "2: Upload a new Version to an existing Artifact")
+        .map_err(|_| ArtifactError::Server)?;
+    write!(output, "Choose the Upload target: ").map_err(|_| ArtifactError::Server)?;
+    output.flush().map_err(|_| ArtifactError::Server)?;
+    let mut choice = String::new();
+    input
+        .read_line(&mut choice)
+        .map_err(|_| ArtifactError::Cancelled)?;
+    match choice.trim() {
+        "1" => Ok(UploadTargetChoice::New),
+        "2" => Ok(UploadTargetChoice::Existing),
+        _ => Err(ArtifactError::Cancelled),
+    }
+}
+
 /// Uploads one prepared ZIP and waits for a ready Version.
 ///
 /// # Errors
@@ -33,6 +68,13 @@ pub async fn run_artifact_upload(
         .get()
         .map_err(|_| ArtifactError::Unauthenticated)?
         .ok_or(ArtifactError::Unauthenticated)?;
+    if args.artifact.is_none()
+        && args.name.is_none()
+        && (std::env::var_os("SHARESLICES_PROMPT_DISABLED").is_some()
+            || !std::io::stdin().is_terminal())
+    {
+        return Err(ArtifactError::SelectionUnavailable);
+    }
     let policy = api.upload_policy(&token).await?;
     let paths = args.paths.clone();
     let root = args.root.clone();
@@ -101,12 +143,41 @@ pub async fn run_artifact_upload(
             _ => return Err(ArtifactError::AmbiguousEntry),
         }
     };
-    let name = args
-        .name
-        .clone()
-        .or_else(|| Some(prepared.default_name.clone()))
-        .filter(|v| !v.trim().is_empty())
-        .ok_or(ArtifactError::InvalidZipInput)?;
+    let mut artifact_id = args.artifact.clone();
+    let mut name = args.name.clone();
+    if artifact_id.is_none() && name.is_none() {
+        if std::env::var_os("SHARESLICES_PROMPT_DISABLED").is_some()
+            || !std::io::stdin().is_terminal()
+        {
+            return Err(ArtifactError::SelectionUnavailable);
+        }
+        let target = select_upload_target(true, true, &mut std::io::stdin().lock(), diagnostics)?;
+        match target {
+            UploadTargetChoice::New => name = Some(prepared.default_name.clone()),
+            UploadTargetChoice::Existing => {
+                let selected = select_owned_artifact(
+                    api,
+                    store,
+                    true,
+                    true,
+                    &mut std::io::stdin().lock(),
+                    diagnostics,
+                )
+                .await?;
+                artifact_id = Some(selected.id);
+            }
+        }
+    }
+    if artifact_id.is_none() {
+        name = Some(
+            name.unwrap_or_else(|| prepared.default_name.clone())
+                .trim()
+                .to_owned(),
+        );
+        if name.as_deref().is_none_or(str::is_empty) {
+            return Err(ArtifactError::InvalidZipInput);
+        }
+    }
     let total = prepared
         .path
         .metadata()
@@ -115,7 +186,8 @@ pub async fn run_artifact_upload(
     let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel();
     let upload = api.upload_artifact(
         &token,
-        &name,
+        name.as_deref(),
+        artifact_id.as_deref(),
         entry.as_deref(),
         &prepared.path,
         (!args.no_progress).then_some(progress_tx),
@@ -141,6 +213,13 @@ pub async fn run_artifact_upload(
             result = api.artifact_state(&token, &accepted.artifact_id) => result?,
             result = tokio::signal::ctrl_c() => {
                 result.map_err(|_| ArtifactError::Server)?;
+                writeln!(
+                    diagnostics,
+                    "Upload session {} was accepted for Artifact {}; Server processing continues. Inspect the Artifact or retry with --artifact {}.",
+                    accepted.upload_session_id,
+                    accepted.artifact_id,
+                    accepted.artifact_id
+                ).map_err(|_| ArtifactError::Server)?;
                 return Err(ArtifactError::Cancelled);
             }
         };
@@ -158,6 +237,14 @@ pub async fn run_artifact_upload(
                 || "unknown failure".to_owned(),
                 |v| format!("{}: {}", v.code, v.message),
             );
+            writeln!(
+                diagnostics,
+                "Upload session {} failed for Artifact {}. Inspect the Artifact or retry explicitly with --artifact {}.",
+                accepted.upload_session_id,
+                accepted.artifact_id,
+                accepted.artifact_id
+            )
+            .map_err(|_| ArtifactError::Server)?;
             return Err(ArtifactError::ProcessingFailed(failure));
         }
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;

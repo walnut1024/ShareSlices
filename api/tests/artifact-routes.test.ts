@@ -217,7 +217,7 @@ describe("Artifact routes", () => {
     });
   });
 
-  it("streams a file-only replacement upload", async () => {
+  it("streams an Artifact Upload session with an optional Entry", async () => {
     const dependencies = artifactDependencies({ user: { id: "owner-1" } });
     dependencies.recovery.replace.mockImplementation(async (input) => {
       const chunks: Buffer[] = [];
@@ -225,6 +225,7 @@ describe("Artifact routes", () => {
         chunks.push(Buffer.from(chunk));
       }
       await input.completed;
+      await expect(input.requestedEntry).resolves.toBe("report.html");
       expect(Buffer.concat(chunks)).toEqual(Buffer.from("replacement"));
       return {
         artifactId: "artifact-1",
@@ -235,6 +236,7 @@ describe("Artifact routes", () => {
     });
     const app = buildApp({ artifact: dependencies } as never);
     const form = new FormData();
+    form.append("entry", "report.html");
     form.append("file", new Blob(["replacement"], { type: "application/zip" }), "replacement.zip");
 
     const response = await app.request("/api/artifacts/artifact-1/upload-sessions", {

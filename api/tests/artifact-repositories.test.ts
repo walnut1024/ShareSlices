@@ -277,6 +277,63 @@ describe("Artifact repository adapters", () => {
     });
   });
 
+  it("creates a Version Upload session without changing prior Versions or Publication", async () => {
+    const activePolicy = await repositories.uploadPolicies.getActive();
+    if (!activePolicy) throw new Error("Expected seeded upload policy.");
+    await databasePool.query("insert into artifact (id, owner_user_id, name) values ('artifact-3', 'owner-1', 'Versioned')");
+    await databasePool.query(
+      `insert into artifact_upload_session (
+         id, artifact_id, policy_revision, archive_size_bytes, expanded_size_bytes,
+         file_count, single_file_size_bytes, formats, raw_object_key, raw_sha256,
+         raw_size_bytes, state
+       ) values ('upload-v1', 'artifact-3', 'v0.0.1-default', 52428800, 209715200,
+         1000, 52428800, '[]'::jsonb, 'raw/artifact-3/upload-v1.zip', $1, 100, 'committed')`,
+      ["3".repeat(64)]
+    );
+    await databasePool.query(
+      "insert into artifact_version (id, artifact_id, upload_session_id, version_number, state) values ('version-v1', 'artifact-3', 'upload-v1', 1, 'ready')"
+    );
+    await databasePool.query(
+      "insert into artifact_share_link (id, artifact_id, slug) values ('link-3', 'artifact-3', 'share-slug-0000000003')"
+    );
+    await databasePool.query(
+      "insert into artifact_publication (id, artifact_id, version_id, published_by_user_id) values ('publication-3', 'artifact-3', 'version-v1', 'owner-1')"
+    );
+    await databasePool.query(
+      `insert into artifact_idempotency_record
+       (id, owner_user_id, operation, target_resource_id, key, request_hash, state)
+       values ('version-idempotency', 'owner-1', 'upload_version', 'artifact-3', 'version-key', $1, 'pending')`,
+      ["4".repeat(64)]
+    );
+
+    await repositories.recovery.commitVersionUpload({
+      artifactId: "artifact-3",
+      uploadSessionId: "upload-v2",
+      policy: activePolicy,
+      rawObjectKey: "raw/artifact-3/upload-v2.zip",
+      rawSha256: "5".repeat(64),
+      rawSizeBytes: 140,
+      requestedEntry: "report.html",
+      processingJobId: "job-v2",
+      maxAttempts: 3,
+      idempotencyRecordId: "version-idempotency",
+      requestHash: "6".repeat(64),
+      responseStatus: 202,
+      responseBody: { uploadSessionId: "upload-v2" }
+    });
+
+    const versions = await databasePool.query("select id from artifact_version where artifact_id = 'artifact-3'");
+    const publication = await databasePool.query(
+      "select version_id from artifact_publication where artifact_id = 'artifact-3' and ended_at is null"
+    );
+    const session = await databasePool.query(
+      "select state, requested_entry from artifact_upload_session where id = 'upload-v2'"
+    );
+    expect(versions.rows).toEqual([{ id: "version-v1" }]);
+    expect(publication.rows).toEqual([{ version_id: "version-v1" }]);
+    expect(session.rows).toEqual([{ state: "accepted", requested_entry: "report.html" }]);
+  });
+
   it("claims idempotency once and atomically commits the accepted Artifact graph", async () => {
     const claim = await repositories.idempotency.claimPending({
       id: "idempotency-create",

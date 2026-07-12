@@ -22,6 +22,7 @@ export type ArtifactRecoveryErrorCode =
   | "invalid_idempotency_key"
   | "operation_in_progress"
   | "idempotency_conflict"
+  | "invalid_requested_entry"
   | "archive_too_large";
 
 export class ArtifactRecoveryError extends Error {
@@ -43,6 +44,7 @@ type ReplaceInput = {
   idempotencyKey: string;
   body: ObjectBody;
   policy: UploadPolicySnapshot;
+  requestedEntry?: string | null | Promise<string | null>;
   completed?: Promise<void>;
 };
 
@@ -54,6 +56,15 @@ function validateKey(key: string): void {
 
 function hash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function normalizeRequestedEntry(value: string | null): string | null {
+  if (value === null) return null;
+  const entry = value.trim();
+  if (!entry || entry.startsWith("/") || entry.includes("\\") || entry.split("/").some((part) => !part || part === "..")) {
+    throw new ArtifactRecoveryError("invalid_requested_entry");
+  }
+  return entry;
 }
 
 async function hashBody(body: ObjectBody, maxBytes: number): Promise<{ sizeBytes: number; sha256: string }> {
@@ -74,6 +85,10 @@ function acceptedResponse(value: Record<string, unknown> | null): ArtifactAccept
     throw new Error("Completed idempotency record has no response body.");
   }
   return value as ArtifactAccepted;
+}
+
+async function discardRaw(storage: ObjectStorage, key: string): Promise<void> {
+  await storage.deleteObject(key).catch(() => undefined);
 }
 
 export class ArtifactRecoveryService {
@@ -155,13 +170,14 @@ export class ArtifactRecoveryService {
       throw new ArtifactRecoveryError("artifact_not_found");
     }
     const current = await this.#repositories.uploadSessions.findCurrent(input.artifactId);
-    if (
-      !current ||
-      current.state !== "failed" ||
-      current.retryable ||
-      current.supersededAt ||
-      (await this.#repositories.artifacts.hasReadyVersion(input.artifactId))
-    ) {
+    const hasReadyVersion = await this.#repositories.artifacts.hasReadyVersion(input.artifactId);
+    const replacesFailedInput =
+      !hasReadyVersion &&
+      current?.state === "failed" &&
+      !current.retryable &&
+      !current.supersededAt;
+    const createsVersion = hasReadyVersion && current?.state === "committed";
+    if (!current || (!replacesFailedInput && !createsVersion)) {
       throw new ArtifactRecoveryError("invalid_artifact_state");
     }
     const shareLink = await this.#repositories.shareLinks.findActiveByArtifact(input.artifactId);
@@ -169,23 +185,29 @@ export class ArtifactRecoveryService {
       throw new Error("Artifact has no active Share link.");
     }
 
+    const requestPrefix = `${createsVersion ? "version" : "replace"}:${input.artifactId}`;
+    const requestedEntry = Promise.resolve(input.requestedEntry ?? null).then(normalizeRequestedEntry);
     const claim = await this.#repositories.idempotency.claimPending({
       id: `idem_${randomUUID().replaceAll("-", "")}`,
       ownerUserId: input.ownerUserId,
-      operation: "replace_upload",
+      operation: createsVersion ? "upload_version" : "replace_upload",
       targetResourceId: input.artifactId,
       key: input.idempotencyKey,
-      provisionalRequestHash: hash(`replace:${input.artifactId}`)
+      provisionalRequestHash: hash(requestPrefix)
     });
     if (claim.kind === "existing") {
       if (claim.record.state === "pending") {
         throw new ArtifactRecoveryError("operation_in_progress");
       }
-      const [replay] = await Promise.all([
+      const [replay, , replayEntry] = await Promise.all([
         hashBody(input.body, input.policy.archiveSizeBytes),
-        input.completed ?? Promise.resolve()
+        input.completed ?? Promise.resolve(),
+        requestedEntry
       ]);
-      if (claim.record.requestHash !== hash(`replace:${input.artifactId}:${replay.sha256}`)) {
+      if (
+        claim.record.requestHash !==
+        hash(`${requestPrefix}:${replay.sha256}:${replayEntry ?? ""}`)
+      ) {
         throw new ArtifactRecoveryError("idempotency_conflict");
       }
       return acceptedResponse(claim.record.responseBody);
@@ -193,46 +215,60 @@ export class ArtifactRecoveryService {
 
     const uploadSessionId = `upload_${randomUUID().replaceAll("-", "")}`;
     const rawObjectKey = `raw/${input.artifactId}/${uploadSessionId}.zip`;
-    const [rawResult, completedResult] = await Promise.allSettled([
+    const [rawResult, completedResult, entryResult] = await Promise.allSettled([
       this.#storage.writeRawZip({
         key: rawObjectKey,
         body: input.body,
         contentType: "application/zip"
       }),
-      input.completed ?? Promise.resolve()
+      input.completed ?? Promise.resolve(),
+      requestedEntry
     ]);
     if (rawResult.status === "rejected") {
       await this.#repositories.idempotency.releasePending(claim.record.id);
       throw rawResult.reason;
     }
     if (completedResult.status === "rejected") {
+      await discardRaw(this.#storage, rawObjectKey);
       await this.#repositories.idempotency.releasePending(claim.record.id);
       throw completedResult.reason;
     }
+    if (entryResult.status === "rejected") {
+      await discardRaw(this.#storage, rawObjectKey);
+      await this.#repositories.idempotency.releasePending(claim.record.id);
+      throw entryResult.reason;
+    }
     if (rawResult.value.sizeBytes > input.policy.archiveSizeBytes) {
+      await discardRaw(this.#storage, rawObjectKey);
       await this.#repositories.idempotency.releasePending(claim.record.id);
       throw new ArtifactRecoveryError("archive_too_large");
     }
 
     const response = this.#response(input.artifactId, uploadSessionId, shareLink.slug);
     try {
-      await this.#repositories.recovery.commitReplacement({
+      const commit = {
         artifactId: input.artifactId,
-        previousUploadSessionId: current.id,
         uploadSessionId,
         policy: input.policy,
         rawObjectKey,
         rawSha256: rawResult.value.sha256,
         rawSizeBytes: rawResult.value.sizeBytes,
+        requestedEntry: entryResult.value,
         processingJobId: `job_${randomUUID().replaceAll("-", "")}`,
         maxAttempts: this.#maxProcessingAttempts,
         idempotencyRecordId: claim.record.id,
-        requestHash: hash(`replace:${input.artifactId}:${rawResult.value.sha256}`),
+        requestHash: hash(`${requestPrefix}:${rawResult.value.sha256}:${entryResult.value ?? ""}`),
         responseStatus: 202,
         responseBody: response
-      });
+      };
+      if (createsVersion) {
+        await this.#repositories.recovery.commitVersionUpload(commit);
+      } else {
+        await this.#repositories.recovery.commitReplacement({ ...commit, previousUploadSessionId: current.id });
+      }
       return response;
     } catch (error) {
+      await discardRaw(this.#storage, rawObjectKey);
       await this.#repositories.idempotency.releasePending(claim.record.id);
       throw error;
     }

@@ -815,8 +815,8 @@ paths:
     post:
       tags:
         - artifacts
-      operationId: replaceArtifactFile
-      summary: Replace failed input before the first ready Version.
+      operationId: createArtifactUploadSession
+      summary: Upload a new Version or replace failed input before the first ready Version.
       security:
         - sessionCookie: []
         - sessionBearer: []
@@ -832,7 +832,7 @@ paths:
               $ref: "#/components/schemas/ReplaceArtifactFileRequest"
       responses:
         "202":
-          description: Replacement accepted for asynchronous processing.
+          description: Upload session accepted for asynchronous processing.
           headers:
             X-Request-Id:
               $ref: "#/components/headers/RequestId"
@@ -1917,7 +1917,11 @@ components:
         file:
           type: string
           format: binary
-          description: Replacement ZIP archive body.
+          description: ZIP archive body for the new Upload session.
+        entry:
+          type: string
+          minLength: 1
+          description: Optional package-root-relative HTML Entry file selected by the caller.
     UpdateArtifactRequest:
       type: object
       additionalProperties: false

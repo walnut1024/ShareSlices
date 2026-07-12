@@ -181,7 +181,8 @@ impl ApiClient {
     pub async fn upload_artifact(
         &self,
         token: &str,
-        name: &str,
+        name: Option<&str>,
+        artifact_id: Option<&str>,
         entry: Option<&str>,
         path: &std::path::Path,
         progress: Option<tokio::sync::mpsc::UnboundedSender<u64>>,
@@ -223,12 +224,19 @@ impl ApiClient {
             .file_name(filename.to_owned())
             .mime_str("application/zip")
             .map_err(|_| ArtifactError::InvalidZipInput)?;
-            let mut form = reqwest::multipart::Form::new().text("name", name.to_owned());
+            let mut form = reqwest::multipart::Form::new();
+            if let Some(name) = name {
+                form = form.text("name", name.to_owned());
+            }
             if let Some(entry) = entry {
                 form = form.text("entry", entry.to_owned());
             }
+            let endpoint = artifact_id.map_or_else(
+                || "/api/artifacts".to_owned(),
+                |id| format!("/api/artifacts/{id}/upload-sessions"),
+            );
             let sent = self
-                .request(reqwest::Method::POST, "/api/artifacts")
+                .request(reqwest::Method::POST, &endpoint)
                 .bearer_auth(token)
                 .header("Idempotency-Key", &idempotency_key)
                 .multipart(form.part("file", file))

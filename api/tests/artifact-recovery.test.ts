@@ -29,6 +29,7 @@ function harness(options: { retryable?: boolean; ready?: boolean; existing?: Ide
   }
   const queueManualRetry = vi.fn();
   const commitReplacement = vi.fn();
+  const commitVersionUpload = vi.fn();
   const repositories = {
     artifacts: {
       listOwned: vi.fn(),
@@ -57,7 +58,7 @@ function harness(options: { retryable?: boolean; ready?: boolean; existing?: Ide
       findOwned: vi.fn().mockResolvedValue({
         id: "upload-1",
         artifactId: "artifact-1",
-        state: "failed",
+        state: options.ready ? "committed" : "failed",
         retryable: options.retryable ?? true,
         rawObjectKey: "raw/artifact-1/upload-1.zip",
         rawSha256: "a".repeat(64),
@@ -68,7 +69,7 @@ function harness(options: { retryable?: boolean; ready?: boolean; existing?: Ide
       findCurrent: vi.fn().mockImplementation(async () => ({
         id: "upload-1",
         artifactId: "artifact-1",
-        state: "failed",
+        state: options.ready ? "committed" : "failed",
         retryable: options.retryable ?? false,
         rawObjectKey: "raw/artifact-1/upload-1.zip",
         rawSha256: "a".repeat(64),
@@ -100,7 +101,7 @@ function harness(options: { retryable?: boolean; ready?: boolean; existing?: Ide
       }),
       releasePending: vi.fn()
     },
-    recovery: { queueManualRetry, commitReplacement }
+    recovery: { queueManualRetry, commitReplacement, commitVersionUpload }
   } as unknown as Pick<
     ArtifactRepositories,
     "artifacts" | "shareLinks" | "uploadSessions" | "idempotency" | "recovery"
@@ -111,6 +112,7 @@ function harness(options: { retryable?: boolean; ready?: boolean; existing?: Ide
     storage,
     queueManualRetry,
     commitReplacement,
+    commitVersionUpload,
     service: new ArtifactRecoveryService({
       repositories,
       storage,
@@ -171,18 +173,38 @@ describe("ArtifactRecoveryService", () => {
     expect(await storage.readForTest(committed.rawObjectKey)).toEqual(Buffer.from("replacement-zip"));
   });
 
-  it("rejects Replace when a ready Version already exists", async () => {
-    const { service, commitReplacement } = harness({ retryable: false, ready: true });
+  it("creates a new Upload session when a ready Version already exists", async () => {
+    const { service, commitReplacement, commitVersionUpload } = harness({ retryable: false, ready: true });
+
+    const result = await service.replace({
+        ownerUserId: "owner-1",
+        artifactId: "artifact-1",
+        idempotencyKey: "version-key",
+        body: body("version-zip"),
+        policy,
+        requestedEntry: "report.html"
+      });
+    expect(result.artifactId).toBe("artifact-1");
+    expect(commitReplacement).not.toHaveBeenCalled();
+    expect(commitVersionUpload).toHaveBeenCalledWith(
+      expect.objectContaining({ artifactId: "artifact-1", requestedEntry: "report.html" })
+    );
+  });
+
+  it("removes temporary raw input when Version Upload commit fails", async () => {
+    const { service, storage, commitVersionUpload } = harness({ ready: true });
+    commitVersionUpload.mockRejectedValueOnce(new Error("database unavailable"));
 
     await expect(
       service.replace({
         ownerUserId: "owner-1",
         artifactId: "artifact-1",
-        idempotencyKey: "replace-key",
-        body: body("replacement-zip"),
+        idempotencyKey: "version-failure-key",
+        body: body("version-zip"),
         policy
       })
-    ).rejects.toEqual(new ArtifactRecoveryError("invalid_artifact_state"));
-    expect(commitReplacement).not.toHaveBeenCalled();
+    ).rejects.toThrow("database unavailable");
+    const attempted = commitVersionUpload.mock.calls[0]?.[0];
+    await expect(storage.readForTest(attempted.rawObjectKey)).resolves.toBeUndefined();
   });
 });

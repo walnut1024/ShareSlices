@@ -140,7 +140,7 @@ pub enum ArtifactError {
     Unauthenticated,
     #[error("Unsupported JSON field: {0}")]
     UnsupportedField(String),
-    #[error("Artifact selection requires an interactive terminal or an explicit --artifact value.")]
+    #[error("Upload requires --name or --artifact when interactive prompting is unavailable.")]
     SelectionUnavailable,
     #[error("Artifact selection was cancelled.")]
     Cancelled,

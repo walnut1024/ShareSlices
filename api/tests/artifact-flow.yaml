@@ -445,6 +445,21 @@ cases:
       json_paths:
         artifact.processingState: ready
 
+  - id: upload_new_version_to_ready_artifact
+    request:
+      method: POST
+      path: "/api/artifacts/{explicit_entry_artifact_id}/upload-sessions"
+      cookie_ref: owner
+      headers:
+        Idempotency-Key: "version-{run_id}"
+      multipart:
+        entry: index.html
+        archive: replacement
+    expect:
+      status: 202
+      json_paths:
+        artifactId: "{explicit_entry_artifact_id}"
+
   - id: replace_invalid_file
     request:
       method: POST

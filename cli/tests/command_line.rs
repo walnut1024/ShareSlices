@@ -86,6 +86,7 @@ fn parses_prepared_zip_upload_options() {
     assert_eq!(args.paths[0].to_string_lossy(), "report.zip");
     assert!(args.root.is_none());
     assert_eq!(args.name.as_deref(), Some("Report"));
+    assert!(args.artifact.is_none());
     assert_eq!(args.entry.as_deref(), Some("report.html"));
     assert!(args.no_progress);
     let multiple = Cli::try_parse_from([
@@ -106,4 +107,17 @@ fn parses_prepared_zip_upload_options() {
     };
     assert_eq!(args.paths.len(), 2);
     assert_eq!(args.root.as_deref(), Some(std::path::Path::new(".")));
+    assert!(
+        Cli::try_parse_from([
+            "shareslices",
+            "artifact",
+            "upload",
+            "report.zip",
+            "--name",
+            "Report",
+            "--artifact",
+            "artifact-1"
+        ])
+        .is_err()
+    );
 }

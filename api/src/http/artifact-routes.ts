@@ -222,6 +222,7 @@ export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {
         idempotencyKey,
         body: upload.file,
         policy,
+        requestedEntry: upload.requestedEntry,
         completed: upload.completed
       });
       c.header("X-Request-Id", requestId(c));

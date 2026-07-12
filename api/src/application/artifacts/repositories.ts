@@ -161,9 +161,12 @@ export type CommitReplacementInput = CompleteIdempotencyInput & {
   rawObjectKey: string;
   rawSha256: string;
   rawSizeBytes: number;
+  requestedEntry?: string | null;
   processingJobId: string;
   maxAttempts: number;
 };
+
+export type CommitVersionUploadInput = Omit<CommitReplacementInput, "previousUploadSessionId">;
 
 export interface UploadPolicyRepository {
   getActive(): Promise<UploadPolicySnapshot | null>;
@@ -222,6 +225,7 @@ export interface ArtifactIntakeRepository {
 export interface ArtifactRecoveryRepository {
   queueManualRetry(input: QueueManualRetryInput): Promise<void>;
   commitReplacement(input: CommitReplacementInput): Promise<void>;
+  commitVersionUpload(input: CommitVersionUploadInput): Promise<void>;
 }
 
 export type ArtifactRepositories = {
