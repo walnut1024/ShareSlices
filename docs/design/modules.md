@@ -9,7 +9,7 @@ Engineering rules that constrain all designs live in `AGENTS.md`. Product behavi
 
 ## Top-level seams
 
-Status: current for the 0.0.1 runtime seams and CLI authentication; Skill entry remains target.
+Status: current for the 0.0.1 runtime seams, CLI authentication, and Artifact listing; Skill entry remains target.
 
 | Seam | Status | Interface owner | Production Adapter | Test Adapter |
 | --- | --- | --- | --- | --- |
@@ -20,7 +20,7 @@ Status: current for the 0.0.1 runtime seams and CLI authentication; Skill entry 
 | Application data persistence | current | `api/src/application/*` | Drizzle Adapter | Local PostgreSQL or in-memory Adapter |
 | Raw and processed object access | current | Application and worker Modules | S3-compatible Adapter | In-memory object Adapter |
 | Processing job handoff | current | `db/migrations/` schema plus job Interfaces | Drizzle enqueue Adapter and SQLx claim Adapter | Local PostgreSQL and fake Adapters |
-| Agent entry | current for authentication | `cli/` command Interface | Rust CLI with operating-system credential store | In-memory credential and fake HTTP Adapters |
+| Agent entry | current for authentication and Artifact listing | `cli/` command Interface | Rust CLI with operating-system credential store | In-memory credential and fake HTTP Adapters |
 
 ## CLI authentication Modules
 
@@ -30,6 +30,13 @@ Status: current
 - `api/src/http/cli-auth-routes.ts` is the product-owned HTTP Adapter over Better Auth Device Authorization and Bearer Sessions. It validates the fixed CLI client and transient version/operating-system compatibility metadata without persisting device identity.
 - `web/src/screens/DeviceAuthorizationPage.tsx` owns the Cookie-authenticated `/device?user_code=...` approval flow. It preserves the verification code through login, exposes no account switch, and replaces approval with the terminal-return success state.
 - JSON management routes accept Cookie or Bearer Sessions through the existing `getSession` seam. Preview content remains Cookie-only and Viewer content remains public according to Publication state.
+
+## CLI Artifact Modules
+
+Status: current for Artifact listing; other management commands remain target.
+
+- `cli/src/artifact_commands.rs` owns bounded Artifact list presentation, selectable JSON formatting, and the shared interactive selector. `ApiClient` follows opaque Server pages and supplies transient CLI compatibility metadata; production credentials still come only from the operating-system credential store.
+- `ArtifactManagementService` owns list filtering and opaque pagination semantics. The Hono route validates query DTOs and maps application errors without deriving Artifact state or page behavior.
 
 ## Hono runtime Modules
 

@@ -24,6 +24,12 @@ export type ArtifactRouteDependencies = {
 
 const updateArtifactSchema = z.object({ name: z.string() }).strict();
 const updateShareLinkSchema = z.object({ expiresAt: z.string().datetime({ offset: true }).nullable() }).strict();
+const artifactListQuerySchema = z.object({
+  publication: z.enum(["published", "unpublished"]).optional(),
+  processing: z.enum(["accepted", "processing", "ready", "failed"]).optional(),
+  pageSize: z.coerce.number().int().min(1).max(100).default(30),
+  pageToken: z.string().min(1).optional()
+}).strict();
 
 export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {}): Hono {
   const defaultRepositories = createArtifactRepositories();
@@ -94,8 +100,20 @@ export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {
     if (!ownerId) {
       return errorJson(c, 401, "unauthenticated");
     }
-    c.header("X-Request-Id", requestId(c));
-    return c.json({ artifacts: await dependencies.management.list(ownerId) });
+    const parsed = artifactListQuerySchema.safeParse(c.req.query());
+    if (!parsed.success) {
+      return errorJson(c, 400, "invalid_request");
+    }
+    try {
+      const page = await dependencies.management.list(ownerId, parsed.data);
+      c.header("X-Request-Id", requestId(c));
+      return c.json(page);
+    } catch (error) {
+      if (error instanceof ArtifactManagementError && error.code === "invalid_page_token") {
+        return errorJson(c, 400, "invalid_request");
+      }
+      throw error;
+    }
   });
 
   app.post("/api/artifacts", async (c) => {

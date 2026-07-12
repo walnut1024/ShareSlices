@@ -45,13 +45,21 @@ export type ArtifactManagementState = {
   allowedActions: ArtifactAction[];
 };
 
+export type ArtifactListOptions = {
+  publication?: "published" | "unpublished" | undefined;
+  processing?: ArtifactManagementState["processingState"] | undefined;
+  pageSize: number;
+  pageToken?: string | undefined;
+};
+
 export class ArtifactManagementError extends Error {
-  constructor(readonly code: "artifact_not_found" | "invalid_artifact_name" | "invalid_expiration" | "invalid_artifact_state") {
+  constructor(readonly code: "artifact_not_found" | "invalid_artifact_name" | "invalid_expiration" | "invalid_artifact_state" | "invalid_page_token") {
     super({
       artifact_not_found: "Artifact not found.",
       invalid_artifact_name: "Artifact name must contain 1 to 120 characters.",
       invalid_expiration: "Share link expiration must be in the future.",
-      invalid_artifact_state: "Artifact cannot be deleted while processing."
+      invalid_artifact_state: "Artifact cannot be deleted while processing.",
+      invalid_page_token: "Artifact page token is invalid."
     }[code]);
     this.name = "ArtifactManagementError";
   }
@@ -104,9 +112,31 @@ export class ArtifactManagementService {
     this.#storage = options.storage;
   }
 
-  async list(ownerUserId: string): Promise<ArtifactManagementState[]> {
+  async list(ownerUserId: string, options: ArtifactListOptions): Promise<{ artifacts: ArtifactManagementState[]; nextPageToken: string | null }> {
     const artifacts = await this.#repositories.artifacts.listOwned(ownerUserId);
-    return Promise.all(artifacts.map((artifact) => this.#state(artifact)));
+    const states = await Promise.all(artifacts.map((artifact) => this.#state(artifact)));
+    const offset = options.pageToken ? this.#decodePageToken(options.pageToken) : 0;
+    const matching = states.filter((artifact) =>
+      (!options.publication || (options.publication === "published") === Boolean(artifact.publication)) &&
+      (!options.processing || artifact.processingState === options.processing)
+    );
+    const page = matching.slice(offset, offset + options.pageSize);
+    const nextOffset = offset + page.length;
+    return { artifacts: page, nextPageToken: nextOffset < matching.length ? this.#encodePageToken(nextOffset) : null };
+  }
+
+  #encodePageToken(offset: number): string {
+    return Buffer.from(JSON.stringify({ offset }), "utf8").toString("base64url");
+  }
+
+  #decodePageToken(token: string): number {
+    try {
+      const value = JSON.parse(Buffer.from(token, "base64url").toString("utf8"));
+      if (typeof value.offset === "number" && Number.isSafeInteger(value.offset) && value.offset >= 0) return value.offset;
+    } catch {
+      throw new ArtifactManagementError("invalid_page_token");
+    }
+    throw new ArtifactManagementError("invalid_page_token");
   }
 
   async get(ownerUserId: string, artifactId: string): Promise<ArtifactManagementState> {

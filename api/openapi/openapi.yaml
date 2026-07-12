@@ -550,6 +550,27 @@ paths:
       parameters:
         - $ref: "#/components/parameters/CliVersionWhenBearer"
         - $ref: "#/components/parameters/CliOperatingSystemWhenBearer"
+        - name: publication
+          in: query
+          schema:
+            type: string
+            enum: [published, unpublished]
+        - name: processing
+          in: query
+          schema:
+            $ref: "#/components/schemas/ProcessingState"
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 30
+        - name: pageToken
+          in: query
+          description: Opaque token returned by the preceding list response.
+          schema:
+            type: string
       responses:
         "200":
           description: Signed-in state is valid.
@@ -619,6 +640,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ArtifactListResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
         "401":
           $ref: "#/components/responses/Unauthenticated"
         "500":
@@ -1943,11 +1966,17 @@ components:
       additionalProperties: false
       required:
         - artifacts
+        - nextPageToken
       properties:
         artifacts:
           type: array
           items:
             $ref: "#/components/schemas/Artifact"
+        nextPageToken:
+          description: Token for the next page, or null when results are exhausted.
+          oneOf:
+            - type: string
+            - type: "null"
     ArtifactResponse:
       type: object
       additionalProperties: false

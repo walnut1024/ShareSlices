@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 pub struct User {
@@ -71,4 +71,48 @@ pub trait AuthApi: Send + Sync {
     async fn start_authorization(&self) -> Result<Authorization, AuthError>;
     async fn exchange(&self, device_code: &str) -> Result<Exchange, AuthError>;
     async fn revoke(&self, token: &str) -> Result<(), AuthError>;
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Artifact {
+    pub id: String,
+    pub name: String,
+    pub updated_at: String,
+    pub processing_state: String,
+    pub share_link: ArtifactShareLink,
+    pub publication: Option<ArtifactPublication>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactShareLink {
+    pub state: String,
+    pub expires_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactPublication {
+    pub id: String,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ArtifactError {
+    #[error("Not signed in. Run shareslices auth login.")]
+    Unauthenticated,
+    #[error("Unsupported JSON field: {0}")]
+    UnsupportedField(String),
+    #[error("Artifact selection requires an interactive terminal or an explicit --artifact value.")]
+    SelectionUnavailable,
+    #[error("Artifact selection was cancelled.")]
+    Cancelled,
+    #[error("Invalid --jq expression.")]
+    InvalidJq,
+    #[error("Invalid Go template expression.")]
+    InvalidTemplate,
+    #[error("Could not reach ShareSlices: {0}")]
+    Network(String),
+    #[error("ShareSlices returned an unexpected response.")]
+    Server,
 }

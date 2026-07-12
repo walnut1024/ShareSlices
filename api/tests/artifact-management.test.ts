@@ -110,6 +110,23 @@ function harness(options: {
 }
 
 describe("ArtifactManagementService", () => {
+  it("returns bounded pages with opaque tokens and rejects malformed tokens", async () => {
+    const { service, repositories } = harness({ ready: true });
+    const first = await repositories.artifacts.findOwned("owner-1", "artifact-1");
+    vi.mocked(repositories.artifacts.listOwned).mockResolvedValue([
+      first!,
+      { ...first!, id: "artifact-2", name: "Second" }
+    ]);
+
+    const page = await service.list("owner-1", { processing: "ready", pageSize: 1 });
+    expect(page).toMatchObject({ artifacts: [{ id: "artifact-1" }] });
+    expect(page).not.toBeInstanceOf(Array);
+    const token = "nextPageToken" in page ? page.nextPageToken : null;
+    expect(token).toMatch(/^[A-Za-z0-9_-]+$/);
+    await expect(service.list("owner-1", { pageSize: 1, pageToken: "not-a-token" }))
+      .rejects.toEqual(new ArtifactManagementError("invalid_page_token"));
+  });
+
   it("projects a ready unpublished Artifact with only valid actions", async () => {
     const { service } = harness({ ready: true });
 
