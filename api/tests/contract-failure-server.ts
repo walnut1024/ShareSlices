@@ -1,6 +1,7 @@
 import { serve } from "@hono/node-server";
 import { buildApp } from "../src/http/app.js";
 import { AuthenticationEmailDeliveryError, encryptAuthenticationEmail } from "../src/application/accounts/authentication-email.js";
+import { env } from "../src/env.js";
 
 const dependencyFailure = () => Promise.reject(new Error("contract fixture dependency failure"));
 const attempt = (purpose: "registration" | "password_reset") => ({
@@ -76,5 +77,5 @@ const app = buildApp({
 
 serve({
   fetch: app.fetch,
-  port: 7457
+  port: env.PORT
 });

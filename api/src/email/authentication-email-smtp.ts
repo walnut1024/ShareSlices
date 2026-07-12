@@ -4,6 +4,7 @@ import type { AuthenticationEmailPayload } from "../application/accounts/authent
 export type AuthenticationEmailSmtpOptions = {
   url: string;
   from: string;
+  dnsTimeoutMs: number;
   connectionTimeoutMs: number;
   greetingTimeoutMs: number;
   socketTimeoutMs: number;
@@ -45,6 +46,7 @@ export function createAuthenticationEmailSmtpAdapter(
 ): AuthenticationEmailSmtpAdapter {
   const transporter: Transporter = nodemailer.createTransport({
     url: options.url,
+    dnsTimeout: options.dnsTimeoutMs,
     connectionTimeout: options.connectionTimeoutMs,
     greetingTimeout: options.greetingTimeoutMs,
     socketTimeout: options.socketTimeoutMs,

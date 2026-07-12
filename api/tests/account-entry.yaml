@@ -1,7 +1,7 @@
 # cspell:ignore dont
-base_url: "http://127.0.0.1:7456"
-failure_base_url: "http://127.0.0.1:7457"
-smtp_base_url: "http://127.0.0.1:7458"
+base_url: "http://127.0.0.1:7460"
+failure_base_url: "http://127.0.0.1:7461"
+smtp_base_url: "http://127.0.0.1:7462"
 mailpit_url: "http://127.0.0.1:8025"
 cases:
   - id: health

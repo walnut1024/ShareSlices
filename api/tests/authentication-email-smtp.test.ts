@@ -67,6 +67,7 @@ describe("authentication email SMTP transport", () => {
     const transport = createAuthenticationEmailSmtpAdapter({
       url: fixture.url,
       from: "ShareSlices <no-reply@shareslices.local>",
+      dnsTimeoutMs: 1_000,
       connectionTimeoutMs: 1_000,
       greetingTimeoutMs: 1_000,
       socketTimeoutMs: 2_000
@@ -99,6 +100,7 @@ describe("authentication email SMTP transport", () => {
     const transport = createAuthenticationEmailSmtpAdapter({
       url: fixture.url,
       from: "ShareSlices <no-reply@shareslices.local>",
+      dnsTimeoutMs: 1_000,
       connectionTimeoutMs: 1_000,
       greetingTimeoutMs: 1_000,
       socketTimeoutMs: 2_000
@@ -121,6 +123,7 @@ describe("authentication email SMTP transport", () => {
     const transport = createAuthenticationEmailSmtpAdapter({
       url: fixture.url,
       from: "ShareSlices <no-reply@shareslices.local>",
+      dnsTimeoutMs: 1_000,
       connectionTimeoutMs: 1_000,
       greetingTimeoutMs: 1_000,
       socketTimeoutMs: 2_000
@@ -145,6 +148,7 @@ describe("authentication email SMTP transport", () => {
     const transport = createAuthenticationEmailSmtpAdapter({
       url: fixture.url,
       from: "ShareSlices <no-reply@shareslices.local>",
+      dnsTimeoutMs: 1_000,
       connectionTimeoutMs: 1_000,
       greetingTimeoutMs: 1_000,
       socketTimeoutMs: 2_000

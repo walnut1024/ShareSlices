@@ -106,7 +106,7 @@ def failure_server(contract: dict[str, Any]) -> str:
             "AUTH_EMAIL_ENCRYPTION_KEY": "contract-email-encryption-key-at-least-32-bytes",
             "AUTH_EMAIL_SMTP_URL": "smtp://127.0.0.1:1025",
             "AUTH_EMAIL_FROM": "ShareSlices <no-reply@shareslices.local>",
-            "PORT": "7457",
+            "PORT": base_url.rsplit(":", 1)[1],
             "NODE_ENV": "test",
         }
     )
@@ -170,7 +170,7 @@ def live_servers(contract: dict[str, Any]) -> dict[str, str]:
     )
     processes: list[subprocess.Popen[str]] = []
 
-    for name, port, verification in [("default", 7456, "false"), ("smtp", 7458, "true")]:
+    for name, port, verification in [("default", 7460, "false"), ("smtp", 7462, "true")]:
         base_url = contract["base_url"] if name == "default" else contract["smtp_base_url"]
         environment = os.environ.copy()
         environment.update(

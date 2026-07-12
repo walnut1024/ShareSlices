@@ -5,6 +5,7 @@ import { createAuthenticationEmailSmtpAdapter } from "./authentication-email-smt
 const adapter = createAuthenticationEmailSmtpAdapter({
   url: env.AUTH_EMAIL_SMTP_URL,
   from: env.AUTH_EMAIL_FROM,
+  dnsTimeoutMs: env.AUTH_EMAIL_SMTP_DNS_TIMEOUT_MS,
   connectionTimeoutMs: env.AUTH_EMAIL_SMTP_CONNECTION_TIMEOUT_MS,
   greetingTimeoutMs: env.AUTH_EMAIL_SMTP_GREETING_TIMEOUT_MS,
   socketTimeoutMs: env.AUTH_EMAIL_SMTP_SOCKET_TIMEOUT_MS

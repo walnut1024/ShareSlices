@@ -39,6 +39,7 @@ describe("authentication email repository", () => {
     smtpAdapter = createAuthenticationEmailSmtpAdapter({
       url: `smtp://127.0.0.1:${address.port}`,
       from: "ShareSlices <no-reply@shareslices.local>",
+      dnsTimeoutMs: 1_000,
       connectionTimeoutMs: 1_000,
       greetingTimeoutMs: 1_000,
       socketTimeoutMs: 2_000

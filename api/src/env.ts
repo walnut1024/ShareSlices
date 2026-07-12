@@ -25,9 +25,12 @@ const envSchema = z
     REQUIRE_EMAIL_VERIFICATION: booleanString.default(false),
     AUTH_EMAIL_ENCRYPTION_KEY: z.string().min(32).default("development-email-encryption-key-32"),
     AUTH_EMAIL_SMTP_URL: z.string().url(),
-    AUTH_EMAIL_FROM: z.string().trim().min(3),
+    AUTH_EMAIL_FROM: z.string().trim().regex(
+      /^(?:[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|[^<>\r\n]+\s+<[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}>)$/i
+    ),
     AUTH_EMAIL_SMTP_CHECK_TO: z.string().email().optional(),
     AUTH_EMAIL_DELIVERY_LEASE_SECONDS: z.coerce.number().int().positive().default(60),
+    AUTH_EMAIL_SMTP_DNS_TIMEOUT_MS: z.coerce.number().int().positive().default(5_000),
     AUTH_EMAIL_SMTP_CONNECTION_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
     AUTH_EMAIL_SMTP_GREETING_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
     AUTH_EMAIL_SMTP_SOCKET_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
@@ -77,7 +80,7 @@ const envSchema = z
         message: "Production smtp URLs must require STARTTLS."
       });
     }
-    const smtpWindow = value.AUTH_EMAIL_SMTP_CONNECTION_TIMEOUT_MS +
+    const smtpWindow = value.AUTH_EMAIL_SMTP_DNS_TIMEOUT_MS + value.AUTH_EMAIL_SMTP_CONNECTION_TIMEOUT_MS +
       value.AUTH_EMAIL_SMTP_GREETING_TIMEOUT_MS + value.AUTH_EMAIL_SMTP_SOCKET_TIMEOUT_MS;
     if (smtpWindow >= value.AUTH_EMAIL_DELIVERY_LEASE_SECONDS * 1000) {
       context.addIssue({

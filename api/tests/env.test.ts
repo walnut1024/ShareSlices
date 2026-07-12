@@ -75,6 +75,7 @@ describe("API environment", () => {
       AUTH_EMAIL_SMTP_URL: "smtp://127.0.0.1:1025",
       AUTH_EMAIL_FROM: "ShareSlices <no-reply@shareslices.local>",
       AUTH_EMAIL_DELIVERY_LEASE_SECONDS: 60,
+      AUTH_EMAIL_SMTP_DNS_TIMEOUT_MS: 5_000,
       AUTH_EMAIL_SMTP_CONNECTION_TIMEOUT_MS: 10_000,
       AUTH_EMAIL_SMTP_GREETING_TIMEOUT_MS: 10_000,
       AUTH_EMAIL_SMTP_SOCKET_TIMEOUT_MS: 30_000,
@@ -94,6 +95,7 @@ describe("API environment", () => {
     expect(() => readEnv({ ...validEnv, AUTH_EMAIL_SMTP_URL: undefined })).toThrow();
     expect(() => readEnv({ ...validEnv, AUTH_EMAIL_SMTP_URL_FILE: "/tmp/smtp-url" })).toThrow();
     expect(() => readEnv({ ...validEnv, AUTH_EMAIL_SMTP_URL: "https://smtp.example.com" })).toThrow();
+    expect(() => readEnv({ ...validEnv, AUTH_EMAIL_FROM: "not-an-email" })).toThrow();
     expect(() => readEnv({ ...validEnv, AUTH_EMAIL_SMTP_URL: "smtp://smtp.example.com:587?tls.rejectUnauthorized=false" })).toThrow();
     expect(() => readEnv({
       ...validEnv,
