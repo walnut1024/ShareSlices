@@ -47,4 +47,3 @@ The existing grid item may remain an internal function in `ArtifactsPage` unless
 - Run the repository local quality gate.
 - Search production Web code and current architecture documentation to confirm no `*Screen` component or file names remain.
 - Inspect the rendered grid at the project viewport of `1440x900` and compare the card against the supplied high-fidelity reference.
-
