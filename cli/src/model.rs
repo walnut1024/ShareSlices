@@ -216,4 +216,14 @@ pub enum ArtifactError {
     InvalidShareExpiration,
     #[error("No ready Version is available for this Artifact.")]
     NoReadyVersion,
+    #[error("Export requires --artifact and --version when interactive prompting is unavailable.")]
+    ExportSelectionUnavailable,
+    #[error("The selected Artifact has no ready Version to export.")]
+    VersionNotReady,
+    #[error("The output parent directory does not exist.")]
+    OutputParentMissing,
+    #[error("The output file already exists; pass --clobber to replace it.")]
+    OutputExists,
+    #[error("Could not write the exported ZIP.")]
+    OutputWrite,
 }

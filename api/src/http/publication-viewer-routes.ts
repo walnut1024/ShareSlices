@@ -140,7 +140,11 @@ export function publicationViewerRoutes(
     const ownerId = await ownerUserId(c.req.raw.headers);
     if (!ownerId) return errorJson(c, 401, "unauthenticated");
     try {
-      const exported = await dependencies.service.exportVersion(ownerId, c.req.param("versionId"));
+      const exported = await dependencies.service.exportVersion(
+        ownerId,
+        c.req.param("versionId"),
+        c.req.query("artifactId")
+      );
       const archive = new ZipArchive({ zlib: { level: 9 } });
       for (const asset of exported.assets) {
         const object = await dependencies.storage.readCommittedObject(asset.objectKey);

@@ -67,7 +67,7 @@ export function createPublicationContentRepository(
 
     async findOwnedVersionExport(ownerUserId, versionId) {
       const [version] = await database
-        .select({ artifactName: schema.artifact.name })
+        .select({ artifactId: schema.artifact.id, artifactName: schema.artifact.name })
         .from(schema.artifactVersion)
         .innerJoin(schema.artifact, eq(schema.artifact.id, schema.artifactVersion.artifactId))
         .where(
@@ -83,7 +83,7 @@ export function createPublicationContentRepository(
         where: eq(schema.artifactAsset.versionId, versionId),
         orderBy: [schema.artifactAsset.path]
       });
-      return { artifactName: version.artifactName, assets };
+      return { artifactId: version.artifactId, artifactName: version.artifactName, assets };
     },
 
     async publish(input): Promise<PublishResult> {

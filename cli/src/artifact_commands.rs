@@ -1,9 +1,9 @@
-// cspell:ignore gtmpl
+// cspell:ignore gtmpl noclobber
 use crate::packaging::prepare_upload_with_progress;
 use crate::{
-    ApiClient, Artifact, ArtifactCommand, ArtifactError, ArtifactListArgs, ArtifactPublishArgs,
-    ArtifactShareCommand, ArtifactShareEditArgs, ArtifactShareViewArgs, ArtifactUnpublishArgs,
-    ArtifactUploadArgs, CredentialStore, ReadyArtifactVersion,
+    ApiClient, Artifact, ArtifactCommand, ArtifactError, ArtifactExportArgs, ArtifactListArgs,
+    ArtifactPublishArgs, ArtifactShareCommand, ArtifactShareEditArgs, ArtifactShareViewArgs,
+    ArtifactUnpublishArgs, ArtifactUploadArgs, CredentialStore, ReadyArtifactVersion,
 };
 use serde_json::{Map, Value};
 use std::collections::HashMap;
@@ -19,6 +19,7 @@ const FIELDS: &[&str] = &[
     "updatedAt",
 ];
 const UPLOAD_FIELDS: &[&str] = &["artifact", "version", "publication"];
+const EXPORT_FIELDS: &[&str] = &["artifactId", "versionId", "path"];
 
 pub struct ArtifactInteraction<'a> {
     pub prompts_enabled: bool,
@@ -129,6 +130,213 @@ pub async fn run_artifact_command_with_interaction(
                 .await
             }
         },
+        ArtifactCommand::Export(args) => {
+            run_artifact_export_with_interaction(
+                &args,
+                api,
+                store,
+                interaction,
+                output,
+                diagnostics,
+            )
+            .await
+        }
+    }
+}
+
+fn safe_file_component(value: &str) -> String {
+    let mut safe = String::new();
+    for character in value.chars() {
+        if character.is_ascii_alphanumeric() || matches!(character, '.' | '_') {
+            safe.push(character);
+        } else if !safe.ends_with('-') {
+            safe.push('-');
+        }
+    }
+    let value = safe.trim_matches(['-', '.']);
+    if value.is_empty() {
+        "artifact".to_owned()
+    } else if matches!(
+        value.to_ascii_uppercase().as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    ) {
+        format!("_{value}")
+    } else {
+        value.to_owned()
+    }
+}
+
+/// Exports an owned ready Version using the production interaction seam.
+///
+/// # Errors
+/// Returns an Artifact error for selection, authentication, download, or local file failures.
+pub async fn run_artifact_export_with_interaction(
+    args: &ArtifactExportArgs,
+    api: &ApiClient,
+    store: &dyn CredentialStore,
+    interaction: &mut ArtifactInteraction<'_>,
+    output: &mut dyn Write,
+    diagnostics: &mut dyn Write,
+) -> Result<(), ArtifactError> {
+    let is_terminal = interaction.prompts_enabled && interaction.is_terminal;
+    if args.artifact.is_none() && !is_terminal {
+        return Err(ArtifactError::ExportSelectionUnavailable);
+    }
+    let token = store
+        .get()
+        .map_err(|_| ArtifactError::Unauthenticated)?
+        .ok_or(ArtifactError::Unauthenticated)?;
+    let (artifact_id, selected_name) = if let Some(id) = &args.artifact {
+        (id.clone(), None)
+    } else {
+        let artifact =
+            select_owned_artifact(api, store, true, true, interaction.input, diagnostics).await?;
+        (artifact.id, Some(artifact.name))
+    };
+    let state = api.artifact_state(&token, &artifact_id).await?;
+    let artifact_name = selected_name.unwrap_or_else(|| state.name.clone());
+    let version_id = if let Some(version) = &args.version {
+        version.clone()
+    } else if is_terminal {
+        select_ready_version(
+            &api.list_ready_versions(&token, &artifact_id).await?,
+            true,
+            interaction.input,
+            diagnostics,
+        )?
+        .id
+    } else {
+        return Err(ArtifactError::ExportSelectionUnavailable);
+    };
+    let destination = args.output.clone().unwrap_or_else(|| {
+        std::path::PathBuf::from(format!(
+            "{}-{}.zip",
+            safe_file_component(&artifact_name),
+            safe_file_component(&version_id)
+        ))
+    });
+    let parent = destination
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    if !parent.is_dir() {
+        return Err(ArtifactError::OutputParentMissing);
+    }
+    if destination.exists() && !args.clobber {
+        return Err(ArtifactError::OutputExists);
+    }
+    let response = api
+        .export_version(&token, &artifact_id, &version_id)
+        .await?;
+    persist_export_response(
+        response,
+        &destination,
+        args.clobber,
+        args.no_progress,
+        diagnostics,
+    )
+    .await?;
+    write_export_output(args, output, &artifact_id, &version_id, &destination)
+}
+
+async fn persist_export_response(
+    mut response: reqwest::Response,
+    destination: &std::path::Path,
+    clobber: bool,
+    no_progress: bool,
+    diagnostics: &mut dyn Write,
+) -> Result<(), ArtifactError> {
+    let parent = destination
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let mut temporary =
+        tempfile::NamedTempFile::new_in(parent).map_err(|_| ArtifactError::OutputWrite)?;
+    let mut downloaded = 0_u64;
+    loop {
+        let next = tokio::select! { next = response.chunk() => next.map_err(|error| ArtifactError::Network(error.to_string()))?, result = tokio::signal::ctrl_c() => { result.map_err(|_| ArtifactError::Server)?; return Err(ArtifactError::Cancelled); } };
+        let Some(chunk) = next else { break };
+        temporary
+            .write_all(&chunk)
+            .map_err(|_| ArtifactError::OutputWrite)?;
+        downloaded = downloaded.saturating_add(u64::try_from(chunk.len()).unwrap_or(u64::MAX));
+        if !no_progress {
+            writeln!(diagnostics, "Downloading {downloaded} bytes")
+                .map_err(|_| ArtifactError::OutputWrite)?;
+        }
+    }
+    temporary.flush().map_err(|_| ArtifactError::OutputWrite)?;
+    if clobber {
+        temporary
+            .persist(destination)
+            .map_err(|_| ArtifactError::OutputWrite)?;
+    } else {
+        temporary.persist_noclobber(destination).map_err(|error| {
+            if error.error.kind() == std::io::ErrorKind::AlreadyExists {
+                ArtifactError::OutputExists
+            } else {
+                ArtifactError::OutputWrite
+            }
+        })?;
+    }
+    Ok(())
+}
+
+fn write_export_output(
+    args: &ArtifactExportArgs,
+    output: &mut dyn Write,
+    artifact_id: &str,
+    version_id: &str,
+    destination: &std::path::Path,
+) -> Result<(), ArtifactError> {
+    let Some(fields) = &args.json else {
+        return writeln!(
+            output,
+            "Exported Artifact {artifact_id} Version {version_id} to {}",
+            destination.display()
+        )
+        .map_err(|_| ArtifactError::OutputWrite);
+    };
+    let fields = parse_fields_from(fields, EXPORT_FIELDS)?;
+    let value = serde_json::json!({"artifactId": artifact_id, "versionId": version_id, "path": destination.display().to_string()});
+    let selected = Value::Object(
+        fields
+            .into_iter()
+            .map(|field| (field.to_owned(), value[field].clone()))
+            .collect(),
+    );
+    if let Some(expression) = &args.jq {
+        write_jq(output, &selected, expression)
+    } else if let Some(template) = &args.template {
+        write_template(output, &selected, template)
+    } else {
+        writeln!(
+            output,
+            "{}",
+            serde_json::to_string_pretty(&selected).map_err(|_| ArtifactError::Server)?
+        )
+        .map_err(|_| ArtifactError::OutputWrite)
     }
 }
 

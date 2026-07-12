@@ -35,6 +35,32 @@ struct CompatibilityDetails {
 }
 
 impl ApiClient {
+    /// Downloads one owned ready Version as a normalized ZIP.
+    ///
+    /// # Errors
+    /// Returns an Artifact error for authorization, transport, state, or response failures.
+    pub async fn export_version(
+        &self,
+        token: &str,
+        artifact_id: &str,
+        version_id: &str,
+    ) -> Result<Response, ArtifactError> {
+        let response = self
+            .request(
+                reqwest::Method::GET,
+                &format!("/api/versions/{version_id}/export"),
+            )
+            .bearer_auth(token)
+            .query(&[("artifactId", artifact_id)])
+            .send()
+            .await
+            .map_err(|error| ArtifactError::Network(error.to_string()))?;
+        if !response.status().is_success() {
+            return Err(Self::artifact_error(response).await);
+        }
+        Ok(response)
+    }
+
     /// Creates a `ShareSlices` API client.
     ///
     /// # Errors

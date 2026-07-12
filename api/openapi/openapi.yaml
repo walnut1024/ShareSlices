@@ -956,9 +956,25 @@ paths:
       parameters:
         - $ref: "#/components/parameters/CliVersionWhenBearer"
         - $ref: "#/components/parameters/CliOperatingSystemWhenBearer"
+        - name: artifactId
+          in: query
+          required: false
+          description: Optional owning Artifact constraint used by CLI Export.
+          schema:
+            type: string
+            minLength: 1
       responses:
         "200":
           description: ZIP assembled from committed Version assets.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+            Content-Disposition:
+              description: Safe attachment filename derived from the Artifact name.
+              schema:
+                type: string
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
           content:
             application/zip:
               schema:
