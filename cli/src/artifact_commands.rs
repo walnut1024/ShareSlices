@@ -19,6 +19,12 @@ const FIELDS: &[&str] = &[
 ];
 const UPLOAD_FIELDS: &[&str] = &["artifact", "version", "publication"];
 
+pub struct ArtifactInteraction<'a> {
+    pub prompts_enabled: bool,
+    pub is_terminal: bool,
+    pub input: &'a mut dyn BufRead,
+}
+
 /// Executes one parsed Artifact command through the production command-dispatch path.
 ///
 /// # Errors
@@ -30,10 +36,47 @@ pub async fn run_artifact_command(
     output: &mut dyn Write,
     diagnostics: &mut dyn Write,
 ) -> Result<(), ArtifactError> {
+    let stdin = std::io::stdin();
+    let mut interaction = ArtifactInteraction {
+        prompts_enabled: std::env::var_os("SHARESLICES_PROMPT_DISABLED").is_none(),
+        is_terminal: stdin.is_terminal(),
+        input: &mut stdin.lock(),
+    };
+    run_artifact_command_with_interaction(
+        command,
+        api,
+        store,
+        &mut interaction,
+        output,
+        diagnostics,
+    )
+    .await
+}
+
+/// Executes an Artifact command through the production dispatcher with an explicit interaction seam.
+///
+/// # Errors
+/// Returns the command's typed Artifact error.
+pub async fn run_artifact_command_with_interaction(
+    command: ArtifactCommand,
+    api: &ApiClient,
+    store: &dyn CredentialStore,
+    interaction: &mut ArtifactInteraction<'_>,
+    output: &mut dyn Write,
+    diagnostics: &mut dyn Write,
+) -> Result<(), ArtifactError> {
     match command {
         ArtifactCommand::List(args) => run_artifact_list(&args, api, store, output).await,
         ArtifactCommand::Upload(args) => {
-            run_artifact_upload(&args, api, store, output, diagnostics).await
+            run_artifact_upload_with_interaction(
+                &args,
+                api,
+                store,
+                interaction,
+                output,
+                diagnostics,
+            )
+            .await
         }
     }
 }
@@ -93,14 +136,31 @@ pub async fn run_artifact_upload(
     output: &mut dyn Write,
     diagnostics: &mut dyn Write,
 ) -> Result<(), ArtifactError> {
+    let stdin = std::io::stdin();
+    let mut interaction = ArtifactInteraction {
+        prompts_enabled: std::env::var_os("SHARESLICES_PROMPT_DISABLED").is_none(),
+        is_terminal: stdin.is_terminal(),
+        input: &mut stdin.lock(),
+    };
+    run_artifact_upload_with_interaction(args, api, store, &mut interaction, output, diagnostics)
+        .await
+}
+
+async fn run_artifact_upload_with_interaction(
+    args: &ArtifactUploadArgs,
+    api: &ApiClient,
+    store: &dyn CredentialStore,
+    interaction: &mut ArtifactInteraction<'_>,
+    output: &mut dyn Write,
+    diagnostics: &mut dyn Write,
+) -> Result<(), ArtifactError> {
     let token = store
         .get()
         .map_err(|_| ArtifactError::Unauthenticated)?
         .ok_or(ArtifactError::Unauthenticated)?;
     if args.artifact.is_none()
         && args.name.is_none()
-        && (std::env::var_os("SHARESLICES_PROMPT_DISABLED").is_some()
-            || !std::io::stdin().is_terminal())
+        && (!interaction.prompts_enabled || !interaction.is_terminal)
     {
         return Err(ArtifactError::SelectionUnavailable);
     }
@@ -116,9 +176,23 @@ pub async fn run_artifact_upload(
             return Err(ArtifactError::Cancelled);
         }
     };
-    let entry = resolve_entry(&prepared.path, args.entry.as_deref(), diagnostics)?;
-    let (name, artifact_id) =
-        resolve_upload_target(args, api, store, &prepared.default_name, diagnostics).await?;
+    let entry = resolve_entry(
+        &prepared.path,
+        args.entry.as_deref(),
+        interaction.prompts_enabled,
+        interaction.is_terminal,
+        interaction.input,
+        diagnostics,
+    )?;
+    let (name, artifact_id) = resolve_upload_target(
+        args,
+        api,
+        store,
+        &prepared.default_name,
+        interaction,
+        diagnostics,
+    )
+    .await?;
     let total = prepared
         .path
         .metadata()
@@ -152,6 +226,9 @@ pub async fn run_artifact_upload(
 fn resolve_entry(
     path: &std::path::Path,
     requested: Option<&str>,
+    prompts_enabled: bool,
+    is_terminal: bool,
+    input: &mut dyn BufRead,
     diagnostics: &mut dyn Write,
 ) -> Result<Option<String>, ArtifactError> {
     let file = File::open(path).map_err(|_| ArtifactError::InvalidZipInput)?;
@@ -187,7 +264,7 @@ fn resolve_entry(
         match roots.as_slice() {
             [only] => Some(only.clone()),
             [] => return Err(ArtifactError::InvalidEntry),
-            _ if std::io::stdin().is_terminal() => {
+            _ if prompts_enabled && is_terminal => {
                 for (index, candidate) in roots.iter().enumerate() {
                     writeln!(diagnostics, "{}: {}", index + 1, candidate)
                         .map_err(|_| ArtifactError::Server)?;
@@ -196,7 +273,7 @@ fn resolve_entry(
                     .map_err(|_| ArtifactError::Server)?;
                 diagnostics.flush().map_err(|_| ArtifactError::Server)?;
                 let mut choice = String::new();
-                std::io::stdin()
+                input
                     .read_line(&mut choice)
                     .map_err(|_| ArtifactError::Cancelled)?;
                 let index = choice
@@ -218,26 +295,30 @@ async fn resolve_upload_target(
     api: &ApiClient,
     store: &dyn CredentialStore,
     default_name: &str,
+    interaction: &mut ArtifactInteraction<'_>,
     diagnostics: &mut dyn Write,
 ) -> Result<(Option<String>, Option<String>), ArtifactError> {
     let mut artifact_id = args.artifact.clone();
     let mut name = args.name.clone();
     if artifact_id.is_none() && name.is_none() {
-        if std::env::var_os("SHARESLICES_PROMPT_DISABLED").is_some()
-            || !std::io::stdin().is_terminal()
-        {
+        if !interaction.prompts_enabled || !interaction.is_terminal {
             return Err(ArtifactError::SelectionUnavailable);
         }
-        let target = select_upload_target(true, true, &mut std::io::stdin().lock(), diagnostics)?;
+        let target = select_upload_target(
+            interaction.prompts_enabled,
+            interaction.is_terminal,
+            interaction.input,
+            diagnostics,
+        )?;
         match target {
             UploadTargetChoice::New => name = Some(default_name.to_owned()),
             UploadTargetChoice::Existing => {
                 let selected = select_owned_artifact(
                     api,
                     store,
-                    true,
-                    true,
-                    &mut std::io::stdin().lock(),
+                    interaction.prompts_enabled,
+                    interaction.is_terminal,
+                    interaction.input,
                     diagnostics,
                 )
                 .await?;

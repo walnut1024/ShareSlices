@@ -1,10 +1,10 @@
 // cspell:ignore nocapture
 use clap::Parser as _;
 use shareslices_cli::{
-    ApiClient, Artifact, ArtifactCommand, ArtifactListArgs, ArtifactShareLink, ArtifactUploadArgs,
-    AuthError, Cli, Command as CliCommand, CredentialStore, UploadTargetChoice, artifact_exit_code,
-    run_artifact_command, run_artifact_list, run_artifact_upload, select_artifact,
-    select_upload_target,
+    ApiClient, Artifact, ArtifactCommand, ArtifactInteraction, ArtifactListArgs, ArtifactShareLink,
+    ArtifactUploadArgs, AuthError, Cli, Command as CliCommand, CredentialStore, UploadTargetChoice,
+    artifact_exit_code, run_artifact_command, run_artifact_command_with_interaction,
+    run_artifact_list, run_artifact_upload, select_artifact, select_upload_target,
 };
 use std::io::Cursor;
 use std::io::Write as _;
@@ -599,8 +599,85 @@ async fn isolated_production_entrypoint_reports_terminal_version_failure() {
     assert!(stderr.contains("retry explicitly with --artifact"));
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn isolated_production_dispatcher_selects_an_existing_artifact_interactively() {
+    let server = MockServer::start().await;
+    mount_upload_policy(&server).await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifacts": [{
+                "id": "artifact-existing",
+                "name": "Existing report",
+                "updatedAt": "2026-07-12T08:00:00Z",
+                "processingState": "ready",
+                "shareLink": { "state": "active", "expiresAt": null },
+                "publication": null
+            }],
+            "nextPageToken": null
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/artifacts/artifact-existing/upload-sessions"))
+        .respond_with(ResponseTemplate::new(202).set_body_json(serde_json::json!({
+            "artifactId": "artifact-existing", "uploadSessionId": "upload-interactive"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-existing"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifact": {
+                "name": "Existing report",
+                "processingState": "ready",
+                "readyVersion": { "id": "version-2" },
+                "publication": null,
+                "failure": null
+            }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let directory = tempfile::tempdir().expect("tempdir");
+    std::fs::write(directory.path().join("index.html"), "version two").expect("input");
+    let executable = std::env::current_exe().expect("test executable");
+    let output = tokio::task::spawn_blocking({
+        let api_url = server.uri();
+        let working_directory = directory.path().to_owned();
+        move || {
+            Command::new(executable)
+                .args([
+                    "--ignored",
+                    "--exact",
+                    "process_package_fixture",
+                    "--nocapture",
+                ])
+                .env("SHARESLICES_TEST_API_URL", api_url)
+                .env("SHARESLICES_TEST_UPLOAD_PATH", "index.html")
+                .env("SHARESLICES_TEST_INTERACTIVE", "1")
+                .current_dir(working_directory)
+                .output()
+                .expect("isolated CLI process")
+        }
+    })
+    .await
+    .expect("process task");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Version version-2"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Upload a new Version to an existing Artifact"));
+    assert!(stderr.contains("Existing report"));
+}
+
 #[tokio::test]
-#[ignore = "fixture invoked only by isolated_process_packages_only_selected_file_and_uploads_it"]
+#[ignore = "fixture invoked only by isolated process tests"]
 async fn process_package_fixture() {
     let api = ApiClient::new(&std::env::var("SHARESLICES_TEST_API_URL").expect("API URL"))
         .expect("client");
@@ -611,7 +688,10 @@ async fn process_package_fixture() {
         std::env::var("SHARESLICES_TEST_UPLOAD_PATH").expect("upload path"),
         "--no-progress".to_owned(),
     ];
-    if let Ok(artifact_id) = std::env::var("SHARESLICES_TEST_ARTIFACT_ID") {
+    let interactive = std::env::var_os("SHARESLICES_TEST_INTERACTIVE").is_some();
+    if interactive {
+        // Target and Artifact are selected through the injected terminal input below.
+    } else if let Ok(artifact_id) = std::env::var("SHARESLICES_TEST_ARTIFACT_ID") {
         arguments.extend(["--artifact".to_owned(), artifact_id]);
     } else {
         arguments.extend(["--name".to_owned(), "Process package".to_owned()]);
@@ -622,15 +702,32 @@ async fn process_package_fixture() {
     };
     assert!(matches!(command, ArtifactCommand::Upload(_)));
     let store = Store(Mutex::new(Some("fixture-secret".into())));
-    if let Err(error) = run_artifact_command(
-        command,
-        &api,
-        &store,
-        &mut std::io::stdout(),
-        &mut std::io::stderr(),
-    )
-    .await
-    {
+    let result = if interactive {
+        let mut interaction = ArtifactInteraction {
+            prompts_enabled: true,
+            is_terminal: true,
+            input: &mut Cursor::new(b"2\n1\n"),
+        };
+        run_artifact_command_with_interaction(
+            command,
+            &api,
+            &store,
+            &mut interaction,
+            &mut std::io::stdout(),
+            &mut std::io::stderr(),
+        )
+        .await
+    } else {
+        run_artifact_command(
+            command,
+            &api,
+            &store,
+            &mut std::io::stdout(),
+            &mut std::io::stderr(),
+        )
+        .await
+    };
+    if let Err(error) = result {
         let code = artifact_exit_code(&error);
         eprintln!("{error}");
         std::process::exit(code);
