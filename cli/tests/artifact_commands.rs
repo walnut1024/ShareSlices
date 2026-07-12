@@ -134,6 +134,54 @@ async fn published_version_reports_expired_share_link_as_not_accessible() {
 }
 
 #[tokio::test]
+async fn publish_dispatcher_surfaces_authorization_and_ready_version_gates() {
+    for (artifact_status, publish_status, expected) in
+        [(401, 0, "Not signed in"), (200, 409, "unexpected response")]
+    {
+        let server = MockServer::start().await;
+        let artifact_response = if artifact_status == 200 {
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "artifact": { "id": "artifact-1", "name": "Report",
+                    "shareLink": { "state": "active", "expiresAt": null }, "publication": null }
+            }))
+        } else {
+            ResponseTemplate::new(401)
+                .set_body_json(serde_json::json!({ "error": { "code": "unauthenticated" } }))
+        };
+        Mock::given(method("GET"))
+            .and(path("/api/artifacts/artifact-1"))
+            .respond_with(artifact_response)
+            .mount(&server)
+            .await;
+        if publish_status != 0 {
+            Mock::given(method("POST"))
+                .and(path("/api/artifacts/artifact-1/publications"))
+                .respond_with(ResponseTemplate::new(publish_status).set_body_json(
+                    serde_json::json!({
+                        "error": { "code": "version_not_ready" }
+                    }),
+                ))
+                .mount(&server)
+                .await;
+        }
+        let api = ApiClient::new(&server.uri()).expect("client");
+        let store = Store(Mutex::new(Some("secret".into())));
+        let error = run_artifact_command_with_input(
+            ArtifactCommand::Publish(publish_args(Some("artifact-1"), Some("version-2"), None)),
+            &api,
+            &store,
+            false,
+            &mut Cursor::new(Vec::<u8>::new()),
+            &mut Vec::new(),
+            &mut Vec::new(),
+        )
+        .await
+        .expect_err("publish gate");
+        assert!(error.to_string().contains(expected), "{error}");
+    }
+}
+
+#[tokio::test]
 async fn unpublishes_only_current_publication_and_preserves_expiration_in_output() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
