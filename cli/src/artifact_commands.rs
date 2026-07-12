@@ -30,36 +30,42 @@ pub async fn run_artifact_command(
     output: &mut dyn Write,
     diagnostics: &mut dyn Write,
 ) -> Result<(), ArtifactError> {
+    let mut input = std::io::stdin().lock();
+    run_artifact_command_with_input(
+        command,
+        api,
+        store,
+        std::io::stdin().is_terminal(),
+        &mut input,
+        output,
+        diagnostics,
+    )
+    .await
+}
+
+/// Executes one parsed Artifact command with an injectable terminal input seam.
+///
+/// # Errors
+/// Returns the command's typed Artifact error.
+pub async fn run_artifact_command_with_input(
+    command: ArtifactCommand,
+    api: &ApiClient,
+    store: &dyn CredentialStore,
+    is_terminal: bool,
+    input: &mut dyn BufRead,
+    output: &mut dyn Write,
+    diagnostics: &mut dyn Write,
+) -> Result<(), ArtifactError> {
     match command {
         ArtifactCommand::List(args) => run_artifact_list(&args, api, store, output).await,
         ArtifactCommand::Upload(args) => {
             run_artifact_upload(&args, api, store, output, diagnostics).await
         }
         ArtifactCommand::Publish(args) => {
-            let mut input = std::io::stdin().lock();
-            run_artifact_publish(
-                &args,
-                api,
-                store,
-                std::io::stdin().is_terminal(),
-                &mut input,
-                output,
-                diagnostics,
-            )
-            .await
+            run_artifact_publish(&args, api, store, is_terminal, input, output, diagnostics).await
         }
         ArtifactCommand::Unpublish(args) => {
-            let mut input = std::io::stdin().lock();
-            run_artifact_unpublish(
-                &args,
-                api,
-                store,
-                std::io::stdin().is_terminal(),
-                &mut input,
-                output,
-                diagnostics,
-            )
-            .await
+            run_artifact_unpublish(&args, api, store, is_terminal, input, output, diagnostics).await
         }
     }
 }
@@ -77,6 +83,43 @@ struct PublicationOutcome<'a> {
     version_id: Option<&'a str>,
     access_state: &'a str,
     expires_at: Option<&'a str>,
+}
+
+fn owner_external_accessible(share_link: &crate::ArtifactShareLink, published: bool) -> bool {
+    if !published || share_link.state != "active" {
+        return false;
+    }
+    share_link.expires_at.as_deref().is_none_or(|expires_at| {
+        time::OffsetDateTime::parse(expires_at, &time::format_description::well_known::Rfc3339)
+            .is_ok_and(|expiration| expiration > time::OffsetDateTime::now_utc())
+    })
+}
+
+async fn resolve_owned_artifact(
+    requested_id: Option<&str>,
+    api: &ApiClient,
+    store: &dyn CredentialStore,
+    is_terminal: bool,
+    input: &mut dyn BufRead,
+    diagnostics: &mut dyn Write,
+    missing_error: ArtifactError,
+) -> Result<(String, crate::ArtifactDetail), ArtifactError> {
+    if requested_id.is_none() && !is_terminal {
+        return Err(missing_error);
+    }
+    let token = store
+        .get()
+        .map_err(|_| ArtifactError::Unauthenticated)?
+        .ok_or(ArtifactError::Unauthenticated)?;
+    let artifact_id = if let Some(id) = requested_id {
+        id.to_owned()
+    } else {
+        select_owned_artifact(api, store, true, true, input, diagnostics)
+            .await?
+            .id
+    };
+    let artifact = api.artifact(&token, &artifact_id).await?;
+    Ok((token, artifact))
 }
 
 fn select_ready_version(
@@ -176,19 +219,16 @@ pub async fn run_artifact_publish(
     if !is_terminal && (args.artifact.is_none() || args.version.is_none()) {
         return Err(ArtifactError::PublishSelectionUnavailable);
     }
-    let token = store
-        .get()
-        .map_err(|_| ArtifactError::Unauthenticated)?
-        .ok_or(ArtifactError::Unauthenticated)?;
-    let artifact = if let Some(id) = &args.artifact {
-        api.artifact(&token, id).await?
-    } else {
-        if !is_terminal {
-            return Err(ArtifactError::PublishSelectionUnavailable);
-        }
-        let selected = select_owned_artifact(api, store, true, true, input, diagnostics).await?;
-        api.artifact(&token, &selected.id).await?
-    };
+    let (token, artifact) = resolve_owned_artifact(
+        args.artifact.as_deref(),
+        api,
+        store,
+        is_terminal,
+        input,
+        diagnostics,
+        ArtifactError::PublishSelectionUnavailable,
+    )
+    .await?;
     let version_id = if let Some(id) = &args.version {
         id.clone()
     } else {
@@ -196,7 +236,11 @@ pub async fn run_artifact_publish(
         select_ready_version(&versions, is_terminal, input, diagnostics)?.id
     };
     let publication = api.publish(&token, &artifact.id, &version_id).await?;
-    let after = api.artifact(&token, &artifact.id).await?;
+    let access_state = if owner_external_accessible(&artifact.share_link, true) {
+        "accessible"
+    } else {
+        "not accessible"
+    };
     write_publication_result(
         output,
         &PublicationPresentation {
@@ -207,8 +251,8 @@ pub async fn run_artifact_publish(
         &PublicationOutcome {
             artifact_id: &artifact.id,
             version_id: Some(&publication.version_id),
-            access_state: "accessible",
-            expires_at: after.share_link.expires_at.as_deref(),
+            access_state,
+            expires_at: artifact.share_link.expires_at.as_deref(),
         },
     )
 }
@@ -229,19 +273,16 @@ pub async fn run_artifact_unpublish(
     if !is_terminal && args.artifact.is_none() {
         return Err(ArtifactError::UnpublishSelectionUnavailable);
     }
-    let token = store
-        .get()
-        .map_err(|_| ArtifactError::Unauthenticated)?
-        .ok_or(ArtifactError::Unauthenticated)?;
-    let artifact = if let Some(id) = &args.artifact {
-        api.artifact(&token, id).await?
-    } else {
-        if !is_terminal {
-            return Err(ArtifactError::UnpublishSelectionUnavailable);
-        }
-        let selected = select_owned_artifact(api, store, true, true, input, diagnostics).await?;
-        api.artifact(&token, &selected.id).await?
-    };
+    let (token, artifact) = resolve_owned_artifact(
+        args.artifact.as_deref(),
+        api,
+        store,
+        is_terminal,
+        input,
+        diagnostics,
+        ArtifactError::UnpublishSelectionUnavailable,
+    )
+    .await?;
     if let Some(publication) = &artifact.publication {
         api.unpublish(&token, &artifact.id, &publication.id).await?;
     }

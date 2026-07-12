@@ -1,10 +1,10 @@
 // cspell:ignore nocapture noninteractive rfind
 use clap::Parser;
 use shareslices_cli::{
-    ApiClient, Artifact, ArtifactListArgs, ArtifactPublishArgs, ArtifactShareLink,
+    ApiClient, Artifact, ArtifactCommand, ArtifactListArgs, ArtifactPublishArgs, ArtifactShareLink,
     ArtifactUnpublishArgs, ArtifactUploadArgs, AuthError, Cli, Command as CliCommand,
-    CredentialStore, artifact_exit_code, run_artifact_command, run_artifact_list,
-    run_artifact_publish, run_artifact_unpublish, run_artifact_upload, select_artifact,
+    CredentialStore, artifact_exit_code, run_artifact_command, run_artifact_command_with_input,
+    run_artifact_list, run_artifact_publish, run_artifact_upload, select_artifact,
 };
 use std::io::Cursor;
 use std::io::Write as _;
@@ -59,7 +59,7 @@ async fn publishes_explicit_ready_version_and_reports_external_access() {
                 "shareLink": { "state": "active", "expiresAt": "2026-08-01T00:00:00Z" },
                 "publication": null }
         })))
-        .expect(2)
+        .expect(1)
         .mount(&server)
         .await;
     Mock::given(method("POST")).and(path("/api/artifacts/artifact-1/publications"))
@@ -73,12 +73,12 @@ async fn publishes_explicit_ready_version_and_reports_external_access() {
     let api = ApiClient::new(&server.uri()).expect("client");
     let store = Store(Mutex::new(Some("secret".into())));
     let mut output = Vec::new();
-    run_artifact_publish(
-        &publish_args(
+    run_artifact_command_with_input(
+        ArtifactCommand::Publish(publish_args(
             Some("artifact-1"),
             Some("version-2"),
             Some("artifactId,versionId,accessState,expiresAt"),
-        ),
+        )),
         &api,
         &store,
         false,
@@ -92,6 +92,45 @@ async fn publishes_explicit_ready_version_and_reports_external_access() {
     assert_eq!(value["versionId"], "version-2");
     assert_eq!(value["accessState"], "accessible");
     assert_eq!(value["expiresAt"], "2026-08-01T00:00:00Z");
+}
+
+#[tokio::test]
+async fn published_version_reports_expired_share_link_as_not_accessible() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifact": { "id": "artifact-1", "name": "Report",
+                "shareLink": { "state": "active", "expiresAt": "2020-01-01T00:00:00Z" },
+                "publication": null }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST")).and(path("/api/artifacts/artifact-1/publications"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+            "publication": { "id": "publication-1", "versionId": "version-2", "publishedAt": "2026-07-12T00:00:00Z" }
+        }))).mount(&server).await;
+    let api = ApiClient::new(&server.uri()).expect("client");
+    let store = Store(Mutex::new(Some("secret".into())));
+    let mut output = Vec::new();
+    run_artifact_command_with_input(
+        ArtifactCommand::Publish(publish_args(
+            Some("artifact-1"),
+            Some("version-2"),
+            Some("accessState,expiresAt"),
+        )),
+        &api,
+        &store,
+        false,
+        &mut Cursor::new(Vec::<u8>::new()),
+        &mut output,
+        &mut Vec::new(),
+    )
+    .await
+    .expect("publish");
+    let value: serde_json::Value = serde_json::from_slice(&output).expect("json");
+    assert_eq!(value["accessState"], "not accessible");
+    assert_eq!(value["expiresAt"], "2020-01-01T00:00:00Z");
 }
 
 #[tokio::test]
@@ -118,8 +157,11 @@ async fn unpublishes_only_current_publication_and_preserves_expiration_in_output
     let api = ApiClient::new(&server.uri()).expect("client");
     let store = Store(Mutex::new(Some("secret".into())));
     let mut output = Vec::new();
-    run_artifact_unpublish(
-        &unpublish_args(Some("artifact-1"), Some("artifactId,accessState,expiresAt")),
+    run_artifact_command_with_input(
+        ArtifactCommand::Unpublish(unpublish_args(
+            Some("artifact-1"),
+            Some("artifactId,accessState,expiresAt"),
+        )),
         &api,
         &store,
         false,
@@ -172,8 +214,8 @@ async fn unpublish_is_idempotent_when_already_unpublished() {
     let api = ApiClient::new(&server.uri()).expect("client");
     let store = Store(Mutex::new(Some("secret".into())));
     let mut output = Vec::new();
-    run_artifact_unpublish(
-        &unpublish_args(Some("artifact-1"), None),
+    run_artifact_command_with_input(
+        ArtifactCommand::Unpublish(unpublish_args(Some("artifact-1"), None)),
         &api,
         &store,
         false,
@@ -209,7 +251,7 @@ async fn interactive_publish_selects_artifact_and_ready_version() {
     Mock::given(method("GET")).and(path("/api/artifacts/artifact-1"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
           "artifact": { "id": "artifact-1", "name": "Report", "shareLink": { "state": "active", "expiresAt": null }, "publication": null }
-        }))).expect(2).mount(&server).await;
+        }))).expect(1).mount(&server).await;
     Mock::given(method("POST")).and(path("/api/artifacts/artifact-1/publications"))
         .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
           "publication": { "id": "publication-1", "versionId": "version-2", "publishedAt": "2026-07-12T00:00:00Z" }
@@ -217,8 +259,8 @@ async fn interactive_publish_selects_artifact_and_ready_version() {
     let api = ApiClient::new(&server.uri()).expect("client");
     let store = Store(Mutex::new(Some("secret".into())));
     let mut diagnostics = Vec::new();
-    run_artifact_publish(
-        &publish_args(None, None, None),
+    run_artifact_command_with_input(
+        ArtifactCommand::Publish(publish_args(None, None, None)),
         &api,
         &store,
         true,
