@@ -12,6 +12,7 @@ ARTIFACT_PATHS = {
     "/api/artifacts",
     "/api/artifacts/{artifactId}",
     "/api/artifacts/{artifactId}/versions",
+    "/api/artifacts/{artifactId}/share-link",
     "/api/artifacts/{artifactId}/upload-sessions",
     "/api/upload-sessions/{uploadSessionId}:retry",
     "/api/versions/{versionId}/content/",
@@ -28,6 +29,7 @@ ARTIFACT_OPERATIONS = {
     ("get", "/api/artifacts/{artifactId}"),
     ("get", "/api/artifacts/{artifactId}/versions"),
     ("patch", "/api/artifacts/{artifactId}"),
+    ("patch", "/api/artifacts/{artifactId}/share-link"),
     ("delete", "/api/artifacts/{artifactId}"),
     ("post", "/api/artifacts/{artifactId}/upload-sessions"),
     ("post", "/api/upload-sessions/{uploadSessionId}:retry"),
@@ -91,6 +93,10 @@ def test_openapi_artifact_contract_and_local_references() -> None:
     assert schemas["ArtifactAcceptedResponse"]["example"]["uploadSessionId"]
     assert schemas["Artifact"]["example"]["id"] == "artifact-example"
     assert schemas["PublicationResponse"]["example"]["publication"]["versionId"] == "version-example"
+    assert schemas["UpdateShareLinkRequest"]["required"] == ["expiresAt"]
+    assert schemas["ShareLink"]["properties"]["state"]["enum"] == ["active", "expired", "retired"]
+    update_share = document["paths"]["/api/artifacts/{artifactId}/share-link"]["patch"]
+    assert set(update_share["responses"]) == {"200", "400", "401", "404", "500"}
 
     validation_details = schemas["ValidationDetails"]
     assert validation_details["additionalProperties"] is False

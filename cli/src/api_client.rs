@@ -351,6 +351,40 @@ impl ApiClient {
         Ok(())
     }
 
+    /// Sets or clears the stable Share-link expiration without changing Publication.
+    ///
+    /// # Errors
+    /// Returns an Artifact error for authentication, transport, ownership, validation, or decoding failures.
+    pub async fn set_share_expiration(
+        &self,
+        token: &str,
+        artifact_id: &str,
+        expires_at: Option<&str>,
+    ) -> Result<ArtifactDetail, ArtifactError> {
+        #[derive(Deserialize)]
+        struct Body {
+            artifact: ArtifactDetail,
+        }
+        let response = self
+            .request(
+                reqwest::Method::PATCH,
+                &format!("/api/artifacts/{artifact_id}/share-link"),
+            )
+            .bearer_auth(token)
+            .json(&serde_json::json!({ "expiresAt": expires_at }))
+            .send()
+            .await
+            .map_err(|error| ArtifactError::Network(error.to_string()))?;
+        if !response.status().is_success() {
+            return Err(Self::artifact_error(response).await);
+        }
+        response
+            .json::<Body>()
+            .await
+            .map(|body| body.artifact)
+            .map_err(|_| ArtifactError::Server)
+    }
+
     /// Uploads one prepared ZIP using one idempotency key across transient retries.
     ///
     /// # Errors

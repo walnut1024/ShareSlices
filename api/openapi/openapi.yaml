@@ -823,7 +823,7 @@ paths:
               $ref: "#/components/schemas/UpdateShareLinkRequest"
       responses:
         "200":
-          description: Share link expiration updated without changing its slug.
+          description: Share link expiration updated without changing its slug or Publication.
           content:
             application/json:
               schema:
@@ -2122,6 +2122,7 @@ components:
           format: uri
         state:
           type: string
+          description: Effective state; an active stored link is reported as expired after its expiration instant.
           enum:
             - active
             - expired

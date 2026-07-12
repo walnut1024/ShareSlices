@@ -1,6 +1,7 @@
 use clap::Parser;
 use shareslices_cli::{
-    ArtifactCommand, AuthCommand, Cli, Command, ProcessingFilter, PublicationFilter,
+    ArtifactCommand, ArtifactShareCommand, AuthCommand, Cli, Command, ProcessingFilter,
+    PublicationFilter,
 };
 
 #[test]
@@ -17,6 +18,55 @@ fn parses_auth_commands_without_artifact_commands() {
         assert_eq!(format!("{command:?}"), format!("{expected:?}"));
     }
     assert!(Cli::try_parse_from(["shareslices", "upload"]).is_err());
+}
+
+#[test]
+fn parses_share_view_and_edit_options() {
+    let view = Cli::try_parse_from([
+        "shareslices",
+        "artifact",
+        "share",
+        "view",
+        "--artifact",
+        "artifact-1",
+        "--json",
+        "url,accessState",
+    ])
+    .expect("share view");
+    let Command::Artifact {
+        command:
+            ArtifactCommand::Share {
+                command: ArtifactShareCommand::View(args),
+            },
+    } = view.command
+    else {
+        panic!("share view command")
+    };
+    assert_eq!(args.artifact.as_deref(), Some("artifact-1"));
+    assert_eq!(args.json.as_deref(), Some("url,accessState"));
+
+    let edit = Cli::try_parse_from([
+        "shareslices",
+        "artifact",
+        "share",
+        "edit",
+        "--artifact",
+        "artifact-1",
+        "--expires-at",
+        "never",
+    ])
+    .expect("share edit");
+    let Command::Artifact {
+        command:
+            ArtifactCommand::Share {
+                command: ArtifactShareCommand::Edit(args),
+            },
+    } = edit.command
+    else {
+        panic!("share edit command")
+    };
+    assert_eq!(args.artifact.as_deref(), Some("artifact-1"));
+    assert_eq!(args.expires_at.as_deref(), Some("never"));
 }
 
 #[test]

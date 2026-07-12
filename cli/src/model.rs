@@ -87,6 +87,7 @@ pub struct Artifact {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtifactShareLink {
+    pub url: String,
     pub state: String,
     pub expires_at: Option<String>,
 }
@@ -205,6 +206,14 @@ pub enum ArtifactError {
     PublishSelectionUnavailable,
     #[error("Unpublish requires --artifact when interactive prompting is unavailable.")]
     UnpublishSelectionUnavailable,
+    #[error("Share view requires --artifact when interactive prompting is unavailable.")]
+    ShareViewSelectionUnavailable,
+    #[error(
+        "Share edit requires --artifact and --expires-at when interactive prompting is unavailable."
+    )]
+    ShareEditSelectionUnavailable,
+    #[error("--expires-at must be a future RFC 3339 timestamp or 'never'.")]
+    InvalidShareExpiration,
     #[error("No ready Version is available for this Artifact.")]
     NoReadyVersion,
 }

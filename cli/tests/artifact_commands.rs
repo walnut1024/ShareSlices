@@ -2,11 +2,12 @@
 use clap::Parser as _;
 use shareslices_cli::{
     ApiClient, Artifact, ArtifactCommand, ArtifactInteraction, ArtifactListArgs,
-    ArtifactPublishArgs, ArtifactShareLink, ArtifactUnpublishArgs, ArtifactUploadArgs, AuthError,
-    Cli, Command as CliCommand, CredentialStore, UploadTargetChoice, artifact_exit_code,
-    run_artifact_command, run_artifact_command_with_input, run_artifact_command_with_interaction,
-    run_artifact_list, run_artifact_publish, run_artifact_upload, select_artifact,
-    select_upload_target,
+    ArtifactPublishArgs, ArtifactShareEditArgs, ArtifactShareLink, ArtifactShareViewArgs,
+    ArtifactUnpublishArgs, ArtifactUploadArgs, AuthError, Cli, Command as CliCommand,
+    CredentialStore, UploadTargetChoice, artifact_exit_code, run_artifact_command,
+    run_artifact_command_with_input, run_artifact_command_with_interaction, run_artifact_list,
+    run_artifact_publish, run_artifact_share_edit, run_artifact_share_view, run_artifact_upload,
+    select_artifact, select_upload_target,
 };
 use std::io::Cursor;
 use std::io::Write as _;
@@ -94,6 +95,660 @@ fn unpublish_args(artifact: Option<&str>, json: Option<&str>) -> ArtifactUnpubli
     }
 }
 
+fn share_view_args(artifact: Option<&str>, json: Option<&str>) -> ArtifactShareViewArgs {
+    ArtifactShareViewArgs {
+        artifact: artifact.map(str::to_owned),
+        json: json.map(str::to_owned),
+        jq: None,
+        template: None,
+    }
+}
+
+fn share_edit_args(
+    artifact: Option<&str>,
+    expires_at: Option<&str>,
+    json: Option<&str>,
+) -> ArtifactShareEditArgs {
+    ArtifactShareEditArgs {
+        artifact: artifact.map(str::to_owned),
+        expires_at: expires_at.map(str::to_owned),
+        json: json.map(str::to_owned),
+        jq: None,
+        template: None,
+    }
+}
+
+#[tokio::test]
+async fn share_view_reports_stable_link_and_effective_states() {
+    for (publication, state, expires_at, expected) in [
+        (
+            Some(serde_json::json!({"id":"publication-1"})),
+            "active",
+            None,
+            "accessible",
+        ),
+        (None, "active", None, "not accessible"),
+        (
+            Some(serde_json::json!({"id":"publication-1"})),
+            "expired",
+            Some("2020-01-01T00:00:00Z"),
+            "not accessible",
+        ),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/artifacts/artifact-1"))
+            .and(header_exists("shareslices-cli-version"))
+            .and(header_exists("shareslices-cli-os"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "artifact": {
+                    "id": "artifact-1", "name": "Report",
+                    "shareLink": {
+                        "url": "https://viewer.example/a/stable-slug/",
+                        "state": state, "expiresAt": expires_at
+                    },
+                    "publication": publication
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let api = ApiClient::new(&server.uri()).expect("client");
+        let store = Store(Mutex::new(Some("secret".into())));
+        let mut output = Vec::new();
+        run_artifact_share_view(
+            &share_view_args(
+                Some("artifact-1"),
+                Some("url,publicationState,expiresAt,accessState"),
+            ),
+            &api,
+            &store,
+            false,
+            &mut Cursor::new(Vec::<u8>::new()),
+            &mut output,
+            &mut Vec::new(),
+        )
+        .await
+        .expect("share view");
+        let value: serde_json::Value = serde_json::from_slice(&output).expect("json");
+        assert_eq!(value["url"], "https://viewer.example/a/stable-slug/");
+        assert_eq!(value["accessState"], expected);
+    }
+}
+
+#[tokio::test]
+async fn share_edit_sends_future_expiration_and_preserves_link_and_publication() {
+    let server = MockServer::start().await;
+    let artifact = serde_json::json!({
+        "id": "artifact-1", "name": "Report",
+        "shareLink": { "url": "https://viewer.example/a/stable-slug/", "state": "active", "expiresAt": "2099-08-01T08:30:00+08:00" },
+        "publication": { "id": "publication-1", "versionId": "version-2" }
+    });
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1"))
+        .and(header_exists("shareslices-cli-version"))
+        .and(header_exists("shareslices-cli-os"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({"artifact": artifact})),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("PATCH"))
+        .and(path("/api/artifacts/artifact-1/share-link"))
+        .and(header_exists("shareslices-cli-version"))
+        .and(header_exists("shareslices-cli-os"))
+        .and(body_json(
+            serde_json::json!({"expiresAt":"2099-08-01T08:30:00+08:00"}),
+        ))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({"artifact": artifact})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let api = ApiClient::new(&server.uri()).expect("client");
+    let store = Store(Mutex::new(Some("secret".into())));
+    let mut output = Vec::new();
+    run_artifact_share_edit(
+        &share_edit_args(
+            Some("artifact-1"),
+            Some("2099-08-01T08:30:00+08:00"),
+            Some("url,publicationState,expiresAt,accessState"),
+        ),
+        &api,
+        &store,
+        false,
+        &mut Cursor::new(Vec::<u8>::new()),
+        &mut output,
+        &mut Vec::new(),
+    )
+    .await
+    .expect("share edit");
+    let value: serde_json::Value = serde_json::from_slice(&output).expect("json");
+    assert_eq!(value["url"], "https://viewer.example/a/stable-slug/");
+    assert_eq!(value["publicationState"], "published");
+}
+
+#[tokio::test]
+async fn share_formatting_supports_jq_and_template_without_transient_output() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifact": {
+                "id": "artifact-1", "name": "Report",
+                "shareLink": { "url": "https://viewer.example/a/stable/", "state": "active", "expiresAt": null },
+                "publication": null
+            }
+        })))
+        .mount(&server)
+        .await;
+    let api = ApiClient::new(&server.uri()).expect("client");
+    let store = Store(Mutex::new(Some("secret".into())));
+
+    let mut jq_args = share_view_args(Some("artifact-1"), Some("url,accessState"));
+    jq_args.jq = Some(".url".into());
+    let mut output = Vec::new();
+    let mut diagnostics = Vec::new();
+    run_artifact_share_view(
+        &jq_args,
+        &api,
+        &store,
+        false,
+        &mut Cursor::new(Vec::<u8>::new()),
+        &mut output,
+        &mut diagnostics,
+    )
+    .await
+    .expect("jq output");
+    assert_eq!(
+        String::from_utf8(output).expect("utf8"),
+        "https://viewer.example/a/stable/\n"
+    );
+    assert!(diagnostics.is_empty());
+
+    let mut template_args =
+        share_view_args(Some("artifact-1"), Some("publicationState,accessState"));
+    template_args.template = Some("{{.publicationState}}:{{.accessState}}".into());
+    let mut output = Vec::new();
+    run_artifact_share_view(
+        &template_args,
+        &api,
+        &store,
+        false,
+        &mut Cursor::new(Vec::<u8>::new()),
+        &mut output,
+        &mut Vec::new(),
+    )
+    .await
+    .expect("template output");
+    assert_eq!(
+        String::from_utf8(output).expect("utf8"),
+        "unpublished:not accessible"
+    );
+}
+
+#[tokio::test]
+async fn share_upgrade_required_stops_before_expiration_mutation() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1"))
+        .and(header_exists("shareslices-cli-version"))
+        .and(header_exists("shareslices-cli-os"))
+        .respond_with(ResponseTemplate::new(426).set_body_json(serde_json::json!({
+            "error": { "code": "cli_upgrade_required", "details": { "currentVersion": "0.1.0", "minimumVersion": "0.2.0" } }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("PATCH"))
+        .and(path("/api/artifacts/artifact-1/share-link"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let api = ApiClient::new(&server.uri()).expect("client");
+    let store = Store(Mutex::new(Some("secret".into())));
+    let error = run_artifact_share_edit(
+        &share_edit_args(Some("artifact-1"), Some("never"), None),
+        &api,
+        &store,
+        false,
+        &mut Cursor::new(Vec::<u8>::new()),
+        &mut Vec::new(),
+        &mut Vec::new(),
+    )
+    .await
+    .expect_err("upgrade gate");
+    assert!(matches!(
+        error,
+        shareslices_cli::ArtifactError::UpgradeRequired { .. }
+    ));
+}
+
+#[tokio::test]
+async fn share_edit_never_clears_expiration_and_invalid_input_never_mutates() {
+    let server = MockServer::start().await;
+    let artifact = serde_json::json!({
+        "id": "artifact-1", "name": "Report",
+        "shareLink": { "url": "https://viewer.example/a/stable-slug/", "state": "active", "expiresAt": null },
+        "publication": null
+    });
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({"artifact": artifact})),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("PATCH"))
+        .and(path("/api/artifacts/artifact-1/share-link"))
+        .and(body_json(serde_json::json!({"expiresAt":null})))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({"artifact": artifact})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let api = ApiClient::new(&server.uri()).expect("client");
+    let store = Store(Mutex::new(Some("secret".into())));
+    run_artifact_share_edit(
+        &share_edit_args(Some("artifact-1"), Some("never"), None),
+        &api,
+        &store,
+        false,
+        &mut Cursor::new(Vec::<u8>::new()),
+        &mut Vec::new(),
+        &mut Vec::new(),
+    )
+    .await
+    .expect("clear expiration");
+
+    for invalid in ["yesterday", "2020-01-01T00:00:00Z", "2099-01-01T00:00:00"] {
+        let error = run_artifact_share_edit(
+            &share_edit_args(Some("artifact-1"), Some(invalid), None),
+            &api,
+            &store,
+            false,
+            &mut Cursor::new(Vec::<u8>::new()),
+            &mut Vec::new(),
+            &mut Vec::new(),
+        )
+        .await
+        .expect_err("invalid expiration");
+        assert!(matches!(
+            error,
+            shareslices_cli::ArtifactError::InvalidShareExpiration
+        ));
+    }
+}
+
+#[tokio::test]
+async fn prompt_disabled_share_commands_require_explicit_inputs_before_network_access() {
+    let server = MockServer::start().await;
+    let api = ApiClient::new(&server.uri()).expect("client");
+    let store = Store(Mutex::new(Some("secret".into())));
+    let view = run_artifact_share_view(
+        &share_view_args(None, None),
+        &api,
+        &store,
+        false,
+        &mut Cursor::new(Vec::<u8>::new()),
+        &mut Vec::new(),
+        &mut Vec::new(),
+    )
+    .await
+    .expect_err("artifact required");
+    assert!(matches!(
+        view,
+        shareslices_cli::ArtifactError::ShareViewSelectionUnavailable
+    ));
+    let edit = run_artifact_share_edit(
+        &share_edit_args(Some("artifact-1"), None, None),
+        &api,
+        &store,
+        false,
+        &mut Cursor::new(Vec::<u8>::new()),
+        &mut Vec::new(),
+        &mut Vec::new(),
+    )
+    .await
+    .expect_err("expiration required");
+    assert!(matches!(
+        edit,
+        shareslices_cli::ArtifactError::ShareEditSelectionUnavailable
+    ));
+}
+
+#[tokio::test]
+async fn interactive_share_edit_selects_artifact_and_prompts_for_expiration() {
+    let server = MockServer::start().await;
+    let list_artifact = serde_json::json!({
+        "id": "artifact-1", "name": "Report", "updatedAt": "2026-07-12T00:00:00Z",
+        "processingState": "ready",
+        "shareLink": { "url": "https://viewer.example/a/stable-slug/", "state": "active", "expiresAt": null },
+        "publication": null
+    });
+    let detail = serde_json::json!({
+        "id": "artifact-1", "name": "Report",
+        "shareLink": { "url": "https://viewer.example/a/stable-slug/", "state": "active", "expiresAt": null },
+        "publication": null
+    });
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifacts": [list_artifact], "nextPageToken": null
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({"artifact": detail})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("PATCH"))
+        .and(path("/api/artifacts/artifact-1/share-link"))
+        .and(body_json(serde_json::json!({"expiresAt":null})))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({"artifact": detail})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let api = ApiClient::new(&server.uri()).expect("client");
+    let store = Store(Mutex::new(Some("secret".into())));
+    let mut diagnostics = Vec::new();
+    run_artifact_command_with_input(
+        ArtifactCommand::Share {
+            command: shareslices_cli::ArtifactShareCommand::Edit(share_edit_args(None, None, None)),
+        },
+        &api,
+        &store,
+        true,
+        &mut Cursor::new(b"1\nnever\n".to_vec()),
+        &mut Vec::new(),
+        &mut diagnostics,
+    )
+    .await
+    .expect("interactive share edit");
+    let prompts = String::from_utf8(diagnostics).expect("utf8");
+    assert!(prompts.contains("Select an Artifact"));
+    assert!(prompts.contains("Expiration (RFC 3339 or never)"));
+}
+
+#[test]
+fn shipping_binary_rejects_noninteractive_share_edit_without_expiration() {
+    let output = Command::new(env!("CARGO_BIN_EXE_shareslices"))
+        .args(["artifact", "share", "edit", "--artifact", "artifact-1"])
+        .env("SHARESLICES_PROMPT_DISABLED", "1")
+        .output()
+        .expect("shipping binary");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stdout).is_empty());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("requires --artifact and --expires-at")
+    );
+}
+
+#[test]
+fn shipping_binary_rejects_invalid_share_expiration_before_authentication() {
+    let output = Command::new(env!("CARGO_BIN_EXE_shareslices"))
+        .args([
+            "artifact",
+            "share",
+            "edit",
+            "--artifact",
+            "artifact-1",
+            "--expires-at",
+            "2020-01-01T00:00:00Z",
+        ])
+        .env("SHARESLICES_PROMPT_DISABLED", "1")
+        .output()
+        .expect("shipping binary");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stdout).is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("future RFC 3339"));
+}
+
+#[tokio::test]
+async fn complete_cli_process_views_share_through_production_dispatcher() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET")).and(path("/api/artifacts/artifact-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifact": {
+                "id": "artifact-1", "name": "Report",
+                "shareLink": { "url": "https://viewer.example/a/stable-slug/", "state": "active", "expiresAt": null },
+                "publication": { "id": "publication-1" }
+            }
+        }))).expect(1).mount(&server).await;
+    let executable = std::env::current_exe().expect("test executable");
+    let output = tokio::task::spawn_blocking({
+        let api_url = server.uri();
+        move || {
+            Command::new(executable)
+                .args([
+                    "--ignored",
+                    "--exact",
+                    "process_share_fixture",
+                    "--nocapture",
+                ])
+                .env("SHARESLICES_TEST_API_URL", api_url)
+                .output()
+                .expect("isolated CLI process")
+        }
+    })
+    .await
+    .expect("process task");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).expect("UTF-8 stdout");
+    let start = stdout.find('{').expect("JSON start");
+    let end = stdout.rfind('}').expect("JSON end") + 1;
+    let value: serde_json::Value = serde_json::from_str(&stdout[start..end]).expect("JSON stdout");
+    assert_eq!(value["url"], "https://viewer.example/a/stable-slug/");
+    assert_eq!(value["accessState"], "accessible");
+    assert!(String::from_utf8_lossy(&output.stderr).is_empty());
+}
+
+#[tokio::test]
+async fn complete_cli_process_reports_expired_unpublished_share() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET")).and(path("/api/artifacts/artifact-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifact": {
+                "id": "artifact-1", "name": "Report",
+                "shareLink": { "url": "https://viewer.example/a/stable-slug/", "state": "expired", "expiresAt": "2020-01-01T00:00:00Z" },
+                "publication": null
+            }
+        }))).expect(1).mount(&server).await;
+    let executable = std::env::current_exe().expect("test executable");
+    let output = tokio::task::spawn_blocking({
+        let api_url = server.uri();
+        move || {
+            Command::new(executable)
+                .args([
+                    "--ignored",
+                    "--exact",
+                    "process_share_fixture",
+                    "--nocapture",
+                ])
+                .env("SHARESLICES_TEST_API_URL", api_url)
+                .output()
+                .expect("isolated CLI process")
+        }
+    })
+    .await
+    .expect("process task");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).expect("UTF-8 stdout");
+    assert!(stdout.contains("\"publicationState\": \"unpublished\""));
+    assert!(stdout.contains("\"accessState\": \"not accessible\""));
+    assert!(stdout.contains("2020-01-01T00:00:00Z"));
+}
+
+#[tokio::test]
+async fn complete_cli_process_edits_future_and_permanent_expiration() {
+    for (requested, response_expiration) in [
+        ("2099-08-01T08:30:00+08:00", Some("2099-08-01T00:30:00Z")),
+        ("never", None),
+    ] {
+        let server = MockServer::start().await;
+        let before = serde_json::json!({
+            "id": "artifact-1", "name": "Report",
+            "shareLink": { "url": "https://viewer.example/a/stable-slug/", "state": "active", "expiresAt": null },
+            "publication": { "id": "publication-1" }
+        });
+        let after = serde_json::json!({
+            "id": "artifact-1", "name": "Report",
+            "shareLink": { "url": "https://viewer.example/a/stable-slug/", "state": "active", "expiresAt": response_expiration },
+            "publication": { "id": "publication-1" }
+        });
+        Mock::given(method("GET"))
+            .and(path("/api/artifacts/artifact-1"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"artifact": before})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        let expected_request = if requested == "never" {
+            serde_json::json!({"expiresAt":null})
+        } else {
+            serde_json::json!({"expiresAt":requested})
+        };
+        Mock::given(method("PATCH"))
+            .and(path("/api/artifacts/artifact-1/share-link"))
+            .and(body_json(expected_request))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"artifact": after})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        let executable = std::env::current_exe().expect("test executable");
+        let output = tokio::task::spawn_blocking({
+            let api_url = server.uri();
+            let requested = requested.to_owned();
+            move || {
+                Command::new(executable)
+                    .args([
+                        "--ignored",
+                        "--exact",
+                        "process_share_fixture",
+                        "--nocapture",
+                    ])
+                    .env("SHARESLICES_TEST_API_URL", api_url)
+                    .env("SHARESLICES_TEST_SHARE_EXPIRATION", requested)
+                    .output()
+                    .expect("isolated CLI process")
+            }
+        })
+        .await
+        .expect("process task");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8(output.stdout).expect("UTF-8 stdout");
+        assert!(stdout.contains("https://viewer.example/a/stable-slug/"));
+        assert!(stdout.contains("\"publicationState\": \"published\""));
+    }
+}
+
+#[tokio::test]
+async fn complete_cli_process_maps_share_authentication_to_exit_four() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
+            "error": { "code": "unauthenticated" }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let executable = std::env::current_exe().expect("test executable");
+    let output = tokio::task::spawn_blocking({
+        let api_url = server.uri();
+        move || {
+            Command::new(executable)
+                .args([
+                    "--ignored",
+                    "--exact",
+                    "process_share_fixture",
+                    "--nocapture",
+                ])
+                .env("SHARESLICES_TEST_API_URL", api_url)
+                .output()
+                .expect("isolated CLI process")
+        }
+    })
+    .await
+    .expect("process task");
+    assert_eq!(output.status.code(), Some(4));
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("https://"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Not signed in"));
+}
+
+#[tokio::test]
+#[ignore = "fixture invoked only by complete_cli_process_views_share_through_production_dispatcher"]
+async fn process_share_fixture() {
+    let api = ApiClient::new(&std::env::var("SHARESLICES_TEST_API_URL").expect("API URL"))
+        .expect("client");
+    let mut arguments = vec![
+        "shareslices".to_owned(),
+        "artifact".to_owned(),
+        "share".to_owned(),
+    ];
+    if let Ok(expiration) = std::env::var("SHARESLICES_TEST_SHARE_EXPIRATION") {
+        arguments.extend([
+            "edit".to_owned(),
+            "--artifact".to_owned(),
+            "artifact-1".to_owned(),
+            "--expires-at".to_owned(),
+            expiration,
+        ]);
+    } else {
+        arguments.extend([
+            "view".to_owned(),
+            "--artifact".to_owned(),
+            "artifact-1".to_owned(),
+        ]);
+    }
+    arguments.extend([
+        "--json".to_owned(),
+        "url,publicationState,expiresAt,accessState".to_owned(),
+    ]);
+    let cli = Cli::try_parse_from(arguments).expect("production parser");
+    let CliCommand::Artifact { command } = cli.command else {
+        unreachable!("Artifact command")
+    };
+    let store = Store(Mutex::new(Some("fixture-secret".into())));
+    if let Err(error) = run_artifact_command(
+        command,
+        &api,
+        &store,
+        &mut std::io::stdout(),
+        &mut std::io::stderr(),
+    )
+    .await
+    {
+        eprintln!("{error}");
+        std::process::exit(artifact_exit_code(&error));
+    }
+}
+
 #[tokio::test]
 async fn publishes_explicit_ready_version_and_reports_external_access() {
     let server = MockServer::start().await;
@@ -101,7 +756,7 @@ async fn publishes_explicit_ready_version_and_reports_external_access() {
         .and(path("/api/artifacts/artifact-1"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "artifact": { "id": "artifact-1", "name": "Report",
-                "shareLink": { "state": "active", "expiresAt": "2026-08-01T00:00:00Z" },
+                "shareLink": { "url": "https://viewer.example/a/stable/", "state": "active", "expiresAt": "2026-08-01T00:00:00Z" },
                 "publication": null }
         })))
         .expect(1)
@@ -146,7 +801,7 @@ async fn published_version_reports_expired_share_link_as_not_accessible() {
         .and(path("/api/artifacts/artifact-1"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "artifact": { "id": "artifact-1", "name": "Report",
-                "shareLink": { "state": "active", "expiresAt": "2020-01-01T00:00:00Z" },
+                "shareLink": { "url": "https://viewer.example/a/stable/", "state": "expired", "expiresAt": "2020-01-01T00:00:00Z" },
                 "publication": null }
         })))
         .mount(&server)
@@ -187,7 +842,7 @@ async fn publish_dispatcher_surfaces_authorization_and_ready_version_gates() {
         let artifact_response = if artifact_status == 200 {
             ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "artifact": { "id": "artifact-1", "name": "Report",
-                    "shareLink": { "state": "active", "expiresAt": null }, "publication": null }
+                    "shareLink": { "url": "https://viewer.example/a/stable/", "state": "active", "expiresAt": null }, "publication": null }
             }))
         } else {
             ResponseTemplate::new(401)
@@ -233,7 +888,7 @@ async fn unpublishes_only_current_publication_and_preserves_expiration_in_output
         .and(path("/api/artifacts/artifact-1"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "artifact": { "id": "artifact-1", "name": "Report",
-                "shareLink": { "state": "active", "expiresAt": "2026-08-01T00:00:00Z" },
+                "shareLink": { "url": "https://viewer.example/a/stable/", "state": "active", "expiresAt": "2026-08-01T00:00:00Z" },
                 "publication": { "id": "publication-1", "versionId": "version-2" } }
         })))
         .expect(1)
@@ -299,7 +954,7 @@ async fn unpublish_is_idempotent_when_already_unpublished() {
         .and(path("/api/artifacts/artifact-1"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "artifact": { "id": "artifact-1", "name": "Report",
-                "shareLink": { "state": "active", "expiresAt": null }, "publication": null }
+                "shareLink": { "url": "https://viewer.example/a/stable/", "state": "active", "expiresAt": null }, "publication": null }
         })))
         .expect(1)
         .mount(&server)
@@ -331,7 +986,7 @@ async fn interactive_publish_selects_artifact_and_ready_version() {
     Mock::given(method("GET")).and(path("/api/artifacts"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
           "artifacts": [{ "id": "artifact-1", "name": "Report", "updatedAt": "2026-07-12T00:00:00Z",
-            "processingState": "ready", "shareLink": { "state": "active", "expiresAt": null }, "publication": null }],
+            "processingState": "ready", "shareLink": { "url": "https://viewer.example/a/stable/", "state": "active", "expiresAt": null }, "publication": null }],
           "nextPageToken": null
         }))).mount(&server).await;
     Mock::given(method("GET"))
@@ -343,7 +998,7 @@ async fn interactive_publish_selects_artifact_and_ready_version() {
         .await;
     Mock::given(method("GET")).and(path("/api/artifacts/artifact-1"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-          "artifact": { "id": "artifact-1", "name": "Report", "shareLink": { "state": "active", "expiresAt": null }, "publication": null }
+          "artifact": { "id": "artifact-1", "name": "Report", "shareLink": { "url": "https://viewer.example/a/stable/", "state": "active", "expiresAt": null }, "publication": null }
         }))).expect(1).mount(&server).await;
     Mock::given(method("POST")).and(path("/api/artifacts/artifact-1/publications"))
         .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
@@ -387,7 +1042,7 @@ async fn server() -> MockServer {
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "artifacts": [{ "id": "artifact-1", "name": "Quarterly report",
                 "updatedAt": "2026-07-12T08:00:00Z", "processingState": "ready",
-                "shareLink": { "state": "active", "expiresAt": null }, "publication": null }],
+                "shareLink": { "url": "https://viewer.example/a/stable/", "state": "active", "expiresAt": null }, "publication": null }],
             "nextPageToken": null
         })))
         .mount(&server)
@@ -949,7 +1604,7 @@ async fn isolated_production_dispatcher_selects_an_existing_artifact_interactive
                 "name": "Existing report",
                 "updatedAt": "2026-07-12T08:00:00Z",
                 "processingState": "ready",
-                "shareLink": { "state": "active", "expiresAt": null },
+                "shareLink": { "url": "https://viewer.example/a/stable/", "state": "active", "expiresAt": null },
                 "publication": null
             }],
             "nextPageToken": null
@@ -1080,6 +1735,7 @@ fn shared_selector_never_prompts_when_disabled_or_without_a_terminal() {
         updated_at: "2026-07-12T08:00:00Z".into(),
         processing_state: "ready".into(),
         share_link: ArtifactShareLink {
+            url: "https://viewer.example/a/stable/".into(),
             state: "active".into(),
             expires_at: None,
         },
