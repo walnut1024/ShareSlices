@@ -282,7 +282,6 @@ fn shipping_binary_export_requires_authentication() {
             "http://127.0.0.1:1",
             "artifact",
             "export",
-            "--artifact",
             "artifact-1",
             "--version",
             "version-1",
@@ -306,7 +305,7 @@ fn shipping_binary_export_without_identifiers_fails_before_authentication() {
     assert!(
         String::from_utf8(output.stderr)
             .expect("stderr")
-            .contains("--artifact and --version")
+            .contains("ARTIFACT_ID and --version")
     );
 }
 
@@ -1136,14 +1135,14 @@ async fn interactive_share_edit_selects_artifact_and_prompts_for_expiration() {
 #[test]
 fn shipping_binary_rejects_noninteractive_share_edit_without_expiration() {
     let output = Command::new(env!("CARGO_BIN_EXE_shareslices"))
-        .args(["artifact", "share", "edit", "--artifact", "artifact-1"])
+        .args(["artifact", "share", "edit", "artifact-1"])
         .env("SHARESLICES_PROMPT_DISABLED", "1")
         .output()
         .expect("shipping binary");
     assert_eq!(output.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&output.stdout).is_empty());
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("requires --artifact and --expires-at")
+        String::from_utf8_lossy(&output.stderr).contains("requires ARTIFACT_ID and --expires-at")
     );
 }
 
@@ -1154,7 +1153,6 @@ fn shipping_binary_rejects_invalid_share_expiration_before_authentication() {
             "artifact",
             "share",
             "edit",
-            "--artifact",
             "artifact-1",
             "--expires-at",
             "2020-01-01T00:00:00Z",
@@ -1367,17 +1365,12 @@ async fn process_share_fixture() {
     if let Ok(expiration) = std::env::var("SHARESLICES_TEST_SHARE_EXPIRATION") {
         arguments.extend([
             "edit".to_owned(),
-            "--artifact".to_owned(),
             "artifact-1".to_owned(),
             "--expires-at".to_owned(),
             expiration,
         ]);
     } else {
-        arguments.extend([
-            "view".to_owned(),
-            "--artifact".to_owned(),
-            "artifact-1".to_owned(),
-        ]);
+        arguments.extend(["view".to_owned(), "artifact-1".to_owned()]);
     }
     arguments.extend([
         "--json".to_owned(),
@@ -1596,7 +1589,7 @@ async fn noninteractive_publish_requires_both_identifiers() {
     assert!(
         error
             .to_string()
-            .contains("requires --artifact and --version")
+            .contains("requires ARTIFACT_ID and --version")
     );
 }
 
@@ -1809,7 +1802,6 @@ fn shipping_binary_parses_publish_and_maps_authentication_exit_code() {
             "http://127.0.0.1:2",
             "artifact",
             "publish",
-            "--artifact",
             "artifact-1",
             "--version",
             "version-1",
@@ -1836,7 +1828,7 @@ fn shipping_binary_rejects_noninteractive_publish_without_identifiers() {
     assert!(
         String::from_utf8(output.stderr)
             .expect("stderr")
-            .contains("requires --artifact and --version")
+            .contains("requires ARTIFACT_ID and --version")
     );
 }
 

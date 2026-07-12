@@ -202,14 +202,16 @@ pub enum ArtifactError {
         "Upload was sent, but ShareSlices could not confirm acceptance after safe retries. Check artifact list before retrying."
     )]
     UploadConfirmationPending,
-    #[error("Publish requires --artifact and --version when interactive prompting is unavailable.")]
+    #[error(
+        "Publish requires ARTIFACT_ID and --version when interactive prompting is unavailable."
+    )]
     PublishSelectionUnavailable,
-    #[error("Unpublish requires --artifact when interactive prompting is unavailable.")]
+    #[error("Unpublish requires ARTIFACT_ID when interactive prompting is unavailable.")]
     UnpublishSelectionUnavailable,
-    #[error("Share view requires --artifact when interactive prompting is unavailable.")]
+    #[error("Share view requires ARTIFACT_ID when interactive prompting is unavailable.")]
     ShareViewSelectionUnavailable,
     #[error(
-        "Share edit requires --artifact and --expires-at when interactive prompting is unavailable."
+        "Share edit requires ARTIFACT_ID and --expires-at when interactive prompting is unavailable."
     )]
     ShareEditSelectionUnavailable,
     #[error("--expires-at must be a future RFC 3339 timestamp or 'never'.")]
@@ -228,7 +230,7 @@ pub enum ArtifactError {
         "The delete request was sent, but ShareSlices could not confirm the result. Check artifact list, then retry the same explicit delete once; ShareSlices will safely resume pending cleanup."
     )]
     DeleteConfirmationPending,
-    #[error("Export requires --artifact and --version when interactive prompting is unavailable.")]
+    #[error("Export requires ARTIFACT_ID and --version when interactive prompting is unavailable.")]
     ExportSelectionUnavailable,
     #[error("The selected Artifact has no ready Version to export.")]
     VersionNotReady,

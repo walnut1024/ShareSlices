@@ -1,3 +1,5 @@
+# CLI Artifact Management Design
+
 ## Context
 
 The browser-authorized Rust CLI and the Server Artifact lifecycle already share the checked management API. Artifact commands must remain thin client orchestration: the CLI resolves explicit or interactive input, packages and transfers bytes, and presents results; the Server remains authoritative for ownership, processing, Publication, Share-link, export, and deletion policy.

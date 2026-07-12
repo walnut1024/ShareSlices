@@ -1,3 +1,5 @@
+# CLI Artifact Management Tasks
+
 ## 1. CLI Resource Commands
 
 - [x] 1.1 Implement bounded Artifact listing with filters and selectable output.

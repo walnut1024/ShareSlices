@@ -52,7 +52,7 @@ pub enum ArtifactCommand {
 
 #[derive(Debug, Args)]
 pub struct ArtifactExportArgs {
-    #[arg(long)]
+    #[arg(value_name = "ARTIFACT_ID")]
     pub artifact: Option<String>,
     #[arg(long)]
     pub version: Option<String>,
@@ -86,7 +86,7 @@ pub enum ArtifactShareCommand {
 
 #[derive(Debug, Args)]
 pub struct ArtifactShareViewArgs {
-    #[arg(long)]
+    #[arg(value_name = "ARTIFACT_ID")]
     pub artifact: Option<String>,
     #[arg(long, value_name = "FIELDS")]
     pub json: Option<String>,
@@ -98,7 +98,7 @@ pub struct ArtifactShareViewArgs {
 
 #[derive(Debug, Args)]
 pub struct ArtifactShareEditArgs {
-    #[arg(long)]
+    #[arg(value_name = "ARTIFACT_ID")]
     pub artifact: Option<String>,
     #[arg(long, value_name = "RFC3339_OR_NEVER")]
     pub expires_at: Option<String>,
@@ -112,7 +112,7 @@ pub struct ArtifactShareEditArgs {
 
 #[derive(Debug, Args)]
 pub struct ArtifactPublishArgs {
-    #[arg(long)]
+    #[arg(value_name = "ARTIFACT_ID")]
     pub artifact: Option<String>,
     #[arg(long)]
     pub version: Option<String>,
@@ -126,7 +126,7 @@ pub struct ArtifactPublishArgs {
 
 #[derive(Debug, Args)]
 pub struct ArtifactUnpublishArgs {
-    #[arg(long)]
+    #[arg(value_name = "ARTIFACT_ID")]
     pub artifact: Option<String>,
     #[arg(long, value_name = "FIELDS")]
     pub json: Option<String>,

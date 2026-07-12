@@ -27,7 +27,6 @@ fn parses_share_view_and_edit_options() {
         "artifact",
         "share",
         "view",
-        "--artifact",
         "artifact-1",
         "--json",
         "url,accessState",
@@ -50,7 +49,6 @@ fn parses_share_view_and_edit_options() {
         "artifact",
         "share",
         "edit",
-        "--artifact",
         "artifact-1",
         "--expires-at",
         "never",
@@ -170,7 +168,6 @@ fn parses_publish_and_unpublish_options() {
         "shareslices",
         "artifact",
         "publish",
-        "--artifact",
         "artifact-1",
         "--version",
         "version-2",
@@ -187,14 +184,8 @@ fn parses_publish_and_unpublish_options() {
     assert_eq!(args.artifact.as_deref(), Some("artifact-1"));
     assert_eq!(args.version.as_deref(), Some("version-2"));
 
-    let unpublish = Cli::try_parse_from([
-        "shareslices",
-        "artifact",
-        "unpublish",
-        "--artifact",
-        "artifact-1",
-    ])
-    .expect("unpublish command");
+    let unpublish = Cli::try_parse_from(["shareslices", "artifact", "unpublish", "artifact-1"])
+        .expect("unpublish command");
     let Command::Artifact {
         command: ArtifactCommand::Unpublish(args),
     } = unpublish.command
@@ -210,7 +201,6 @@ fn parses_artifact_export_options() {
         "shareslices",
         "artifact",
         "export",
-        "--artifact",
         "artifact-1",
         "--version",
         "version-2",

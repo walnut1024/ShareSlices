@@ -1,3 +1,5 @@
+# CLI Artifact Management Proposal
+
 ## Why
 
 ShareSlices has a browser-authorized CLI but lacks a living specification for the Artifact commands agents and users now rely on. The implemented List, Upload, Publish, Share, Export, and Delete flows need one checked contract covering explicit non-interactive use, safe interactive assistance, output stability, and destructive-operation guarantees.
