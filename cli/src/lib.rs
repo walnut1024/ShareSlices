@@ -9,9 +9,9 @@ mod packaging;
 pub use api_client::ApiClient;
 pub use artifact_commands::{
     ArtifactInteraction, UploadTargetChoice, artifact_exit_code, run_artifact_command,
-    run_artifact_command_with_interaction, run_artifact_list, run_artifact_publish,
-    run_artifact_unpublish, run_artifact_upload, select_artifact, select_owned_artifact,
-    select_ready_version, select_upload_target,
+    run_artifact_command_with_input, run_artifact_command_with_interaction, run_artifact_list,
+    run_artifact_publish, run_artifact_unpublish, run_artifact_upload, select_artifact,
+    select_owned_artifact, select_upload_target,
 };
 pub use auth_commands::run_auth;
 pub use command_line::{
@@ -20,7 +20,8 @@ pub use command_line::{
 };
 pub use credential_store::KeyringCredentialStore;
 pub use model::{
-    Artifact, ArtifactAccepted, ArtifactError, ArtifactFailure, ArtifactPublication,
-    ArtifactShareLink, ArtifactState, ReadyVersion, ReadyVersionSummary, UploadPolicy,
+    Artifact, ArtifactAccepted, ArtifactDetail, ArtifactError, ArtifactFailure,
+    ArtifactPublication, ArtifactShareLink, ArtifactState, PublicationResult, ReadyArtifactVersion,
+    ReadyVersion, UploadPolicy,
 };
 pub use model::{AuthApi, AuthError, Authorization, CredentialStore, Exchange, User};

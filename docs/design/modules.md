@@ -9,7 +9,7 @@ Engineering rules that constrain all designs live in `AGENTS.md`. Product behavi
 
 ## Top-level seams
 
-Status: current for the 0.0.1 runtime seams, CLI authentication, Artifact listing, and local-input or prepared-ZIP Upload; Skill entry remains target.
+Status: current for the 0.0.1 runtime seams, CLI authentication, Artifact listing, Upload, Publish, and Unpublish; Skill entry remains target.
 
 | Seam | Status | Interface owner | Production Adapter | Test Adapter |
 | --- | --- | --- | --- | --- |
@@ -20,7 +20,7 @@ Status: current for the 0.0.1 runtime seams, CLI authentication, Artifact listin
 | Application data persistence | current | `api/src/application/*` | Drizzle Adapter | Local PostgreSQL or in-memory Adapter |
 | Raw and processed object access | current | Application and worker Modules | S3-compatible Adapter | In-memory object Adapter |
 | Processing job handoff | current | `db/migrations/` schema plus job Interfaces | Drizzle enqueue Adapter and SQLx claim Adapter | Local PostgreSQL and fake Adapters |
-| Agent entry | current for authentication, Artifact listing, and local-input or prepared-ZIP Upload | `cli/` command Interface | Rust CLI with operating-system credential store | In-memory credential and fake HTTP Adapters |
+| Agent entry | current for authentication, Artifact listing, Upload, Publish, and Unpublish | `cli/` command Interface | Rust CLI with operating-system credential store | In-memory credential and fake HTTP Adapters |
 
 ## CLI authentication Modules
 
@@ -33,16 +33,16 @@ Status: current
 
 ## CLI Artifact Modules
 
-Status: current for Artifact listing, local-input or prepared-ZIP Upload, and Publish/Unpublish; other management commands remain target.
+Status: current for Artifact listing, Upload, Publish, and Unpublish; other management commands remain target.
 
-- `cli/src/artifact_commands.rs` owns bounded Artifact and ready-Version selectors, injectable interactive behavior, selectable JSON formatting, explicit new-Artifact versus existing-Artifact targeting, Upload orchestration through ready Version commit, and atomic Publish/Unpublish command orchestration. `cli/src/packaging.rs` expands selected local inputs, applies the active Server policy, and deterministically streams safe effective paths into a temporary ZIP; a single prepared ZIP bypasses repackaging. `ApiClient` follows opaque Server pages, transfers ZIP input with safe idempotent retries, lists ready Versions, and calls the same Publication resources as Web; production credentials still come only from the operating-system credential store.
-- `ArtifactManagementService` owns list filtering and opaque pagination semantics. The Hono route validates query DTOs and maps application errors without deriving Artifact state or page behavior.
+- `cli/src/artifact_commands.rs` owns bounded Artifact list presentation, selectable JSON formatting, shared interactive Artifact and ready-Version selection, Upload orchestration through ready Version commit, and atomic Publish and Unpublish commands. `cli/src/packaging.rs` expands selected local inputs, applies the active Server policy, and deterministically streams safe effective paths into a temporary ZIP; a single prepared ZIP bypasses repackaging. `ApiClient` follows opaque Server pages, transfers ZIP input with safe idempotent retries, and supplies transient CLI compatibility metadata; production credentials still come only from the operating-system credential store.
+- `ArtifactManagementService` owns list filtering, opaque pagination, and the owner-scoped ready-Version collection used by interactive CLI selection. Hono routes validate DTOs and map application errors without deriving Artifact state or Publication behavior.
 
 ## Hono runtime Modules
 
 Status: mixed. Account entry remains a thin current HTTP/Auth/DB path. Artifact, Viewer, and Reconciliation behavior is current; Administration remains target.
 
-- `ArtifactIntakeService`, `ArtifactManagementService`, and `ArtifactRecoveryService` are the current Artifact application modules. Together they own raw upload acceptance, Artifact state projection, owned ready-Version listing, name changes, permanent deletion, Share-link expiration, retained-input Retry, failed-input replacement, new immutable Version Upload sessions, idempotency, and ready-Version gates. A Version Upload does not mutate the Artifact name, Share link, Publication, or prior ready Versions.
+- `ArtifactIntakeService`, `ArtifactManagementService`, and `ArtifactRecoveryService` are the current Artifact application modules. Together they own raw upload acceptance, Artifact state projection, name changes, permanent deletion, Share-link expiration, Retry, Replace file, idempotency, and ready-Version gates.
 - `PublicationViewerService` is the current Publication and Viewer application module. It owns owner Preview and Version export checks, atomic Publish and Unpublish behavior, Share-slug lifecycle resolution, normalized manifest lookup, and immutable Version selection for each request.
 - `ReconciliationModule` is current. It owns bounded expired-lease recovery and raw/staging object cleanup while preserving the current retryable input.
 - `UserModule` remains target. Current account entry intentionally stays in `api/src/http/account-routes.ts`, Better Auth, and focused account queries until another caller or implementation requires extraction.
@@ -84,6 +84,7 @@ type ArtifactIntakeService = {
 type ArtifactManagementService = {
   list(ownerUserId: string): Promise<ArtifactManagementState[]>;
   get(ownerUserId: string, artifactId: string): Promise<ArtifactManagementState>;
+  listReadyVersions(ownerUserId: string, artifactId: string): Promise<ReadyVersionSummary[]>;
   rename(ownerUserId: string, artifactId: string, name: string): Promise<ArtifactManagementState>;
   setShareExpiration(ownerUserId: string, artifactId: string, expiresAt: string | null): Promise<ArtifactManagementState>;
   delete(ownerUserId: string, artifactId: string): Promise<void>;

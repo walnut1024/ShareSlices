@@ -1,6 +1,7 @@
 use crate::{
-    Artifact, ArtifactAccepted, ArtifactError, ArtifactState, AuthApi, AuthError, Authorization,
-    Exchange, ProcessingFilter, PublicationFilter, ReadyVersionSummary, UploadPolicy, User,
+    Artifact, ArtifactAccepted, ArtifactDetail, ArtifactError, ArtifactState, AuthApi, AuthError,
+    Authorization, Exchange, ProcessingFilter, PublicationFilter, PublicationResult,
+    ReadyArtifactVersion, UploadPolicy, User,
 };
 use async_trait::async_trait;
 use reqwest::{Client, Response, StatusCode};
@@ -226,6 +227,130 @@ impl ApiClient {
         Ok(artifacts)
     }
 
+    /// Reads one owned Artifact's current management state.
+    ///
+    /// # Errors
+    /// Returns an Artifact error for authentication, transport, authorization, or decoding failures.
+    pub async fn artifact(
+        &self,
+        token: &str,
+        artifact_id: &str,
+    ) -> Result<ArtifactDetail, ArtifactError> {
+        #[derive(Deserialize)]
+        struct Body {
+            artifact: ArtifactDetail,
+        }
+        let response = self
+            .request(
+                reqwest::Method::GET,
+                &format!("/api/artifacts/{artifact_id}"),
+            )
+            .bearer_auth(token)
+            .send()
+            .await
+            .map_err(|error| ArtifactError::Network(error.to_string()))?;
+        if !response.status().is_success() {
+            return Err(Self::artifact_error(response).await);
+        }
+        response
+            .json::<Body>()
+            .await
+            .map(|body| body.artifact)
+            .map_err(|_| ArtifactError::Server)
+    }
+
+    /// Lists ready Versions for one owned Artifact.
+    ///
+    /// # Errors
+    /// Returns an Artifact error for authentication, transport, authorization, or decoding failures.
+    pub async fn list_ready_versions(
+        &self,
+        token: &str,
+        artifact_id: &str,
+    ) -> Result<Vec<ReadyArtifactVersion>, ArtifactError> {
+        #[derive(Deserialize)]
+        struct Body {
+            versions: Vec<ReadyArtifactVersion>,
+        }
+        let response = self
+            .request(
+                reqwest::Method::GET,
+                &format!("/api/artifacts/{artifact_id}/versions"),
+            )
+            .bearer_auth(token)
+            .send()
+            .await
+            .map_err(|error| ArtifactError::Network(error.to_string()))?;
+        if !response.status().is_success() {
+            return Err(Self::artifact_error(response).await);
+        }
+        response
+            .json::<Body>()
+            .await
+            .map(|body| body.versions)
+            .map_err(|_| ArtifactError::Server)
+    }
+
+    /// Publishes one explicit ready Version.
+    ///
+    /// # Errors
+    /// Returns an Artifact error for authentication, transport, ownership, state, or decoding failures.
+    pub async fn publish(
+        &self,
+        token: &str,
+        artifact_id: &str,
+        version_id: &str,
+    ) -> Result<PublicationResult, ArtifactError> {
+        #[derive(Deserialize)]
+        struct Body {
+            publication: PublicationResult,
+        }
+        let response = self
+            .request(
+                reqwest::Method::POST,
+                &format!("/api/artifacts/{artifact_id}/publications"),
+            )
+            .bearer_auth(token)
+            .header("Idempotency-Key", format!("cli-{}", uuid::Uuid::new_v4()))
+            .json(&serde_json::json!({ "versionId": version_id }))
+            .send()
+            .await
+            .map_err(|error| ArtifactError::Network(error.to_string()))?;
+        if !response.status().is_success() {
+            return Err(Self::artifact_error(response).await);
+        }
+        response
+            .json::<Body>()
+            .await
+            .map(|body| body.publication)
+            .map_err(|_| ArtifactError::Server)
+    }
+
+    /// Removes one current Publication while preserving the Artifact and Share link.
+    ///
+    /// # Errors
+    /// Returns an Artifact error for authentication, transport, ownership, or Server failures.
+    pub async fn unpublish(
+        &self,
+        token: &str,
+        artifact_id: &str,
+        publication_id: &str,
+    ) -> Result<(), ArtifactError> {
+        let response = self
+            .request(
+                reqwest::Method::DELETE,
+                &format!("/api/artifacts/{artifact_id}/publications/{publication_id}"),
+            )
+            .bearer_auth(token)
+            .send()
+            .await
+            .map_err(|error| ArtifactError::Network(error.to_string()))?;
+        if !response.status().is_success() {
+            return Err(Self::artifact_error(response).await);
+        }
+        Ok(())
+    }
+
     /// Uploads one prepared ZIP using one idempotency key across transient retries.
     ///
     /// # Errors
@@ -361,90 +486,6 @@ impl ApiClient {
             .await
             .map(|v| v.artifact)
             .map_err(|_| ArtifactError::Server)
-    }
-
-    /// Lists all ready immutable Versions for one owned Artifact.
-    ///
-    /// # Errors
-    /// Returns an Artifact error for authentication, transport, ownership, or decoding failures.
-    pub async fn list_ready_versions(
-        &self,
-        token: &str,
-        artifact_id: &str,
-    ) -> Result<Vec<ReadyVersionSummary>, ArtifactError> {
-        #[derive(Deserialize)]
-        struct Body {
-            versions: Vec<ReadyVersionSummary>,
-        }
-        let response = self
-            .request(
-                reqwest::Method::GET,
-                &format!("/api/artifacts/{artifact_id}/versions"),
-            )
-            .bearer_auth(token)
-            .send()
-            .await
-            .map_err(|error| ArtifactError::Network(error.to_string()))?;
-        if !response.status().is_success() {
-            return Err(Self::artifact_error(response).await);
-        }
-        response
-            .json::<Body>()
-            .await
-            .map(|body| body.versions)
-            .map_err(|_| ArtifactError::Server)
-    }
-
-    /// Publishes one explicit ready Version of an owned Artifact.
-    ///
-    /// # Errors
-    /// Returns an Artifact error for validation, ownership, transport, or Server failures.
-    pub async fn publish_version(
-        &self,
-        token: &str,
-        artifact_id: &str,
-        version_id: &str,
-    ) -> Result<(), ArtifactError> {
-        let response = self
-            .request(
-                reqwest::Method::POST,
-                &format!("/api/artifacts/{artifact_id}/publications"),
-            )
-            .bearer_auth(token)
-            .header("Idempotency-Key", format!("cli-{}", uuid::Uuid::new_v4()))
-            .json(&serde_json::json!({ "versionId": version_id }))
-            .send()
-            .await
-            .map_err(|error| ArtifactError::Network(error.to_string()))?;
-        if !response.status().is_success() {
-            return Err(Self::artifact_error(response).await);
-        }
-        Ok(())
-    }
-
-    /// Ends one current Publication. The Server treats repeated deletion as the same result.
-    ///
-    /// # Errors
-    /// Returns an Artifact error for ownership, transport, or Server failures.
-    pub async fn unpublish(
-        &self,
-        token: &str,
-        artifact_id: &str,
-        publication_id: &str,
-    ) -> Result<(), ArtifactError> {
-        let response = self
-            .request(
-                reqwest::Method::DELETE,
-                &format!("/api/artifacts/{artifact_id}/publications/{publication_id}"),
-            )
-            .bearer_auth(token)
-            .send()
-            .await
-            .map_err(|error| ArtifactError::Network(error.to_string()))?;
-        if !response.status().is_success() {
-            return Err(Self::artifact_error(response).await);
-        }
-        Ok(())
     }
 }
 

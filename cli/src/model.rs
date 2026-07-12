@@ -103,6 +103,31 @@ pub struct ArtifactPublication {
     pub published_at: Option<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadyArtifactVersion {
+    pub id: String,
+    pub version_number: u64,
+    pub state: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactDetail {
+    pub id: String,
+    pub name: String,
+    pub share_link: ArtifactShareLink,
+    pub publication: Option<ArtifactPublication>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicationResult {
+    pub id: String,
+    pub version_id: String,
+    pub published_at: String,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtifactAccepted {
@@ -188,4 +213,10 @@ pub enum ArtifactError {
         "Upload was sent, but ShareSlices could not confirm acceptance after safe retries. Check artifact list before retrying."
     )]
     UploadConfirmationPending,
+    #[error("Publish requires --artifact and --version when interactive prompting is unavailable.")]
+    PublishSelectionUnavailable,
+    #[error("Unpublish requires --artifact when interactive prompting is unavailable.")]
+    UnpublishSelectionUnavailable,
+    #[error("No ready Version is available for this Artifact.")]
+    NoReadyVersion,
 }

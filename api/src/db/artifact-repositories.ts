@@ -318,6 +318,19 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
       }
     },
     versions: {
+      async listReadyOwned(ownerUserId, artifactId) {
+        const rows = await database
+          .select({ version: schema.artifactVersion })
+          .from(schema.artifactVersion)
+          .innerJoin(schema.artifact, eq(schema.artifact.id, schema.artifactVersion.artifactId))
+          .where(and(
+            eq(schema.artifact.id, artifactId),
+            eq(schema.artifact.ownerUserId, ownerUserId),
+            eq(schema.artifactVersion.state, "ready")
+          ))
+          .orderBy(desc(schema.artifactVersion.versionNumber));
+        return rows.map(({ version }) => versionRecord(version));
+      },
       async findReadyOwned(ownerUserId, versionId) {
         const row = await database
           .select({ version: schema.artifactVersion })

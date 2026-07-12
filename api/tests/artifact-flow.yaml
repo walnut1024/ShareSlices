@@ -251,6 +251,17 @@ cases:
       json_paths:
         publication.id: "{publication_id}"
 
+  - id: list_ready_versions
+    request:
+      method: GET
+      path: "/api/artifacts/{artifact_id}/versions"
+      cookie_ref: owner
+    expect:
+      status: 200
+      json_paths:
+        versions.0.id: "{version_id}"
+        versions.0.state: ready
+
   - id: view_published_entry
     request:
       method: GET

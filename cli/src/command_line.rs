@@ -46,9 +46,9 @@ pub enum ArtifactCommand {
 
 #[derive(Debug, Args)]
 pub struct ArtifactPublishArgs {
-    #[arg(value_name = "ARTIFACT_ID")]
+    #[arg(long)]
     pub artifact: Option<String>,
-    #[arg(long, value_name = "VERSION_ID")]
+    #[arg(long)]
     pub version: Option<String>,
     #[arg(long, value_name = "FIELDS")]
     pub json: Option<String>,
@@ -60,7 +60,7 @@ pub struct ArtifactPublishArgs {
 
 #[derive(Debug, Args)]
 pub struct ArtifactUnpublishArgs {
-    #[arg(value_name = "ARTIFACT_ID")]
+    #[arg(long)]
     pub artifact: Option<String>,
     #[arg(long, value_name = "FIELDS")]
     pub json: Option<String>,

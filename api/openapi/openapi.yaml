@@ -781,7 +781,7 @@ paths:
       tags:
         - artifacts
       operationId: listArtifactVersions
-      summary: List the owned Artifact's ready immutable Versions.
+      summary: List ready Versions of one owned Artifact.
       security:
         - sessionCookie: []
         - sessionBearer: []
@@ -790,11 +790,11 @@ paths:
         - $ref: "#/components/parameters/CliOperatingSystemWhenBearer"
       responses:
         "200":
-          description: Up to 100 ready Versions returned newest first for interactive selection.
+          description: Ready Versions returned in descending Version-number order.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ArtifactVersionListResponse"
+                $ref: "#/components/schemas/ReadyVersionListResponse"
         "401":
           $ref: "#/components/responses/Unauthenticated"
         "404":
@@ -2020,33 +2020,6 @@ components:
       properties:
         artifact:
           $ref: "#/components/schemas/Artifact"
-    ArtifactVersionListResponse:
-      type: object
-      additionalProperties: false
-      required:
-        - versions
-      properties:
-        versions:
-          type: array
-          items:
-            $ref: "#/components/schemas/ArtifactVersionSummary"
-    ArtifactVersionSummary:
-      type: object
-      additionalProperties: false
-      required:
-        - id
-        - versionNumber
-        - createdAt
-      properties:
-        id:
-          type: string
-          minLength: 1
-        versionNumber:
-          type: integer
-          minimum: 1
-        createdAt:
-          type: string
-          format: date-time
     Artifact:
       type: object
       additionalProperties: false
@@ -2168,6 +2141,35 @@ components:
         id:
           type: string
           minLength: 1
+        state:
+          type: string
+          enum:
+            - ready
+    ReadyVersionListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - versions
+      properties:
+        versions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReadyVersionListItem"
+    ReadyVersionListItem:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - versionNumber
+        - state
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        versionNumber:
+          type: integer
+          minimum: 1
         state:
           type: string
           enum:
