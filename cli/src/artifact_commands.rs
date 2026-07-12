@@ -143,6 +143,34 @@ fn inspect_prepared_zip(
     })
 }
 
+async fn prepare_local_upload(
+    args: &ArtifactUploadArgs,
+    api: &ApiClient,
+    token: &str,
+    diagnostics: &mut dyn Write,
+) -> Result<(crate::packaging::PreparedUpload, PreparedZip), ArtifactError> {
+    let policy = api.upload_policy(token).await?;
+    let paths = args.paths.clone();
+    let root = args.root.clone();
+    let packaging =
+        tokio::task::spawn_blocking(move || prepare_upload(&paths, root.as_deref(), &policy));
+    let upload = tokio::select! {
+        result = packaging => result.map_err(|_| ArtifactError::Server)??,
+        result = tokio::signal::ctrl_c() => {
+            result.map_err(|_| ArtifactError::Server)?;
+            return Err(ArtifactError::Cancelled);
+        }
+    };
+    let prepared = inspect_prepared_zip(
+        &upload.path,
+        args.name.as_deref(),
+        args.entry.as_deref(),
+        &upload.default_name,
+        diagnostics,
+    )?;
+    Ok((upload, prepared))
+}
+
 /// Uploads one prepared ZIP and waits for a ready Version.
 ///
 /// # Errors
@@ -176,25 +204,7 @@ pub async fn run_artifact_upload(
         .get()
         .map_err(|_| ArtifactError::Unauthenticated)?
         .ok_or(ArtifactError::Unauthenticated)?;
-    let policy = api.upload_policy(&token).await?;
-    let paths = args.paths.clone();
-    let root = args.root.clone();
-    let packaging =
-        tokio::task::spawn_blocking(move || prepare_upload(&paths, root.as_deref(), &policy));
-    let upload = tokio::select! {
-        result = packaging => result.map_err(|_| ArtifactError::Server)??,
-        result = tokio::signal::ctrl_c() => {
-            result.map_err(|_| ArtifactError::Server)?;
-            return Err(ArtifactError::Cancelled);
-        }
-    };
-    let prepared = inspect_prepared_zip(
-        &upload.path,
-        args.name.as_deref(),
-        args.entry.as_deref(),
-        &upload.default_name,
-        diagnostics,
-    )?;
+    let (upload, prepared) = prepare_local_upload(args, api, &token, diagnostics).await?;
     let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel();
     let transfer = api.upload_artifact(
         &token,
