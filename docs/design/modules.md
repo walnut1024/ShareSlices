@@ -33,7 +33,7 @@ Status: current
 
 ## CLI Artifact Modules
 
-Status: current for Artifact listing and prepared-ZIP Upload; other management commands remain target.
+Status: current for Artifact listing and Upload of prepared ZIPs or selected local inputs; other management commands remain target.
 
 - `cli/src/artifact_commands.rs` owns bounded Artifact list presentation, selectable JSON formatting, the shared interactive selector, and Upload orchestration through ready Version commit. `cli/src/packaging.rs` expands selected local inputs, applies the active Server policy, and deterministically streams safe effective paths into a temporary ZIP; a single prepared ZIP bypasses repackaging. `ApiClient` follows opaque Server pages, transfers ZIP input with safe idempotent retries, and supplies transient CLI compatibility metadata; production credentials still come only from the operating-system credential store.
 - `ArtifactManagementService` owns list filtering and opaque pagination semantics. The Hono route validates query DTOs and maps application errors without deriving Artifact state or page behavior.

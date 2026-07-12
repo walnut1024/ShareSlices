@@ -1,5 +1,5 @@
 // cspell:ignore gtmpl
-use crate::packaging::prepare_upload;
+use crate::packaging::prepare_upload_with_progress;
 use crate::{
     ApiClient, Artifact, ArtifactCommand, ArtifactError, ArtifactListArgs, ArtifactUploadArgs,
     CredentialStore,
@@ -147,27 +147,43 @@ async fn prepare_local_upload(
     args: &ArtifactUploadArgs,
     api: &ApiClient,
     token: &str,
+    inspected: Option<PreparedZip>,
     diagnostics: &mut dyn Write,
 ) -> Result<(crate::packaging::PreparedUpload, PreparedZip), ArtifactError> {
     let policy = api.upload_policy(token).await?;
     let paths = args.paths.clone();
     let root = args.root.clone();
-    let packaging =
-        tokio::task::spawn_blocking(move || prepare_upload(&paths, root.as_deref(), &policy));
-    let upload = tokio::select! {
-        result = packaging => result.map_err(|_| ArtifactError::Server)??,
-        result = tokio::signal::ctrl_c() => {
-            result.map_err(|_| ArtifactError::Server)?;
-            return Err(ArtifactError::Cancelled);
+    let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel();
+    let packaging = tokio::task::spawn_blocking(move || {
+        prepare_upload_with_progress(&paths, root.as_deref(), &policy, |bytes| {
+            let _ = progress_tx.send(bytes);
+        })
+    });
+    tokio::pin!(packaging);
+    let upload = loop {
+        tokio::select! {
+            result = &mut packaging => break result.map_err(|_| ArtifactError::Server)??,
+            Some(bytes) = progress_rx.recv(), if !args.no_progress => {
+                writeln!(diagnostics, "Packaging {bytes} bytes")
+                    .map_err(|_| ArtifactError::Server)?;
+            }
+            result = tokio::signal::ctrl_c() => {
+                result.map_err(|_| ArtifactError::Server)?;
+                return Err(ArtifactError::Cancelled);
+            }
         }
     };
-    let prepared = inspect_prepared_zip(
-        &upload.path,
-        args.name.as_deref(),
-        args.entry.as_deref(),
-        &upload.default_name,
-        diagnostics,
-    )?;
+    let prepared = if let Some(inspected) = inspected {
+        inspected
+    } else {
+        inspect_prepared_zip(
+            &upload.path,
+            args.name.as_deref(),
+            args.entry.as_deref(),
+            &upload.default_name,
+            diagnostics,
+        )?
+    };
     Ok((upload, prepared))
 }
 
@@ -182,7 +198,7 @@ pub async fn run_artifact_upload(
     output: &mut dyn Write,
     diagnostics: &mut dyn Write,
 ) -> Result<(), ArtifactError> {
-    if args.paths.len() == 1
+    let inspected = if args.paths.len() == 1
         && args.paths[0]
             .extension()
             .and_then(|value| value.to_str())
@@ -192,19 +208,22 @@ pub async fn run_artifact_upload(
             .file_stem()
             .and_then(|value| value.to_str())
             .ok_or(ArtifactError::InvalidZipInput)?;
-        inspect_prepared_zip(
+        Some(inspect_prepared_zip(
             &args.paths[0],
             args.name.as_deref(),
             args.entry.as_deref(),
             default_name,
             diagnostics,
-        )?;
-    }
+        )?)
+    } else {
+        None
+    };
     let token = store
         .get()
         .map_err(|_| ArtifactError::Unauthenticated)?
         .ok_or(ArtifactError::Unauthenticated)?;
-    let (upload, prepared) = prepare_local_upload(args, api, &token, diagnostics).await?;
+    let (upload, prepared) =
+        prepare_local_upload(args, api, &token, inspected, diagnostics).await?;
     let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel();
     let transfer = api.upload_artifact(
         &token,
