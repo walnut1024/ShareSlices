@@ -1,7 +1,14 @@
 import { readFileSync } from "node:fs";
+// cspell:ignore addressparser
+import parseAddressList from "nodemailer/lib/addressparser/index.js";
 import { z } from "zod";
 
 const booleanString = z.enum(["true", "false"]).transform((value) => value === "true");
+const mailbox = z.string().trim().refine((value) => {
+  if (/[\r\n]/.test(value)) return false;
+  const addresses = parseAddressList(value, { flatten: true });
+  return addresses.length === 1 && Boolean(addresses[0]?.address);
+}, "Must contain exactly one mailbox.");
 
 const envSchema = z
   .object({
@@ -25,9 +32,7 @@ const envSchema = z
     REQUIRE_EMAIL_VERIFICATION: booleanString.default(false),
     AUTH_EMAIL_ENCRYPTION_KEY: z.string().min(32).default("development-email-encryption-key-32"),
     AUTH_EMAIL_SMTP_URL: z.string().url(),
-    AUTH_EMAIL_FROM: z.string().trim().regex(
-      /^(?:[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|[^<>\r\n]+\s+<[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}>)$/i
-    ),
+    AUTH_EMAIL_FROM: mailbox,
     AUTH_EMAIL_SMTP_CHECK_TO: z.string().email().optional(),
     AUTH_EMAIL_DELIVERY_LEASE_SECONDS: z.coerce.number().int().positive().default(60),
     AUTH_EMAIL_SMTP_DNS_TIMEOUT_MS: z.coerce.number().int().positive().default(5_000),

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validateDeploymentConfiguration } from "./check-deployment-env.mjs";
+import { composeEnvironmentKeys, validateDeploymentConfiguration } from "./check-deployment-env.mjs";
 
 const valid = {
   catalog: new Set(["DATABASE_URL", "API_UPSTREAM"]),
@@ -33,4 +33,9 @@ test("rejects deployment entries without a typed or explicit deployment owner", 
     }),
     /Deployment variables have no typed runtime owner/
   );
+});
+
+test("extracts interpolated and hardcoded Compose environment keys", () => {
+  const compose = `services:\n  api:\n    environment:\n      DATABASE_URL: postgres://db\n      PORT: \"7456\"\n      SMTP_URL: \${SMTP_URL:-smtp://mailpit:1025}\n    ports:\n      - \"7456:7456\"\n`;
+  assert.deepEqual([...composeEnvironmentKeys(compose)].sort(), ["DATABASE_URL", "PORT", "SMTP_URL"]);
 });

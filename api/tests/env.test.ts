@@ -96,6 +96,10 @@ describe("API environment", () => {
     expect(() => readEnv({ ...validEnv, AUTH_EMAIL_SMTP_URL_FILE: "/tmp/smtp-url" })).toThrow();
     expect(() => readEnv({ ...validEnv, AUTH_EMAIL_SMTP_URL: "https://smtp.example.com" })).toThrow();
     expect(() => readEnv({ ...validEnv, AUTH_EMAIL_FROM: "not-an-email" })).toThrow();
+    expect(readEnv({ ...validEnv, AUTH_EMAIL_FROM: '"ShareSlices Mail" <no-reply@example.com>' }))
+      .toMatchObject({ AUTH_EMAIL_FROM: '"ShareSlices Mail" <no-reply@example.com>' });
+    expect(() => readEnv({ ...validEnv, AUTH_EMAIL_FROM: "one@example.com, two@example.com" })).toThrow();
+    expect(() => readEnv({ ...validEnv, AUTH_EMAIL_FROM: "sender@example.com\r\nBcc: victim@example.com" })).toThrow();
     expect(() => readEnv({ ...validEnv, AUTH_EMAIL_SMTP_URL: "smtp://smtp.example.com:587?tls.rejectUnauthorized=false" })).toThrow();
     expect(() => readEnv({
       ...validEnv,

@@ -37,6 +37,23 @@ export function validateDeploymentConfiguration({
   }
 }
 
+export function composeEnvironmentKeys(value) {
+  const keys = new Set();
+  let environmentIndent = null;
+  for (const line of value.split("\n")) {
+    const indent = line.match(/^\s*/)[0].length;
+    if (environmentIndent !== null) {
+      if (line.trim() && indent <= environmentIndent) environmentIndent = null;
+      else {
+        const key = line.match(/^\s+([A-Z][A-Z0-9_]+):/);
+        if (key) keys.add(key[1]);
+      }
+    }
+    if (/^\s*environment:(?:\s|$)/.test(line)) environmentIndent = indent;
+  }
+  return keys;
+}
+
 async function checkRepository() {
   const root = new URL("../", import.meta.url);
   const text = (path) => readFile(new URL(path, root), "utf8");
@@ -62,17 +79,22 @@ async function checkRepository() {
     ...matches(apiText, /source\.([A-Z][A-Z0-9_]+)/g),
     ...matches(workerText, /"([A-Z][A-Z0-9_]+)"/g)
   ]);
-  const deployment = new Set([
-    ...matches(composeText, /\$\{([A-Z][A-Z0-9_]+)/g),
-    ...matches(kubernetesText, /^\s+(?:- name:\s+)?([A-Z][A-Z0-9_]+):/gm)
-  ]);
+  const compose = union(matches(composeText, /\$\{([A-Z][A-Z0-9_]+)/g), composeEnvironmentKeys(composeText));
+  const kubernetes = matches(kubernetesText, /^\s+(?:- name:\s+)?([A-Z][A-Z0-9_]+):/gm);
+  const deployment = union(compose, kubernetes);
+  const runtimeOnly = new Set(["AUTH_EMAIL_SMTP_CHECK_TO", "AUTH_EMAIL_SMTP_URL_FILE"]);
+  const deploymentOnly = new Set(["API_UPSTREAM", "MINIO_ROOT_PASSWORD", "MINIO_ROOT_USER", "POSTGRES_DB", "POSTGRES_PASSWORD", "POSTGRES_USER"]);
   validateDeploymentConfiguration({
     catalog,
     runtime,
     deployment,
-    runtimeOnly: new Set(["AUTH_EMAIL_SMTP_CHECK_TO", "AUTH_EMAIL_SMTP_URL_FILE"]),
-    deploymentOnly: new Set(["API_UPSTREAM"])
+    runtimeOnly,
+    deploymentOnly
   });
+  for (const [target, variables] of [["Compose", compose], ["Kubernetes", kubernetes]]) {
+    const missing = difference(runtime, union(variables, runtimeOnly));
+    if (missing.length > 0) throw new Error(`${target} is missing typed runtime variables: ${missing.join(", ")}`);
+  }
 
   for (const removed of ["AUTH_EMAIL_DELIVERY_MODE", "AUTH_EMAIL_HTTP_URL", "AUTH_EMAIL_HTTP_TOKEN"]) {
     if (catalogText.includes(removed) || apiText.includes(removed) || composeText.includes(removed) || kubernetesText.includes(removed)) {
