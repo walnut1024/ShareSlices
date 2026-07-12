@@ -241,6 +241,70 @@ cases:
       json_paths:
         publication.id: "{publication_id}"
 
+  - id: view_permanent_published_share_management_state
+    request:
+      method: GET
+      path: "/api/artifacts/{artifact_id}"
+      cookie_ref: owner
+    expect:
+      status: 200
+      json_paths:
+        artifact.shareLink.url: "{share_url}"
+        artifact.shareLink.state: active
+        artifact.shareLink.expiresAt: null
+        artifact.publication.id: "{publication_id}"
+
+  - id: set_future_share_expiration
+    request:
+      method: PATCH
+      path: "/api/artifacts/{artifact_id}/share-link"
+      cookie_ref: owner
+      json:
+        expiresAt: "2099-08-01T00:30:00.000Z"
+    expect:
+      status: 200
+      json_paths:
+        artifact.shareLink.url: "{share_url}"
+        artifact.shareLink.state: active
+        artifact.shareLink.expiresAt: "2099-08-01T00:30:00.000Z"
+        artifact.publication.id: "{publication_id}"
+
+  - id: reject_past_share_expiration
+    request:
+      method: PATCH
+      path: "/api/artifacts/{artifact_id}/share-link"
+      cookie_ref: owner
+      json:
+        expiresAt: "2020-01-01T00:00:00Z"
+    expect:
+      status: 400
+
+  - id: reject_unauthorized_share_expiration_edit
+    request:
+      method: PATCH
+      path: "/api/artifacts/{artifact_id}/share-link"
+      headers:
+        Cookie: ""
+      json:
+        expiresAt: null
+    expect:
+      status: 401
+
+  - id: restore_permanent_share_expiration
+    request:
+      method: PATCH
+      path: "/api/artifacts/{artifact_id}/share-link"
+      cookie_ref: owner
+      json:
+        expiresAt: null
+    expect:
+      status: 200
+      json_paths:
+        artifact.shareLink.url: "{share_url}"
+        artifact.shareLink.state: active
+        artifact.shareLink.expiresAt: null
+        artifact.publication.id: "{publication_id}"
+
   - id: list_ready_versions
     request:
       method: GET

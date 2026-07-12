@@ -231,9 +231,12 @@ export class ArtifactManagementService {
   }
 
   #shareLink(link: ShareLinkRecord): ArtifactManagementState["shareLink"] {
+    const state = link.status === "active" && link.expiresAt !== null && link.expiresAt <= new Date()
+      ? "expired"
+      : link.status;
     return {
       url: new URL(`/a/${link.slug}/`, this.#viewerOrigin).toString(),
-      state: link.status as ArtifactManagementState["shareLink"]["state"],
+      state: state as ArtifactManagementState["shareLink"]["state"],
       expiresAt: link.expiresAt?.toISOString() ?? null
     };
   }

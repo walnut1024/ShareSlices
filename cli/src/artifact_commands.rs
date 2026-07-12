@@ -2,7 +2,8 @@
 use crate::packaging::prepare_upload_with_progress;
 use crate::{
     ApiClient, Artifact, ArtifactCommand, ArtifactError, ArtifactListArgs, ArtifactPublishArgs,
-    ArtifactUnpublishArgs, ArtifactUploadArgs, CredentialStore, ReadyArtifactVersion,
+    ArtifactShareCommand, ArtifactShareEditArgs, ArtifactShareViewArgs, ArtifactUnpublishArgs,
+    ArtifactUploadArgs, CredentialStore, ReadyArtifactVersion,
 };
 use serde_json::{Map, Value};
 use std::collections::HashMap;
@@ -102,7 +103,216 @@ pub async fn run_artifact_command_with_interaction(
             )
             .await
         }
+        ArtifactCommand::Share { command } => match command {
+            ArtifactShareCommand::View(args) => {
+                run_artifact_share_view(
+                    &args,
+                    api,
+                    store,
+                    interaction.prompts_enabled && interaction.is_terminal,
+                    interaction.input,
+                    output,
+                    diagnostics,
+                )
+                .await
+            }
+            ArtifactShareCommand::Edit(args) => {
+                run_artifact_share_edit(
+                    &args,
+                    api,
+                    store,
+                    interaction.prompts_enabled && interaction.is_terminal,
+                    interaction.input,
+                    output,
+                    diagnostics,
+                )
+                .await
+            }
+        },
     }
+}
+
+const SHARE_FIELDS: &[&str] = &[
+    "artifactId",
+    "url",
+    "publicationState",
+    "expiresAt",
+    "accessState",
+];
+
+struct SharePresentation<'a> {
+    json: Option<&'a str>,
+    jq: Option<&'a str>,
+    template: Option<&'a str>,
+}
+
+fn share_access_state(artifact: &crate::ArtifactDetail) -> &'static str {
+    if owner_external_accessible(&artifact.share_link, artifact.publication.is_some()) {
+        "accessible"
+    } else {
+        "not accessible"
+    }
+}
+
+fn write_share_result(
+    output: &mut dyn Write,
+    presentation: &SharePresentation<'_>,
+    artifact: &crate::ArtifactDetail,
+) -> Result<(), ArtifactError> {
+    let value = serde_json::json!({
+        "artifactId": artifact.id,
+        "url": artifact.share_link.url,
+        "publicationState": if artifact.publication.is_some() { "published" } else { "unpublished" },
+        "expiresAt": artifact.share_link.expires_at,
+        "accessState": share_access_state(artifact),
+    });
+    if let Some(fields) = presentation.json {
+        let fields = parse_fields_from(fields, SHARE_FIELDS)?;
+        let selected = Value::Object(
+            fields
+                .into_iter()
+                .map(|field| (field.to_owned(), value[field].clone()))
+                .collect(),
+        );
+        if let Some(expression) = presentation.jq {
+            write_jq(output, &selected, expression)
+        } else if let Some(template) = presentation.template {
+            write_template(output, &selected, template)
+        } else {
+            writeln!(
+                output,
+                "{}",
+                serde_json::to_string_pretty(&selected).map_err(|_| ArtifactError::Server)?
+            )
+            .map_err(|_| ArtifactError::Server)
+        }
+    } else {
+        let expires = artifact.share_link.expires_at.as_deref().unwrap_or("never");
+        writeln!(output, "Share link: {}", artifact.share_link.url)
+            .and_then(|()| {
+                writeln!(
+                    output,
+                    "Publication: {}",
+                    if artifact.publication.is_some() {
+                        "published"
+                    } else {
+                        "unpublished"
+                    }
+                )
+            })
+            .and_then(|()| writeln!(output, "Expires: {expires}"))
+            .and_then(|()| writeln!(output, "Access: {}", share_access_state(artifact)))
+            .map_err(|_| ArtifactError::Server)
+    }
+}
+
+/// Reads an owned Artifact's stable Share link and effective access state.
+///
+/// # Errors
+/// Returns an Artifact error for unavailable selection, authentication, formatting, or Server failures.
+pub async fn run_artifact_share_view(
+    args: &ArtifactShareViewArgs,
+    api: &ApiClient,
+    store: &dyn CredentialStore,
+    is_terminal: bool,
+    input: &mut dyn BufRead,
+    output: &mut dyn Write,
+    diagnostics: &mut dyn Write,
+) -> Result<(), ArtifactError> {
+    let (_, artifact) = resolve_owned_artifact(
+        args.artifact.as_deref(),
+        api,
+        store,
+        is_terminal,
+        input,
+        diagnostics,
+        ArtifactError::ShareViewSelectionUnavailable,
+    )
+    .await?;
+    write_share_result(
+        output,
+        &SharePresentation {
+            json: args.json.as_deref(),
+            jq: args.jq.as_deref(),
+            template: args.template.as_deref(),
+        },
+        &artifact,
+    )
+}
+
+fn parse_share_expiration(value: &str) -> Result<Option<String>, ArtifactError> {
+    if value == "never" {
+        return Ok(None);
+    }
+    let expiration =
+        time::OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339)
+            .map_err(|_| ArtifactError::InvalidShareExpiration)?;
+    if expiration <= time::OffsetDateTime::now_utc() {
+        return Err(ArtifactError::InvalidShareExpiration);
+    }
+    Ok(Some(value.to_owned()))
+}
+
+/// Updates only an owned Artifact's Share-link expiration.
+///
+/// # Errors
+/// Returns an Artifact error for unavailable selection, invalid expiration, authentication,
+/// formatting, or Server failures.
+pub async fn run_artifact_share_edit(
+    args: &ArtifactShareEditArgs,
+    api: &ApiClient,
+    store: &dyn CredentialStore,
+    is_terminal: bool,
+    input: &mut dyn BufRead,
+    output: &mut dyn Write,
+    diagnostics: &mut dyn Write,
+) -> Result<(), ArtifactError> {
+    if !is_terminal && (args.artifact.is_none() || args.expires_at.is_none()) {
+        return Err(ArtifactError::ShareEditSelectionUnavailable);
+    }
+    let explicit_expiration = args
+        .expires_at
+        .as_deref()
+        .map(parse_share_expiration)
+        .transpose()?;
+    let (token, artifact) = resolve_owned_artifact(
+        args.artifact.as_deref(),
+        api,
+        store,
+        is_terminal,
+        input,
+        diagnostics,
+        ArtifactError::ShareEditSelectionUnavailable,
+    )
+    .await?;
+    let requested_expiration = if let Some(value) = explicit_expiration {
+        value
+    } else {
+        write!(diagnostics, "Expiration (RFC 3339 or never): ")
+            .and_then(|()| diagnostics.flush())
+            .map_err(|_| ArtifactError::Server)?;
+        let mut value = String::new();
+        input
+            .read_line(&mut value)
+            .map_err(|_| ArtifactError::Cancelled)?;
+        let value = value.trim();
+        if value.is_empty() {
+            return Err(ArtifactError::Cancelled);
+        }
+        parse_share_expiration(value)?
+    };
+    let updated = api
+        .set_share_expiration(&token, &artifact.id, requested_expiration.as_deref())
+        .await?;
+    write_share_result(
+        output,
+        &SharePresentation {
+            json: args.json.as_deref(),
+            jq: args.jq.as_deref(),
+            template: args.template.as_deref(),
+        },
+        &updated,
+    )
 }
 
 /// Executes through the production dispatcher with an injectable input and TTY state.
@@ -150,13 +360,7 @@ struct PublicationOutcome<'a> {
 }
 
 fn owner_external_accessible(share_link: &crate::ArtifactShareLink, published: bool) -> bool {
-    if !published || share_link.state != "active" {
-        return false;
-    }
-    share_link.expires_at.as_deref().is_none_or(|expires_at| {
-        time::OffsetDateTime::parse(expires_at, &time::format_description::well_known::Rfc3339)
-            .is_ok_and(|expiration| expiration > time::OffsetDateTime::now_utc())
-    })
+    published && share_link.state == "active"
 }
 
 async fn resolve_owned_artifact(
