@@ -211,16 +211,6 @@ cases:
         Cache-Control: no-store
       body_contains: ./chunk.js
 
-  - id: list_ready_versions
-    request:
-      method: GET
-      path: "/api/artifacts/{artifact_id}/versions"
-      cookie_ref: owner
-    expect:
-      status: 200
-      json_paths:
-        versions.0.id: "{version_id}"
-
   - id: publish_artifact
     request:
       method: POST

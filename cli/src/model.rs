@@ -87,8 +87,6 @@ pub struct Artifact {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtifactShareLink {
-    #[serde(default)]
-    pub url: String,
     pub state: String,
     pub expires_at: Option<String>,
 }
@@ -142,24 +140,14 @@ pub struct ArtifactState {
     pub name: String,
     pub processing_state: String,
     pub ready_version: Option<ReadyVersion>,
-    pub failure: Option<ArtifactFailure>,
-    #[serde(default)]
-    pub share_link: Option<ArtifactShareLink>,
     #[serde(default)]
     pub publication: Option<ArtifactPublication>,
+    pub failure: Option<ArtifactFailure>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 pub struct ReadyVersion {
     pub id: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct ReadyVersionSummary {
-    pub id: String,
-    pub version_number: u64,
-    pub created_at: String,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]

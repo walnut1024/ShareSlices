@@ -116,21 +116,6 @@ export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {
     }
   });
 
-  app.get("/api/artifacts/:artifactId/versions", async (c) => {
-    const ownerId = await ownerUserId(c.req.raw.headers);
-    if (!ownerId) return errorJson(c, 401, "unauthenticated");
-    try {
-      const versions = await dependencies.management.listReadyVersions(ownerId, c.req.param("artifactId"));
-      c.header("X-Request-Id", requestId(c));
-      return c.json({ versions });
-    } catch (error) {
-      if (error instanceof ArtifactManagementError && error.code === "artifact_not_found") {
-        return errorJson(c, 404, "artifact_not_found");
-      }
-      throw error;
-    }
-  });
-
   app.post("/api/artifacts", async (c) => {
     const ownerId = await ownerUserId(c.req.raw.headers);
     if (!ownerId) {
