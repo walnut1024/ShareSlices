@@ -18,6 +18,7 @@ const FIELDS: &[&str] = &[
     "updatedAt",
 ];
 const UPLOAD_FIELDS: &[&str] = &["artifact", "version", "publication"];
+const EXPORT_FIELDS: &[&str] = &["artifactId", "versionId", "path"];
 
 pub struct ArtifactInteraction<'a> {
     pub prompts_enabled: bool,
@@ -93,16 +94,17 @@ pub async fn run_artifact_command_with_interaction(
 }
 
 fn safe_file_component(value: &str) -> String {
-    let value = value
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-') {
-                character
-            } else {
-                '-'
-            }
-        })
-        .collect::<String>();
+    let mut value = value.chars().fold(String::new(), |mut safe, character| {
+        if character.is_ascii_alphanumeric() || matches!(character, '.' | '_') {
+            safe.push(character);
+        } else if !safe.ends_with('-') {
+            safe.push('-');
+        }
+        safe
+    });
+    while value.ends_with('-') {
+        value.pop();
+    }
     let value = value.trim_matches('-');
     if value.is_empty() {
         "artifact".to_owned()
@@ -148,10 +150,10 @@ pub async fn run_artifact_export_with_interaction(
     let artifact_name = selected_name.unwrap_or_else(|| state.name.clone());
     let version_id = match &args.version {
         Some(version) => version.clone(),
-        None if interaction.prompts_enabled && interaction.is_terminal => state
-            .ready_version
-            .map(|version| version.id)
-            .ok_or(ArtifactError::VersionNotReady)?,
+        None if interaction.prompts_enabled && interaction.is_terminal => {
+            let versions = api.list_ready_versions(&token, &artifact_id).await?;
+            select_ready_version(&versions, interaction.input, diagnostics)?
+        }
         None => return Err(ArtifactError::ExportSelectionUnavailable),
     };
     let destination = args.output.clone().unwrap_or_else(|| {
@@ -171,25 +173,59 @@ pub async fn run_artifact_export_with_interaction(
     if destination.exists() && !args.clobber {
         return Err(ArtifactError::OutputExists);
     }
-    let bytes = api
+    let response = api
         .export_version(&token, &artifact_id, &version_id)
         .await?;
-    if !args.no_progress {
-        writeln!(diagnostics, "Downloading {} bytes", bytes.len())
-            .map_err(|_| ArtifactError::OutputWrite)?;
-    }
+    persist_export_response(
+        response,
+        &destination,
+        args.clobber,
+        args.no_progress,
+        diagnostics,
+    )
+    .await?;
+    write_export_output(args, output, &artifact_id, &version_id, &destination)
+}
+
+async fn persist_export_response(
+    mut response: reqwest::Response,
+    destination: &std::path::Path,
+    clobber: bool,
+    no_progress: bool,
+    diagnostics: &mut dyn Write,
+) -> Result<(), ArtifactError> {
+    let parent = destination
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."));
     let mut temporary =
         tempfile::NamedTempFile::new_in(parent).map_err(|_| ArtifactError::OutputWrite)?;
-    temporary
-        .write_all(&bytes)
-        .map_err(|_| ArtifactError::OutputWrite)?;
-    temporary.flush().map_err(|_| ArtifactError::OutputWrite)?;
-    if args.clobber {
+    let mut downloaded = 0_u64;
+    loop {
+        let next = tokio::select! {
+            next = response.chunk() => next.map_err(|error| ArtifactError::Network(error.to_string()))?,
+            result = tokio::signal::ctrl_c() => {
+                result.map_err(|_| ArtifactError::Server)?;
+                return Err(ArtifactError::Cancelled);
+            }
+        };
+        let Some(chunk) = next else { break };
         temporary
-            .persist(&destination)
+            .write_all(&chunk)
+            .map_err(|_| ArtifactError::OutputWrite)?;
+        downloaded = downloaded.saturating_add(u64::try_from(chunk.len()).unwrap_or(u64::MAX));
+        if !no_progress {
+            writeln!(diagnostics, "Downloading {downloaded} bytes")
+                .map_err(|_| ArtifactError::OutputWrite)?;
+        }
+    }
+    temporary.flush().map_err(|_| ArtifactError::OutputWrite)?;
+    if clobber {
+        temporary
+            .persist(destination)
             .map_err(|_| ArtifactError::OutputWrite)?;
     } else {
-        temporary.persist_noclobber(&destination).map_err(|error| {
+        temporary.persist_noclobber(destination).map_err(|error| {
             if error.error.kind() == std::io::ErrorKind::AlreadyExists {
                 ArtifactError::OutputExists
             } else {
@@ -197,12 +233,90 @@ pub async fn run_artifact_export_with_interaction(
             }
         })?;
     }
-    writeln!(
-        output,
-        "Exported Artifact {artifact_id} Version {version_id} to {}",
-        destination.display()
-    )
-    .map_err(|_| ArtifactError::OutputWrite)
+    Ok(())
+}
+
+fn write_export_output(
+    args: &ArtifactExportArgs,
+    output: &mut dyn Write,
+    artifact_id: &str,
+    version_id: &str,
+    destination: &std::path::Path,
+) -> Result<(), ArtifactError> {
+    let Some(fields) = &args.json else {
+        return writeln!(
+            output,
+            "Exported Artifact {artifact_id} Version {version_id} to {}",
+            destination.display()
+        )
+        .map_err(|_| ArtifactError::OutputWrite);
+    };
+    let fields = parse_fields_from(fields, EXPORT_FIELDS)?;
+    let values = Map::from_iter([
+        (
+            "artifactId".to_owned(),
+            Value::String(artifact_id.to_owned()),
+        ),
+        ("versionId".to_owned(), Value::String(version_id.to_owned())),
+        (
+            "path".to_owned(),
+            Value::String(destination.display().to_string()),
+        ),
+    ]);
+    let selected = Value::Object(
+        fields
+            .into_iter()
+            .map(|field| (field.to_owned(), values[field].clone()))
+            .collect(),
+    );
+    if let Some(expression) = &args.jq {
+        write_jq(output, &selected, expression)
+    } else if let Some(template) = &args.template {
+        write_template(output, &selected, template)
+    } else {
+        writeln!(
+            output,
+            "{}",
+            serde_json::to_string_pretty(&selected).map_err(|_| ArtifactError::Server)?
+        )
+        .map_err(|_| ArtifactError::OutputWrite)
+    }
+}
+
+fn select_ready_version(
+    versions: &[crate::ReadyArtifactVersion],
+    input: &mut dyn BufRead,
+    output: &mut dyn Write,
+) -> Result<String, ArtifactError> {
+    if versions.is_empty() {
+        return Err(ArtifactError::VersionNotReady);
+    }
+    for (index, version) in versions.iter().enumerate() {
+        writeln!(
+            output,
+            "{}: Version {} ({})",
+            index + 1,
+            version.version_number,
+            version.id
+        )
+        .map_err(|_| ArtifactError::Server)?;
+    }
+    write!(output, "Select a ready Version: ").map_err(|_| ArtifactError::Server)?;
+    output.flush().map_err(|_| ArtifactError::Server)?;
+    let mut choice = String::new();
+    input
+        .read_line(&mut choice)
+        .map_err(|_| ArtifactError::Cancelled)?;
+    let index = choice
+        .trim()
+        .parse::<usize>()
+        .ok()
+        .and_then(|value| value.checked_sub(1))
+        .ok_or(ArtifactError::Cancelled)?;
+    versions
+        .get(index)
+        .map(|version| version.id.clone())
+        .ok_or(ArtifactError::Cancelled)
 }
 
 #[must_use]

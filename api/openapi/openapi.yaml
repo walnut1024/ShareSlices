@@ -550,12 +550,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/CliVersionWhenBearer"
         - $ref: "#/components/parameters/CliOperatingSystemWhenBearer"
-        - name: artifactId
-          in: query
-          description: Optional owning Artifact constraint used by resource-oriented CLI Export.
-          schema:
-            type: string
-            minLength: 1
         - name: publication
           in: query
           schema:
@@ -780,6 +774,32 @@ paths:
           $ref: "#/components/responses/OperationConflict"
         "500":
           $ref: "#/components/responses/InternalError"
+  /api/artifacts/{artifactId}/versions:
+    parameters:
+      - $ref: "#/components/parameters/ArtifactId"
+    get:
+      tags: [artifacts]
+      operationId: listArtifactVersions
+      summary: List ready Versions of one owned Artifact.
+      security:
+        - sessionCookie: []
+        - sessionBearer: []
+      parameters:
+        - $ref: "#/components/parameters/CliVersionWhenBearer"
+        - $ref: "#/components/parameters/CliOperatingSystemWhenBearer"
+      responses:
+        "200":
+          description: Ready Versions in descending Version-number order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadyVersionListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/ArtifactNotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /api/artifacts/{artifactId}/share-link:
     parameters:
       - $ref: "#/components/parameters/ArtifactId"
@@ -935,6 +955,13 @@ paths:
       parameters:
         - $ref: "#/components/parameters/CliVersionWhenBearer"
         - $ref: "#/components/parameters/CliOperatingSystemWhenBearer"
+        - name: artifactId
+          in: query
+          required: false
+          description: Optional owning Artifact constraint used by CLI Export.
+          schema:
+            type: string
+            minLength: 1
       responses:
         "200":
           description: ZIP assembled from committed Version assets.
@@ -2133,6 +2160,30 @@ components:
           type: string
           enum:
             - ready
+    ReadyVersionListResponse:
+      type: object
+      additionalProperties: false
+      required: [versions]
+      properties:
+        versions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReadyVersionListItem"
+    ReadyVersionListItem:
+      type: object
+      additionalProperties: false
+      required: [id, versionNumber, state]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        versionNumber:
+          type: integer
+          minimum: 1
+        state:
+          type: string
+          enum: [ready]
     ProcessingFailure:
       type: object
       additionalProperties: false

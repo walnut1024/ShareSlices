@@ -67,6 +67,7 @@ function harness(options: {
     },
     versions: {
       findReadyOwned: vi.fn(),
+      listReadyOwned: vi.fn().mockResolvedValue([]),
       findReadyByArtifact: vi.fn().mockResolvedValue(
         options.ready
           ? {

@@ -1,6 +1,6 @@
 use crate::{
     Artifact, ArtifactAccepted, ArtifactError, ArtifactState, AuthApi, AuthError, Authorization,
-    Exchange, ProcessingFilter, PublicationFilter, UploadPolicy, User,
+    Exchange, ProcessingFilter, PublicationFilter, ReadyArtifactVersion, UploadPolicy, User,
 };
 use async_trait::async_trait;
 use reqwest::{Client, Response, StatusCode};
@@ -34,6 +34,38 @@ struct CompatibilityDetails {
 }
 
 impl ApiClient {
+    /// Lists ready Versions for one owned Artifact.
+    ///
+    /// # Errors
+    /// Returns an Artifact error for authentication, transport, authorization, or decoding failures.
+    pub async fn list_ready_versions(
+        &self,
+        token: &str,
+        artifact_id: &str,
+    ) -> Result<Vec<ReadyArtifactVersion>, ArtifactError> {
+        #[derive(Deserialize)]
+        struct Body {
+            versions: Vec<ReadyArtifactVersion>,
+        }
+        let response = self
+            .request(
+                reqwest::Method::GET,
+                &format!("/api/artifacts/{artifact_id}/versions"),
+            )
+            .bearer_auth(token)
+            .send()
+            .await
+            .map_err(|error| ArtifactError::Network(error.to_string()))?;
+        if !response.status().is_success() {
+            return Err(Self::artifact_error(response).await);
+        }
+        response
+            .json::<Body>()
+            .await
+            .map(|body| body.versions)
+            .map_err(|_| ArtifactError::Server)
+    }
+
     /// Downloads one owned ready Version as a normalized ZIP.
     ///
     /// # Errors
@@ -43,7 +75,7 @@ impl ApiClient {
         token: &str,
         artifact_id: &str,
         version_id: &str,
-    ) -> Result<bytes::Bytes, ArtifactError> {
+    ) -> Result<Response, ArtifactError> {
         let response = self
             .request(
                 reqwest::Method::GET,
@@ -57,10 +89,7 @@ impl ApiClient {
         if !response.status().is_success() {
             return Err(Self::artifact_error(response).await);
         }
-        response
-            .bytes()
-            .await
-            .map_err(|error| ArtifactError::Network(error.to_string()))
+        Ok(response)
     }
 
     /// Creates a `ShareSlices` API client.

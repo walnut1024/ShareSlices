@@ -45,6 +45,7 @@ function managementDependencies() {
     management: {
       list: vi.fn().mockResolvedValue({ artifacts: [artifact], nextPageToken: null }),
       get: vi.fn().mockResolvedValue(artifact),
+      listReadyVersions: vi.fn().mockResolvedValue([{ id: "version-1", versionNumber: 1, state: "ready" }]),
       rename: vi.fn().mockResolvedValue({ ...artifact, name: "Renamed" }),
       setShareExpiration: vi.fn().mockResolvedValue(artifact),
       delete: vi.fn().mockResolvedValue(undefined)
@@ -56,6 +57,15 @@ describe("Artifact routes", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.spyOn(apiLogger, "emit").mockImplementation(() => undefined);
+  });
+
+  it("lists ready Versions only for an owned Artifact", async () => {
+    const dependencies = managementDependencies();
+    const app = buildApp({ artifact: dependencies } as never);
+    const response = await app.request("/api/artifacts/artifact-1/versions");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ versions: [{ id: "version-1", versionNumber: 1, state: "ready" }] });
+    expect(dependencies.management.listReadyVersions).toHaveBeenCalledWith("owner-1", "artifact-1");
   });
 
   it("requires a management session for upload-policy discovery", async () => {

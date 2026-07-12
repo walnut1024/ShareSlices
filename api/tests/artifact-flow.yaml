@@ -252,6 +252,17 @@ cases:
       json_paths:
         publication.id: "{publication_id}"
 
+  - id: export_published_ready_version_without_mutation
+    request:
+      method: GET
+      path: "/api/versions/{version_id}/export?artifactId={artifact_id}"
+      cookie_ref: owner
+    expect:
+      status: 200
+      headers:
+        Cache-Control: no-store
+        Content-Type: application/zip
+
   - id: view_published_entry
     request:
       method: GET

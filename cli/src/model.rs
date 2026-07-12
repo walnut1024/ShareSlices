@@ -125,6 +125,14 @@ pub struct ReadyVersion {
     pub id: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadyArtifactVersion {
+    pub id: String,
+    pub version_number: u64,
+    pub state: String,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 pub struct ArtifactFailure {
     pub code: String,

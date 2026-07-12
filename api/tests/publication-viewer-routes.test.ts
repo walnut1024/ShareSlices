@@ -125,8 +125,20 @@ describe("Publication, Preview, and Viewer routes", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("application/zip");
     expect(response.headers.get("content-disposition")).toContain("Board-deck.zip");
-    expect((await response.arrayBuffer()).byteLength).toBeGreaterThan(0);
+    const archive = Buffer.from(await response.arrayBuffer());
+    expect(archive.byteLength).toBeGreaterThan(0);
+    expect(archive.includes(Buffer.from("index.html"))).toBe(true);
+    expect(archive.includes(Buffer.from("assets/app.js"))).toBe(true);
+    expect(archive.includes(Buffer.from("committed/version-1"))).toBe(false);
     expect(deps.service.exportVersion).toHaveBeenCalledWith("owner-1", "version-1", undefined);
+  });
+
+  it("requires owner authentication for Export", async () => {
+    const deps = await dependencies(null);
+    const app = buildApp({ publicationViewer: deps } as never);
+    const response = await app.request("/api/versions/version-1/export?artifactId=artifact-1");
+    expect(response.status).toBe(401);
+    expect(deps.service.exportVersion).not.toHaveBeenCalled();
   });
 
   it("passes the optional Artifact constraint through Export", async () => {

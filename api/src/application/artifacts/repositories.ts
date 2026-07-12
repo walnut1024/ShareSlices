@@ -198,6 +198,7 @@ export interface ProcessingJobRepository {
 export interface VersionRepository {
   findReadyOwned(ownerUserId: string, versionId: string): Promise<VersionRecord | null>;
   findReadyByArtifact(artifactId: string): Promise<VersionRecord | null>;
+  listReadyOwned(ownerUserId: string, artifactId: string): Promise<VersionRecord[]>;
 }
 
 export interface PublicationRepository {

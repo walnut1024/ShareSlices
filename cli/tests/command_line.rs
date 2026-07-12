@@ -128,6 +128,10 @@ fn parses_artifact_export_options() {
         "saved.zip",
         "--clobber",
         "--no-progress",
+        "--json",
+        "artifactId,path",
+        "--jq",
+        ".path",
     ])
     .expect("export command");
     let Command::Artifact {
@@ -144,4 +148,6 @@ fn parses_artifact_export_options() {
     );
     assert!(args.clobber);
     assert!(args.no_progress);
+    assert_eq!(args.json.as_deref(), Some("artifactId,path"));
+    assert_eq!(args.jq.as_deref(), Some(".path"));
 }

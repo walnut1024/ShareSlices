@@ -20,6 +20,6 @@ pub use command_line::{
 pub use credential_store::KeyringCredentialStore;
 pub use model::{
     Artifact, ArtifactAccepted, ArtifactError, ArtifactFailure, ArtifactPublication,
-    ArtifactShareLink, ArtifactState, ReadyVersion, UploadPolicy,
+    ArtifactShareLink, ArtifactState, ReadyArtifactVersion, ReadyVersion, UploadPolicy,
 };
 pub use model::{AuthApi, AuthError, Authorization, CredentialStore, Exchange, User};
