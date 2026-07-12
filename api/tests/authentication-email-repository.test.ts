@@ -145,7 +145,94 @@ describe("authentication email repository", () => {
     })).resolves.toEqual({ status: "limited" });
   });
 
+  it("renews the delivery lease while the SMTP adapter remains active", async () => {
+    await pool.query("delete from authentication_email_delivery");
+    const email = `lease-${crypto.randomUUID()}@example.com`;
+    const attempt = await createVerificationAttempt({ email, purpose: "registration" });
+    await acceptAuthenticationEmailDelivery({
+      attemptId: attempt.id,
+      email,
+      purpose: "registration",
+      sourceIp: "203.0.113.77",
+      payload: { email, otp: "123456", type: "email-verification" }
+    });
+
+    const adapter: AuthenticationEmailSmtpAdapter = {
+      async send(_payload, deliveryId) {
+        const initial = await pool.query<{ lease_expires_at: Date }>(
+          "select lease_expires_at from authentication_email_delivery where id = $1",
+          [deliveryId]
+        );
+        await new Promise((resolve) => setTimeout(resolve, 180));
+        const renewed = await pool.query<{ lease_expires_at: Date }>(
+          "select lease_expires_at from authentication_email_delivery where id = $1",
+          [deliveryId]
+        );
+        expect(renewed.rows[0]!.lease_expires_at.getTime())
+          .toBeGreaterThan(initial.rows[0]!.lease_expires_at.getTime());
+        return `<${deliveryId}@shareslices.local>`;
+      },
+      async verify() {},
+      close() {}
+    };
+
+    await expect(dispatchOneAuthenticationEmail("lease-test", adapter, {
+      leaseSeconds: 0.3,
+      heartbeatMs: 50
+    })).resolves.toBe(true);
+  });
+
+  it("does not overwrite a delivery claimed by a new lease owner", async () => {
+    await pool.query("delete from authentication_email_delivery");
+    const email = `fence-${crypto.randomUUID()}@example.com`;
+    const attempt = await createVerificationAttempt({ email, purpose: "registration" });
+    await acceptAuthenticationEmailDelivery({
+      attemptId: attempt.id,
+      email,
+      purpose: "registration",
+      sourceIp: "203.0.113.79",
+      payload: { email, otp: "123456", type: "email-verification" }
+    });
+
+    const adapter: AuthenticationEmailSmtpAdapter = {
+      async send(_payload, deliveryId) {
+        await pool.query(
+          `update authentication_email_delivery
+           set lease_owner = 'replacement-worker', lease_expires_at = now() + interval '1 minute'
+           where id = $1`,
+          [deliveryId]
+        );
+        return `<${deliveryId}@shareslices.local>`;
+      },
+      async verify() {},
+      close() {}
+    };
+
+    await expect(dispatchOneAuthenticationEmail("original-worker", adapter, {
+      leaseSeconds: 1,
+      heartbeatMs: 500
+    })).resolves.toBe(true);
+    const delivery = await pool.query(
+      "select state, lease_owner, provider_message_id from authentication_email_delivery where attempt_id = $1",
+      [attempt.id]
+    );
+    expect(delivery.rows[0]).toMatchObject({
+      state: "sending",
+      lease_owner: "replacement-worker",
+      provider_message_id: null
+    });
+  });
+
   it("marks a delivery sent only after SMTP accepts it and removes its encrypted payload", async () => {
+    const email = `smtp-${crypto.randomUUID()}@example.com`;
+    const attempt = await createVerificationAttempt({ email, purpose: "registration" });
+    await acceptAuthenticationEmailDelivery({
+      attemptId: attempt.id,
+      email,
+      purpose: "registration",
+      sourceIp: "203.0.113.78",
+      payload: { email, otp: "123456", type: "email-verification" }
+    });
     const before = receivedMessages;
     await expect(dispatchOneAuthenticationEmail("test-dispatcher", smtpAdapter)).resolves.toBe(true);
     const sent = await pool.query(

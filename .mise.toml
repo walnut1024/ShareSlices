@@ -41,7 +41,7 @@ run = "pnpm run api:test"
 
 [tasks.smtp-check]
 description = "Verify SMTP connectivity and optionally deliver a probe message"
-run = "node --env-file=.env.example --env-file-if-exists=.env api/node_modules/tsx/dist/cli.mjs api/src/email/smtp-check.ts"
+run = "node tools/run-smtp-check.mjs"
 
 [tasks.web-test]
 description = "Run Web tests"

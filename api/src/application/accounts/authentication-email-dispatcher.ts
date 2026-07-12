@@ -21,7 +21,11 @@ const smtpAdapter = createAuthenticationEmailSmtpAdapter({
 
 export async function dispatchOneAuthenticationEmail(
   workerId: string = randomUUID(),
-  adapter: AuthenticationEmailSmtpAdapter = smtpAdapter
+  adapter: AuthenticationEmailSmtpAdapter = smtpAdapter,
+  timing: { leaseSeconds: number; heartbeatMs: number } = {
+    leaseSeconds: env.AUTH_EMAIL_DELIVERY_LEASE_SECONDS,
+    heartbeatMs: Math.max(100, Math.floor(env.AUTH_EMAIL_DELIVERY_LEASE_SECONDS * 1000 / 3))
+  }
 ): Promise<boolean> {
   const client = await pool.connect();
   let delivery: DeliveryRow | undefined;
@@ -61,7 +65,7 @@ export async function dispatchOneAuthenticationEmail(
        set state = 'sending', lease_owner = $2,
            lease_expires_at = now() + ($3 * interval '1 second'), attempt_count = attempt_count + 1
        where id = $1`,
-      [delivery.id, workerId, env.AUTH_EMAIL_DELIVERY_LEASE_SECONDS]
+      [delivery.id, workerId, timing.leaseSeconds]
     );
     await client.query("commit");
   } catch (error) {
@@ -71,16 +75,48 @@ export async function dispatchOneAuthenticationEmail(
     client.release();
   }
 
+  const heartbeat = setInterval(() => {
+    void pool.query(
+      `update authentication_email_delivery
+       set lease_expires_at = now() + ($3 * interval '1 second')
+       where id = $1 and state = 'sending' and lease_owner = $2`,
+      [delivery.id, workerId, timing.leaseSeconds]
+    ).catch((error) => {
+      apiLogger.emit({
+        severity: "ERROR",
+        body: "Authentication email delivery lease renewal failed.",
+        eventName: "shareslices.authentication_email.delivery.lease_renewal_failed",
+        attributes: {
+          "shareslices.authentication_email.delivery.id": delivery!.id,
+          ...exceptionAttributes(error)
+        }
+      });
+    });
+  }, timing.heartbeatMs);
+  heartbeat.unref();
+
   try {
     const payload = decryptAuthenticationEmail(delivery.encrypted_payload, env.AUTH_EMAIL_ENCRYPTION_KEY);
     const providerMessageId = await adapter.send(payload, delivery.id);
-    await pool.query(
+    const completed = await pool.query(
       `update authentication_email_delivery
        set state = 'sent', sent_at = now(), provider_message_id = $2,
            encrypted_payload = '', lease_owner = null, lease_expires_at = null
-       where id = $1 and state = 'sending'`,
-      [delivery.id, providerMessageId]
+       where id = $1 and state = 'sending' and lease_owner = $3`,
+      [delivery.id, providerMessageId, workerId]
     );
+    if (completed.rowCount === 0) {
+      apiLogger.emit({
+        severity: "WARN",
+        body: "Authentication email delivery completed after lease ownership changed.",
+        eventName: "shareslices.authentication_email.delivery.outcome_after_lease_lost",
+        attributes: {
+          "shareslices.authentication_email.delivery.id": delivery.id,
+          "shareslices.retry.reason_code": "ambiguous_delivery_retry"
+        }
+      });
+      return true;
+    }
     apiLogger.emit({
       severity: "INFO",
       body: "Authentication email delivered.",
@@ -89,14 +125,26 @@ export async function dispatchOneAuthenticationEmail(
     });
   } catch (error) {
     const retry = delivery.attempt_count + 1 < env.AUTH_EMAIL_MAX_ATTEMPTS;
-    await pool.query(
+    const failed = await pool.query(
       `update authentication_email_delivery
        set state = $2,
            available_at = case when $2 = 'pending' then now() + ($3 * interval '1 second') else available_at end,
            failure_reason_code = 'provider_failure', lease_owner = null, lease_expires_at = null
-       where id = $1`,
-      [delivery.id, retry ? "pending" : "failed", env.AUTH_EMAIL_RETRY_DELAY_SECONDS]
+       where id = $1 and state = 'sending' and lease_owner = $4`,
+      [delivery.id, retry ? "pending" : "failed", env.AUTH_EMAIL_RETRY_DELAY_SECONDS, workerId]
     );
+    if (failed.rowCount === 0) {
+      apiLogger.emit({
+        severity: "WARN",
+        body: "Authentication email delivery failed after lease ownership changed.",
+        eventName: "shareslices.authentication_email.delivery.outcome_after_lease_lost",
+        attributes: {
+          "shareslices.authentication_email.delivery.id": delivery.id,
+          "shareslices.retry.reason_code": "ambiguous_delivery_retry"
+        }
+      });
+      return true;
+    }
     if (!retry) {
       await pool.query(
         `update authentication_email_circuit_breaker
@@ -122,6 +170,8 @@ export async function dispatchOneAuthenticationEmail(
         ...exceptionAttributes(error)
       }
     });
+  } finally {
+    clearInterval(heartbeat);
   }
   return true;
 }

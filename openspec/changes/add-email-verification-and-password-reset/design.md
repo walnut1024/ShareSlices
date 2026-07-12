@@ -128,7 +128,7 @@ SMTP configuration is immutable for one API process lifetime. The URL or URL fil
 
 Hot reload was rejected because concurrent replicas could retain different credentials and open connections while obscuring which provider handled a delivery. A controlled restart gives one configuration generation per process without losing queued work.
 
-SMTP timing and durable retry behavior use the existing environment-variable configuration system, including Compose `.env` and systemd `EnvironmentFile`; ShareSlices does not add a YAML, JSON, or TOML runtime configuration file. Defaults are a 60-second delivery lease, 5-second DNS timeout, 10-second connection timeout, 10-second greeting timeout, 30-second socket timeout, 30-second persistent retry delay, and three total attempts. Startup requires positive finite integers and rejects a maximum SMTP operation window that is not shorter than the delivery lease. Nodemailer-internal unbounded requeue is disabled so durable retry policy remains in PostgreSQL.
+SMTP timing and durable retry behavior use the existing environment-variable configuration system, including Compose `.env` and systemd `EnvironmentFile`; ShareSlices does not add a YAML, JSON, or TOML runtime configuration file. Defaults are a 60-second delivery lease, 5-second DNS timeout, 10-second connection timeout, 10-second greeting timeout, 30-second socket-idle timeout, 30-second persistent retry delay, and three total attempts. Startup requires positive finite integers. The dispatcher renews its delivery lease while Nodemailer is active, so another replica can recover a delivery only after the sending process stops renewing; DNS, connection, greeting, and socket-idle timeouts bound ordinary provider failures. Nodemailer-internal unbounded requeue is disabled so durable retry policy remains in PostgreSQL.
 
 Deployment configuration has one typed code entry point per runtime: `api/src/env.ts` for API configuration and `worker/src/config.rs` for Worker configuration. Runtime modules do not read process environment directly. A root `.env.example` is the operator-facing catalog for every API, Worker, Web proxy, storage, and SMTP variable, grouped by owner and annotated with required, optional, sensitive, and default behavior. Compose and Kubernetes inject those names but do not redefine their semantics, and a repository check detects drift between the catalog, typed runtime schemas, and deployment manifests.
 
@@ -169,7 +169,7 @@ The two `:verify` custom actions are used because proving a secret is not a stan
 
 ### Reuse current authentication composition
 
-The Web reuses `AuthLayout`, existing shadcn Base UI form primitives, and current Geist-aligned tokens. `RegisterPage` replaces its form with a code-entry state when verification is required. `LoginPage` adds `Forgot password?` and can enter a verification-required state for an unverified account. Password reset uses request, code, new-password, and completion pages.
+The Web reuses `AuthLayout`, existing shadcn Base UI form primitives, and current Geist-aligned tokens. `SignUpPage` replaces its form with a code-entry state when verification is required. `LoginPage` adds `Forgot password?` and can enter a verification-required state for an unverified account. Password reset uses request, code, new-password, and completion pages.
 
 The code page shows a masked destination, the server-owned countdown, `Send another code`, and `Use a different email`. It never receives the full normalized email in a neutral password-reset response.
 

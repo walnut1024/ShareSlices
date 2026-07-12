@@ -21,7 +21,7 @@
 - [x] 3.2 Configure Better Auth and the account application boundary so required verification creates no Session, successful code proof marks email verified, skipped verification permits login, and errors remain product-owned.
 - [x] 3.3 Implement the registration verification and delivery routes with trusted-origin validation, `no-store` responses, and checked OpenAPI behavior.
 - [x] 3.4 Add failing Web tests for registration code entry, paste and whitespace input, masked destination, server countdown, resend, different-email, error, completion, and policy-skipped states.
-- [x] 3.5 Implement the `RegisterPage` verification states with existing authentication layout and shadcn Base UI primitives.
+- [x] 3.5 Implement the `SignUpPage` verification states with existing authentication layout and shadcn Base UI primitives.
 
 ## 4. Add password reset
 
@@ -47,5 +47,5 @@
 - [x] 6.4 Make the full YAML account-flow gate depend on Compose Mailpit, retrieve messages by unique test recipient through the Mailpit API, and complete registration verification and password reset through the public API.
 - [x] 6.5 Update non-Kubernetes and Kubernetes deployment examples so production provider switching requires only a Nodemailer SMTP URL change when the sender identity stays constant.
 - [x] 6.6 Add `mise run smtp-check` for explicit DNS, TCP, TLS, and authentication verification plus an optional real probe to `AUTH_EMAIL_SMTP_CHECK_TO`, without making SMTP connectivity an API readiness dependency.
-- [x] 6.7 Parameterize and validate SMTP DNS, connection, greeting, and socket timeouts plus delivery lease and persistent retry delay, with bounded defaults that keep SMTP work inside its lease.
+- [x] 6.7 Parameterize and validate SMTP DNS, connection, greeting, and socket-idle timeouts plus delivery lease and persistent retry delay, and renew the lease while SMTP work remains active.
 - [x] 6.8 Add a root `.env.example` as the grouped deployment-configuration catalog, keep one typed configuration module per runtime, and add a drift check covering runtime schemas plus Compose and Kubernetes variable names.

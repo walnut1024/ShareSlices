@@ -85,7 +85,7 @@ def failure_server(contract: dict[str, Any]) -> str:
     environment = os.environ.copy()
     environment.update(
         {
-            "DATABASE_URL": "postgres://shareslices:shareslices@127.0.0.1:5432/shareslices",
+            "DATABASE_URL": "postgres://shareslices:shareslices@127.0.0.1:5432/shareslices_test",
             "BETTER_AUTH_SECRET": "contract-fixture-secret-at-least-32-bytes",
             "BETTER_AUTH_URL": base_url,
             "WEB_ORIGIN": "http://127.0.0.1:5173",
@@ -106,6 +106,7 @@ def failure_server(contract: dict[str, Any]) -> str:
             "AUTH_EMAIL_ENCRYPTION_KEY": "contract-email-encryption-key-at-least-32-bytes",
             "AUTH_EMAIL_SMTP_URL": "smtp://127.0.0.1:1025",
             "AUTH_EMAIL_FROM": "ShareSlices <no-reply@shareslices.local>",
+            "AUTH_EMAIL_RETRY_DELAY_SECONDS": "1",
             "PORT": base_url.rsplit(":", 1)[1],
             "NODE_ENV": "test",
         }
@@ -161,7 +162,7 @@ def live_servers(contract: dict[str, Any]) -> dict[str, str]:
     assert response.status_code == 200, "Mailpit is not ready"
     subprocess.run(
         [
-            "docker", "compose", "exec", "-T", "postgres", "psql", "-U", "shareslices", "-d", "shareslices",
+            "docker", "compose", "exec", "-T", "postgres", "psql", "-U", "shareslices", "-d", "shareslices_test",
             "-c", "delete from authentication_email_delivery; delete from password_reset_grant; delete from email_verification_attempt; update authentication_email_circuit_breaker set state = 'closed', reason_code = null, opened_at = null, resume_at = null;",
         ],
         cwd=PROJECT_ROOT,
@@ -175,7 +176,7 @@ def live_servers(contract: dict[str, Any]) -> dict[str, str]:
         environment = os.environ.copy()
         environment.update(
             {
-                "DATABASE_URL": "postgres://shareslices:shareslices@127.0.0.1:5432/shareslices",
+                "DATABASE_URL": "postgres://shareslices:shareslices@127.0.0.1:5432/shareslices_test",
                 "BETTER_AUTH_SECRET": "contract-live-secret-at-least-32-bytes",
                 "BETTER_AUTH_URL": base_url,
                 "WEB_ORIGIN": "http://127.0.0.1:5173",
@@ -196,6 +197,7 @@ def live_servers(contract: dict[str, Any]) -> dict[str, str]:
                 "AUTH_EMAIL_ENCRYPTION_KEY": "contract-email-encryption-key-at-least-32-bytes",
                 "AUTH_EMAIL_SMTP_URL": "smtp://127.0.0.1:1025",
                 "AUTH_EMAIL_FROM": "ShareSlices <no-reply@shareslices.local>",
+                "AUTH_EMAIL_RETRY_DELAY_SECONDS": "1",
                 "PORT": str(port),
                 "NODE_ENV": "test",
             }

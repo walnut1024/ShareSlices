@@ -91,7 +91,7 @@ describe("API environment", () => {
     expect(readEnv(fromFile)).toMatchObject({ AUTH_EMAIL_SMTP_URL: "smtps://user:pass@smtp.example.com:465" });
   });
 
-  it("rejects missing, conflicting, insecure, and out-of-lease SMTP configuration", () => {
+  it("rejects missing, conflicting, and insecure SMTP configuration", () => {
     expect(() => readEnv({ ...validEnv, AUTH_EMAIL_SMTP_URL: undefined })).toThrow();
     expect(() => readEnv({ ...validEnv, AUTH_EMAIL_SMTP_URL_FILE: "/tmp/smtp-url" })).toThrow();
     expect(() => readEnv({ ...validEnv, AUTH_EMAIL_SMTP_URL: "https://smtp.example.com" })).toThrow();
@@ -101,12 +101,5 @@ describe("API environment", () => {
     expect(() => readEnv({ ...validEnv, AUTH_EMAIL_FROM: "one@example.com, two@example.com" })).toThrow();
     expect(() => readEnv({ ...validEnv, AUTH_EMAIL_FROM: "sender@example.com\r\nBcc: victim@example.com" })).toThrow();
     expect(() => readEnv({ ...validEnv, AUTH_EMAIL_SMTP_URL: "smtp://smtp.example.com:587?tls.rejectUnauthorized=false" })).toThrow();
-    expect(() => readEnv({
-      ...validEnv,
-      AUTH_EMAIL_DELIVERY_LEASE_SECONDS: "30",
-      AUTH_EMAIL_SMTP_CONNECTION_TIMEOUT_MS: "10000",
-      AUTH_EMAIL_SMTP_GREETING_TIMEOUT_MS: "10000",
-      AUTH_EMAIL_SMTP_SOCKET_TIMEOUT_MS: "10000"
-    })).toThrow();
   });
 });

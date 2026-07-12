@@ -85,15 +85,6 @@ const envSchema = z
         message: "Production smtp URLs must require STARTTLS."
       });
     }
-    const smtpWindow = value.AUTH_EMAIL_SMTP_DNS_TIMEOUT_MS + value.AUTH_EMAIL_SMTP_CONNECTION_TIMEOUT_MS +
-      value.AUTH_EMAIL_SMTP_GREETING_TIMEOUT_MS + value.AUTH_EMAIL_SMTP_SOCKET_TIMEOUT_MS;
-    if (smtpWindow >= value.AUTH_EMAIL_DELIVERY_LEASE_SECONDS * 1000) {
-      context.addIssue({
-        code: "custom",
-        path: ["AUTH_EMAIL_DELIVERY_LEASE_SECONDS"],
-        message: "Authentication email delivery lease must exceed the SMTP timeout window."
-      });
-    }
   });
 
 export type ApiEnv = z.infer<typeof envSchema>;
