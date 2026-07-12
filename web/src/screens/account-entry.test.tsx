@@ -6,14 +6,14 @@ import App from "../App";
 describe("account entry screens", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    window.history.replaceState(null, "", "/?view=register");
+    window.history.replaceState(null, "", "/?view=signup");
   });
 
-  it("shows the focused register form", () => {
+  it("shows the focused sign-up form", () => {
     render(<App />);
 
     expect(screen.getByRole("main").querySelector('[data-slot="card"]')).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Create your account" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Sign up" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Give Every Idea An Audience" })).toBeInTheDocument();
     expect(screen.getByText("Bring your team’s best thinking together and keep sharing as it evolves.")).toBeInTheDocument();
     expect(screen.getByLabelText("Name")).toBeInTheDocument();
@@ -23,7 +23,7 @@ describe("account entry screens", () => {
     expect(screen.queryByText(new RegExp(["goo", "gle"].join(""), "i"))).not.toBeInTheDocument();
   });
 
-  it("enters and completes registration email verification", async () => {
+  it("enters and completes sign-up email verification", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
       if (path.endsWith("/verify")) {
@@ -43,7 +43,7 @@ describe("account entry screens", () => {
     await user.type(screen.getByLabelText("Name"), "Ada");
     await user.type(screen.getByLabelText("Email"), "ada@example.com");
     await user.type(screen.getByLabelText("Password"), "password123");
-    await user.click(screen.getByRole("button", { name: "Create account" }));
+    await user.click(screen.getByRole("button", { name: "Sign up" }));
 
     expect(await screen.findByRole("heading", { name: "Check your email" })).toBeInTheDocument();
     expect(screen.getByText(/a\*\*\*@example.com/)).toBeInTheDocument();
@@ -103,18 +103,18 @@ describe("account entry screens", () => {
     expect(screen.getByRole("link", { name: "Log in" })).toHaveAttribute("href", "/?view=login");
   });
 
-  it("shows field feedback for invalid registration input", async () => {
+  it("shows field feedback for invalid sign-up input", async () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: "Create account" }));
+    await user.click(screen.getByRole("button", { name: "Sign up" }));
 
     expect(await screen.findByText("Enter a name.")).toBeInTheDocument();
     expect(screen.getByText("Enter a valid email.")).toBeInTheDocument();
     expect(screen.getByText("Use at least 8 characters.")).toBeInTheDocument();
   });
 
-  it("maps server registration fields back to their controls", async () => {
+  it("maps server sign-up fields back to their controls", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -141,7 +141,7 @@ describe("account entry screens", () => {
     await user.type(screen.getByLabelText("Name"), "A".repeat(121));
     await user.type(screen.getByLabelText("Email"), "ada@example.com");
     await user.type(screen.getByLabelText("Password"), "password123");
-    await user.click(screen.getByRole("button", { name: "Create account" }));
+    await user.click(screen.getByRole("button", { name: "Sign up" }));
 
     expect(await screen.findByText("Enter a shorter name.")).toBeInTheDocument();
     expect(screen.queryByText("Invalid request.")).not.toBeInTheDocument();
@@ -168,6 +168,7 @@ describe("account entry screens", () => {
     render(<App />);
 
     expect(screen.getByText("Forgot password?")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Sign up" })).toHaveAttribute("href", "/?view=signup");
     expect(screen.getByText("Bring your team’s best thinking together and keep sharing as it evolves.")).toBeInTheDocument();
     await user.type(screen.getByLabelText("Email"), "unknown@example.com");
     await user.type(screen.getByLabelText("Password"), "wrong password");

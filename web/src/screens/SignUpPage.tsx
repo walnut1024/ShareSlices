@@ -1,9 +1,9 @@
 import { useState } from "react";
 import {
   AccountApiError,
-  createUser,
-  resendRegistrationEmail,
-  verifyRegistrationEmail,
+  resendSignUpEmail,
+  signUp,
+  verifySignUpEmail,
   type VerificationState
 } from "../api/account";
 import { AuthLayout } from "../components/AuthLayout";
@@ -15,7 +15,7 @@ import { Input } from "../components/ui/input";
 
 type Errors = Partial<Record<"name" | "email" | "password" | "form", string>>;
 
-export function RegisterPage() {
+export function SignUpPage() {
   const [errors, setErrors] = useState<Errors>({});
   const [createdName, setCreatedName] = useState<string | null>(null);
   const [verification, setVerification] = useState<VerificationState["verification"] | null>(null);
@@ -47,7 +47,7 @@ export function RegisterPage() {
     }
 
     try {
-      const result = await createUser({ name, email, password });
+      const result = await signUp({ name, email, password });
       if ("verification" in result) {
         setVerification(result.verification);
       } else {
@@ -66,7 +66,7 @@ export function RegisterPage() {
           return;
         }
       }
-      setErrors({ form: error instanceof Error ? error.message : "Registration failed." });
+      setErrors({ form: error instanceof Error ? error.message : "Sign up failed." });
     }
   }
 
@@ -85,10 +85,10 @@ export function RegisterPage() {
             initialWait={verification.resendAvailableIn}
             buttonLabel="Verify email"
             onVerify={async (code) => {
-              await verifyRegistrationEmail(verification.id, code);
+              await verifySignUpEmail(verification.id, code);
               setVerified(true);
             }}
-            onResend={async () => (await resendRegistrationEmail(verification.id)).verification.resendAvailableIn}
+            onResend={async () => (await resendSignUpEmail(verification.id)).verification.resendAvailableIn}
             onChangeEmail={() => setVerification(null)}
           />
         )}
@@ -99,7 +99,7 @@ export function RegisterPage() {
   return (
     <AuthLayout>
       <header>
-        <h1 className="m-0 text-[26px] font-semibold tracking-[-0.02em]">Create your account</h1>
+        <h1 className="m-0 text-[26px] font-semibold tracking-[-0.02em]">Sign up</h1>
         <p className="mb-[26px] mt-1.5 text-sm leading-[1.45] text-neutral-500">
           Free to start — no card required.
         </p>
@@ -131,13 +131,13 @@ export function RegisterPage() {
           </Field>
         </FieldGroup>
         {errors.form ? <Alert variant="destructive"><AlertDescription>{errors.form}</AlertDescription></Alert> : null}
-        {createdName ? <Alert><AlertDescription>Account created for {createdName}. Log in to continue.</AlertDescription></Alert> : null}
+        {createdName ? <Alert><AlertDescription>You’re signed up as {createdName}. Log in to continue.</AlertDescription></Alert> : null}
         <Button type="submit" className="w-full">
-          Create account
+          Sign up
         </Button>
       </form>
       <p className="mb-0 mt-3.5 max-w-[300px] text-xs leading-normal text-neutral-400">
-        By creating an account you agree to our <span className="text-neutral-500">Terms</span> and <span className="text-neutral-500">Privacy Policy</span>.
+        By signing up you agree to our <span className="text-neutral-500">Terms</span> and <span className="text-neutral-500">Privacy Policy</span>.
       </p>
       <p className="mb-0 mt-[18px] text-[13.5px] text-neutral-500">
         Already have an account? <a className="font-medium text-neutral-950 hover:underline" href="/?view=login">Log in</a>

@@ -26,7 +26,7 @@ None.
 
 ## Impact
 
-- Affected Web code: account routes, `RegisterPage`, `LoginPage`, shared authentication forms, and new verification and reset pages.
+- Affected Web code: account routes, `SignUpPage`, `LoginPage`, shared authentication forms, and new verification and reset pages.
 - Affected API code: Better Auth configuration, account application modules, Hono routes, repositories, environment configuration, structured events, and OpenAPI contracts.
 - Affected persistence: verification attempts, restricted reset grants, authentication-email deliveries, delivery leases, rate-limit state, and circuit-breaker state.
 - Affected infrastructure: one configurable transactional-email adapter and background delivery dispatch in the TypeScript API runtime.

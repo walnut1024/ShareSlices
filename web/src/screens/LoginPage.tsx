@@ -1,7 +1,7 @@
 import { AuthLayout } from "../components/AuthLayout";
 import { LoginForm } from "../components/LoginForm";
 import { useState } from "react";
-import { resendRegistrationEmail, verifyRegistrationEmail, type VerificationState } from "../api/account";
+import { resendSignUpEmail, verifySignUpEmail, type VerificationState } from "../api/account";
 import { VerificationCodeForm } from "../components/VerificationCodeForm";
 
 export function LoginPage({ onSignedIn }: { onSignedIn?: (user: { id: string; name: string; email: string }) => void }) {
@@ -22,8 +22,8 @@ export function LoginPage({ onSignedIn }: { onSignedIn?: (user: { id: string; na
             destination={verification.destination}
             initialWait={verification.resendAvailableIn}
             buttonLabel="Verify email"
-            onVerify={async (code) => { await verifyRegistrationEmail(verification.id, code); setVerified(true); }}
-            onResend={async () => (await resendRegistrationEmail(verification.id)).verification.resendAvailableIn}
+            onVerify={async (code) => { await verifySignUpEmail(verification.id, code); setVerified(true); }}
+            onResend={async () => (await resendSignUpEmail(verification.id)).verification.resendAvailableIn}
             onChangeEmail={() => setVerification(null)}
           />
         )}
@@ -41,7 +41,7 @@ export function LoginPage({ onSignedIn }: { onSignedIn?: (user: { id: string; na
       <LoginForm onSignedIn={onSignedIn} onVerificationRequired={setVerification} />
       <p className="mb-0 mt-4 text-right text-[13px]"><a className="font-medium text-neutral-950 hover:underline" href="/?view=reset">Forgot password?</a></p>
       <p className="mb-0 mt-[22px] text-[13.5px] text-neutral-500">
-        New to ShareSlices? <a className="font-medium text-neutral-950 hover:underline" href="/?view=register">Create an account</a>
+        New to ShareSlices? <a className="font-medium text-neutral-950 hover:underline" href="/?view=signup">Sign up</a>
       </p>
     </AuthLayout>
   );

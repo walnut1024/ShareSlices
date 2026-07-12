@@ -60,14 +60,14 @@ A registered user SHALL be able to log in with the correct email and password. S
 - **WHEN** a user logs in with an unregistered email
 - **THEN** login fails and no signed-in state is created
 
-### Requirement: Web register screen
+### Requirement: Web sign-up page
 
-The Web UI SHALL expose a dedicated registration page with name, email, password, and a create-account action. Invalid input MUST produce visible field-level feedback and MUST NOT imply account creation. When registration verification is required, accepted registration SHALL replace the form with a code-entry state that includes a masked destination, one accessible numeric code input, a server-owned resend countdown, a resend action, and an action to use a different email. Successful verification SHALL direct the user to login without creating signed-in state.
+The Web UI SHALL expose a dedicated self-service sign-up page with name, email, password, and a sign-up action. Invalid input MUST produce visible field-level feedback and MUST NOT imply account creation. When registration verification is required, accepted sign-up SHALL replace the form with a code-entry state that includes a masked destination, one accessible numeric code input, a server-owned resend countdown, a resend action, and an action to use a different email. Successful verification SHALL direct the user to login without creating signed-in state.
 
-#### Scenario: Reach the register form
+#### Scenario: Reach the sign-up form
 
-- **WHEN** a visitor opens the register page
-- **THEN** a form with name, email, password, and a create-account action is available
+- **WHEN** a visitor opens the sign-up page
+- **THEN** a form with name, email, password, and a sign-up action is available
 
 #### Scenario: Invalid input feedback
 

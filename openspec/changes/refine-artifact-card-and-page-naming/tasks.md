@@ -8,7 +8,7 @@
 ## 2. Rename route-level Web components
 
 - [x] 2.1 Rename the Artifact collection and detail files, exports, and `App.tsx` imports/usages to `ArtifactsPage` and `ArtifactPage`.
-- [x] 2.2 Rename the login, registration, and device authorization files, exports, and `App.tsx` imports/usages to `LoginPage`, `RegisterPage`, and `DeviceAuthorizationPage`.
+- [x] 2.2 Rename the login, self-service sign-up, and device authorization files, exports, and `App.tsx` imports/usages to `LoginPage`, `SignUpPage`, and `DeviceAuthorizationPage`; use `signup` for the Web query route.
 - [x] 2.3 Rename `AuthScreenLayout` to `AuthLayout`, update its consumers, and update the current device authorization reference in `docs/design/modules.md`.
 - [x] 2.4 Search production Web code and current architecture documentation for remaining `*Screen` identifiers; leave historical archived changes and plans unchanged.
 

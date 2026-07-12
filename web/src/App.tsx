@@ -7,12 +7,12 @@ import { ArtifactPage } from "./screens/ArtifactPage";
 import { ArtifactsPage } from "./screens/ArtifactsPage";
 import { DeviceAuthorizationPage } from "./screens/DeviceAuthorizationPage";
 import { LoginPage } from "./screens/LoginPage";
-import { RegisterPage } from "./screens/RegisterPage";
+import { SignUpPage } from "./screens/SignUpPage";
 import { PasswordResetPage } from "./screens/PasswordResetPage";
 
-function accountView(): "register" | "login" | "reset" {
+function accountView(): "signup" | "login" | "reset" {
   const view = new URLSearchParams(window.location.search).get("view");
-  return view === "login" || view === "reset" ? view : "register";
+  return view === "login" || view === "reset" ? view : "signup";
 }
 
 function navigate(path: string) {
@@ -92,7 +92,7 @@ export default function App() {
   if (!managementRoute) {
     const view = accountView();
     if (view === "reset") return <PasswordResetPage />;
-    return view === "register" ? <RegisterPage /> : <LoginPage onSignedIn={onSignedIn} />;
+    return view === "signup" ? <SignUpPage /> : <LoginPage onSignedIn={onSignedIn} />;
   }
 
   if (checkingSession) {

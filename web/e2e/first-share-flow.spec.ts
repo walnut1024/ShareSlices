@@ -12,8 +12,8 @@ test("normalize a macOS named-entry ZIP, Preview, Publish, and open the stable V
   await page.getByLabel("Name").fill("Smoke Tester");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Create account" }).click();
-  await expect(page.getByText("Account created for Smoke Tester.")).toBeVisible();
+  await page.getByRole("button", { name: "Sign up" }).click();
+  await expect(page.getByText("You’re signed up as Smoke Tester. Log in to continue.")).toBeVisible();
 
   await page.getByRole("link", { name: "Log in" }).click();
   await page.getByLabel("Email").fill(email);
@@ -101,7 +101,7 @@ test("explain ambiguous root HTML candidates after processing fails", async ({ p
   await page.getByLabel("Name").fill("Ambiguous ZIP Tester");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Create account" }).click();
+  await page.getByRole("button", { name: "Sign up" }).click();
   await page.getByRole("link", { name: "Log in" }).click();
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
@@ -148,8 +148,8 @@ test("sign out the current browser Session", async ({ page }, testInfo) => {
   await page.getByLabel("Name").fill("Sign Out Tester");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Create account" }).click();
-  await expect(page.getByText("Account created for Sign Out Tester.")).toBeVisible();
+  await page.getByRole("button", { name: "Sign up" }).click();
+  await expect(page.getByText("You’re signed up as Sign Out Tester. Log in to continue.")).toBeVisible();
 
   await page.getByRole("link", { name: "Log in" }).click();
   await page.getByLabel("Email").fill(email);

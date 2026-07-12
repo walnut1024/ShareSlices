@@ -4,7 +4,7 @@ export type User = {
   email: string;
 };
 
-export type CreateUserInput = {
+export type SignUpInput = {
   name: string;
   email: string;
   password: string;
@@ -80,7 +80,7 @@ async function request<T>(path: string, body?: unknown): Promise<T> {
   return parseJson<T>(response);
 }
 
-export async function createUser(input: CreateUserInput): Promise<{ user: User } | VerificationState> {
+export async function signUp(input: SignUpInput): Promise<{ user: User } | VerificationState> {
   return request<{ user: User } | VerificationState>("/api/users", input);
 }
 
@@ -88,11 +88,11 @@ export async function createSession(input: CreateSessionInput): Promise<CreateSe
   return request<CreateSessionResult | VerificationState>("/api/sessions", input);
 }
 
-export async function verifyRegistrationEmail(verificationId: string, code: string): Promise<void> {
+export async function verifySignUpEmail(verificationId: string, code: string): Promise<void> {
   await request(`/api/email-verifications/${encodeURIComponent(verificationId)}/verify`, { code });
 }
 
-export async function resendRegistrationEmail(verificationId: string): Promise<VerificationState> {
+export async function resendSignUpEmail(verificationId: string): Promise<VerificationState> {
   return request(`/api/email-verifications/${encodeURIComponent(verificationId)}/deliveries`, {});
 }
 

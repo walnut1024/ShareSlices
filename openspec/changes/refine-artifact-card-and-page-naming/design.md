@@ -33,12 +33,14 @@ Rename the current route components as follows:
 | `ArtifactListScreen` | `ArtifactsPage` |
 | `ArtifactDetailScreen` | `ArtifactPage` |
 | `LoginScreen` | `LoginPage` |
-| `RegisterScreen` | `RegisterPage` |
+| `RegisterScreen` | `SignUpPage` |
 | `DeviceAuthorizationScreen` | `DeviceAuthorizationPage` |
 
 `ArtifactsPage` uses the plural resource name because it owns the `/artifacts` collection route; `grid` and `list` remain internal view-mode values. `ArtifactPage` uses the singular resource name because it owns one Artifact route. This is preferred over `ArtifactListPage`, which would encode one presentation mode in the route component name.
 
 The shared `AuthScreenLayout` becomes `AuthLayout`. `ManagementShell`, dialogs, and non-route components retain their existing role-specific suffixes.
+
+The self-service account action uses `Sign up` in user-facing copy, `signup` in the Web query route, and `SignUp` in React identifiers. Backend registration terminology, resource-oriented API routes, and administrator-created accounts retain their existing names because they describe different actors and operations.
 
 ### Put the naming rule in `AGENTS.md`
 

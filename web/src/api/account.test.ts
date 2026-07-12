@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AccountApiError, createSession, createUser, deleteCurrentSession } from "./account";
+import { AccountApiError, createSession, deleteCurrentSession, signUp } from "./account";
 
 describe("account API client", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("posts registration to /api/users", async () => {
+  it("posts sign-up details to /api/users", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -17,7 +17,7 @@ describe("account API client", () => {
       )
     );
 
-    await expect(createUser({ name: "Ada", email: "ada@example.com", password: "password123" })).resolves.toEqual({
+    await expect(signUp({ name: "Ada", email: "ada@example.com", password: "password123" })).resolves.toEqual({
       user: { id: "user_1", name: "Ada", email: "ada@example.com" }
     });
 
