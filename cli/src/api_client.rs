@@ -116,6 +116,64 @@ impl ApiClient {
             .map_err(|error| AuthError::Network(error.to_string()))
     }
 
+    async fn artifact_error(response: Response) -> ArtifactError {
+        if response.status() == StatusCode::UNAUTHORIZED {
+            return ArtifactError::Unauthenticated;
+        }
+        let body = response.json::<ErrorEnvelope>().await.ok();
+        if body.as_ref().map(|value| value.error.code.as_str()) == Some("cli_upgrade_required") {
+            let details = body.and_then(|value| value.error.details);
+            return ArtifactError::UpgradeRequired {
+                current: details
+                    .as_ref()
+                    .and_then(|value| value.current_version.clone())
+                    .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned()),
+                minimum: details
+                    .and_then(|value| value.minimum_version)
+                    .unwrap_or_else(|| "a newer version".to_owned()),
+            };
+        }
+        ArtifactError::Server
+    }
+
+    async fn upload_error(
+        response: Response,
+        fallback_delay: std::time::Duration,
+    ) -> (ArtifactError, Option<std::time::Duration>) {
+        let status = response.status();
+        if status == StatusCode::UNAUTHORIZED {
+            return (ArtifactError::Unauthenticated, None);
+        }
+        let retry_after = response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<u64>().ok())
+            .map_or(fallback_delay, std::time::Duration::from_secs)
+            .min(std::time::Duration::from_secs(5));
+        let body = response.json::<ErrorEnvelope>().await.ok();
+        let code = body.as_ref().map(|value| value.error.code.as_str());
+        if code == Some("cli_upgrade_required") {
+            let details = body.and_then(|value| value.error.details);
+            return (
+                ArtifactError::UpgradeRequired {
+                    current: details
+                        .as_ref()
+                        .and_then(|value| value.current_version.clone())
+                        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned()),
+                    minimum: details
+                        .and_then(|value| value.minimum_version)
+                        .unwrap_or_else(|| "a newer version".to_owned()),
+                },
+                None,
+            );
+        }
+        let retryable = status == StatusCode::TOO_MANY_REQUESTS
+            || status.is_server_error()
+            || code == Some("operation_in_progress");
+        (ArtifactError::Server, retryable.then_some(retry_after))
+    }
+
     /// Lists owned Artifacts, following Server pages until `limit` is reached.
     ///
     /// # Errors
@@ -154,11 +212,8 @@ impl ApiClient {
                 .send()
                 .await
                 .map_err(|error| ArtifactError::Network(error.to_string()))?;
-            if response.status() == StatusCode::UNAUTHORIZED {
-                return Err(ArtifactError::Unauthenticated);
-            }
             if !response.status().is_success() {
-                return Err(ArtifactError::Server);
+                return Err(Self::artifact_error(response).await);
             }
             let page = response
                 .json::<Page>()
@@ -197,7 +252,8 @@ impl ApiClient {
             .unwrap_or("artifact.zip");
         let idempotency_key = format!("cli-{}", uuid::Uuid::new_v4());
         let mut response = None;
-        for attempt in 0..3 {
+        let mut acceptance_uncertain = false;
+        for attempt in 0..10 {
             let mut source = tokio::fs::File::open(path)
                 .await
                 .map_err(|_| ArtifactError::InvalidZipInput)?;
@@ -235,25 +291,41 @@ impl ApiClient {
                 .send()
                 .await;
             match sent {
-                Ok(value) => {
+                Ok(value) if value.status().is_success() => {
                     response = Some(value);
                     break;
                 }
-                Err(error) if attempt == 2 => {
-                    return Err(ArtifactError::Network(error.to_string()));
+                Ok(value) => {
+                    let fallback_delay = std::time::Duration::from_millis(
+                        250 * u64::try_from(attempt + 1).unwrap_or(10),
+                    )
+                    .min(std::time::Duration::from_secs(2));
+                    let (error, retry_delay) = Self::upload_error(value, fallback_delay).await;
+                    let Some(retry_delay) = retry_delay else {
+                        return Err(error);
+                    };
+                    acceptance_uncertain = true;
+                    if attempt < 9 {
+                        tokio::time::sleep(retry_delay).await;
+                    }
                 }
                 Err(_) => {
-                    tokio::time::sleep(std::time::Duration::from_millis(200 * (attempt + 1))).await;
+                    acceptance_uncertain = true;
+                    if attempt < 9 {
+                        let delay = std::time::Duration::from_millis(
+                            250 * u64::try_from(attempt + 1).unwrap_or(10),
+                        )
+                        .min(std::time::Duration::from_secs(2));
+                        tokio::time::sleep(delay).await;
+                    }
                 }
             }
         }
-        let response = response.ok_or(ArtifactError::Server)?;
-        if response.status() == StatusCode::UNAUTHORIZED {
-            return Err(ArtifactError::Unauthenticated);
-        }
-        if !response.status().is_success() {
-            return Err(ArtifactError::Server);
-        }
+        let response = response.ok_or(if acceptance_uncertain {
+            ArtifactError::UploadConfirmationPending
+        } else {
+            ArtifactError::Server
+        })?;
         response.json().await.map_err(|_| ArtifactError::Server)
     }
 
@@ -276,11 +348,8 @@ impl ApiClient {
             .send()
             .await
             .map_err(|e| ArtifactError::Network(e.to_string()))?;
-        if response.status() == StatusCode::UNAUTHORIZED {
-            return Err(ArtifactError::Unauthenticated);
-        }
         if !response.status().is_success() {
-            return Err(ArtifactError::Server);
+            return Err(Self::artifact_error(response).await);
         }
         response
             .json::<Body>()

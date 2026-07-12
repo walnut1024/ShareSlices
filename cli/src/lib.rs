@@ -8,7 +8,8 @@ mod packaging;
 
 pub use api_client::ApiClient;
 pub use artifact_commands::{
-    run_artifact_list, run_artifact_upload, select_artifact, select_owned_artifact,
+    artifact_exit_code, run_artifact_command, run_artifact_list, run_artifact_upload,
+    select_artifact, select_owned_artifact,
 };
 pub use auth_commands::run_auth;
 pub use command_line::{
