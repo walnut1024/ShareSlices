@@ -181,38 +181,7 @@ async fn run_artifact_upload_with_interaction(
         .get()
         .map_err(|_| ArtifactError::Unauthenticated)?
         .ok_or(ArtifactError::Unauthenticated)?;
-    let policy = api.upload_policy(&token).await?;
-    let paths = args.paths.clone();
-    let root = args.root.clone();
-    let (packaging_tx, mut packaging_rx) = tokio::sync::mpsc::unbounded_channel();
-    let packaging = tokio::task::spawn_blocking(move || {
-        prepare_upload_with_progress(&paths, root.as_deref(), &policy, |bytes| {
-            let _ = packaging_tx.send(bytes);
-        })
-    });
-    tokio::pin!(packaging);
-    let prepared = tokio::select! {
-        result = &mut packaging => result.map_err(|_| ArtifactError::Server)??,
-        Some(bytes) = packaging_rx.recv(), if !args.no_progress => {
-            writeln!(diagnostics, "Packaging {bytes} bytes").map_err(|_| ArtifactError::Server)?;
-            loop {
-                tokio::select! {
-                    result = &mut packaging => break result.map_err(|_| ArtifactError::Server)??,
-                    Some(bytes) = packaging_rx.recv() => {
-                        writeln!(diagnostics, "Packaging {bytes} bytes").map_err(|_| ArtifactError::Server)?;
-                    }
-                    result = tokio::signal::ctrl_c() => {
-                        result.map_err(|_| ArtifactError::Server)?;
-                        return Err(ArtifactError::Cancelled);
-                    }
-                }
-            }
-        },
-        result = tokio::signal::ctrl_c() => {
-            result.map_err(|_| ArtifactError::Server)?;
-            return Err(ArtifactError::Cancelled);
-        }
-    };
+    let prepared = package_local_input(args, api, &token, diagnostics).await?;
     let entry = if let Some(entry) = direct_entry {
         entry
     } else {
@@ -262,6 +231,47 @@ async fn run_artifact_upload_with_interaction(
         }
     };
     wait_for_ready(args, api, &token, &accepted, output, diagnostics).await
+}
+
+async fn package_local_input(
+    args: &ArtifactUploadArgs,
+    api: &ApiClient,
+    token: &str,
+    diagnostics: &mut dyn Write,
+) -> Result<crate::packaging::PreparedUpload, ArtifactError> {
+    let policy = api.upload_policy(token).await?;
+    let paths = args.paths.clone();
+    let root = args.root.clone();
+    let (packaging_tx, mut packaging_rx) = tokio::sync::mpsc::unbounded_channel();
+    let packaging = tokio::task::spawn_blocking(move || {
+        prepare_upload_with_progress(&paths, root.as_deref(), &policy, |bytes| {
+            let _ = packaging_tx.send(bytes);
+        })
+    });
+    tokio::pin!(packaging);
+    let prepared = tokio::select! {
+        result = &mut packaging => result.map_err(|_| ArtifactError::Server)??,
+        Some(bytes) = packaging_rx.recv(), if !args.no_progress => {
+            writeln!(diagnostics, "Packaging {bytes} bytes").map_err(|_| ArtifactError::Server)?;
+            loop {
+                tokio::select! {
+                    result = &mut packaging => break result.map_err(|_| ArtifactError::Server)??,
+                    Some(bytes) = packaging_rx.recv() => {
+                        writeln!(diagnostics, "Packaging {bytes} bytes").map_err(|_| ArtifactError::Server)?;
+                    }
+                    result = tokio::signal::ctrl_c() => {
+                        result.map_err(|_| ArtifactError::Server)?;
+                        return Err(ArtifactError::Cancelled);
+                    }
+                }
+            }
+        },
+        result = tokio::signal::ctrl_c() => {
+            result.map_err(|_| ArtifactError::Server)?;
+            return Err(ArtifactError::Cancelled);
+        }
+    };
+    Ok(prepared)
 }
 
 fn resolve_entry(
