@@ -39,6 +39,19 @@ pub enum AuthCommand {
 #[derive(Debug, Subcommand)]
 pub enum ArtifactCommand {
     List(ArtifactListArgs),
+    Upload(ArtifactUploadArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct ArtifactUploadArgs {
+    #[arg(value_name = "ZIP")]
+    pub path: std::path::PathBuf,
+    #[arg(long)]
+    pub name: Option<String>,
+    #[arg(long)]
+    pub entry: Option<String>,
+    #[arg(long)]
+    pub no_progress: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]

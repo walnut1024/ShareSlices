@@ -16,6 +16,7 @@ export type CreateArtifactInput = {
   ownerUserId: string;
   idempotencyKey: string;
   name: string | Promise<string>;
+  requestedEntry?: string | null | Promise<string | null>;
   body: ObjectBody;
   policy: UploadPolicySnapshot;
   completed?: Promise<void>;
@@ -32,6 +33,7 @@ type ArtifactIntakeOptions = {
 
 export type ArtifactIntakeErrorCode =
   | "invalid_artifact_name"
+  | "invalid_requested_entry"
   | "invalid_idempotency_key"
   | "operation_in_progress"
   | "idempotency_conflict"
@@ -39,6 +41,7 @@ export type ArtifactIntakeErrorCode =
 
 const errorMessages: Record<ArtifactIntakeErrorCode, string> = {
   invalid_artifact_name: "Artifact name must contain 1 to 120 characters.",
+  invalid_requested_entry: "Entry must be a safe archive-relative path.",
   invalid_idempotency_key: "Idempotency key is required.",
   operation_in_progress: "Operation is still in progress.",
   idempotency_conflict: "Idempotency key was used with different input.",
@@ -73,6 +76,15 @@ function artifactName(value: string): string {
   return name;
 }
 
+function normalizeRequestedEntry(value: string | null): string | null {
+  if (value === null) return null;
+  const entry = value.trim();
+  if (!entry || entry.startsWith("/") || entry.includes("\\") || entry.split("/").some((part) => !part || part === "..")) {
+    throw new ArtifactIntakeError("invalid_requested_entry");
+  }
+  return entry;
+}
+
 function completedResponse(value: Record<string, unknown> | null): ArtifactAccepted {
   if (!value) {
     throw new Error("Completed idempotency record has no response body.");
@@ -104,13 +116,14 @@ export class ArtifactIntakeService {
     this.#maxProcessingAttempts = options.maxProcessingAttempts;
   }
 
-  static inputHash(name: string, zipSha256: string): string {
-    return createHash("sha256").update(JSON.stringify([name, zipSha256])).digest("hex");
+  static inputHash(name: string, zipSha256: string, requestedEntry: string | null = null): string {
+    return createHash("sha256").update(JSON.stringify([name, zipSha256, requestedEntry])).digest("hex");
   }
 
   async create(input: CreateArtifactInput): Promise<ArtifactAccepted> {
     const immediateName = typeof input.name === "string" ? artifactName(input.name) : undefined;
     const namePromise = immediateName ? Promise.resolve(immediateName) : Promise.resolve(input.name).then(artifactName);
+    const entryPromise = Promise.resolve(input.requestedEntry ?? null).then(normalizeRequestedEntry);
     void namePromise.catch(() => undefined);
     if (input.idempotencyKey.trim().length < 1 || input.idempotencyKey.length > 255) {
       throw new ArtifactIntakeError("invalid_idempotency_key");
@@ -132,12 +145,13 @@ export class ArtifactIntakeService {
       if (claim.record.state === "pending") {
         throw new ArtifactIntakeError("operation_in_progress");
       }
-      const [name, replay] = await Promise.all([
+      const [name, replay, requestedEntry] = await Promise.all([
         namePromise,
         hashBody(input.body, policy.archiveSizeBytes),
-        input.completed ?? Promise.resolve()
+        entryPromise
       ]);
-      if (claim.record.requestHash !== ArtifactIntakeService.inputHash(name, replay.sha256)) {
+      await input.completed;
+      if (claim.record.requestHash !== ArtifactIntakeService.inputHash(name, replay.sha256, requestedEntry)) {
         throw new ArtifactIntakeError("idempotency_conflict");
       }
       return completedResponse(claim.record.responseBody);
@@ -154,7 +168,7 @@ export class ArtifactIntakeService {
         body: input.body,
         contentType: "application/zip"
       });
-    const [nameResult, rawResult] = await Promise.allSettled([namePromise, uploadResult]);
+    const [nameResult, rawResult, entryResult] = await Promise.allSettled([namePromise, uploadResult, entryPromise]);
     if (nameResult.status === "rejected") {
       await this.#repositories.idempotency.releasePending(claim.record.id);
       throw nameResult.reason;
@@ -163,8 +177,13 @@ export class ArtifactIntakeService {
       await this.#repositories.idempotency.releasePending(claim.record.id);
       throw rawResult.reason;
     }
+    if (entryResult.status === "rejected") {
+      await this.#repositories.idempotency.releasePending(claim.record.id);
+      throw entryResult.reason;
+    }
     const name = nameResult.value;
     const raw = rawResult.value;
+    const requestedEntry = entryResult.value;
     try {
       await input.completed;
       if (raw.sizeBytes > policy.archiveSizeBytes) {
@@ -175,7 +194,7 @@ export class ArtifactIntakeService {
       throw error;
     }
 
-    const requestHash = ArtifactIntakeService.inputHash(name, raw.sha256);
+    const requestHash = ArtifactIntakeService.inputHash(name, raw.sha256, requestedEntry);
     for (let slugAttempt = 0; slugAttempt < 3; slugAttempt += 1) {
       const shareSlug = randomBytes(16).toString("base64url");
       const response: ArtifactAccepted = {
@@ -200,6 +219,7 @@ export class ArtifactIntakeService {
           rawObjectKey,
           rawSha256: raw.sha256,
           rawSizeBytes: raw.sizeBytes,
+          requestedEntry,
           processingJobId,
           maxAttempts: this.#maxProcessingAttempts,
           idempotencyRecordId: claim.record.id,

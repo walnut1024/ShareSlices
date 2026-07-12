@@ -62,3 +62,30 @@ fn rejects_invalid_artifact_list_options() {
     );
     assert!(Cli::try_parse_from(["shareslices", "artifact", "list", "--jq", ".id"]).is_err());
 }
+
+#[test]
+fn parses_prepared_zip_upload_options() {
+    let cli = Cli::try_parse_from([
+        "shareslices",
+        "artifact",
+        "upload",
+        "report.zip",
+        "--name",
+        "Report",
+        "--entry",
+        "report.html",
+        "--no-progress",
+    ])
+    .expect("upload command");
+    let Command::Artifact {
+        command: ArtifactCommand::Upload(args),
+    } = cli.command
+    else {
+        panic!("artifact upload command")
+    };
+    assert_eq!(args.path.to_string_lossy(), "report.zip");
+    assert_eq!(args.name.as_deref(), Some("Report"));
+    assert_eq!(args.entry.as_deref(), Some("report.html"));
+    assert!(args.no_progress);
+    assert!(Cli::try_parse_from(["shareslices", "artifact", "upload", "a.zip", "b.zip"]).is_err());
+}

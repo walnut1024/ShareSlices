@@ -145,6 +145,7 @@ export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {
         ownerUserId: ownerId,
         idempotencyKey,
         name: upload.name,
+        requestedEntry: upload.requestedEntry,
         body: upload.file,
         policy,
         completed: upload.completed

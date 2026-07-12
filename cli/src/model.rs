@@ -97,6 +97,32 @@ pub struct ArtifactPublication {
     pub id: String,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactAccepted {
+    pub artifact_id: String,
+    pub upload_session_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactState {
+    pub processing_state: String,
+    pub ready_version: Option<ReadyVersion>,
+    pub failure: Option<ArtifactFailure>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+pub struct ReadyVersion {
+    pub id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+pub struct ArtifactFailure {
+    pub code: String,
+    pub message: String,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ArtifactError {
     #[error("Not signed in. Run shareslices auth login.")]
@@ -115,4 +141,12 @@ pub enum ArtifactError {
     Network(String),
     #[error("ShareSlices returned an unexpected response.")]
     Server,
+    #[error("Upload input must be one readable .zip file.")]
+    InvalidZipInput,
+    #[error("The ZIP has multiple possible entry files; pass --entry <path>.")]
+    AmbiguousEntry,
+    #[error("The requested entry is not an HTML file in the ZIP.")]
+    InvalidEntry,
+    #[error("Artifact processing failed: {0}")]
+    ProcessingFailed(String),
 }

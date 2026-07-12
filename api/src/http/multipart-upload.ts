@@ -12,6 +12,7 @@ export type MultipartUploadErrorCode =
   | "missing_name"
   | "missing_file"
   | "duplicate_name"
+  | "duplicate_entry"
   | "duplicate_file"
   | "unknown_part"
   | "invalid_name_encoding"
@@ -35,6 +36,7 @@ export class MultipartUploadError extends Error {
 
 export type ArtifactMultipartUpload = {
   name: Promise<string>;
+  requestedEntry: Promise<string | null>;
   file: AsyncIterable<Uint8Array>;
   completed: Promise<void>;
   abort(): void;
@@ -111,11 +113,13 @@ export function parseArtifactMultipartUpload(
   const boundary = multipartBoundary(request.headers.get("content-type"));
   const requireName = options.requireName ?? true;
   const name = deferred<string>();
+  const requestedEntry = deferred<string | null>();
   const file = deferred<BusboyFileStream>();
   const completed = deferred<void>();
   const reader = request.body?.getReader();
   let terminalError: MultipartUploadError | undefined;
   let nameSeen = false;
+  let entrySeen = false;
   let fileSeen = false;
   let fileStream: BusboyFileStream | undefined;
   let fileConsumed = false;
@@ -125,10 +129,10 @@ export function parseArtifactMultipartUpload(
     limits: {
       fieldNameSize: FIELD_NAME_BYTES,
       fieldSize: NAME_SIZE_BYTES,
-      fields: requireName ? 1 : 0,
+      fields: requireName ? 2 : 1,
       fileSize: options.maxArchiveBytes,
       files: 1,
-      parts: requireName ? 2 : 1,
+      parts: requireName ? 3 : 2,
       headerPairs: PART_HEADER_PAIRS,
       headerSize: PART_HEADER_BYTES
     }
@@ -140,6 +144,7 @@ export function parseArtifactMultipartUpload(
     }
     terminalError = error;
     name.reject(error);
+    requestedEntry.reject(error);
     file.reject(error);
     completed.reject(error);
 
@@ -156,6 +161,19 @@ export function parseArtifactMultipartUpload(
   parser.on(
     "field",
     (fieldName, value, fieldNameTruncated, valueTruncated, _encoding, mimeType) => {
+      if (fieldName === "entry") {
+        if (entrySeen) {
+          fail(new MultipartUploadError("duplicate_entry", "Multipart entry field is duplicated."));
+          return;
+        }
+        entrySeen = true;
+        if (fieldNameTruncated || valueTruncated || mimeType !== "text/plain" || value.includes("\uFFFD")) {
+          fail(new MultipartUploadError("invalid_name_encoding", "Multipart entry field must be UTF-8 text."));
+          return;
+        }
+        requestedEntry.resolve(value);
+        return;
+      }
       if (!requireName) {
         fail(new MultipartUploadError("unknown_part", `Unexpected multipart field: ${fieldName}.`));
         return;
@@ -258,6 +276,7 @@ export function parseArtifactMultipartUpload(
       fail(new MultipartUploadError("missing_file", "Multipart file field is required."));
       return;
     }
+    if (!entrySeen) requestedEntry.resolve(null);
     if (!requireName) {
       name.resolve("");
     }
@@ -341,6 +360,7 @@ export function parseArtifactMultipartUpload(
   void pumpRequest();
   return {
     name: name.promise,
+    requestedEntry: requestedEntry.promise,
     file: fileBody,
     completed: completed.promise,
     abort() {

@@ -383,6 +383,7 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
             rawObjectKey: input.rawObjectKey,
             rawSha256: input.rawSha256,
             rawSizeBytes: input.rawSizeBytes
+            ,requestedEntry: input.requestedEntry ?? null
           });
           await transaction.insert(schema.artifactProcessingJob).values({
             id: input.processingJobId,

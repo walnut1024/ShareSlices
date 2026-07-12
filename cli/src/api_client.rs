@@ -1,6 +1,6 @@
 use crate::{
-    Artifact, ArtifactError, AuthApi, AuthError, Authorization, Exchange, ProcessingFilter,
-    PublicationFilter, User,
+    Artifact, ArtifactAccepted, ArtifactError, ArtifactState, AuthApi, AuthError, Authorization,
+    Exchange, ProcessingFilter, PublicationFilter, User,
 };
 use async_trait::async_trait;
 use reqwest::{Client, Response, StatusCode};
@@ -141,6 +141,121 @@ impl ApiClient {
         }
         artifacts.truncate(limit);
         Ok(artifacts)
+    }
+
+    /// Uploads one prepared ZIP using one idempotency key across transient retries.
+    ///
+    /// # Errors
+    /// Returns an Artifact error for local input, authentication, transport, or Server failures.
+    pub async fn upload_artifact(
+        &self,
+        token: &str,
+        name: &str,
+        entry: Option<&str>,
+        path: &std::path::Path,
+        progress: Option<tokio::sync::mpsc::UnboundedSender<u64>>,
+    ) -> Result<ArtifactAccepted, ArtifactError> {
+        use tokio::io::AsyncReadExt;
+        let length = path
+            .metadata()
+            .map_err(|_| ArtifactError::InvalidZipInput)?
+            .len();
+        let filename = path
+            .file_name()
+            .and_then(|v| v.to_str())
+            .unwrap_or("artifact.zip");
+        let idempotency_key = format!("cli-{}", uuid::Uuid::new_v4());
+        let mut response = None;
+        for attempt in 0..3 {
+            let mut source = tokio::fs::File::open(path)
+                .await
+                .map_err(|_| ArtifactError::InvalidZipInput)?;
+            let reporter = progress.clone();
+            let stream = async_stream::stream! {
+                let mut sent = 0_u64;
+                let mut buffer = vec![0_u8; 64 * 1024];
+                loop {
+                    let read = match source.read(&mut buffer).await {
+                        Ok(read) => read,
+                        Err(error) => { yield Err::<bytes::Bytes, std::io::Error>(error); break; }
+                    };
+                    if read == 0 { break; }
+                    sent += u64::try_from(read).unwrap_or(u64::MAX);
+                    if let Some(reporter) = &reporter { let _ = reporter.send(sent); }
+                    yield Ok::<bytes::Bytes, std::io::Error>(bytes::Bytes::copy_from_slice(&buffer[..read]));
+                }
+            };
+            let file = reqwest::multipart::Part::stream_with_length(
+                reqwest::Body::wrap_stream(stream),
+                length,
+            )
+            .file_name(filename.to_owned())
+            .mime_str("application/zip")
+            .map_err(|_| ArtifactError::InvalidZipInput)?;
+            let mut form = reqwest::multipart::Form::new().text("name", name.to_owned());
+            if let Some(entry) = entry {
+                form = form.text("entry", entry.to_owned());
+            }
+            let sent = self
+                .request(reqwest::Method::POST, "/api/artifacts")
+                .bearer_auth(token)
+                .header("Idempotency-Key", &idempotency_key)
+                .multipart(form.part("file", file))
+                .send()
+                .await;
+            match sent {
+                Ok(value) => {
+                    response = Some(value);
+                    break;
+                }
+                Err(error) if attempt == 2 => {
+                    return Err(ArtifactError::Network(error.to_string()));
+                }
+                Err(_) => {
+                    tokio::time::sleep(std::time::Duration::from_millis(200 * (attempt + 1))).await;
+                }
+            }
+        }
+        let response = response.ok_or(ArtifactError::Server)?;
+        if response.status() == StatusCode::UNAUTHORIZED {
+            return Err(ArtifactError::Unauthenticated);
+        }
+        if !response.status().is_success() {
+            return Err(ArtifactError::Server);
+        }
+        response.json().await.map_err(|_| ArtifactError::Server)
+    }
+
+    /// Reads the current processing state for an owned Artifact.
+    ///
+    /// # Errors
+    /// Returns an Artifact error for authentication, transport, or response failures.
+    pub async fn artifact_state(
+        &self,
+        token: &str,
+        id: &str,
+    ) -> Result<ArtifactState, ArtifactError> {
+        #[derive(Deserialize)]
+        struct Body {
+            artifact: ArtifactState,
+        }
+        let response = self
+            .request(reqwest::Method::GET, &format!("/api/artifacts/{id}"))
+            .bearer_auth(token)
+            .send()
+            .await
+            .map_err(|e| ArtifactError::Network(e.to_string()))?;
+        if response.status() == StatusCode::UNAUTHORIZED {
+            return Err(ArtifactError::Unauthenticated);
+        }
+        if !response.status().is_success() {
+            return Err(ArtifactError::Server);
+        }
+        response
+            .json::<Body>()
+            .await
+            .map(|v| v.artifact)
+            .map_err(|_| ArtifactError::Server)
     }
 }
 

@@ -2,7 +2,7 @@
 use clap::Parser;
 use shareslices_cli::{
     ApiClient, ArtifactCommand, AuthError, Cli, Command, KeyringCredentialStore, run_artifact_list,
-    run_auth,
+    run_artifact_upload, run_auth,
 };
 use std::io;
 
@@ -25,18 +25,22 @@ async fn execute() -> Result<(), (Box<dyn std::error::Error>, i32)> {
         })
         .await
         .map_err(boxed),
-        Command::Artifact {
-            command: ArtifactCommand::List(args),
-        } => run_artifact_list(&args, &api, &store, &mut io::stdout())
-            .await
-            .map_err(|error| {
-                let code = if matches!(error, shareslices_cli::ArtifactError::Unauthenticated) {
-                    4
-                } else {
-                    1
-                };
-                (Box::new(error) as Box<dyn std::error::Error>, code)
-            }),
+        Command::Artifact { command } => match command {
+            ArtifactCommand::List(args) => {
+                run_artifact_list(&args, &api, &store, &mut io::stdout()).await
+            }
+            ArtifactCommand::Upload(args) => {
+                run_artifact_upload(&args, &api, &store, &mut io::stdout(), &mut io::stderr()).await
+            }
+        }
+        .map_err(|error| {
+            let code = match &error {
+                shareslices_cli::ArtifactError::Unauthenticated => 4,
+                shareslices_cli::ArtifactError::Cancelled => 2,
+                _ => 1,
+            };
+            (Box::new(error) as Box<dyn std::error::Error>, code)
+        }),
     }
 }
 

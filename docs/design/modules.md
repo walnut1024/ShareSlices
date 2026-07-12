@@ -9,7 +9,7 @@ Engineering rules that constrain all designs live in `AGENTS.md`. Product behavi
 
 ## Top-level seams
 
-Status: current for the 0.0.1 runtime seams, CLI authentication, and Artifact listing; Skill entry remains target.
+Status: current for the 0.0.1 runtime seams, CLI authentication, Artifact listing, and prepared-ZIP Upload; Skill entry remains target.
 
 | Seam | Status | Interface owner | Production Adapter | Test Adapter |
 | --- | --- | --- | --- | --- |
@@ -20,7 +20,7 @@ Status: current for the 0.0.1 runtime seams, CLI authentication, and Artifact li
 | Application data persistence | current | `api/src/application/*` | Drizzle Adapter | Local PostgreSQL or in-memory Adapter |
 | Raw and processed object access | current | Application and worker Modules | S3-compatible Adapter | In-memory object Adapter |
 | Processing job handoff | current | `db/migrations/` schema plus job Interfaces | Drizzle enqueue Adapter and SQLx claim Adapter | Local PostgreSQL and fake Adapters |
-| Agent entry | current for authentication and Artifact listing | `cli/` command Interface | Rust CLI with operating-system credential store | In-memory credential and fake HTTP Adapters |
+| Agent entry | current for authentication, Artifact listing, and prepared-ZIP Upload | `cli/` command Interface | Rust CLI with operating-system credential store | In-memory credential and fake HTTP Adapters |
 
 ## CLI authentication Modules
 
@@ -33,9 +33,9 @@ Status: current
 
 ## CLI Artifact Modules
 
-Status: current for Artifact listing; other management commands remain target.
+Status: current for Artifact listing and prepared-ZIP Upload; other management commands remain target.
 
-- `cli/src/artifact_commands.rs` owns bounded Artifact list presentation, selectable JSON formatting, and the shared interactive selector. `ApiClient` follows opaque Server pages and supplies transient CLI compatibility metadata; production credentials still come only from the operating-system credential store.
+- `cli/src/artifact_commands.rs` owns bounded Artifact list presentation, selectable JSON formatting, the shared interactive selector, and prepared-ZIP preflight and Upload orchestration through ready Version commit. `ApiClient` follows opaque Server pages, transfers ZIP input with safe idempotent retries, and supplies transient CLI compatibility metadata; production credentials still come only from the operating-system credential store.
 - `ArtifactManagementService` owns list filtering and opaque pagination semantics. The Hono route validates query DTOs and maps application errors without deriving Artifact state or page behavior.
 
 ## Hono runtime Modules

@@ -1,8 +1,11 @@
 // cspell:ignore gtmpl
-use crate::{ApiClient, Artifact, ArtifactError, ArtifactListArgs, CredentialStore};
+use crate::{
+    ApiClient, Artifact, ArtifactError, ArtifactListArgs, ArtifactUploadArgs, CredentialStore,
+};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
-use std::io::{BufRead, Write};
+use std::fs::File;
+use std::io::{BufRead, IsTerminal, Write};
 
 const FIELDS: &[&str] = &[
     "id",
@@ -12,6 +15,150 @@ const FIELDS: &[&str] = &[
     "expiresAt",
     "updatedAt",
 ];
+
+/// Uploads one prepared ZIP and waits for a ready Version.
+///
+/// # Errors
+/// Returns an Artifact error for invalid input, authentication, transfer, or processing failure.
+#[allow(clippy::too_many_lines)]
+pub async fn run_artifact_upload(
+    args: &ArtifactUploadArgs,
+    api: &ApiClient,
+    store: &dyn CredentialStore,
+    output: &mut dyn Write,
+    diagnostics: &mut dyn Write,
+) -> Result<(), ArtifactError> {
+    if args
+        .path
+        .extension()
+        .and_then(|v| v.to_str())
+        .is_none_or(|v| !v.eq_ignore_ascii_case("zip"))
+    {
+        return Err(ArtifactError::InvalidZipInput);
+    }
+    let file = File::open(&args.path).map_err(|_| ArtifactError::InvalidZipInput)?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|_| ArtifactError::InvalidZipInput)?;
+    let mut html = Vec::new();
+    for index in 0..archive.len() {
+        let entry = archive
+            .by_index(index)
+            .map_err(|_| ArtifactError::InvalidZipInput)?;
+        if !entry.is_dir()
+            && entry
+                .name()
+                .split('/')
+                .next_back()
+                .is_some_and(|name| name.to_ascii_lowercase().ends_with(".html"))
+        {
+            html.push(entry.name().to_owned());
+        }
+    }
+    let entry = if let Some(requested) = &args.entry {
+        if !html.iter().any(|value| value == requested) {
+            return Err(ArtifactError::InvalidEntry);
+        }
+        Some(requested.clone())
+    } else if html.iter().any(|value| value == "index.html") {
+        Some("index.html".to_owned())
+    } else {
+        let roots = html
+            .iter()
+            .filter(|value| !value.contains('/'))
+            .cloned()
+            .collect::<Vec<_>>();
+        match roots.as_slice() {
+            [only] => Some(only.clone()),
+            [] => return Err(ArtifactError::InvalidEntry),
+            _ if std::io::stdin().is_terminal() => {
+                for (index, candidate) in roots.iter().enumerate() {
+                    writeln!(diagnostics, "{}: {}", index + 1, candidate)
+                        .map_err(|_| ArtifactError::Server)?;
+                }
+                write!(diagnostics, "Select the Entry file: ")
+                    .map_err(|_| ArtifactError::Server)?;
+                diagnostics.flush().map_err(|_| ArtifactError::Server)?;
+                let mut choice = String::new();
+                std::io::stdin()
+                    .read_line(&mut choice)
+                    .map_err(|_| ArtifactError::Cancelled)?;
+                let index = choice
+                    .trim()
+                    .parse::<usize>()
+                    .ok()
+                    .and_then(|v| v.checked_sub(1))
+                    .ok_or(ArtifactError::Cancelled)?;
+                Some(roots.get(index).cloned().ok_or(ArtifactError::Cancelled)?)
+            }
+            _ => return Err(ArtifactError::AmbiguousEntry),
+        }
+    };
+    let name = args
+        .name
+        .clone()
+        .or_else(|| {
+            args.path
+                .file_stem()
+                .and_then(|v| v.to_str())
+                .map(str::to_owned)
+        })
+        .filter(|v| !v.trim().is_empty())
+        .ok_or(ArtifactError::InvalidZipInput)?;
+    let token = store
+        .get()
+        .map_err(|_| ArtifactError::Unauthenticated)?
+        .ok_or(ArtifactError::Unauthenticated)?;
+    let total = args
+        .path
+        .metadata()
+        .map_err(|_| ArtifactError::InvalidZipInput)?
+        .len();
+    let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel();
+    let upload = api.upload_artifact(
+        &token,
+        &name,
+        entry.as_deref(),
+        &args.path,
+        (!args.no_progress).then_some(progress_tx),
+    );
+    tokio::pin!(upload);
+    let accepted = loop {
+        tokio::select! {
+            result = &mut upload => break result?,
+            Some(sent) = progress_rx.recv(), if !args.no_progress => {
+                writeln!(diagnostics, "Uploading {sent}/{total} bytes").map_err(|_| ArtifactError::Server)?;
+            }
+        }
+    };
+    if !args.no_progress {
+        writeln!(diagnostics, "Processing...").map_err(|_| ArtifactError::Server)?;
+    }
+    loop {
+        let state = tokio::select! {
+            result = api.artifact_state(&token, &accepted.artifact_id) => result?,
+            result = tokio::signal::ctrl_c() => {
+                result.map_err(|_| ArtifactError::Server)?;
+                return Err(ArtifactError::Cancelled);
+            }
+        };
+        if let Some(version) = state.ready_version {
+            writeln!(
+                output,
+                "Artifact {} uploaded as Version {}",
+                accepted.artifact_id, version.id
+            )
+            .map_err(|_| ArtifactError::Server)?;
+            return Ok(());
+        }
+        if state.processing_state == "failed" {
+            let failure = state.failure.map_or_else(
+                || "unknown failure".to_owned(),
+                |v| format!("{}: {}", v.code, v.message),
+            );
+            return Err(ArtifactError::ProcessingFailed(failure));
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+}
 
 /// Lists owned Artifacts and writes the requested presentation to stdout.
 ///

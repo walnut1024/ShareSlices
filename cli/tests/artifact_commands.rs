@@ -1,9 +1,10 @@
 // cspell:ignore nocapture
 use shareslices_cli::{
-    ApiClient, Artifact, ArtifactListArgs, ArtifactShareLink, AuthError, CredentialStore,
-    run_artifact_list, select_artifact,
+    ApiClient, Artifact, ArtifactListArgs, ArtifactShareLink, ArtifactUploadArgs, AuthError,
+    CredentialStore, run_artifact_list, run_artifact_upload, select_artifact,
 };
 use std::io::Cursor;
+use std::io::Write as _;
 use std::process::Command;
 use std::sync::Mutex;
 use wiremock::matchers::{method, path};
@@ -175,6 +176,50 @@ async fn process_list_fixture() {
     )
     .await
     .expect("list");
+}
+
+#[tokio::test]
+async fn uploads_prepared_zip_waits_for_ready_and_suppresses_progress() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/artifacts"))
+        .respond_with(ResponseTemplate::new(202).set_body_json(serde_json::json!({
+            "artifactId": "artifact-1", "uploadSessionId": "upload-1"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET")).and(path("/api/artifacts/artifact-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifact": { "processingState": "ready", "readyVersion": { "id": "version-1" }, "failure": null }
+        }))).expect(1).mount(&server).await;
+    let directory = tempfile::tempdir().expect("tempdir");
+    let path = directory.path().join("report.zip");
+    let file = std::fs::File::create(&path).expect("zip");
+    let mut writer = zip::ZipWriter::new(file);
+    writer
+        .start_file("index.html", zip::write::SimpleFileOptions::default())
+        .expect("entry");
+    writer.write_all(b"<html></html>").expect("body");
+    writer.finish().expect("finish");
+    let args = ArtifactUploadArgs {
+        path,
+        name: None,
+        entry: None,
+        no_progress: true,
+    };
+    let api = ApiClient::new(&server.uri()).expect("client");
+    let store = Store(Mutex::new(Some("secret".into())));
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    run_artifact_upload(&args, &api, &store, &mut stdout, &mut stderr)
+        .await
+        .expect("upload");
+    assert_eq!(
+        String::from_utf8(stdout).expect("utf8"),
+        "Artifact artifact-1 uploaded as Version version-1\n"
+    );
+    assert!(stderr.is_empty());
 }
 
 #[test]

@@ -1,6 +1,6 @@
 use std::io::{Cursor, Write};
 
-use shareslices_worker::archive_validation::{ArchiveError, validate_zip};
+use shareslices_worker::archive_validation::{ArchiveError, validate_zip, validate_zip_with_entry};
 use shareslices_worker::format_rules::{FormatError, PolicySnapshot};
 use zip::ZipWriter;
 use zip::write::SimpleFileOptions;
@@ -98,6 +98,20 @@ fn reports_ambiguous_root_html_candidates() {
     assert_eq!(
         failure.report.primary_issue.unwrap().details.candidates,
         Some(vec!["a.html".into(), "b.html".into()])
+    );
+}
+
+#[test]
+fn explicit_entry_resolves_ambiguity_and_is_strict() {
+    let bytes = archive(&[("a.html", b"<html></html>"), ("b.html", b"<html></html>")]);
+    let result = validate_zip_with_entry(Cursor::new(bytes.clone()), &policy(), Some("b.html"))
+        .expect("explicit entry");
+    assert_eq!(result.entry_path(), "b.html");
+    assert_eq!(
+        validate_zip_with_entry(Cursor::new(bytes), &policy(), Some("missing.html"))
+            .unwrap_err()
+            .error,
+        ArchiveError::MissingEntryFile
     );
 }
 

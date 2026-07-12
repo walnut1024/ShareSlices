@@ -358,7 +358,7 @@ describe("parseArtifactMultipartUpload", () => {
     await expectCode(upload.completed, "consumer_aborted");
   });
 
-  it("rejects excess parts", async () => {
+  it("rejects an unknown optional text part", async () => {
     const excessParts = parseArtifactMultipartUpload(
       requestFromChunks([
         multipartBytes("upload-boundary", [
@@ -374,7 +374,21 @@ describe("parseArtifactMultipartUpload", () => {
       ]),
       { maxArchiveBytes: 20 }
     );
-    await expectCode(excessParts.completed, "too_many_parts");
+    await expectCode(excessParts.completed, "unknown_part");
+  });
+
+  it("accepts an optional explicit entry", async () => {
+    const upload = parseArtifactMultipartUpload(
+      requestFromChunks([multipartBytes("upload-boundary", [
+        { name: "name", value: "Artifact" },
+        { name: "entry", value: "report.html" },
+        { name: "file", filename: "artifact.zip", contentType: "application/zip", body: encoder.encode("zip") }
+      ])]),
+      { maxArchiveBytes: 20 }
+    );
+    for await (const _chunk of upload.file) { /* consume */ }
+    await expect(upload.requestedEntry).resolves.toBe("report.html");
+    await expect(upload.completed).resolves.toBeUndefined();
   });
 
   it("rejects oversized headers through Busboy's configured limits", async () => {

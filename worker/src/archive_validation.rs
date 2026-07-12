@@ -112,7 +112,21 @@ pub fn validate_zip<R: Read + Seek>(
     mut reader: R,
     policy: &PolicySnapshot,
 ) -> Result<ValidatedArchive, ArchiveValidationFailure> {
-    validate_zip_inner(&mut reader, policy)
+    validate_zip_inner(&mut reader, policy, None)
+        .map_err(|(error, report)| ArchiveValidationFailure { error, report })
+}
+
+/// Validates an archive, strictly using `requested_entry` when supplied.
+///
+/// # Errors
+/// Returns the validation failure and structured report for invalid archives or entries.
+#[allow(clippy::result_large_err)]
+pub fn validate_zip_with_entry<R: Read + Seek>(
+    mut reader: R,
+    policy: &PolicySnapshot,
+    requested_entry: Option<&str>,
+) -> Result<ValidatedArchive, ArchiveValidationFailure> {
+    validate_zip_inner(&mut reader, policy, requested_entry)
         .map_err(|(error, report)| ArchiveValidationFailure { error, report })
 }
 
@@ -120,6 +134,7 @@ pub fn validate_zip<R: Read + Seek>(
 fn validate_zip_inner<R: Read + Seek>(
     reader: &mut R,
     policy: &PolicySnapshot,
+    requested_entry: Option<&str>,
 ) -> Result<ValidatedArchive, (ArchiveError, ValidationReport)> {
     let archive_size = reader.seek(SeekFrom::End(0)).map_err(|_| {
         failure(
@@ -259,8 +274,33 @@ fn validate_zip_inner<R: Read + Seek>(
         )
     })?;
     effective.sort_by(|a, b| a.effective_path.cmp(&b.effective_path));
-    let entry_path = resolve_entry(&effective, &mut warnings)
-        .map_err(|(e, d)| failure(e, code_for(e), d, warnings.clone()))?;
+    let entry_path = if let Some(requested) = requested_entry {
+        if requested.is_empty()
+            || requested.starts_with('/')
+            || requested.contains('\\')
+            || requested
+                .split('/')
+                .any(|part| part == ".." || part.is_empty())
+            || !effective
+                .iter()
+                .any(|entry| entry.effective_path == requested)
+            || !has_html_extension(requested)
+        {
+            return Err(failure(
+                ArchiveError::MissingEntryFile,
+                "missing_entry_file",
+                ValidationDetails {
+                    entry_file: Some(requested.to_owned()),
+                    ..Default::default()
+                },
+                warnings,
+            ));
+        }
+        requested.to_owned()
+    } else {
+        resolve_entry(&effective, &mut warnings)
+            .map_err(|(e, d)| failure(e, code_for(e), d, warnings.clone()))?
+    };
 
     let mut entries = Vec::new();
     let mut expanded = 0_u64;

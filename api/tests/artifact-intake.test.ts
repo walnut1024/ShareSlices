@@ -208,4 +208,19 @@ describe("ArtifactIntakeService", () => {
     ).rejects.toMatchObject({ code: "invalid_artifact_name" });
     expect(repositories.idempotency.releasePending).toHaveBeenCalledOnce();
   });
+
+  it("releases the pending key when the requested Entry is unsafe", async () => {
+    const { service, repositories } = harness();
+    await expect(
+      service.create({
+        ownerUserId: "owner-1",
+        idempotencyKey: "unsafe-entry-key",
+        name: "Report",
+        requestedEntry: "../secret.html",
+        body: body("zip-content"),
+        policy
+      })
+    ).rejects.toMatchObject({ code: "invalid_requested_entry" });
+    expect(repositories.idempotency.releasePending).toHaveBeenCalledOnce();
+  });
 });

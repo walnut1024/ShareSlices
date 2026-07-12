@@ -122,6 +122,7 @@ export type CommitAcceptedArtifactInput = {
   rawObjectKey: string;
   rawSha256: string;
   rawSizeBytes: number;
+  requestedEntry?: string | null;
   processingJobId: string;
   maxAttempts: number;
   idempotencyRecordId: string;
