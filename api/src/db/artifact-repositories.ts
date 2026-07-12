@@ -4,6 +4,7 @@ import { z } from "zod";
 import type {
   ArtifactRecord,
   ArtifactRepositories,
+  CommitVersionUploadInput,
   IdempotencyRecord,
   ProcessingJobRecord,
   PublicationRecord,
@@ -17,6 +18,52 @@ import { db } from "./client.js";
 import * as schema from "./schema.js";
 
 type Database = NodePgDatabase<typeof schema>;
+type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
+async function commitAcceptedUpload(
+  transaction: Transaction,
+  input: CommitVersionUploadInput,
+  pendingError: string
+): Promise<void> {
+  await transaction.insert(schema.artifactUploadSession).values({
+    id: input.uploadSessionId,
+    artifactId: input.artifactId,
+    policyRevision: input.policy.revision,
+    archiveSizeBytes: input.policy.archiveSizeBytes,
+    expandedSizeBytes: input.policy.expandedSizeBytes,
+    fileCount: input.policy.fileCount,
+    singleFileSizeBytes: input.policy.singleFileSizeBytes,
+    formats: input.policy.formats,
+    rawObjectKey: input.rawObjectKey,
+    rawSha256: input.rawSha256,
+    rawSizeBytes: input.rawSizeBytes,
+    requestedEntry: input.requestedEntry ?? null
+  });
+  await transaction.insert(schema.artifactProcessingJob).values({
+    id: input.processingJobId,
+    uploadSessionId: input.uploadSessionId,
+    maxAttempts: input.maxAttempts
+  });
+  const completed = await transaction
+    .update(schema.artifactIdempotencyRecord)
+    .set({
+      requestHash: input.requestHash,
+      state: "completed",
+      responseStatus: input.responseStatus,
+      responseBody: input.responseBody,
+      completedAt: new Date()
+    })
+    .where(
+      and(
+        eq(schema.artifactIdempotencyRecord.id, input.idempotencyRecordId),
+        eq(schema.artifactIdempotencyRecord.state, "pending")
+      )
+    )
+    .returning({ id: schema.artifactIdempotencyRecord.id });
+  if (completed.length !== 1) {
+    throw new Error(pendingError);
+  }
+}
 
 const nonEmptyString = z.string().min(1);
 const nonNegativeSafeInteger = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
@@ -490,86 +537,20 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
           if (superseded.length !== 1) {
             throw new Error("Upload session is not eligible for Replace file.");
           }
-          await transaction.insert(schema.artifactUploadSession).values({
-            id: input.uploadSessionId,
-            artifactId: input.artifactId,
-            policyRevision: input.policy.revision,
-            archiveSizeBytes: input.policy.archiveSizeBytes,
-            expandedSizeBytes: input.policy.expandedSizeBytes,
-            fileCount: input.policy.fileCount,
-            singleFileSizeBytes: input.policy.singleFileSizeBytes,
-            formats: input.policy.formats,
-            rawObjectKey: input.rawObjectKey,
-            rawSha256: input.rawSha256,
-            rawSizeBytes: input.rawSizeBytes,
-            requestedEntry: input.requestedEntry ?? null
-          });
-          await transaction.insert(schema.artifactProcessingJob).values({
-            id: input.processingJobId,
-            uploadSessionId: input.uploadSessionId,
-            maxAttempts: input.maxAttempts
-          });
-          const completed = await transaction
-            .update(schema.artifactIdempotencyRecord)
-            .set({
-              requestHash: input.requestHash,
-              state: "completed",
-              responseStatus: input.responseStatus,
-              responseBody: input.responseBody,
-              completedAt: new Date()
-            })
-            .where(
-              and(
-                eq(schema.artifactIdempotencyRecord.id, input.idempotencyRecordId),
-                eq(schema.artifactIdempotencyRecord.state, "pending")
-              )
-            )
-            .returning({ id: schema.artifactIdempotencyRecord.id });
-          if (completed.length !== 1) {
-            throw new Error("Pending Replace idempotency record was not completed.");
-          }
+          await commitAcceptedUpload(
+            transaction,
+            input,
+            "Pending Replace idempotency record was not completed."
+          );
         });
       },
       async commitVersionUpload(input) {
         await database.transaction(async (transaction) => {
-          await transaction.insert(schema.artifactUploadSession).values({
-            id: input.uploadSessionId,
-            artifactId: input.artifactId,
-            policyRevision: input.policy.revision,
-            archiveSizeBytes: input.policy.archiveSizeBytes,
-            expandedSizeBytes: input.policy.expandedSizeBytes,
-            fileCount: input.policy.fileCount,
-            singleFileSizeBytes: input.policy.singleFileSizeBytes,
-            formats: input.policy.formats,
-            rawObjectKey: input.rawObjectKey,
-            rawSha256: input.rawSha256,
-            rawSizeBytes: input.rawSizeBytes,
-            requestedEntry: input.requestedEntry ?? null
-          });
-          await transaction.insert(schema.artifactProcessingJob).values({
-            id: input.processingJobId,
-            uploadSessionId: input.uploadSessionId,
-            maxAttempts: input.maxAttempts
-          });
-          const completed = await transaction
-            .update(schema.artifactIdempotencyRecord)
-            .set({
-              requestHash: input.requestHash,
-              state: "completed",
-              responseStatus: input.responseStatus,
-              responseBody: input.responseBody,
-              completedAt: new Date()
-            })
-            .where(
-              and(
-                eq(schema.artifactIdempotencyRecord.id, input.idempotencyRecordId),
-                eq(schema.artifactIdempotencyRecord.state, "pending")
-              )
-            )
-            .returning({ id: schema.artifactIdempotencyRecord.id });
-          if (completed.length !== 1) {
-            throw new Error("Pending Version Upload idempotency record was not completed.");
-          }
+          await commitAcceptedUpload(
+            transaction,
+            input,
+            "Pending Version Upload idempotency record was not completed."
+          );
         });
       }
     }

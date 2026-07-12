@@ -1,5 +1,5 @@
 // cspell:ignore gtmpl
-use crate::packaging::prepare_upload;
+use crate::packaging::prepare_upload_with_progress;
 use crate::{
     ApiClient, Artifact, ArtifactCommand, ArtifactError, ArtifactListArgs, ArtifactPublishArgs,
     ArtifactUnpublishArgs, ArtifactUploadArgs, CredentialStore, ReadyVersionSummary,
@@ -20,6 +20,12 @@ const FIELDS: &[&str] = &[
 const UPLOAD_FIELDS: &[&str] = &["artifact", "version", "publication"];
 const PUBLICATION_FIELDS: &[&str] = &["artifact", "version", "publication", "access"];
 
+pub struct ArtifactInteraction<'a> {
+    pub prompts_enabled: bool,
+    pub is_terminal: bool,
+    pub input: &'a mut dyn BufRead,
+}
+
 /// Executes one parsed Artifact command through the production command-dispatch path.
 ///
 /// # Errors
@@ -31,10 +37,47 @@ pub async fn run_artifact_command(
     output: &mut dyn Write,
     diagnostics: &mut dyn Write,
 ) -> Result<(), ArtifactError> {
+    let stdin = std::io::stdin();
+    let mut interaction = ArtifactInteraction {
+        prompts_enabled: std::env::var_os("SHARESLICES_PROMPT_DISABLED").is_none(),
+        is_terminal: stdin.is_terminal(),
+        input: &mut stdin.lock(),
+    };
+    run_artifact_command_with_interaction(
+        command,
+        api,
+        store,
+        &mut interaction,
+        output,
+        diagnostics,
+    )
+    .await
+}
+
+/// Executes an Artifact command through the production dispatcher with an explicit interaction seam.
+///
+/// # Errors
+/// Returns the command's typed Artifact error.
+pub async fn run_artifact_command_with_interaction(
+    command: ArtifactCommand,
+    api: &ApiClient,
+    store: &dyn CredentialStore,
+    interaction: &mut ArtifactInteraction<'_>,
+    output: &mut dyn Write,
+    diagnostics: &mut dyn Write,
+) -> Result<(), ArtifactError> {
     match command {
         ArtifactCommand::List(args) => run_artifact_list(&args, api, store, output).await,
         ArtifactCommand::Upload(args) => {
-            run_artifact_upload(&args, api, store, output, diagnostics).await
+            run_artifact_upload_with_interaction(
+                &args,
+                api,
+                store,
+                interaction,
+                output,
+                diagnostics,
+            )
+            .await
         }
         ArtifactCommand::Publish(args) => {
             run_artifact_publish(&args, api, store, output, diagnostics).await
@@ -161,7 +204,6 @@ pub fn select_upload_target(
 ///
 /// # Errors
 /// Returns an Artifact error for invalid input, authentication, transfer, or processing failure.
-#[allow(clippy::too_many_lines)]
 pub async fn run_artifact_upload(
     args: &ArtifactUploadArgs,
     api: &ApiClient,
@@ -169,120 +211,73 @@ pub async fn run_artifact_upload(
     output: &mut dyn Write,
     diagnostics: &mut dyn Write,
 ) -> Result<(), ArtifactError> {
+    let stdin = std::io::stdin();
+    let mut interaction = ArtifactInteraction {
+        prompts_enabled: std::env::var_os("SHARESLICES_PROMPT_DISABLED").is_none(),
+        is_terminal: stdin.is_terminal(),
+        input: &mut stdin.lock(),
+    };
+    run_artifact_upload_with_interaction(args, api, store, &mut interaction, output, diagnostics)
+        .await
+}
+
+async fn run_artifact_upload_with_interaction(
+    args: &ArtifactUploadArgs,
+    api: &ApiClient,
+    store: &dyn CredentialStore,
+    interaction: &mut ArtifactInteraction<'_>,
+    output: &mut dyn Write,
+    diagnostics: &mut dyn Write,
+) -> Result<(), ArtifactError> {
+    if args.artifact.is_none()
+        && args.name.is_none()
+        && (!interaction.prompts_enabled || !interaction.is_terminal)
+    {
+        return Err(ArtifactError::SelectionUnavailable);
+    }
+    let direct_entry = if args.paths.len() == 1
+        && args.paths[0]
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.eq_ignore_ascii_case("zip"))
+    {
+        Some(resolve_entry(
+            &args.paths[0],
+            args.entry.as_deref(),
+            interaction.prompts_enabled,
+            interaction.is_terminal,
+            interaction.input,
+            diagnostics,
+        )?)
+    } else {
+        None
+    };
     let token = store
         .get()
         .map_err(|_| ArtifactError::Unauthenticated)?
         .ok_or(ArtifactError::Unauthenticated)?;
-    if args.artifact.is_none()
-        && args.name.is_none()
-        && (std::env::var_os("SHARESLICES_PROMPT_DISABLED").is_some()
-            || !std::io::stdin().is_terminal())
-    {
-        return Err(ArtifactError::SelectionUnavailable);
-    }
-    let policy = api.upload_policy(&token).await?;
-    let paths = args.paths.clone();
-    let root = args.root.clone();
-    let packaging =
-        tokio::task::spawn_blocking(move || prepare_upload(&paths, root.as_deref(), &policy));
-    let prepared = tokio::select! {
-        result = packaging => result.map_err(|_| ArtifactError::Server)??,
-        result = tokio::signal::ctrl_c() => {
-            result.map_err(|_| ArtifactError::Server)?;
-            return Err(ArtifactError::Cancelled);
-        }
-    };
-    let file = File::open(&prepared.path).map_err(|_| ArtifactError::InvalidZipInput)?;
-    let mut archive = zip::ZipArchive::new(file).map_err(|_| ArtifactError::InvalidZipInput)?;
-    let mut html = Vec::new();
-    for index in 0..archive.len() {
-        let entry = archive
-            .by_index(index)
-            .map_err(|_| ArtifactError::InvalidZipInput)?;
-        if !entry.is_dir()
-            && entry
-                .name()
-                .split('/')
-                .next_back()
-                .is_some_and(|name| name.to_ascii_lowercase().ends_with(".html"))
-        {
-            html.push(entry.name().to_owned());
-        }
-    }
-    let entry = if let Some(requested) = &args.entry {
-        if !html.iter().any(|value| value == requested) {
-            return Err(ArtifactError::InvalidEntry);
-        }
-        Some(requested.clone())
-    } else if html.iter().any(|value| value == "index.html") {
-        Some("index.html".to_owned())
+    let prepared = package_local_input(args, api, &token, diagnostics).await?;
+    let entry = if let Some(entry) = direct_entry {
+        entry
     } else {
-        let roots = html
-            .iter()
-            .filter(|value| !value.contains('/'))
-            .cloned()
-            .collect::<Vec<_>>();
-        match roots.as_slice() {
-            [only] => Some(only.clone()),
-            [] => return Err(ArtifactError::InvalidEntry),
-            _ if std::io::stdin().is_terminal() => {
-                for (index, candidate) in roots.iter().enumerate() {
-                    writeln!(diagnostics, "{}: {}", index + 1, candidate)
-                        .map_err(|_| ArtifactError::Server)?;
-                }
-                write!(diagnostics, "Select the Entry file: ")
-                    .map_err(|_| ArtifactError::Server)?;
-                diagnostics.flush().map_err(|_| ArtifactError::Server)?;
-                let mut choice = String::new();
-                std::io::stdin()
-                    .read_line(&mut choice)
-                    .map_err(|_| ArtifactError::Cancelled)?;
-                let index = choice
-                    .trim()
-                    .parse::<usize>()
-                    .ok()
-                    .and_then(|v| v.checked_sub(1))
-                    .ok_or(ArtifactError::Cancelled)?;
-                Some(roots.get(index).cloned().ok_or(ArtifactError::Cancelled)?)
-            }
-            _ => return Err(ArtifactError::AmbiguousEntry),
-        }
+        resolve_entry(
+            &prepared.path,
+            args.entry.as_deref(),
+            interaction.prompts_enabled,
+            interaction.is_terminal,
+            interaction.input,
+            diagnostics,
+        )?
     };
-    let mut artifact_id = args.artifact.clone();
-    let mut name = args.name.clone();
-    if artifact_id.is_none() && name.is_none() {
-        if std::env::var_os("SHARESLICES_PROMPT_DISABLED").is_some()
-            || !std::io::stdin().is_terminal()
-        {
-            return Err(ArtifactError::SelectionUnavailable);
-        }
-        let target = select_upload_target(true, true, &mut std::io::stdin().lock(), diagnostics)?;
-        match target {
-            UploadTargetChoice::New => name = Some(prepared.default_name.clone()),
-            UploadTargetChoice::Existing => {
-                let selected = select_owned_artifact(
-                    api,
-                    store,
-                    true,
-                    true,
-                    &mut std::io::stdin().lock(),
-                    diagnostics,
-                )
-                .await?;
-                artifact_id = Some(selected.id);
-            }
-        }
-    }
-    if artifact_id.is_none() {
-        name = Some(
-            name.unwrap_or_else(|| prepared.default_name.clone())
-                .trim()
-                .to_owned(),
-        );
-        if name.as_deref().is_none_or(str::is_empty) {
-            return Err(ArtifactError::InvalidZipInput);
-        }
-    }
+    let (name, artifact_id) = resolve_upload_target(
+        args,
+        api,
+        store,
+        &prepared.default_name,
+        interaction,
+        diagnostics,
+    )
+    .await?;
     let total = prepared
         .path
         .metadata()
@@ -310,6 +305,174 @@ pub async fn run_artifact_upload(
             }
         }
     };
+    wait_for_ready(args, api, &token, &accepted, output, diagnostics).await
+}
+
+async fn package_local_input(
+    args: &ArtifactUploadArgs,
+    api: &ApiClient,
+    token: &str,
+    diagnostics: &mut dyn Write,
+) -> Result<crate::packaging::PreparedUpload, ArtifactError> {
+    let policy = api.upload_policy(token).await?;
+    let paths = args.paths.clone();
+    let root = args.root.clone();
+    let (packaging_tx, mut packaging_rx) = tokio::sync::mpsc::unbounded_channel();
+    let packaging = tokio::task::spawn_blocking(move || {
+        prepare_upload_with_progress(&paths, root.as_deref(), &policy, |bytes| {
+            let _ = packaging_tx.send(bytes);
+        })
+    });
+    tokio::pin!(packaging);
+    let prepared = tokio::select! {
+        result = &mut packaging => result.map_err(|_| ArtifactError::Server)??,
+        Some(bytes) = packaging_rx.recv(), if !args.no_progress => {
+            writeln!(diagnostics, "Packaging {bytes} bytes").map_err(|_| ArtifactError::Server)?;
+            loop {
+                tokio::select! {
+                    result = &mut packaging => break result.map_err(|_| ArtifactError::Server)??,
+                    Some(bytes) = packaging_rx.recv() => {
+                        writeln!(diagnostics, "Packaging {bytes} bytes").map_err(|_| ArtifactError::Server)?;
+                    }
+                    result = tokio::signal::ctrl_c() => {
+                        result.map_err(|_| ArtifactError::Server)?;
+                        return Err(ArtifactError::Cancelled);
+                    }
+                }
+            }
+        },
+        result = tokio::signal::ctrl_c() => {
+            result.map_err(|_| ArtifactError::Server)?;
+            return Err(ArtifactError::Cancelled);
+        }
+    };
+    Ok(prepared)
+}
+
+fn resolve_entry(
+    path: &std::path::Path,
+    requested: Option<&str>,
+    prompts_enabled: bool,
+    is_terminal: bool,
+    input: &mut dyn BufRead,
+    diagnostics: &mut dyn Write,
+) -> Result<Option<String>, ArtifactError> {
+    let file = File::open(path).map_err(|_| ArtifactError::InvalidZipInput)?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|_| ArtifactError::InvalidZipInput)?;
+    let mut html = Vec::new();
+    for index in 0..archive.len() {
+        let entry = archive
+            .by_index(index)
+            .map_err(|_| ArtifactError::InvalidZipInput)?;
+        if !entry.is_dir()
+            && entry
+                .name()
+                .split('/')
+                .next_back()
+                .is_some_and(|name| name.to_ascii_lowercase().ends_with(".html"))
+        {
+            html.push(entry.name().to_owned());
+        }
+    }
+    let entry = if let Some(requested) = requested {
+        if !html.iter().any(|value| value == requested) {
+            return Err(ArtifactError::InvalidEntry);
+        }
+        Some(requested.to_owned())
+    } else if html.iter().any(|value| value == "index.html") {
+        Some("index.html".to_owned())
+    } else {
+        let roots = html
+            .iter()
+            .filter(|value| !value.contains('/'))
+            .cloned()
+            .collect::<Vec<_>>();
+        match roots.as_slice() {
+            [only] => Some(only.clone()),
+            [] => return Err(ArtifactError::InvalidEntry),
+            _ if prompts_enabled && is_terminal => {
+                for (index, candidate) in roots.iter().enumerate() {
+                    writeln!(diagnostics, "{}: {}", index + 1, candidate)
+                        .map_err(|_| ArtifactError::Server)?;
+                }
+                write!(diagnostics, "Select the Entry file: ")
+                    .map_err(|_| ArtifactError::Server)?;
+                diagnostics.flush().map_err(|_| ArtifactError::Server)?;
+                let mut choice = String::new();
+                input
+                    .read_line(&mut choice)
+                    .map_err(|_| ArtifactError::Cancelled)?;
+                let index = choice
+                    .trim()
+                    .parse::<usize>()
+                    .ok()
+                    .and_then(|v| v.checked_sub(1))
+                    .ok_or(ArtifactError::Cancelled)?;
+                Some(roots.get(index).cloned().ok_or(ArtifactError::Cancelled)?)
+            }
+            _ => return Err(ArtifactError::AmbiguousEntry),
+        }
+    };
+    Ok(entry)
+}
+
+async fn resolve_upload_target(
+    args: &ArtifactUploadArgs,
+    api: &ApiClient,
+    store: &dyn CredentialStore,
+    default_name: &str,
+    interaction: &mut ArtifactInteraction<'_>,
+    diagnostics: &mut dyn Write,
+) -> Result<(Option<String>, Option<String>), ArtifactError> {
+    let mut artifact_id = args.artifact.clone();
+    let mut name = args.name.clone();
+    if artifact_id.is_none() && name.is_none() {
+        if !interaction.prompts_enabled || !interaction.is_terminal {
+            return Err(ArtifactError::SelectionUnavailable);
+        }
+        let target = select_upload_target(
+            interaction.prompts_enabled,
+            interaction.is_terminal,
+            interaction.input,
+            diagnostics,
+        )?;
+        match target {
+            UploadTargetChoice::New => name = Some(default_name.to_owned()),
+            UploadTargetChoice::Existing => {
+                let selected = select_owned_artifact(
+                    api,
+                    store,
+                    interaction.prompts_enabled,
+                    interaction.is_terminal,
+                    interaction.input,
+                    diagnostics,
+                )
+                .await?;
+                artifact_id = Some(selected.id);
+            }
+        }
+    }
+    if artifact_id.is_none() {
+        name = Some(
+            name.unwrap_or_else(|| default_name.to_owned())
+                .trim()
+                .to_owned(),
+        );
+        if name.as_deref().is_none_or(str::is_empty) {
+            return Err(ArtifactError::InvalidZipInput);
+        }
+    }
+    Ok((name, artifact_id))
+}
+
+async fn wait_for_ready(
+    args: &ArtifactUploadArgs,
+    api: &ApiClient,
+    token: &str,
+    accepted: &crate::ArtifactAccepted,
+    output: &mut dyn Write,
+    diagnostics: &mut dyn Write,
+) -> Result<(), ArtifactError> {
     let mut activity = 0_usize;
     loop {
         if !args.no_progress {
@@ -324,7 +487,19 @@ pub async fn run_artifact_upload(
             activity += 1;
         }
         let state = tokio::select! {
-            result = api.artifact_state(&token, &accepted.artifact_id) => result?,
+            result = api.artifact_state(token, &accepted.artifact_id) => match result {
+                Ok(state) => state,
+                Err(error) => {
+                    writeln!(
+                        diagnostics,
+                        "Upload session {} was accepted for Artifact {}, but its result could not be confirmed. Inspect the Artifact before retrying with --artifact {}.",
+                        accepted.upload_session_id,
+                        accepted.artifact_id,
+                        accepted.artifact_id
+                    ).map_err(|_| ArtifactError::Server)?;
+                    return Err(error);
+                }
+            },
             result = tokio::signal::ctrl_c() => {
                 result.map_err(|_| ArtifactError::Server)?;
                 writeln!(
@@ -349,6 +524,7 @@ pub async fn run_artifact_upload(
                 &accepted.artifact_id,
                 &state.name,
                 &version.id,
+                state.publication.as_ref(),
             );
         }
         if state.processing_state == "failed" {
@@ -376,11 +552,12 @@ fn write_upload_result(
     artifact_id: &str,
     artifact_name: &str,
     version_id: &str,
+    publication: Option<&crate::ArtifactPublication>,
 ) -> Result<(), ArtifactError> {
     let value = serde_json::json!({
         "artifact": { "id": artifact_id, "name": artifact_name },
         "version": { "id": version_id, "state": "ready" },
-        "publication": null
+        "publication": publication
     });
     if let Some(fields) = &args.json {
         let fields = parse_fields_from(fields, UPLOAD_FIELDS)?;

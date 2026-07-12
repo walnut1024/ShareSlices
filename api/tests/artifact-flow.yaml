@@ -454,6 +454,22 @@ cases:
       status: 200
       json_paths:
         artifact.processingState: ready
+    save:
+      explicit_entry_version_id: artifact.readyVersion.id
+
+  - id: publish_explicit_entry_before_new_version
+    request:
+      method: POST
+      path: "/api/artifacts/{explicit_entry_artifact_id}/publications"
+      cookie_ref: owner
+      headers:
+        Idempotency-Key: "publish-explicit-entry-{run_id}"
+      json:
+        versionId: "{explicit_entry_version_id}"
+    expect:
+      status: 201
+      json_paths:
+        publication.versionId: "{explicit_entry_version_id}"
 
   - id: upload_new_version_to_ready_artifact
     request:
@@ -488,6 +504,21 @@ cases:
         artifactId: "{explicit_entry_artifact_id}"
         uploadSessionId: "{version_upload_session_id}"
 
+  - id: reject_new_version_idempotency_conflict
+    request:
+      method: POST
+      path: "/api/artifacts/{explicit_entry_artifact_id}/upload-sessions"
+      cookie_ref: owner
+      headers:
+        Idempotency-Key: "version-{run_id}"
+      multipart:
+        entry: slides.html
+        archive: ambiguous_entry
+    expect:
+      status: 409
+      json_paths:
+        error.code: idempotency_conflict
+
   - id: reject_unauthenticated_version_upload
     request:
       method: POST
@@ -500,6 +531,23 @@ cases:
       status: 401
       json_paths:
         error.code: authentication_required
+
+  - id: wait_for_new_version_ready_and_preserve_publication
+    request:
+      method: GET
+      path: "/api/artifacts/{explicit_entry_artifact_id}"
+      cookie_ref: owner
+    poll:
+      json_path: artifact.processingState
+      equals: ready
+      timeout_seconds: 60
+    expect:
+      status: 200
+      json_paths:
+        artifact.processingState: ready
+        artifact.publication.versionId: "{explicit_entry_version_id}"
+    save:
+      explicit_entry_new_version_id: artifact.readyVersion.id
 
   - id: replace_invalid_file
     request:
