@@ -1,7 +1,7 @@
-import { createReconciliationRepository } from "../../db/reconciliation-repository.js";
-import { apiLogger, exceptionAttributes } from "../../logging/index.js";
-import { createConfiguredObjectStorage } from "../../storage/index.js";
-import { ReconciliationModule } from "./reconciliation.js";
+import { ReconciliationModule } from "../application/reconciliation/reconciliation.js";
+import { createReconciliationRepository } from "../db/reconciliation-repository.js";
+import { apiLogger, exceptionAttributes } from "../logging/index.js";
+import { createConfiguredObjectStorage } from "../storage/index.js";
 
 const intervalMilliseconds = 30_000;
 const batchSize = 100;

@@ -114,6 +114,16 @@ cases:
       json_paths:
         artifactId: "{artifact_id}"
 
+  - id: reject_delete_while_artifact_is_processing
+    request:
+      method: DELETE
+      path: "/api/artifacts/{artifact_id}"
+      cookie_ref: owner
+    expect:
+      status: 409
+      json_paths:
+        error.code: invalid_artifact_state
+
   - id: reject_idempotency_conflict
     request:
       method: POST
