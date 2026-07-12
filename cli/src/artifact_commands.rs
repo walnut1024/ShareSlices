@@ -1,6 +1,7 @@
 // cspell:ignore gtmpl
 use crate::{
-    ApiClient, Artifact, ArtifactError, ArtifactListArgs, ArtifactUploadArgs, CredentialStore,
+    ApiClient, Artifact, ArtifactCommand, ArtifactError, ArtifactListArgs, ArtifactUploadArgs,
+    CredentialStore,
 };
 use serde_json::{Map, Value};
 use std::collections::HashMap;
@@ -16,6 +17,34 @@ const FIELDS: &[&str] = &[
     "updatedAt",
 ];
 const UPLOAD_FIELDS: &[&str] = &["artifact", "version", "publication"];
+
+/// Executes one parsed Artifact command through the production command-dispatch path.
+///
+/// # Errors
+/// Returns the command's typed Artifact error.
+pub async fn run_artifact_command(
+    command: ArtifactCommand,
+    api: &ApiClient,
+    store: &dyn CredentialStore,
+    output: &mut dyn Write,
+    diagnostics: &mut dyn Write,
+) -> Result<(), ArtifactError> {
+    match command {
+        ArtifactCommand::List(args) => run_artifact_list(&args, api, store, output).await,
+        ArtifactCommand::Upload(args) => {
+            run_artifact_upload(&args, api, store, output, diagnostics).await
+        }
+    }
+}
+
+#[must_use]
+pub const fn artifact_exit_code(error: &ArtifactError) -> i32 {
+    match error {
+        ArtifactError::Unauthenticated => 4,
+        ArtifactError::Cancelled => 2,
+        _ => 1,
+    }
+}
 
 struct PreparedZip {
     name: String,

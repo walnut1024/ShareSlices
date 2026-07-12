@@ -1,7 +1,9 @@
 // cspell:ignore nocapture rfind
+use clap::Parser;
 use shareslices_cli::{
-    ApiClient, Artifact, ArtifactListArgs, ArtifactShareLink, ArtifactUploadArgs, AuthError,
-    CredentialStore, run_artifact_list, run_artifact_upload, select_artifact,
+    ApiClient, Artifact, ArtifactListArgs, ArtifactShareLink, ArtifactUploadArgs, AuthError, Cli,
+    Command as CliCommand, CredentialStore, artifact_exit_code, run_artifact_command,
+    run_artifact_list, run_artifact_upload, select_artifact,
 };
 use std::io::Cursor;
 use std::io::Write as _;
@@ -352,22 +354,30 @@ async fn isolated_upload_process_passes_zip_through_and_prints_stable_json() {
 #[tokio::test]
 #[ignore = "fixture invoked only by isolated_upload_process_passes_zip_through_and_prints_stable_json"]
 async fn process_upload_fixture() {
-    let args = ArtifactUploadArgs {
-        path: std::env::var("SHARESLICES_TEST_ZIP")
-            .expect("ZIP path")
-            .into(),
-        name: None,
-        entry: std::env::var("SHARESLICES_TEST_ENTRY").ok(),
-        no_progress: true,
-        json: Some("artifact,version,publication".into()),
-        jq: None,
-        template: None,
-    };
-    let api = ApiClient::new(&std::env::var("SHARESLICES_TEST_API_URL").expect("API URL"))
-        .expect("client");
+    let api_url = std::env::var("SHARESLICES_TEST_API_URL").expect("API URL");
+    let zip_path = std::env::var("SHARESLICES_TEST_ZIP").expect("ZIP path");
+    let mut argv = vec![
+        "shareslices".to_owned(),
+        "--api-url".to_owned(),
+        api_url,
+        "artifact".to_owned(),
+        "upload".to_owned(),
+        zip_path,
+        "--no-progress".to_owned(),
+        "--json".to_owned(),
+        "artifact,version,publication".to_owned(),
+    ];
+    if let Ok(entry) = std::env::var("SHARESLICES_TEST_ENTRY") {
+        argv.extend(["--entry".to_owned(), entry]);
+    }
+    let cli = Cli::try_parse_from(argv).expect("CLI arguments");
+    let api = ApiClient::new(&cli.api_url).expect("client");
     let store = Store(Mutex::new(Some("fixture-secret".into())));
-    if let Err(error) = run_artifact_upload(
-        &args,
+    let CliCommand::Artifact { command } = cli.command else {
+        unreachable!("fixture command")
+    };
+    if let Err(error) = run_artifact_command(
+        command,
         &api,
         &store,
         &mut std::io::stdout(),
@@ -375,8 +385,9 @@ async fn process_upload_fixture() {
     )
     .await
     {
+        let code = artifact_exit_code(&error);
         eprintln!("{error}");
-        std::process::exit(1);
+        std::process::exit(code);
     }
 }
 
@@ -433,6 +444,72 @@ async fn isolated_upload_process_reports_ambiguous_entry_without_a_request() {
     .expect("process task");
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("pass --entry <path>"));
+}
+
+#[test]
+fn shipping_binary_maps_ambiguous_preflight_to_failure_before_authentication() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let path = directory.path().join("ambiguous.zip");
+    write_zip(&path, &["one.html", "two.html"]);
+    let output = Command::new(env!("CARGO_BIN_EXE_shareslices"))
+        .args(["artifact", "upload"])
+        .arg(path)
+        .arg("--no-progress")
+        .output()
+        .expect("shipping CLI process");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("pass --entry <path>"));
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn isolated_production_entrypoint_maps_sigint_to_exit_two() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/artifacts"))
+        .respond_with(ResponseTemplate::new(202).set_body_json(serde_json::json!({
+            "artifactId": "artifact-1", "uploadSessionId": "upload-1"
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(std::time::Duration::from_secs(10))
+                .set_body_json(serde_json::json!({
+                    "artifact": { "processingState": "processing", "readyVersion": null, "failure": null }
+                })),
+        )
+        .mount(&server)
+        .await;
+    let directory = tempfile::tempdir().expect("tempdir");
+    let zip_path = directory.path().join("report.zip");
+    write_zip(&zip_path, &["index.html"]);
+    let executable = std::env::current_exe().expect("test executable");
+    let child = Command::new(executable)
+        .args([
+            "--ignored",
+            "--exact",
+            "process_upload_fixture",
+            "--nocapture",
+        ])
+        .env("SHARESLICES_TEST_API_URL", server.uri())
+        .env("SHARESLICES_TEST_ZIP", zip_path)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("isolated CLI process");
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let signal = Command::new("kill")
+        .args(["-INT", &child.id().to_string()])
+        .status()
+        .expect("send SIGINT");
+    assert!(signal.success());
+    let output = child.wait_with_output().expect("CLI output");
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("cancelled"));
 }
 
 fn write_zip(path: &std::path::Path, entries: &[&str]) {

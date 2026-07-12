@@ -11,9 +11,11 @@ struct PendingThenAccepted(Arc<AtomicUsize>);
 impl Respond for PendingThenAccepted {
     fn respond(&self, _request: &Request) -> ResponseTemplate {
         if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
-            ResponseTemplate::new(409).set_body_json(serde_json::json!({
-                "error": { "code": "operation_in_progress", "message": "Pending", "requestId": "req-1" }
-            }))
+            ResponseTemplate::new(409)
+                .insert_header("Retry-After", "0")
+                .set_body_json(serde_json::json!({
+                    "error": { "code": "operation_in_progress", "message": "Pending", "requestId": "req-1" }
+                }))
         } else {
             ResponseTemplate::new(202).set_body_json(serde_json::json!({
                 "artifactId": "artifact-1", "uploadSessionId": "upload-1"
@@ -111,12 +113,14 @@ async fn upload_replays_uncertain_acceptance_with_one_idempotency_key() {
     let file = std::fs::File::create(&zip_path).expect("ZIP");
     zip::ZipWriter::new(file).finish().expect("finish ZIP");
 
+    let started = std::time::Instant::now();
     let accepted = ApiClient::new(&server.uri())
         .expect("client")
         .upload_artifact("secret", "Report", Some("index.html"), &zip_path, None)
         .await
         .expect("replayed acceptance");
     assert_eq!(accepted.artifact_id, "artifact-1");
+    assert!(started.elapsed() < std::time::Duration::from_millis(200));
     let requests = server.received_requests().await.expect("requests");
     let keys = requests
         .iter()

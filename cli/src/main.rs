@@ -1,8 +1,8 @@
 // cspell:ignore webbrowser
 use clap::Parser;
 use shareslices_cli::{
-    ApiClient, ArtifactCommand, AuthError, Cli, Command, KeyringCredentialStore, run_artifact_list,
-    run_artifact_upload, run_auth,
+    ApiClient, AuthError, Cli, Command, KeyringCredentialStore, artifact_exit_code,
+    run_artifact_command, run_auth,
 };
 use std::io;
 
@@ -25,22 +25,14 @@ async fn execute() -> Result<(), (Box<dyn std::error::Error>, i32)> {
         })
         .await
         .map_err(boxed),
-        Command::Artifact { command } => match command {
-            ArtifactCommand::List(args) => {
-                run_artifact_list(&args, &api, &store, &mut io::stdout()).await
-            }
-            ArtifactCommand::Upload(args) => {
-                run_artifact_upload(&args, &api, &store, &mut io::stdout(), &mut io::stderr()).await
-            }
+        Command::Artifact { command } => {
+            run_artifact_command(command, &api, &store, &mut io::stdout(), &mut io::stderr())
+                .await
+                .map_err(|error| {
+                    let code = artifact_exit_code(&error);
+                    (Box::new(error) as Box<dyn std::error::Error>, code)
+                })
         }
-        .map_err(|error| {
-            let code = match &error {
-                shareslices_cli::ArtifactError::Unauthenticated => 4,
-                shareslices_cli::ArtifactError::Cancelled => 2,
-                _ => 1,
-            };
-            (Box::new(error) as Box<dyn std::error::Error>, code)
-        }),
     }
 }
 

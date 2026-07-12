@@ -105,11 +105,21 @@ impl ApiClient {
         ArtifactError::Server
     }
 
-    async fn upload_error(response: Response) -> (ArtifactError, bool) {
+    async fn upload_error(
+        response: Response,
+        fallback_delay: std::time::Duration,
+    ) -> (ArtifactError, Option<std::time::Duration>) {
         let status = response.status();
         if status == StatusCode::UNAUTHORIZED {
-            return (ArtifactError::Unauthenticated, false);
+            return (ArtifactError::Unauthenticated, None);
         }
+        let retry_after = response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<u64>().ok())
+            .map_or(fallback_delay, std::time::Duration::from_secs)
+            .min(std::time::Duration::from_secs(5));
         let body = response.json::<ErrorEnvelope>().await.ok();
         let code = body.as_ref().map(|value| value.error.code.as_str());
         if code == Some("cli_upgrade_required") {
@@ -124,13 +134,13 @@ impl ApiClient {
                         .and_then(|value| value.minimum_version)
                         .unwrap_or_else(|| "a newer version".to_owned()),
                 },
-                false,
+                None,
             );
         }
         let retryable = status == StatusCode::TOO_MANY_REQUESTS
             || status.is_server_error()
             || code == Some("operation_in_progress");
-        (ArtifactError::Server, retryable)
+        (ArtifactError::Server, retryable.then_some(retry_after))
     }
 
     /// Lists owned Artifacts, following Server pages until `limit` is reached.
@@ -212,7 +222,7 @@ impl ApiClient {
         let idempotency_key = format!("cli-{}", uuid::Uuid::new_v4());
         let mut response = None;
         let mut acceptance_uncertain = false;
-        for attempt in 0..5 {
+        for attempt in 0..10 {
             let mut source = tokio::fs::File::open(path)
                 .await
                 .map_err(|_| ArtifactError::InvalidZipInput)?;
@@ -255,18 +265,29 @@ impl ApiClient {
                     break;
                 }
                 Ok(value) => {
-                    let (error, retryable) = Self::upload_error(value).await;
-                    if !retryable {
+                    let fallback_delay = std::time::Duration::from_millis(
+                        250 * u64::try_from(attempt + 1).unwrap_or(10),
+                    )
+                    .min(std::time::Duration::from_secs(2));
+                    let (error, retry_delay) = Self::upload_error(value, fallback_delay).await;
+                    let Some(retry_delay) = retry_delay else {
                         return Err(error);
-                    }
+                    };
                     acceptance_uncertain = true;
+                    if attempt < 9 {
+                        tokio::time::sleep(retry_delay).await;
+                    }
                 }
                 Err(_) => {
                     acceptance_uncertain = true;
+                    if attempt < 9 {
+                        let delay = std::time::Duration::from_millis(
+                            250 * u64::try_from(attempt + 1).unwrap_or(10),
+                        )
+                        .min(std::time::Duration::from_secs(2));
+                        tokio::time::sleep(delay).await;
+                    }
                 }
-            }
-            if attempt < 4 {
-                tokio::time::sleep(std::time::Duration::from_millis(250 * (attempt + 1))).await;
             }
         }
         let response = response.ok_or(if acceptance_uncertain {
