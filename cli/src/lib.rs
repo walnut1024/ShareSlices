@@ -4,11 +4,11 @@ mod auth_commands;
 mod command_line;
 mod credential_store;
 mod model;
-mod packaging;
 
 pub use api_client::ApiClient;
 pub use artifact_commands::{
-    run_artifact_list, run_artifact_upload, select_artifact, select_owned_artifact,
+    artifact_exit_code, run_artifact_command, run_artifact_list, run_artifact_upload,
+    select_artifact, select_owned_artifact,
 };
 pub use auth_commands::run_auth;
 pub use command_line::{
@@ -18,6 +18,6 @@ pub use command_line::{
 pub use credential_store::KeyringCredentialStore;
 pub use model::{
     Artifact, ArtifactAccepted, ArtifactError, ArtifactFailure, ArtifactPublication,
-    ArtifactShareLink, ArtifactState, ReadyVersion, UploadPolicy,
+    ArtifactShareLink, ArtifactState, ReadyVersion,
 };
 pub use model::{AuthApi, AuthError, Authorization, CredentialStore, Exchange, User};

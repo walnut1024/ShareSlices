@@ -75,6 +75,10 @@ fn parses_prepared_zip_upload_options() {
         "--entry",
         "report.html",
         "--no-progress",
+        "--json",
+        "artifact,version",
+        "--jq",
+        ".artifact.id",
     ])
     .expect("upload command");
     let Command::Artifact {
@@ -83,27 +87,11 @@ fn parses_prepared_zip_upload_options() {
     else {
         panic!("artifact upload command")
     };
-    assert_eq!(args.paths[0].to_string_lossy(), "report.zip");
-    assert!(args.root.is_none());
+    assert_eq!(args.path.to_string_lossy(), "report.zip");
     assert_eq!(args.name.as_deref(), Some("Report"));
     assert_eq!(args.entry.as_deref(), Some("report.html"));
     assert!(args.no_progress);
-    let multiple = Cli::try_parse_from([
-        "shareslices",
-        "artifact",
-        "upload",
-        "index.html",
-        "assets",
-        "--root",
-        ".",
-    ])
-    .expect("multiple local inputs");
-    let Command::Artifact {
-        command: ArtifactCommand::Upload(args),
-    } = multiple.command
-    else {
-        panic!("artifact upload command")
-    };
-    assert_eq!(args.paths.len(), 2);
-    assert_eq!(args.root.as_deref(), Some(std::path::Path::new(".")));
+    assert_eq!(args.json.as_deref(), Some("artifact,version"));
+    assert_eq!(args.jq.as_deref(), Some(".artifact.id"));
+    assert!(Cli::try_parse_from(["shareslices", "artifact", "upload", "a.zip", "b.zip"]).is_err());
 }
