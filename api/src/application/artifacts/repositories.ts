@@ -61,6 +61,11 @@ export type ArtifactDeletionRecord = {
   stagingPrefixes: string[];
 };
 
+export type ArtifactDeletionResult =
+  | { kind: "cleanup"; record: ArtifactDeletionRecord }
+  | { kind: "not_found" }
+  | { kind: "invalid_state" };
+
 export type UploadSessionRecord = {
   id: string;
   artifactId: string;
@@ -176,7 +181,8 @@ export interface ArtifactRepository {
   listOwned(ownerUserId: string): Promise<ArtifactRecord[]>;
   findOwned(ownerUserId: string, artifactId: string): Promise<ArtifactRecord | null>;
   updateName(ownerUserId: string, artifactId: string, name: string): Promise<ArtifactRecord | null>;
-  deleteOwned(ownerUserId: string, artifactId: string): Promise<ArtifactDeletionRecord | null>;
+  deleteOwned(ownerUserId: string, artifactId: string): Promise<ArtifactDeletionResult>;
+  completeDeletion(ownerUserId: string, artifactId: string): Promise<void>;
   hasReadyVersion(artifactId: string): Promise<boolean>;
 }
 

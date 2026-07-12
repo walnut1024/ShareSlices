@@ -3,7 +3,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createArtifactRepositories } from "../src/db/artifact-repositories.js";
 import * as schema from "../src/db/schema.js";
 
@@ -398,5 +398,102 @@ describe("Artifact repository adapters", () => {
     await expect(
       repositories.idempotency.find("owner-1", "create_artifact", null, "create-key")
     ).resolves.toMatchObject({ state: "completed", responseStatus: 202, responseBody });
+  });
+
+  it("atomically removes the complete owned Artifact graph and returns every object cleanup target", async () => {
+    await databasePool.query("insert into artifact (id, owner_user_id, name) values ('artifact-delete', 'owner-1', 'Delete me')");
+    await databasePool.query(
+      "insert into artifact_share_link (id, artifact_id, slug) values ('link-delete', 'artifact-delete', 'share-slug-delete-0001')"
+    );
+    await databasePool.query(
+      `insert into artifact_upload_session (
+         id, artifact_id, policy_revision, archive_size_bytes, expanded_size_bytes,
+         file_count, single_file_size_bytes, formats, raw_object_key, raw_sha256,
+         raw_size_bytes, state
+       ) values ('upload-delete', 'artifact-delete', 'v0.0.1-default', 52428800, 209715200,
+         1000, 52428800, '[]'::jsonb, 'raw/artifact-delete/input.zip', $1, 100, 'committed')`,
+      ["7".repeat(64)]
+    );
+    await databasePool.query(
+      "insert into artifact_processing_job (id, upload_session_id, state, attempt_count, max_attempts) values ('job-delete', 'upload-delete', 'completed', 1, 3)"
+    );
+    await databasePool.query(
+      `insert into artifact_processing_attempt
+       (id, job_id, attempt_number, state, staging_prefix, finished_at)
+       values ('attempt-delete', 'job-delete', 1, 'succeeded', 'staging/artifact-delete/attempt-1/', now())`
+    );
+    await databasePool.query(
+      "insert into artifact_version (id, artifact_id, upload_session_id, version_number, state) values ('version-delete', 'artifact-delete', 'upload-delete', 1, 'ready')"
+    );
+    await databasePool.query(
+      `insert into artifact_asset (version_id, path, object_key, size_bytes, content_type, sha256)
+       values ('version-delete', 'index.html', 'versions/artifact-delete/index.html', 12, 'text/html', $1)`,
+      ["8".repeat(64)]
+    );
+    await databasePool.query(
+      `insert into artifact_manifest (version_id, entry_path, file_count, total_size_bytes)
+       values ('version-delete', 'index.html', 1, 12)`
+    );
+    await databasePool.query(
+      "insert into artifact_publication (id, artifact_id, version_id, published_by_user_id) values ('publication-delete', 'artifact-delete', 'version-delete', 'owner-1')"
+    );
+    await databasePool.query(
+      `insert into artifact_idempotency_record
+       (id, owner_user_id, operation, target_resource_id, key, request_hash, state)
+       values ('idempotency-delete', 'owner-1', 'publish', 'artifact-delete', 'delete-key', $1, 'pending')`,
+      ["9".repeat(64)]
+    );
+
+    await expect(repositories.artifacts.deleteOwned("owner-2", "artifact-delete")).resolves.toEqual({
+      kind: "not_found"
+    });
+    await databasePool.query("update artifact_upload_session set state = 'processing' where id = 'upload-delete'");
+    await expect(
+      repositories.artifacts.deleteOwned("owner-1", "artifact-delete")
+    ).resolves.toEqual({ kind: "invalid_state" });
+    await databasePool.query("update artifact_upload_session set state = 'committed' where id = 'upload-delete'");
+
+    const expectedCleanup = {
+      kind: "cleanup",
+      record: {
+        objectKeys: ["raw/artifact-delete/input.zip", "versions/artifact-delete/index.html"],
+        stagingPrefixes: ["staging/artifact-delete/attempt-1/"]
+      }
+    };
+    await expect(repositories.artifacts.deleteOwned("owner-1", "artifact-delete")).resolves.toEqual(expectedCleanup);
+
+    const remaining = await databasePool.query(`select
+      (select count(*) from artifact where id = 'artifact-delete')::int as artifacts,
+      (select count(*) from artifact_share_link where artifact_id = 'artifact-delete')::int as links,
+      (select count(*) from artifact_upload_session where artifact_id = 'artifact-delete')::int as uploads,
+      (select count(*) from artifact_processing_job where upload_session_id = 'upload-delete')::int as jobs,
+      (select count(*) from artifact_processing_attempt where job_id = 'job-delete')::int as attempts,
+      (select count(*) from artifact_version where artifact_id = 'artifact-delete')::int as versions,
+      (select count(*) from artifact_asset where version_id = 'version-delete')::int as assets,
+      (select count(*) from artifact_manifest where version_id = 'version-delete')::int as manifests,
+      (select count(*) from artifact_publication where artifact_id = 'artifact-delete')::int as publications,
+      (select count(*) from artifact_idempotency_record where target_resource_id = 'artifact-delete')::int as idempotency,
+      (select count(*) from artifact_deletion_cleanup where artifact_id = 'artifact-delete')::int as cleanup`);
+    expect(remaining.rows[0]).toEqual({
+      artifacts: 0,
+      links: 0,
+      uploads: 0,
+      jobs: 0,
+      attempts: 0,
+      versions: 0,
+      assets: 0,
+      manifests: 0,
+      publications: 0,
+      idempotency: 0,
+      cleanup: 1
+    });
+    await expect(repositories.artifacts.deleteOwned("owner-1", "artifact-delete")).resolves.toEqual(expectedCleanup);
+    await expect(repositories.artifacts.deleteOwned("owner-2", "artifact-delete")).resolves.toEqual({
+      kind: "not_found"
+    });
+    await repositories.artifacts.completeDeletion("owner-1", "artifact-delete");
+    await expect(repositories.artifacts.deleteOwned("owner-1", "artifact-delete")).resolves.toEqual({
+      kind: "not_found"
+    });
   });
 });

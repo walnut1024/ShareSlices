@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { z } from "zod";
 import type {
@@ -211,11 +211,40 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
       },
       async deleteOwned(ownerUserId, artifactId) {
         return database.transaction(async (transaction) => {
-          const owned = await transaction.query.artifact.findFirst({
-            columns: { id: true },
-            where: and(eq(schema.artifact.id, artifactId), eq(schema.artifact.ownerUserId, ownerUserId))
-          });
-          if (!owned) return null;
+          const [owned] = await transaction
+            .select({ id: schema.artifact.id })
+            .from(schema.artifact)
+            .where(and(eq(schema.artifact.id, artifactId), eq(schema.artifact.ownerUserId, ownerUserId)))
+            .for("update");
+          if (!owned) {
+            const [cleanup] = await transaction
+              .select({
+                objectKeys: schema.artifactDeletionCleanup.objectKeys,
+                stagingPrefixes: schema.artifactDeletionCleanup.stagingPrefixes
+              })
+              .from(schema.artifactDeletionCleanup)
+              .where(
+                and(
+                  eq(schema.artifactDeletionCleanup.artifactId, artifactId),
+                  eq(schema.artifactDeletionCleanup.ownerUserId, ownerUserId)
+                )
+              )
+              .for("update");
+            return cleanup
+              ? { kind: "cleanup", record: cleanup } as const
+              : { kind: "not_found" } as const;
+          }
+          const activeUploads = await transaction
+            .select({ id: schema.artifactUploadSession.id })
+            .from(schema.artifactUploadSession)
+            .where(
+              and(
+                eq(schema.artifactUploadSession.artifactId, artifactId),
+                inArray(schema.artifactUploadSession.state, ["accepted", "processing"])
+              )
+            )
+            .for("update");
+          if (activeUploads.length > 0) return { kind: "invalid_state" } as const;
           const [rawObjects, committedObjects, attempts] = await Promise.all([
             transaction
               .select({ key: schema.artifactUploadSession.rawObjectKey })
@@ -233,15 +262,31 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
               .innerJoin(schema.artifactUploadSession, eq(schema.artifactUploadSession.id, schema.artifactProcessingJob.uploadSessionId))
               .where(eq(schema.artifactUploadSession.artifactId, artifactId))
           ]);
+          const record = {
+            objectKeys: [...new Set([...rawObjects, ...committedObjects].map(({ key }) => key))],
+            stagingPrefixes: [...new Set(attempts.map(({ prefix }) => prefix))]
+          };
+          await transaction.insert(schema.artifactDeletionCleanup).values({
+            artifactId,
+            ownerUserId,
+            ...record
+          });
           await transaction.delete(schema.artifactPublication).where(eq(schema.artifactPublication.artifactId, artifactId));
           await transaction.delete(schema.artifactVersion).where(eq(schema.artifactVersion.artifactId, artifactId));
           await transaction.delete(schema.artifactIdempotencyRecord).where(eq(schema.artifactIdempotencyRecord.targetResourceId, artifactId));
           await transaction.delete(schema.artifact).where(eq(schema.artifact.id, artifactId));
-          return {
-            objectKeys: [...new Set([...rawObjects, ...committedObjects].map(({ key }) => key))],
-            stagingPrefixes: [...new Set(attempts.map(({ prefix }) => prefix))]
-          };
+          return { kind: "cleanup", record } as const;
         });
+      },
+      async completeDeletion(ownerUserId, artifactId) {
+        await database
+          .delete(schema.artifactDeletionCleanup)
+          .where(
+            and(
+              eq(schema.artifactDeletionCleanup.artifactId, artifactId),
+              eq(schema.artifactDeletionCleanup.ownerUserId, ownerUserId)
+            )
+          );
       },
       async hasReadyVersion(artifactId) {
         const row = await database.query.artifactVersion.findFirst({

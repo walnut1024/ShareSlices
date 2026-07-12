@@ -1,7 +1,7 @@
 import type { ObjectStorage } from "../../storage/index.js";
 import type { ReconciliationRepository } from "./repository.js";
 
-export type ReconciliationWorkType = "expired_leases" | "raw_objects" | "staging_objects";
+export type ReconciliationWorkType = "expired_leases" | "raw_objects" | "staging_objects" | "artifact_deletions";
 
 export type ReconciliationInput = {
   workType: ReconciliationWorkType;
@@ -61,6 +61,23 @@ export class ReconciliationModule {
         scannedCount: recoveredLeaseCount,
         deletedCount: 0,
         recoveredLeaseCount
+      };
+    }
+
+    if (input.workType === "artifact_deletions") {
+      const cleanups = await this.#repository.listArtifactDeletionCleanups(input.olderThan, input.limit);
+      for (const cleanup of cleanups) {
+        await Promise.all([
+          ...cleanup.objectKeys.map((key) => this.#storage.deleteObject(key)),
+          ...cleanup.stagingPrefixes.map((prefix) => this.#storage.removeStagingPrefix(prefix))
+        ]);
+        await this.#repository.completeArtifactDeletionCleanup(cleanup.artifactId);
+      }
+      return {
+        workType: input.workType,
+        scannedCount: cleanups.length,
+        deletedCount: cleanups.length,
+        recoveredLeaseCount: 0
       };
     }
 

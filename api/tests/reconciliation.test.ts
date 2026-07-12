@@ -12,6 +12,8 @@ function repository(overrides: Partial<ReconciliationRepository> = {}): Reconcil
     recoverExpiredLeases: vi.fn(async () => 0),
     findRemovableRawObjectKeys: vi.fn(async () => []),
     findRemovableStagingObjectKeys: vi.fn(async () => []),
+    listArtifactDeletionCleanups: vi.fn(async () => []),
+    completeArtifactDeletionCleanup: vi.fn(async () => undefined),
     ...overrides
   };
 }
@@ -114,6 +116,45 @@ describe("ReconciliationModule", () => {
       deletedCount: 1,
       recoveredLeaseCount: 0
     });
+  });
+
+  it("finishes durable Artifact deletion cleanup without another client request", async () => {
+    const storage = new InMemoryObjectStorage();
+    await storage.writeRawZip({ key: "raw/artifact-delete/input.zip", body: body("raw") });
+    await storage.writeStagingObject({
+      key: "staging/artifact-delete/attempt-1/index.html",
+      body: body("staged")
+    });
+    const completeArtifactDeletionCleanup = vi.fn(async () => undefined);
+    const module = new ReconciliationModule({
+      repository: repository({
+        listArtifactDeletionCleanups: vi.fn(async () => [
+          {
+            artifactId: "artifact-delete",
+            objectKeys: ["raw/artifact-delete/input.zip"],
+            stagingPrefixes: ["staging/artifact-delete/attempt-1/"]
+          }
+        ]),
+        completeArtifactDeletionCleanup
+      }),
+      storage
+    });
+
+    await expect(
+      module.run({
+        workType: "artifact_deletions",
+        olderThan: new Date("2026-07-12T00:00:00Z"),
+        limit: 10
+      })
+    ).resolves.toEqual({
+      workType: "artifact_deletions",
+      scannedCount: 1,
+      deletedCount: 1,
+      recoveredLeaseCount: 0
+    });
+    expect(await storage.readForTest("raw/artifact-delete/input.zip")).toBeUndefined();
+    expect(await storage.readForTest("staging/artifact-delete/attempt-1/index.html")).toBeUndefined();
+    expect(completeArtifactDeletionCleanup).toHaveBeenCalledWith("artifact-delete");
   });
 
   it("rejects unbounded or invalid passes before accessing dependencies", async () => {

@@ -309,7 +309,35 @@ describe("Artifact routes", () => {
     expect(expiration.status).toBe(200);
     expect(dependencies.management.setShareExpiration).toHaveBeenCalledWith("owner-1", "artifact-1", expiresAt);
     expect(deleted.status).toBe(204);
+    expect(deleted.headers.get("x-request-id")).toBeTruthy();
     expect(dependencies.management.delete).toHaveBeenCalledWith("owner-1", "artifact-1");
+  });
+
+  it("keeps delete ownership opaque and reports active processing as a conflict", async () => {
+    const dependencies = managementDependencies();
+    vi.mocked(dependencies.management.delete)
+      .mockRejectedValueOnce(new ArtifactManagementError("artifact_not_found"))
+      .mockRejectedValueOnce(new ArtifactManagementError("invalid_artifact_state"));
+    const app = buildApp({ artifact: dependencies } as never);
+
+    const hidden = await app.request("/api/artifacts/artifact-hidden", { method: "DELETE" });
+    const processing = await app.request("/api/artifacts/artifact-processing", { method: "DELETE" });
+
+    expect(hidden.status).toBe(404);
+    await expect(hidden.json()).resolves.toMatchObject({ error: { code: "artifact_not_found" } });
+    expect(processing.status).toBe(409);
+    await expect(processing.json()).resolves.toMatchObject({ error: { code: "invalid_artifact_state" } });
+  });
+
+  it("requires authentication before delete reaches the application module", async () => {
+    const dependencies = managementDependencies();
+    dependencies.authApi.getSession.mockResolvedValue(null);
+    const app = buildApp({ artifact: dependencies } as never);
+
+    const response = await app.request("/api/artifacts/artifact-1", { method: "DELETE" });
+
+    expect(response.status).toBe(401);
+    expect(dependencies.management.delete).not.toHaveBeenCalled();
   });
 
   it("rejects invalid Share expiration input and enforces ownership", async () => {

@@ -182,16 +182,14 @@ export class ArtifactManagementService {
   }
 
   async delete(ownerUserId: string, artifactId: string): Promise<void> {
-    const current = await this.get(ownerUserId, artifactId);
-    if (current.processingState === "accepted" || current.processingState === "processing") {
-      throw new ArtifactManagementError("invalid_artifact_state");
-    }
-    const deleted = await this.#repositories.artifacts.deleteOwned(ownerUserId, artifactId);
-    if (!deleted) throw new ArtifactManagementError("artifact_not_found");
+    const result = await this.#repositories.artifacts.deleteOwned(ownerUserId, artifactId);
+    if (result.kind === "not_found") throw new ArtifactManagementError("artifact_not_found");
+    if (result.kind === "invalid_state") throw new ArtifactManagementError("invalid_artifact_state");
     await Promise.all([
-      ...deleted.objectKeys.map((key) => this.#storage.deleteObject(key)),
-      ...deleted.stagingPrefixes.map((prefix) => this.#storage.removeStagingPrefix(prefix))
+      ...result.record.objectKeys.map((key) => this.#storage.deleteObject(key)),
+      ...result.record.stagingPrefixes.map((prefix) => this.#storage.removeStagingPrefix(prefix))
     ]);
+    await this.#repositories.artifacts.completeDeletion(ownerUserId, artifactId);
   }
 
   async #state(artifact: ArtifactRecord): Promise<ArtifactManagementState> {

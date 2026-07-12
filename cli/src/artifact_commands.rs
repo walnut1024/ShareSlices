@@ -1,9 +1,9 @@
 // cspell:ignore gtmpl
 use crate::packaging::prepare_upload_with_progress;
 use crate::{
-    ApiClient, Artifact, ArtifactCommand, ArtifactError, ArtifactListArgs, ArtifactPublishArgs,
-    ArtifactShareCommand, ArtifactShareEditArgs, ArtifactShareViewArgs, ArtifactUnpublishArgs,
-    ArtifactUploadArgs, CredentialStore, ReadyArtifactVersion,
+    ApiClient, Artifact, ArtifactCommand, ArtifactDeleteArgs, ArtifactError, ArtifactListArgs,
+    ArtifactPublishArgs, ArtifactShareCommand, ArtifactShareEditArgs, ArtifactShareViewArgs,
+    ArtifactUnpublishArgs, ArtifactUploadArgs, CredentialStore, ReadyArtifactVersion,
 };
 use serde_json::{Map, Value};
 use std::collections::HashMap;
@@ -103,6 +103,9 @@ pub async fn run_artifact_command_with_interaction(
             )
             .await
         }
+        ArtifactCommand::Delete(args) => {
+            run_artifact_delete(&args, api, store, interaction, output, diagnostics).await
+        }
         ArtifactCommand::Share { command } => match command {
             ArtifactShareCommand::View(args) => {
                 run_artifact_share_view(
@@ -130,6 +133,71 @@ pub async fn run_artifact_command_with_interaction(
             }
         },
     }
+}
+
+/// Permanently deletes one explicitly or interactively selected owned Artifact.
+///
+/// # Errors
+/// Returns an Artifact error for unavailable selection or confirmation, cancellation,
+/// authentication, state conflict, or an indeterminate mutation result.
+pub async fn run_artifact_delete(
+    args: &ArtifactDeleteArgs,
+    api: &ApiClient,
+    store: &dyn CredentialStore,
+    interaction: &mut ArtifactInteraction<'_>,
+    output: &mut dyn Write,
+    diagnostics: &mut dyn Write,
+) -> Result<(), ArtifactError> {
+    let interactive = interaction.prompts_enabled && interaction.is_terminal;
+    if args.artifact.is_none() && !interactive {
+        return Err(ArtifactError::DeleteSelectionUnavailable);
+    }
+    if args.artifact.is_some() && !args.yes && !interactive {
+        return Err(ArtifactError::DeleteConfirmationRequired);
+    }
+    let token = store
+        .get()
+        .map_err(|_| ArtifactError::Unauthenticated)?
+        .ok_or(ArtifactError::Unauthenticated)?;
+    let (artifact_id, artifact_name) = if let Some(id) = args.artifact.as_deref() {
+        if args.yes {
+            (id.to_owned(), None)
+        } else {
+            let artifact = api.artifact(&token, id).await?;
+            (artifact.id, Some(artifact.name))
+        }
+    } else {
+        let artifact = select_owned_artifact(
+            api,
+            store,
+            interaction.prompts_enabled,
+            interaction.is_terminal,
+            interaction.input,
+            diagnostics,
+        )
+        .await?;
+        (artifact.id, Some(artifact.name))
+    };
+    // --yes is deliberately effective only with an ID supplied on the command line.
+    if args.artifact.is_none() || !args.yes {
+        writeln!(
+            diagnostics,
+            "Permanently delete Artifact \"{}\" ({artifact_id})? This cannot be undone. [y/N]",
+            artifact_name.as_deref().unwrap_or(&artifact_id)
+        )
+        .map_err(|_| ArtifactError::Server)?;
+        diagnostics.flush().map_err(|_| ArtifactError::Server)?;
+        let mut answer = String::new();
+        interaction
+            .input
+            .read_line(&mut answer)
+            .map_err(|_| ArtifactError::Cancelled)?;
+        if !matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
+            return Err(ArtifactError::Cancelled);
+        }
+    }
+    api.delete_artifact(&token, &artifact_id).await?;
+    writeln!(output, "Deleted Artifact {artifact_id}.").map_err(|_| ArtifactError::Server)
 }
 
 const SHARE_FIELDS: &[&str] = &[

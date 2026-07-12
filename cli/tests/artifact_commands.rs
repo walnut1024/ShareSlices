@@ -1,13 +1,13 @@
 // cspell:ignore nocapture noninteractive rfind
 use clap::Parser as _;
 use shareslices_cli::{
-    ApiClient, Artifact, ArtifactCommand, ArtifactInteraction, ArtifactListArgs,
-    ArtifactPublishArgs, ArtifactShareEditArgs, ArtifactShareLink, ArtifactShareViewArgs,
-    ArtifactUnpublishArgs, ArtifactUploadArgs, AuthError, Cli, Command as CliCommand,
-    CredentialStore, UploadTargetChoice, artifact_exit_code, run_artifact_command,
-    run_artifact_command_with_input, run_artifact_command_with_interaction, run_artifact_list,
-    run_artifact_publish, run_artifact_share_edit, run_artifact_share_view, run_artifact_upload,
-    select_artifact, select_upload_target,
+    ApiClient, Artifact, ArtifactCommand, ArtifactDeleteArgs, ArtifactInteraction,
+    ArtifactListArgs, ArtifactPublishArgs, ArtifactShareEditArgs, ArtifactShareLink,
+    ArtifactShareViewArgs, ArtifactUnpublishArgs, ArtifactUploadArgs, AuthError, Cli,
+    Command as CliCommand, CredentialStore, UploadTargetChoice, artifact_exit_code,
+    run_artifact_command, run_artifact_command_with_input, run_artifact_command_with_interaction,
+    run_artifact_delete, run_artifact_list, run_artifact_publish, run_artifact_share_edit,
+    run_artifact_share_view, run_artifact_upload, select_artifact, select_upload_target,
 };
 use std::io::Cursor;
 use std::io::Write as _;
@@ -115,6 +115,298 @@ fn share_edit_args(
         json: json.map(str::to_owned),
         jq: None,
         template: None,
+    }
+}
+
+fn delete_args(artifact: Option<&str>, yes: bool) -> ArtifactDeleteArgs {
+    ArtifactDeleteArgs {
+        artifact: artifact.map(str::to_owned),
+        yes,
+    }
+}
+
+#[test]
+fn shipping_binary_parses_delete_and_rejects_unsafe_noninteractive_forms_locally() {
+    let binary = env!("CARGO_BIN_EXE_shareslices");
+    let confirmation = Command::new(binary)
+        .args(["artifact", "delete", "artifact-1"])
+        .env("SHARESLICES_PROMPT_DISABLED", "1")
+        .output()
+        .expect("shipping CLI");
+    assert_eq!(confirmation.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&confirmation.stderr).contains("confirmation is required"));
+
+    let omitted = Command::new(binary)
+        .args(["artifact", "delete", "--yes"])
+        .env("SHARESLICES_PROMPT_DISABLED", "1")
+        .output()
+        .expect("shipping CLI");
+    assert_eq!(omitted.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&omitted.stderr).contains("requires an Artifact ID"));
+}
+
+#[tokio::test]
+async fn delete_with_explicit_id_and_yes_uses_production_dispatcher_without_prompting() {
+    let server = MockServer::start().await;
+    Mock::given(method("DELETE"))
+        .and(path("/api/artifacts/artifact-1"))
+        .and(header_exists("shareslices-cli-version"))
+        .and(header_exists("shareslices-cli-os"))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let api = ApiClient::new(&server.uri()).expect("client");
+    let store = Store(Mutex::new(Some("secret".into())));
+    let mut interaction = ArtifactInteraction {
+        prompts_enabled: false,
+        is_terminal: false,
+        input: &mut Cursor::new(Vec::<u8>::new()),
+    };
+    let mut output = Vec::new();
+    run_artifact_command_with_interaction(
+        ArtifactCommand::Delete(delete_args(Some("artifact-1"), true)),
+        &api,
+        &store,
+        &mut interaction,
+        &mut output,
+        &mut Vec::new(),
+    )
+    .await
+    .expect("delete");
+    assert_eq!(
+        String::from_utf8(output).expect("stdout"),
+        "Deleted Artifact artifact-1.\n"
+    );
+}
+
+#[tokio::test]
+async fn interactive_delete_ignores_yes_after_selection_and_requires_confirmation() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifacts": [{
+                "id": "artifact-1", "name": "Report", "updatedAt": "2026-07-12T00:00:00Z",
+                "processingState": "ready",
+                "shareLink": { "url": "https://viewer.example/a/stable/", "state": "active", "expiresAt": null },
+                "publication": null
+            }],
+            "nextPageToken": null
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let api = ApiClient::new(&server.uri()).expect("client");
+    let store = Store(Mutex::new(Some("secret".into())));
+    let mut input = Cursor::new(b"1\nyes\n");
+    let mut diagnostics = Vec::new();
+    let mut interaction = ArtifactInteraction {
+        prompts_enabled: true,
+        is_terminal: true,
+        input: &mut input,
+    };
+    run_artifact_delete(
+        &delete_args(None, true),
+        &api,
+        &store,
+        &mut interaction,
+        &mut Vec::new(),
+        &mut diagnostics,
+    )
+    .await
+    .expect("confirmed delete");
+    let diagnostics = String::from_utf8(diagnostics).expect("diagnostics");
+    assert!(diagnostics.contains("Select an Artifact"));
+    assert!(diagnostics.contains("This cannot be undone"));
+}
+
+#[tokio::test]
+async fn delete_cancellation_is_exit_two_and_never_mutates() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifact": { "id": "artifact-1", "name": "Report",
+                "shareLink": { "url": "https://viewer.example/a/stable/", "state": "active", "expiresAt": null },
+                "publication": null }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let api = ApiClient::new(&server.uri()).expect("client");
+    let store = Store(Mutex::new(Some("secret".into())));
+    let mut input = Cursor::new(b"no\n");
+    let mut interaction = ArtifactInteraction {
+        prompts_enabled: true,
+        is_terminal: true,
+        input: &mut input,
+    };
+    let error = run_artifact_delete(
+        &delete_args(Some("artifact-1"), false),
+        &api,
+        &store,
+        &mut interaction,
+        &mut Vec::new(),
+        &mut Vec::new(),
+    )
+    .await
+    .expect_err("cancelled");
+    assert_eq!(artifact_exit_code(&error), 2);
+}
+
+#[tokio::test]
+async fn delete_distinguishes_auth_state_conflict_absence_and_indeterminate_results() {
+    for (status, expected, exit) in [
+        (401, "Not signed in", 4),
+        (404, "Artifact not found", 1),
+        (409, "while processing", 1),
+        (503, "could not confirm the result", 1),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("DELETE"))
+            .and(path("/api/artifacts/artifact-1"))
+            .respond_with(ResponseTemplate::new(status).set_body_json(serde_json::json!({
+                "error": { "code": if status == 409 { "invalid_artifact_state" } else { "test_error" } }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let api = ApiClient::new(&server.uri()).expect("client");
+        let store = Store(Mutex::new(Some("secret".into())));
+        let mut interaction = ArtifactInteraction {
+            prompts_enabled: false,
+            is_terminal: false,
+            input: &mut Cursor::new(Vec::<u8>::new()),
+        };
+        let error = run_artifact_delete(
+            &delete_args(Some("artifact-1"), true),
+            &api,
+            &store,
+            &mut interaction,
+            &mut Vec::new(),
+            &mut Vec::new(),
+        )
+        .await
+        .expect_err("typed failure");
+        assert!(error.to_string().contains(expected), "{error}");
+        assert_eq!(artifact_exit_code(&error), exit);
+    }
+}
+
+#[tokio::test]
+async fn complete_cli_process_deletes_explicit_and_interactively_selected_artifacts() {
+    for interactive in [false, true] {
+        let server = MockServer::start().await;
+        if interactive {
+            Mock::given(method("GET"))
+                .and(path("/api/artifacts"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "artifacts": [{
+                        "id": "artifact-1", "name": "Report", "updatedAt": "2026-07-12T00:00:00Z",
+                        "processingState": "ready",
+                        "shareLink": { "url": "https://viewer.example/a/stable/", "state": "active", "expiresAt": null },
+                        "publication": null
+                    }], "nextPageToken": null
+                })))
+                .expect(1)
+                .mount(&server)
+                .await;
+        }
+        Mock::given(method("DELETE"))
+            .and(path("/api/artifacts/artifact-1"))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let executable = std::env::current_exe().expect("test executable");
+        let output = tokio::task::spawn_blocking({
+            let api_url = server.uri();
+            move || {
+                let mut command = Command::new(executable);
+                command
+                    .args([
+                        "--ignored",
+                        "--exact",
+                        "process_delete_fixture",
+                        "--nocapture",
+                    ])
+                    .env("SHARESLICES_TEST_API_URL", api_url);
+                if interactive {
+                    command.env("SHARESLICES_TEST_INTERACTIVE", "1");
+                }
+                command.output().expect("isolated CLI process")
+            }
+        })
+        .await
+        .expect("process task");
+        assert_eq!(output.status.code(), Some(0));
+        assert!(String::from_utf8_lossy(&output.stdout).contains("Deleted Artifact artifact-1."));
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if interactive {
+            assert!(stderr.contains("Select an Artifact"));
+            assert!(stderr.contains("This cannot be undone"));
+        } else {
+            assert!(stderr.is_empty(), "{stderr}");
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "fixture invoked only by complete_cli_process_deletes_explicit_and_interactively_selected_artifacts"]
+async fn process_delete_fixture() {
+    let api = ApiClient::new(&std::env::var("SHARESLICES_TEST_API_URL").expect("API URL"))
+        .expect("client");
+    let interactive = std::env::var_os("SHARESLICES_TEST_INTERACTIVE").is_some();
+    let mut arguments = vec!["shareslices", "artifact", "delete"];
+    if !interactive {
+        arguments.extend(["artifact-1", "--yes"]);
+    }
+    let cli = Cli::try_parse_from(arguments).expect("production parser");
+    let CliCommand::Artifact { command } = cli.command else {
+        unreachable!("Artifact command")
+    };
+    let store = Store(Mutex::new(Some("fixture-secret".into())));
+    let result = if interactive {
+        let mut interaction = ArtifactInteraction {
+            prompts_enabled: true,
+            is_terminal: true,
+            input: &mut Cursor::new(b"1\nyes\n"),
+        };
+        run_artifact_command_with_interaction(
+            command,
+            &api,
+            &store,
+            &mut interaction,
+            &mut std::io::stdout(),
+            &mut std::io::stderr(),
+        )
+        .await
+    } else {
+        run_artifact_command(
+            command,
+            &api,
+            &store,
+            &mut std::io::stdout(),
+            &mut std::io::stderr(),
+        )
+        .await
+    };
+    if let Err(error) = result {
+        eprintln!("{error}");
+        std::process::exit(artifact_exit_code(&error));
     }
 }
 

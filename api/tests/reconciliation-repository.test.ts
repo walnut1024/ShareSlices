@@ -38,7 +38,7 @@ describe("PostgreSQL reconciliation repository", () => {
   });
 
   beforeEach(async () => {
-    await databasePool.query("truncate artifact cascade");
+    await databasePool.query("truncate artifact, artifact_deletion_cleanup cascade");
   });
 
   async function insertArtifact(id: string): Promise<void> {
@@ -273,5 +273,31 @@ describe("PostgreSQL reconciliation repository", () => {
       `select state, retryable from artifact_upload_session where id = 'upload-inconsistent'`
     );
     expect(upload.rows[0]).toEqual({ state: "processing", retryable: false });
+  });
+
+  it("lists bounded old Artifact deletion intents and completes one intent", async () => {
+    await databasePool.query(
+      `insert into artifact_deletion_cleanup
+       (artifact_id, owner_user_id, object_keys, staging_prefixes, created_at)
+       values
+       ('artifact-old', 'owner-1', '["raw/old.zip"]', '["staging/old/"]', '2026-07-10T00:00:00Z'),
+       ('artifact-recent', 'owner-1', '["raw/recent.zip"]', '[]', '2026-07-12T00:00:00Z')`
+    );
+
+    await expect(
+      repository.listArtifactDeletionCleanups(new Date("2026-07-11T00:00:00Z"), 1)
+    ).resolves.toEqual([
+      {
+        artifactId: "artifact-old",
+        objectKeys: ["raw/old.zip"],
+        stagingPrefixes: ["staging/old/"]
+      }
+    ]);
+
+    await repository.completeArtifactDeletionCleanup("artifact-old");
+    const remaining = await databasePool.query(
+      "select artifact_id from artifact_deletion_cleanup order by artifact_id"
+    );
+    expect(remaining.rows).toEqual([{ artifact_id: "artifact-recent" }]);
   });
 });

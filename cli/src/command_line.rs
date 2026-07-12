@@ -42,10 +42,19 @@ pub enum ArtifactCommand {
     Upload(ArtifactUploadArgs),
     Publish(ArtifactPublishArgs),
     Unpublish(ArtifactUnpublishArgs),
+    Delete(ArtifactDeleteArgs),
     Share {
         #[command(subcommand)]
         command: ArtifactShareCommand,
     },
+}
+
+#[derive(Debug, Args)]
+pub struct ArtifactDeleteArgs {
+    #[arg(value_name = "ARTIFACT_ID")]
+    pub artifact: Option<String>,
+    #[arg(short = 'y', long)]
+    pub yes: bool,
 }
 
 #[derive(Debug, Subcommand)]

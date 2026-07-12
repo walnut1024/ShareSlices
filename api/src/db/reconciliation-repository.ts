@@ -1,4 +1,4 @@
-import { inArray, sql } from "drizzle-orm";
+import { asc, eq, inArray, lt, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type { ReconciliationRepository } from "../application/reconciliation/repository.js";
 import { db } from "./client.js";
@@ -173,6 +173,25 @@ export function createReconciliationRepository(
         );
         return !attempt || attempt.state === "failed" || readyArtifacts.has(attempt.artifactId);
       });
+    },
+
+    async listArtifactDeletionCleanups(createdBefore, limit) {
+      return database
+        .select({
+          artifactId: schema.artifactDeletionCleanup.artifactId,
+          objectKeys: schema.artifactDeletionCleanup.objectKeys,
+          stagingPrefixes: schema.artifactDeletionCleanup.stagingPrefixes
+        })
+        .from(schema.artifactDeletionCleanup)
+        .where(lt(schema.artifactDeletionCleanup.createdAt, createdBefore))
+        .orderBy(asc(schema.artifactDeletionCleanup.createdAt), asc(schema.artifactDeletionCleanup.artifactId))
+        .limit(limit);
+    },
+
+    async completeArtifactDeletionCleanup(artifactId) {
+      await database
+        .delete(schema.artifactDeletionCleanup)
+        .where(eq(schema.artifactDeletionCleanup.artifactId, artifactId));
     }
   };
 }

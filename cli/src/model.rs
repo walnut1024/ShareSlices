@@ -216,4 +216,16 @@ pub enum ArtifactError {
     InvalidShareExpiration,
     #[error("No ready Version is available for this Artifact.")]
     NoReadyVersion,
+    #[error("Delete requires an Artifact ID when interactive prompting is unavailable.")]
+    DeleteSelectionUnavailable,
+    #[error("Delete confirmation is required. Pass --yes with an explicit Artifact ID.")]
+    DeleteConfirmationRequired,
+    #[error("Artifact cannot be deleted while processing.")]
+    DeleteProcessingActive,
+    #[error("Artifact not found.")]
+    ArtifactNotFound,
+    #[error(
+        "The delete request was sent, but ShareSlices could not confirm the result. Check artifact list, then retry the same explicit delete once; ShareSlices will safely resume pending cleanup."
+    )]
+    DeleteConfirmationPending,
 }

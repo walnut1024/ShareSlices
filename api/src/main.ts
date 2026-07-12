@@ -1,11 +1,13 @@
 import { serve } from "@hono/node-server";
 import { startAuthenticationEmailDispatcher } from "./application/accounts/authentication-email-dispatcher.js";
+import { startReconciliationDispatcher } from "./application/reconciliation/reconciliation-dispatcher.js";
 import { env } from "./env.js";
 import { buildApp } from "./http/app.js";
 import { apiLogger } from "./logging/index.js";
 
 const app = buildApp();
 startAuthenticationEmailDispatcher();
+startReconciliationDispatcher();
 
 serve(
   {

@@ -251,6 +251,18 @@ export const artifact = pgTable(
   ]
 );
 
+export const artifactDeletionCleanup = pgTable(
+  "artifact_deletion_cleanup",
+  {
+    artifactId: text("artifact_id").primaryKey(),
+    ownerUserId: text("owner_user_id").notNull(),
+    objectKeys: jsonb("object_keys").$type<string[]>().notNull(),
+    stagingPrefixes: jsonb("staging_prefixes").$type<string[]>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [index("artifact_deletion_cleanup_owner_user_id_idx").on(table.ownerUserId)]
+);
+
 export const artifactShareLink = pgTable(
   "artifact_share_link",
   {

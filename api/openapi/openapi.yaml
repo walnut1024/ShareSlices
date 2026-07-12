@@ -757,6 +757,10 @@ paths:
         - artifacts
       operationId: deleteArtifact
       summary: Permanently delete an eligible owned Artifact.
+      description: >
+        Irreversibly removes the Artifact graph and associated stored content. The Server rejects
+        deletion while an Upload is accepted or processing. Clients must not automatically retry
+        when the result of this mutation is indeterminate.
       security:
         - sessionCookie: []
         - sessionBearer: []
@@ -766,6 +770,9 @@ paths:
       responses:
         "204":
           description: Artifact and associated stored content deleted.
+          headers:
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
         "401":
           $ref: "#/components/responses/Unauthenticated"
         "404":

@@ -97,6 +97,12 @@ def test_openapi_artifact_contract_and_local_references() -> None:
     assert schemas["ShareLink"]["properties"]["state"]["enum"] == ["active", "expired", "retired"]
     update_share = document["paths"]["/api/artifacts/{artifactId}/share-link"]["patch"]
     assert set(update_share["responses"]) == {"200", "400", "401", "404", "500"}
+    delete_artifact = document["paths"]["/api/artifacts/{artifactId}"]["delete"]
+    assert set(delete_artifact["responses"]) == {"204", "401", "404", "409", "500"}
+    assert "must not automatically retry" in delete_artifact["description"]
+    assert delete_artifact["responses"]["204"]["headers"]["X-Request-Id"] == {
+        "$ref": "#/components/headers/RequestId"
+    }
 
     validation_details = schemas["ValidationDetails"]
     assert validation_details["additionalProperties"] is False

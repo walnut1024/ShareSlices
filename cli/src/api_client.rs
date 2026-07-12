@@ -131,6 +131,9 @@ impl ApiClient {
                     .unwrap_or_else(|| "a newer version".to_owned()),
             };
         }
+        if body.as_ref().map(|value| value.error.code.as_str()) == Some("artifact_not_found") {
+            return ArtifactError::ArtifactNotFound;
+        }
         ArtifactError::Server
     }
 
@@ -257,6 +260,35 @@ impl ApiClient {
             .await
             .map(|body| body.artifact)
             .map_err(|_| ArtifactError::Server)
+    }
+
+    /// Permanently deletes one owned Artifact without retrying an uncertain mutation.
+    ///
+    /// # Errors
+    /// Returns a typed error for authentication, state conflict, absence, or an indeterminate
+    /// network/Server result.
+    pub async fn delete_artifact(
+        &self,
+        token: &str,
+        artifact_id: &str,
+    ) -> Result<(), ArtifactError> {
+        let response = self
+            .request(
+                reqwest::Method::DELETE,
+                &format!("/api/artifacts/{artifact_id}"),
+            )
+            .bearer_auth(token)
+            .send()
+            .await
+            .map_err(|_| ArtifactError::DeleteConfirmationPending)?;
+        match response.status() {
+            StatusCode::NO_CONTENT => Ok(()),
+            StatusCode::UNAUTHORIZED => Err(ArtifactError::Unauthenticated),
+            StatusCode::NOT_FOUND => Err(ArtifactError::ArtifactNotFound),
+            StatusCode::CONFLICT => Err(ArtifactError::DeleteProcessingActive),
+            status if status.is_server_error() => Err(ArtifactError::DeleteConfirmationPending),
+            _ => Err(Self::artifact_error(response).await),
+        }
     }
 
     /// Lists ready Versions for one owned Artifact.

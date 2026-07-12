@@ -9,7 +9,7 @@ Engineering rules that constrain all designs live in `AGENTS.md`. Product behavi
 
 ## Top-level seams
 
-Status: current for the 0.0.1 runtime seams, CLI authentication, Artifact listing, Upload, Publish, and Unpublish; Skill entry remains target.
+Status: current for the 0.0.1 runtime seams, CLI authentication, Artifact listing, Upload, Publish, Unpublish, Share-link management, and Delete; Skill entry remains target.
 
 | Seam | Status | Interface owner | Production Adapter | Test Adapter |
 | --- | --- | --- | --- | --- |
@@ -20,7 +20,7 @@ Status: current for the 0.0.1 runtime seams, CLI authentication, Artifact listin
 | Application data persistence | current | `api/src/application/*` | Drizzle Adapter | Local PostgreSQL or in-memory Adapter |
 | Raw and processed object access | current | Application and worker Modules | S3-compatible Adapter | In-memory object Adapter |
 | Processing job handoff | current | `db/migrations/` schema plus job Interfaces | Drizzle enqueue Adapter and SQLx claim Adapter | Local PostgreSQL and fake Adapters |
-| Agent entry | current for authentication, Artifact listing, Upload, Publish, and Unpublish | `cli/` command Interface | Rust CLI with operating-system credential store | In-memory credential and fake HTTP Adapters |
+| Agent entry | current for authentication, Artifact listing, Upload, Publish, Unpublish, Share-link management, and Delete | `cli/` command Interface | Rust CLI with operating-system credential store | In-memory credential and fake HTTP Adapters |
 
 ## CLI authentication Modules
 
@@ -33,9 +33,9 @@ Status: current
 
 ## CLI Artifact Modules
 
-Status: current for Artifact listing, Upload, Publish, and Unpublish; other management commands remain target.
+Status: current for Artifact listing, Upload, Publish, Unpublish, Share-link management, and Delete; other management commands remain target.
 
-- `cli/src/artifact_commands.rs` owns bounded Artifact list presentation, selectable JSON formatting, shared interactive Artifact and ready-Version selection, Upload orchestration through ready Version commit, and atomic Publish and Unpublish commands. `cli/src/packaging.rs` expands selected local inputs, applies the active Server policy, and deterministically streams safe effective paths into a temporary ZIP; a single prepared ZIP bypasses repackaging. `ApiClient` follows opaque Server pages, transfers ZIP input with safe idempotent retries, and supplies transient CLI compatibility metadata; production credentials still come only from the operating-system credential store.
+- `cli/src/artifact_commands.rs` owns bounded Artifact list presentation, selectable JSON formatting, shared interactive Artifact and ready-Version selection, Upload orchestration through ready Version commit, atomic Publish and Unpublish commands, Share-link management, and confirmed permanent Delete. `cli/src/packaging.rs` expands selected local inputs, applies the active Server policy, and deterministically streams safe effective paths into a temporary ZIP; a single prepared ZIP bypasses repackaging. `ApiClient` follows opaque Server pages, transfers ZIP input with safe idempotent retries, never retries an indeterminate Delete, and supplies transient CLI compatibility metadata; production credentials still come only from the operating-system credential store.
 - `ArtifactManagementService` owns list filtering, opaque pagination, and the owner-scoped ready-Version collection used by interactive CLI selection. Hono routes validate DTOs and map application errors without deriving Artifact state or Publication behavior.
 
 ## Hono runtime Modules
@@ -44,7 +44,7 @@ Status: mixed. Account entry remains a thin current HTTP/Auth/DB path. Artifact,
 
 - `ArtifactIntakeService`, `ArtifactManagementService`, and `ArtifactRecoveryService` are the current Artifact application modules. Together they own raw upload acceptance, Artifact state projection, name changes, permanent deletion, Share-link expiration, Retry, Replace file, idempotency, and ready-Version gates.
 - `PublicationViewerService` is the current Publication and Viewer application module. It owns owner Preview and Version export checks, atomic Publish and Unpublish behavior, Share-slug lifecycle resolution, normalized manifest lookup, and immutable Version selection for each request.
-- `ReconciliationModule` is current. It owns bounded expired-lease recovery and raw/staging object cleanup while preserving the current retryable input.
+- `ReconciliationModule` is current. It owns bounded expired-lease recovery, raw/staging object cleanup while preserving the current retryable input, and completion of durable Artifact-deletion cleanup intents after interrupted requests.
 - `UserModule` remains target. Current account entry intentionally stays in `api/src/http/account-routes.ts`, Better Auth, and focused account queries until another caller or implementation requires extraction.
 - `AdministrationModule` is a roadmap Module for user search, deactivation, reactivation, soft deletion, forced sign out, session revocation, email verification policy, and administrative audit. It stays separate because the actor and permissions differ from user-managed flows.
 - `AuthenticationEmailDelivery` is current. Account routes persist encrypted delivery payloads and return without contacting SMTP; the API-runtime dispatcher leases pending rows, renders fixed authentication templates, sends through `api/src/email/`, records bounded retry outcomes, and removes terminal payloads. SMTP outages do not affect API readiness.
@@ -115,6 +115,7 @@ Interface rules:
 - Intake, Retry, Replace file, and Publish are idempotent by user, operation, target resource, and caller key.
 - Artifact intake commits database state only after the raw ZIP is durably written.
 - Publish updates the current Publication only for a ready Version owned by the target Artifact.
+- Delete locks the owned Artifact and active Upload rows while it checks state, persists object cleanup targets, and removes the database graph in one transaction. The application layer then removes recorded objects and clears the durable cleanup intent; an interrupted or failed cleanup remains safe to continue through the same explicit Delete request.
 - Preview and Viewer serve only committed Version objects referenced by a manifest.
 - `ReconciliationModule.run` is bounded by work type, time window, and row limit.
 
@@ -162,7 +163,7 @@ Interface rules:
 Status: current for the 0.0.1 Artifact flow; future User and Administration surfaces remain target.
 
 - Test `UserModule` through `ensureUserAccount`, `resolveCurrentUser`, and `recordAuthEvent`; use fake authenticated requests and fake auth sessions.
-- Test Artifact services through create, list, get, rename, Retry, Replace file, Publish, and Unpublish; assert idempotency, state transitions, `owner_user_id` checks, and Publication pointer behavior.
+- Test Artifact services through create, list, get, rename, Retry, Replace file, Publish, Unpublish, Share-link management, and Delete; assert idempotency, state transitions, `owner_user_id` checks, object cleanup targets, and Publication pointer behavior.
 - Test `PublicationViewerService` through Preview and Viewer resolution; assert Share-slug lifecycle resolution, committed-only reads, path rejection, and headers.
 - Test Worker processing through `process_attempt`; assert validation failure, staged writes, manifest output, concurrency limits, ready Version commit, and retry after lease expiry.
 - Test `ReconciliationModule` through `run`; assert non-destructive repair ordering and retry-safe reports.

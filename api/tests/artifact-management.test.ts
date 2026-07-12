@@ -28,9 +28,13 @@ function harness(options: {
         ownerId === "owner-1" && artifactId === "artifact-1" ? { ...artifact, name } : null
       ),
       deleteOwned: vi.fn().mockResolvedValue({
-        objectKeys: ["raw/artifact-1.zip", "versions/artifact-1/index.html"],
-        stagingPrefixes: ["staging/artifact-1/"]
+        kind: "cleanup",
+        record: {
+          objectKeys: ["raw/artifact-1.zip", "versions/artifact-1/index.html"],
+          stagingPrefixes: ["staging/artifact-1/"]
+        }
       }),
+      completeDeletion: vi.fn().mockResolvedValue(undefined),
       hasReadyVersion: vi.fn()
     },
     shareLinks: {
@@ -297,8 +301,50 @@ describe("ArtifactManagementService", () => {
       new Date("2099-08-08T00:00:00.000Z")
     );
     expect(repositories.artifacts.deleteOwned).toHaveBeenCalledWith("owner-1", "artifact-1");
+    expect(repositories.artifacts.completeDeletion).toHaveBeenCalledWith("owner-1", "artifact-1");
     expect(storage.deleteObject).toHaveBeenCalledTimes(2);
     expect(storage.removeStagingPrefix).toHaveBeenCalledWith("staging/artifact-1/");
+  });
+
+  it.each(["accepted", "processing"])(
+    "rejects deletion while the current Upload is %s without touching records or objects",
+    async (state) => {
+      const { service, repositories, storage } = harness({ state });
+      vi.mocked(repositories.artifacts.deleteOwned).mockResolvedValue({ kind: "invalid_state" });
+
+      await expect(service.delete("owner-1", "artifact-1")).rejects.toEqual(
+        new ArtifactManagementError("invalid_artifact_state")
+      );
+      expect(repositories.artifacts.deleteOwned).toHaveBeenCalledOnce();
+      expect(storage.deleteObject).not.toHaveBeenCalled();
+      expect(storage.removeStagingPrefix).not.toHaveBeenCalled();
+    }
+  );
+
+  it("does not reveal or delete another owner's Artifact", async () => {
+    const { service, repositories, storage } = harness({ ready: true });
+    vi.mocked(repositories.artifacts.deleteOwned).mockResolvedValue({ kind: "not_found" });
+
+    await expect(service.delete("owner-2", "artifact-1")).rejects.toEqual(
+      new ArtifactManagementError("artifact_not_found")
+    );
+    expect(repositories.artifacts.deleteOwned).toHaveBeenCalledOnce();
+    expect(storage.deleteObject).not.toHaveBeenCalled();
+  });
+
+  it("keeps durable cleanup intent when object cleanup fails", async () => {
+    const { service, repositories, storage } = harness({ ready: true });
+    vi.mocked(storage.deleteObject).mockRejectedValueOnce(new Error("object store unavailable"));
+
+    await expect(service.delete("owner-1", "artifact-1")).rejects.toThrow("object store unavailable");
+    expect(repositories.artifacts.deleteOwned).toHaveBeenCalledOnce();
+    expect(repositories.artifacts.completeDeletion).not.toHaveBeenCalled();
+    expect(storage.deleteObject).toHaveBeenCalledTimes(2);
+    expect(storage.removeStagingPrefix).toHaveBeenCalledOnce();
+
+    await expect(service.delete("owner-1", "artifact-1")).resolves.toBeUndefined();
+    expect(repositories.artifacts.deleteOwned).toHaveBeenCalledTimes(2);
+    expect(repositories.artifacts.completeDeletion).toHaveBeenCalledWith("owner-1", "artifact-1");
   });
 
   it("trims a mutable name without changing Artifact identity", async () => {

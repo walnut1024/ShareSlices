@@ -625,3 +625,79 @@ cases:
         archive: replacement
     expect:
       status: 202
+
+  - id: register_delete_outsider
+    request:
+      method: POST
+      path: /api/users
+      json:
+        name: Delete Outsider
+        email: "artifact-outsider-{run_id}@example.com"
+        password: correct horse battery staple
+    expect:
+      status: 201
+
+  - id: login_delete_outsider
+    request:
+      method: POST
+      path: /api/sessions
+      json:
+        email: "artifact-outsider-{run_id}@example.com"
+        password: correct horse battery staple
+    expect:
+      status: 201
+    save_cookie: outsider
+
+  - id: hide_artifact_from_delete_outsider
+    request:
+      method: DELETE
+      path: "/api/artifacts/{artifact_id}"
+      cookie_ref: outsider
+    expect:
+      status: 404
+      json_paths:
+        error.code: artifact_not_found
+
+  - id: reject_unauthenticated_artifact_delete
+    request:
+      method: DELETE
+      path: "/api/artifacts/{artifact_id}"
+    expect:
+      status: 401
+      json_paths:
+        error.code: unauthenticated
+
+  - id: permanently_delete_ready_artifact
+    request:
+      method: DELETE
+      path: "/api/artifacts/{artifact_id}"
+      cookie_ref: owner
+    expect:
+      status: 204
+
+  - id: repeated_artifact_delete_is_safe
+    request:
+      method: DELETE
+      path: "/api/artifacts/{artifact_id}"
+      cookie_ref: owner
+    expect:
+      status: 404
+      json_paths:
+        error.code: artifact_not_found
+
+  - id: deleted_artifact_is_not_discoverable
+    request:
+      method: GET
+      path: "/api/artifacts/{artifact_id}"
+      cookie_ref: owner
+    expect:
+      status: 404
+      json_paths:
+        error.code: artifact_not_found
+
+  - id: deleted_share_link_is_not_discoverable
+    request:
+      method: GET
+      path: "{share_url}"
+    expect:
+      status: 404
