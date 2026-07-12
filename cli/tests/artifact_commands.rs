@@ -40,6 +40,22 @@ impl Respond for ExistingVersionThenNewVersion {
     }
 }
 
+struct InProgressThenAccepted(Arc<AtomicUsize>);
+
+impl Respond for InProgressThenAccepted {
+    fn respond(&self, _request: &Request) -> ResponseTemplate {
+        if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
+            ResponseTemplate::new(409).set_body_json(serde_json::json!({
+                "error": { "code": "operation_in_progress" }
+            }))
+        } else {
+            ResponseTemplate::new(202).set_body_json(serde_json::json!({
+                "artifactId": "artifact-existing", "uploadSessionId": "upload-2"
+            }))
+        }
+    }
+}
+
 struct Store(Mutex<Option<String>>);
 impl CredentialStore for Store {
     fn get(&self) -> Result<Option<String>, AuthError> {
@@ -279,10 +295,8 @@ async fn uploads_new_version_to_explicit_artifact_without_sending_a_name() {
     mount_upload_policy(&server).await;
     Mock::given(method("POST"))
         .and(path("/api/artifacts/artifact-existing/upload-sessions"))
-        .respond_with(ResponseTemplate::new(202).set_body_json(serde_json::json!({
-            "artifactId": "artifact-existing", "uploadSessionId": "upload-2"
-        })))
-        .expect(1)
+        .respond_with(InProgressThenAccepted(Arc::new(AtomicUsize::new(0))))
+        .expect(2)
         .mount(&server)
         .await;
     Mock::given(method("GET"))
@@ -419,18 +433,14 @@ async fn isolated_process_uploads_an_explicit_new_version() {
     mount_upload_policy(&server).await;
     Mock::given(method("POST"))
         .and(path("/api/artifacts/artifact-existing/upload-sessions"))
-        .respond_with(ResponseTemplate::new(202).set_body_json(serde_json::json!({
-            "artifactId": "artifact-existing", "uploadSessionId": "upload-2"
-        })))
-        .expect(1)
+        .respond_with(InProgressThenAccepted(Arc::new(AtomicUsize::new(0))))
+        .expect(2)
         .mount(&server)
         .await;
     Mock::given(method("GET"))
         .and(path("/api/artifacts/artifact-existing"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "artifact": { "processingState": "ready", "readyVersion": { "id": "version-2" }, "failure": null }
-        })))
-        .expect(1)
+        .respond_with(ExistingVersionThenNewVersion(Arc::new(AtomicUsize::new(0))))
+        .expect(2)
         .mount(&server)
         .await;
     let directory = tempfile::tempdir().expect("tempdir");
@@ -463,6 +473,14 @@ async fn isolated_process_uploads_an_explicit_new_version() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(String::from_utf8_lossy(&output.stdout).contains("Version version-2"));
+    let requests = server.received_requests().await.expect("requests");
+    let keys = requests
+        .iter()
+        .filter(|request| request.method.as_str() == "POST")
+        .map(|request| request.headers.get("idempotency-key").expect("key"))
+        .collect::<Vec<_>>();
+    assert_eq!(keys.len(), 2);
+    assert_eq!(keys[0], keys[1]);
 }
 
 #[cfg(unix)]
