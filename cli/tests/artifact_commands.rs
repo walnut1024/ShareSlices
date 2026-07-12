@@ -50,6 +50,21 @@ async fn server() -> MockServer {
     server
 }
 
+async fn mount_upload_policy(server: &MockServer) {
+    Mock::given(method("GET"))
+        .and(path("/api/artifact-upload-policies/current"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "policy": {
+                "revision": "test", "maxArchiveBytes": 52_428_800,
+                "maxExpandedBytes": 209_715_200, "maxFileCount": 1000,
+                "maxFileBytes": 52_428_800,
+                "enabledExtensions": [".html", ".css", ".js", ".png", ".txt"]
+            }
+        })))
+        .mount(server)
+        .await;
+}
+
 #[tokio::test]
 async fn prints_human_and_selectable_json_output() {
     let server = server().await;
@@ -181,6 +196,7 @@ async fn process_list_fixture() {
 #[tokio::test]
 async fn uploads_prepared_zip_waits_for_ready_and_suppresses_progress() {
     let server = MockServer::start().await;
+    mount_upload_policy(&server).await;
     Mock::given(method("POST"))
         .and(path("/api/artifacts"))
         .respond_with(ResponseTemplate::new(202).set_body_json(serde_json::json!({
@@ -203,7 +219,8 @@ async fn uploads_prepared_zip_waits_for_ready_and_suppresses_progress() {
     writer.write_all(b"<html></html>").expect("body");
     writer.finish().expect("finish");
     let args = ArtifactUploadArgs {
-        path,
+        paths: vec![path],
+        root: None,
         name: None,
         entry: None,
         no_progress: true,
@@ -220,6 +237,93 @@ async fn uploads_prepared_zip_waits_for_ready_and_suppresses_progress() {
         "Artifact artifact-1 uploaded as Version version-1\n"
     );
     assert!(stderr.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn isolated_process_packages_only_selected_file_and_uploads_it() {
+    let server = MockServer::start().await;
+    mount_upload_policy(&server).await;
+    Mock::given(method("POST"))
+        .and(path("/api/artifacts"))
+        .respond_with(ResponseTemplate::new(202).set_body_json(serde_json::json!({
+            "artifactId": "artifact-1", "uploadSessionId": "upload-1"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifact": { "processingState": "ready", "readyVersion": { "id": "version-1" }, "failure": null }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let directory = tempfile::tempdir().expect("tempdir");
+    let selected = directory.path().join("index.html");
+    std::fs::write(&selected, "selected-content").expect("selected");
+    std::fs::write(directory.path().join("secret.txt"), "sibling-secret").expect("sibling");
+    let executable = std::env::current_exe().expect("test executable");
+    let uri = server.uri();
+    let output = tokio::task::spawn_blocking(move || {
+        Command::new(executable)
+            .args([
+                "--ignored",
+                "--exact",
+                "process_package_fixture",
+                "--nocapture",
+            ])
+            .env("SHARESLICES_TEST_API_URL", uri)
+            .env("SHARESLICES_TEST_UPLOAD_PATH", "index.html")
+            .current_dir(directory.path())
+            .output()
+            .expect("isolated CLI process")
+    })
+    .await
+    .expect("process task");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("uploaded as Version version-1"));
+    let requests = server.received_requests().await.expect("requests");
+    let upload = requests
+        .iter()
+        .find(|request| request.method.as_str() == "POST")
+        .expect("upload request");
+    let body = String::from_utf8_lossy(&upload.body);
+    assert!(body.contains("index.html"));
+    assert!(!body.contains("secret.txt"));
+    assert!(!body.contains("sibling-secret"));
+}
+
+#[tokio::test]
+#[ignore = "fixture invoked only by isolated_process_packages_only_selected_file_and_uploads_it"]
+async fn process_package_fixture() {
+    let api = ApiClient::new(&std::env::var("SHARESLICES_TEST_API_URL").expect("API URL"))
+        .expect("client");
+    let args = ArtifactUploadArgs {
+        paths: vec![
+            std::env::var("SHARESLICES_TEST_UPLOAD_PATH")
+                .expect("upload path")
+                .into(),
+        ],
+        root: None,
+        name: Some("Process package".into()),
+        entry: None,
+        no_progress: true,
+    };
+    let store = Store(Mutex::new(Some("fixture-secret".into())));
+    run_artifact_upload(
+        &args,
+        &api,
+        &store,
+        &mut std::io::stdout(),
+        &mut std::io::stderr(),
+    )
+    .await
+    .expect("upload");
 }
 
 #[test]

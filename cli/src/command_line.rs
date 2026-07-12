@@ -44,8 +44,10 @@ pub enum ArtifactCommand {
 
 #[derive(Debug, Args)]
 pub struct ArtifactUploadArgs {
-    #[arg(value_name = "ZIP")]
-    pub path: std::path::PathBuf,
+    #[arg(value_name = "PATHS", default_value = ".")]
+    pub paths: Vec<std::path::PathBuf>,
+    #[arg(long, value_name = "DIRECTORY")]
+    pub root: Option<std::path::PathBuf>,
     #[arg(long)]
     pub name: Option<String>,
     #[arg(long)]
