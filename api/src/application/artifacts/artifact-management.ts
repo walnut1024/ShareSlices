@@ -147,6 +147,17 @@ export class ArtifactManagementService {
     return this.#state(artifact);
   }
 
+  async listReadyVersions(ownerUserId: string, artifactId: string) {
+    const artifact = await this.#repositories.artifacts.findOwned(ownerUserId, artifactId);
+    if (!artifact) throw new ArtifactManagementError("artifact_not_found");
+    const versions = await this.#repositories.versions.listReadyOwned(ownerUserId, artifactId);
+    return versions.map((version) => ({
+      id: version.id,
+      versionNumber: version.versionNumber,
+      state: "ready" as const
+    }));
+  }
+
   async rename(ownerUserId: string, artifactId: string, requestedName: string): Promise<ArtifactManagementState> {
     const name = requestedName.trim();
     if (name.length < 1 || name.length > 120) {

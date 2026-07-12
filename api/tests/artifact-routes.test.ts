@@ -45,6 +45,9 @@ function managementDependencies() {
     management: {
       list: vi.fn().mockResolvedValue({ artifacts: [artifact], nextPageToken: null }),
       get: vi.fn().mockResolvedValue(artifact),
+      listReadyVersions: vi.fn().mockResolvedValue([
+        { id: "version-2", versionNumber: 2, state: "ready" }
+      ]),
       rename: vi.fn().mockResolvedValue({ ...artifact, name: "Renamed" }),
       setShareExpiration: vi.fn().mockResolvedValue(artifact),
       delete: vi.fn().mockResolvedValue(undefined)
@@ -113,6 +116,17 @@ describe("Artifact routes", () => {
     });
     expect((await app.request("/api/artifacts?pageSize=0")).status).toBe(400);
     expect((await app.request("/api/artifacts?publication=private")).status).toBe(400);
+  });
+
+  it("lists ready Versions through an owner-scoped resource route", async () => {
+    const dependencies = managementDependencies();
+    const app = buildApp({ artifact: dependencies } as never);
+    const response = await app.request("/api/artifacts/artifact-1/versions");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      versions: [{ id: "version-2", versionNumber: 2, state: "ready" }]
+    });
+    expect(dependencies.management.listReadyVersions).toHaveBeenCalledWith("owner-1", "artifact-1");
   });
 
   it("streams multipart input into the Artifact intake service", async () => {

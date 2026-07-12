@@ -1,15 +1,16 @@
-// cspell:ignore nocapture rfind
+// cspell:ignore nocapture noninteractive rfind
 use clap::Parser;
 use shareslices_cli::{
-    ApiClient, Artifact, ArtifactListArgs, ArtifactShareLink, ArtifactUploadArgs, AuthError, Cli,
-    Command as CliCommand, CredentialStore, artifact_exit_code, run_artifact_command,
-    run_artifact_list, run_artifact_upload, select_artifact,
+    ApiClient, Artifact, ArtifactListArgs, ArtifactPublishArgs, ArtifactShareLink,
+    ArtifactUnpublishArgs, ArtifactUploadArgs, AuthError, Cli, Command as CliCommand,
+    CredentialStore, artifact_exit_code, run_artifact_command, run_artifact_list,
+    run_artifact_publish, run_artifact_unpublish, run_artifact_upload, select_artifact,
 };
 use std::io::Cursor;
 use std::io::Write as _;
 use std::process::Command;
 use std::sync::Mutex;
-use wiremock::matchers::{method, path};
+use wiremock::matchers::{body_json, header_exists, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 struct Store(Mutex<Option<String>>);
@@ -23,6 +24,213 @@ impl CredentialStore for Store {
     fn delete(&self) -> Result<(), AuthError> {
         unreachable!()
     }
+}
+
+fn publish_args(
+    artifact: Option<&str>,
+    version: Option<&str>,
+    json: Option<&str>,
+) -> ArtifactPublishArgs {
+    ArtifactPublishArgs {
+        artifact: artifact.map(str::to_owned),
+        version: version.map(str::to_owned),
+        json: json.map(str::to_owned),
+        jq: None,
+        template: None,
+    }
+}
+
+fn unpublish_args(artifact: Option<&str>, json: Option<&str>) -> ArtifactUnpublishArgs {
+    ArtifactUnpublishArgs {
+        artifact: artifact.map(str::to_owned),
+        json: json.map(str::to_owned),
+        jq: None,
+        template: None,
+    }
+}
+
+#[tokio::test]
+async fn publishes_explicit_ready_version_and_reports_external_access() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifact": { "id": "artifact-1", "name": "Report",
+                "shareLink": { "state": "active", "expiresAt": "2026-08-01T00:00:00Z" },
+                "publication": null }
+        })))
+        .expect(2)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST")).and(path("/api/artifacts/artifact-1/publications"))
+        .and(header_exists("idempotency-key"))
+        .and(header_exists("shareslices-cli-version"))
+        .and(header_exists("shareslices-cli-os"))
+        .and(body_json(serde_json::json!({ "versionId": "version-2" })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+            "publication": { "id": "publication-1", "versionId": "version-2", "publishedAt": "2026-07-12T00:00:00Z" }
+        }))).expect(1).mount(&server).await;
+    let api = ApiClient::new(&server.uri()).expect("client");
+    let store = Store(Mutex::new(Some("secret".into())));
+    let mut output = Vec::new();
+    run_artifact_publish(
+        &publish_args(
+            Some("artifact-1"),
+            Some("version-2"),
+            Some("artifactId,versionId,accessState,expiresAt"),
+        ),
+        &api,
+        &store,
+        false,
+        &mut Cursor::new(Vec::<u8>::new()),
+        &mut output,
+        &mut Vec::new(),
+    )
+    .await
+    .expect("publish");
+    let value: serde_json::Value = serde_json::from_slice(&output).expect("json");
+    assert_eq!(value["versionId"], "version-2");
+    assert_eq!(value["accessState"], "accessible");
+    assert_eq!(value["expiresAt"], "2026-08-01T00:00:00Z");
+}
+
+#[tokio::test]
+async fn unpublishes_only_current_publication_and_preserves_expiration_in_output() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifact": { "id": "artifact-1", "name": "Report",
+                "shareLink": { "state": "active", "expiresAt": "2026-08-01T00:00:00Z" },
+                "publication": { "id": "publication-1", "versionId": "version-2" } }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path("/api/artifacts/artifact-1/publications/publication-1"))
+        .and(header_exists("shareslices-cli-version"))
+        .and(header_exists("shareslices-cli-os"))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let api = ApiClient::new(&server.uri()).expect("client");
+    let store = Store(Mutex::new(Some("secret".into())));
+    let mut output = Vec::new();
+    run_artifact_unpublish(
+        &unpublish_args(Some("artifact-1"), Some("artifactId,accessState,expiresAt")),
+        &api,
+        &store,
+        false,
+        &mut Cursor::new(Vec::<u8>::new()),
+        &mut output,
+        &mut Vec::new(),
+    )
+    .await
+    .expect("unpublish");
+    let value: serde_json::Value = serde_json::from_slice(&output).expect("json");
+    assert_eq!(value["accessState"], "not accessible");
+    assert_eq!(value["expiresAt"], "2026-08-01T00:00:00Z");
+}
+
+#[tokio::test]
+async fn noninteractive_publish_requires_both_identifiers() {
+    let server = MockServer::start().await;
+    let api = ApiClient::new(&server.uri()).expect("client");
+    let store = Store(Mutex::new(Some("secret".into())));
+    let error = run_artifact_publish(
+        &publish_args(None, None, None),
+        &api,
+        &store,
+        false,
+        &mut Cursor::new(Vec::<u8>::new()),
+        &mut Vec::new(),
+        &mut Vec::new(),
+    )
+    .await
+    .expect_err("missing ids");
+    assert!(
+        error
+            .to_string()
+            .contains("requires --artifact and --version")
+    );
+}
+
+#[tokio::test]
+async fn unpublish_is_idempotent_when_already_unpublished() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifact": { "id": "artifact-1", "name": "Report",
+                "shareLink": { "state": "active", "expiresAt": null }, "publication": null }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let api = ApiClient::new(&server.uri()).expect("client");
+    let store = Store(Mutex::new(Some("secret".into())));
+    let mut output = Vec::new();
+    run_artifact_unpublish(
+        &unpublish_args(Some("artifact-1"), None),
+        &api,
+        &store,
+        false,
+        &mut Cursor::new(Vec::<u8>::new()),
+        &mut output,
+        &mut Vec::new(),
+    )
+    .await
+    .expect("unpublish");
+    assert!(
+        String::from_utf8(output)
+            .expect("utf8")
+            .contains("not accessible")
+    );
+}
+
+#[tokio::test]
+async fn interactive_publish_selects_artifact_and_ready_version() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET")).and(path("/api/artifacts"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+          "artifacts": [{ "id": "artifact-1", "name": "Report", "updatedAt": "2026-07-12T00:00:00Z",
+            "processingState": "ready", "shareLink": { "state": "active", "expiresAt": null }, "publication": null }],
+          "nextPageToken": null
+        }))).mount(&server).await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1/versions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+          "versions": [{ "id": "version-2", "versionNumber": 2, "state": "ready" }]
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET")).and(path("/api/artifacts/artifact-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+          "artifact": { "id": "artifact-1", "name": "Report", "shareLink": { "state": "active", "expiresAt": null }, "publication": null }
+        }))).expect(2).mount(&server).await;
+    Mock::given(method("POST")).and(path("/api/artifacts/artifact-1/publications"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+          "publication": { "id": "publication-1", "versionId": "version-2", "publishedAt": "2026-07-12T00:00:00Z" }
+        }))).mount(&server).await;
+    let api = ApiClient::new(&server.uri()).expect("client");
+    let store = Store(Mutex::new(Some("secret".into())));
+    let mut diagnostics = Vec::new();
+    run_artifact_publish(
+        &publish_args(None, None, None),
+        &api,
+        &store,
+        true,
+        &mut Cursor::new(b"1\n1\n".to_vec()),
+        &mut Vec::new(),
+        &mut diagnostics,
+    )
+    .await
+    .expect("interactive publish");
+    let prompts = String::from_utf8(diagnostics).expect("utf8");
+    assert!(prompts.contains("Select an Artifact"));
+    assert!(prompts.contains("Select a ready Version"));
 }
 
 fn args(json: Option<&str>, jq: Option<&str>, template: Option<&str>) -> ArtifactListArgs {
@@ -147,6 +355,45 @@ fn complete_cli_process_returns_authentication_exit_code_without_waiting() {
         String::from_utf8(output.stderr)
             .expect("stderr")
             .contains("Run shareslices auth login")
+    );
+}
+
+#[test]
+fn shipping_binary_parses_publish_and_maps_authentication_exit_code() {
+    let output = Command::new(env!("CARGO_BIN_EXE_shareslices"))
+        .args([
+            "--api-url",
+            "http://127.0.0.1:2",
+            "artifact",
+            "publish",
+            "--artifact",
+            "artifact-1",
+            "--version",
+            "version-1",
+        ])
+        .output()
+        .expect("CLI process");
+    assert_eq!(output.status.code(), Some(4));
+    assert!(output.stdout.is_empty());
+    assert!(
+        String::from_utf8(output.stderr)
+            .expect("stderr")
+            .contains("Run shareslices auth login")
+    );
+}
+
+#[test]
+fn shipping_binary_rejects_noninteractive_publish_without_identifiers() {
+    let output = Command::new(env!("CARGO_BIN_EXE_shareslices"))
+        .args(["--api-url", "http://127.0.0.1:2", "artifact", "publish"])
+        .output()
+        .expect("CLI process");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert!(
+        String::from_utf8(output.stderr)
+            .expect("stderr")
+            .contains("requires --artifact and --version")
     );
 }
 

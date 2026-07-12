@@ -1,8 +1,8 @@
 // cspell:ignore gtmpl
 use crate::packaging::prepare_upload_with_progress;
 use crate::{
-    ApiClient, Artifact, ArtifactCommand, ArtifactError, ArtifactListArgs, ArtifactUploadArgs,
-    CredentialStore,
+    ApiClient, Artifact, ArtifactCommand, ArtifactError, ArtifactListArgs, ArtifactPublishArgs,
+    ArtifactUnpublishArgs, ArtifactUploadArgs, CredentialStore, ReadyArtifactVersion,
 };
 use serde_json::{Map, Value};
 use std::collections::HashMap;
@@ -35,7 +35,230 @@ pub async fn run_artifact_command(
         ArtifactCommand::Upload(args) => {
             run_artifact_upload(&args, api, store, output, diagnostics).await
         }
+        ArtifactCommand::Publish(args) => {
+            let mut input = std::io::stdin().lock();
+            run_artifact_publish(
+                &args,
+                api,
+                store,
+                std::io::stdin().is_terminal(),
+                &mut input,
+                output,
+                diagnostics,
+            )
+            .await
+        }
+        ArtifactCommand::Unpublish(args) => {
+            let mut input = std::io::stdin().lock();
+            run_artifact_unpublish(
+                &args,
+                api,
+                store,
+                std::io::stdin().is_terminal(),
+                &mut input,
+                output,
+                diagnostics,
+            )
+            .await
+        }
     }
+}
+
+const PUBLICATION_FIELDS: &[&str] = &["artifactId", "versionId", "accessState", "expiresAt"];
+
+struct PublicationPresentation<'a> {
+    json: Option<&'a str>,
+    jq: Option<&'a str>,
+    template: Option<&'a str>,
+}
+
+struct PublicationOutcome<'a> {
+    artifact_id: &'a str,
+    version_id: Option<&'a str>,
+    access_state: &'a str,
+    expires_at: Option<&'a str>,
+}
+
+fn select_ready_version(
+    versions: &[ReadyArtifactVersion],
+    is_terminal: bool,
+    input: &mut dyn BufRead,
+    diagnostics: &mut dyn Write,
+) -> Result<ReadyArtifactVersion, ArtifactError> {
+    if !is_terminal {
+        return Err(ArtifactError::PublishSelectionUnavailable);
+    }
+    if versions.is_empty() {
+        return Err(ArtifactError::NoReadyVersion);
+    }
+    for (index, version) in versions.iter().enumerate() {
+        writeln!(
+            diagnostics,
+            "{}: Version {} ({})",
+            index + 1,
+            version.version_number,
+            version.id
+        )
+        .map_err(|_| ArtifactError::Server)?;
+    }
+    write!(diagnostics, "Select a ready Version: ").map_err(|_| ArtifactError::Server)?;
+    diagnostics.flush().map_err(|_| ArtifactError::Server)?;
+    let mut choice = String::new();
+    input
+        .read_line(&mut choice)
+        .map_err(|_| ArtifactError::Cancelled)?;
+    let index = choice
+        .trim()
+        .parse::<usize>()
+        .ok()
+        .and_then(|value| value.checked_sub(1))
+        .ok_or(ArtifactError::Cancelled)?;
+    versions.get(index).cloned().ok_or(ArtifactError::Cancelled)
+}
+
+fn write_publication_result(
+    output: &mut dyn Write,
+    presentation: &PublicationPresentation<'_>,
+    outcome: &PublicationOutcome<'_>,
+) -> Result<(), ArtifactError> {
+    let value = serde_json::json!({
+        "artifactId": outcome.artifact_id,
+        "versionId": outcome.version_id,
+        "accessState": outcome.access_state,
+        "expiresAt": outcome.expires_at,
+    });
+    if let Some(fields) = presentation.json {
+        let fields = parse_fields_from(fields, PUBLICATION_FIELDS)?;
+        let selected = Value::Object(
+            fields
+                .into_iter()
+                .map(|field| (field.to_owned(), value[field].clone()))
+                .collect(),
+        );
+        if let Some(expression) = presentation.jq {
+            write_jq(output, &selected, expression)
+        } else if let Some(template) = presentation.template {
+            write_template(output, &selected, template)
+        } else {
+            writeln!(
+                output,
+                "{}",
+                serde_json::to_string_pretty(&selected).map_err(|_| ArtifactError::Server)?
+            )
+            .map_err(|_| ArtifactError::Server)
+        }
+    } else {
+        let version = outcome
+            .version_id
+            .map_or_else(String::new, |id| format!(" Version {id}"));
+        writeln!(
+            output,
+            "Artifact {}{version} is {} to people with its Share link",
+            outcome.artifact_id, outcome.access_state
+        )
+        .map_err(|_| ArtifactError::Server)
+    }
+}
+
+/// Publishes one explicit or interactively selected ready Version.
+///
+/// # Errors
+/// Returns an Artifact error for unavailable selection, authentication, formatting, or Server failures.
+pub async fn run_artifact_publish(
+    args: &ArtifactPublishArgs,
+    api: &ApiClient,
+    store: &dyn CredentialStore,
+    is_terminal: bool,
+    input: &mut dyn BufRead,
+    output: &mut dyn Write,
+    diagnostics: &mut dyn Write,
+) -> Result<(), ArtifactError> {
+    if !is_terminal && (args.artifact.is_none() || args.version.is_none()) {
+        return Err(ArtifactError::PublishSelectionUnavailable);
+    }
+    let token = store
+        .get()
+        .map_err(|_| ArtifactError::Unauthenticated)?
+        .ok_or(ArtifactError::Unauthenticated)?;
+    let artifact = if let Some(id) = &args.artifact {
+        api.artifact(&token, id).await?
+    } else {
+        if !is_terminal {
+            return Err(ArtifactError::PublishSelectionUnavailable);
+        }
+        let selected = select_owned_artifact(api, store, true, true, input, diagnostics).await?;
+        api.artifact(&token, &selected.id).await?
+    };
+    let version_id = if let Some(id) = &args.version {
+        id.clone()
+    } else {
+        let versions = api.list_ready_versions(&token, &artifact.id).await?;
+        select_ready_version(&versions, is_terminal, input, diagnostics)?.id
+    };
+    let publication = api.publish(&token, &artifact.id, &version_id).await?;
+    let after = api.artifact(&token, &artifact.id).await?;
+    write_publication_result(
+        output,
+        &PublicationPresentation {
+            json: args.json.as_deref(),
+            jq: args.jq.as_deref(),
+            template: args.template.as_deref(),
+        },
+        &PublicationOutcome {
+            artifact_id: &artifact.id,
+            version_id: Some(&publication.version_id),
+            access_state: "accessible",
+            expires_at: after.share_link.expires_at.as_deref(),
+        },
+    )
+}
+
+/// Removes the current Publication from one explicit or interactively selected Artifact.
+///
+/// # Errors
+/// Returns an Artifact error for unavailable selection, authentication, formatting, or Server failures.
+pub async fn run_artifact_unpublish(
+    args: &ArtifactUnpublishArgs,
+    api: &ApiClient,
+    store: &dyn CredentialStore,
+    is_terminal: bool,
+    input: &mut dyn BufRead,
+    output: &mut dyn Write,
+    diagnostics: &mut dyn Write,
+) -> Result<(), ArtifactError> {
+    if !is_terminal && args.artifact.is_none() {
+        return Err(ArtifactError::UnpublishSelectionUnavailable);
+    }
+    let token = store
+        .get()
+        .map_err(|_| ArtifactError::Unauthenticated)?
+        .ok_or(ArtifactError::Unauthenticated)?;
+    let artifact = if let Some(id) = &args.artifact {
+        api.artifact(&token, id).await?
+    } else {
+        if !is_terminal {
+            return Err(ArtifactError::UnpublishSelectionUnavailable);
+        }
+        let selected = select_owned_artifact(api, store, true, true, input, diagnostics).await?;
+        api.artifact(&token, &selected.id).await?
+    };
+    if let Some(publication) = &artifact.publication {
+        api.unpublish(&token, &artifact.id, &publication.id).await?;
+    }
+    write_publication_result(
+        output,
+        &PublicationPresentation {
+            json: args.json.as_deref(),
+            jq: args.jq.as_deref(),
+            template: args.template.as_deref(),
+        },
+        &PublicationOutcome {
+            artifact_id: &artifact.id,
+            version_id: None,
+            access_state: "not accessible",
+            expires_at: artifact.share_link.expires_at.as_deref(),
+        },
+    )
 }
 
 #[must_use]

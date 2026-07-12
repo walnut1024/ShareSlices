@@ -113,3 +113,43 @@ fn parses_prepared_zip_upload_options() {
     assert_eq!(args.paths.len(), 2);
     assert_eq!(args.root.as_deref(), Some(std::path::Path::new(".")));
 }
+
+#[test]
+fn parses_publish_and_unpublish_options() {
+    let publish = Cli::try_parse_from([
+        "shareslices",
+        "artifact",
+        "publish",
+        "--artifact",
+        "artifact-1",
+        "--version",
+        "version-2",
+        "--json",
+        "artifactId,accessState",
+    ])
+    .expect("publish command");
+    let Command::Artifact {
+        command: ArtifactCommand::Publish(args),
+    } = publish.command
+    else {
+        panic!("artifact publish command")
+    };
+    assert_eq!(args.artifact.as_deref(), Some("artifact-1"));
+    assert_eq!(args.version.as_deref(), Some("version-2"));
+
+    let unpublish = Cli::try_parse_from([
+        "shareslices",
+        "artifact",
+        "unpublish",
+        "--artifact",
+        "artifact-1",
+    ])
+    .expect("unpublish command");
+    let Command::Artifact {
+        command: ArtifactCommand::Unpublish(args),
+    } = unpublish.command
+    else {
+        panic!("artifact unpublish command")
+    };
+    assert_eq!(args.artifact.as_deref(), Some("artifact-1"));
+}

@@ -67,6 +67,9 @@ function harness(options: {
     },
     versions: {
       findReadyOwned: vi.fn(),
+      listReadyOwned: vi.fn().mockResolvedValue(
+        options.ready ? [{ id: "version-1", artifactId: "artifact-1", uploadSessionId: "upload-1", versionNumber: 1, state: "ready" }] : []
+      ),
       findReadyByArtifact: vi.fn().mockResolvedValue(
         options.ready
           ? {
@@ -110,6 +113,12 @@ function harness(options: {
 }
 
 describe("ArtifactManagementService", () => {
+  it("lists only ready Versions for an owned Artifact", async () => {
+    const { service } = harness({ ready: true });
+    await expect(service.listReadyVersions("owner-1", "artifact-1")).resolves.toEqual([
+      { id: "version-1", versionNumber: 1, state: "ready" }
+    ]);
+  });
   it("returns bounded pages with opaque tokens and rejects malformed tokens", async () => {
     const { service, repositories } = harness({ ready: true });
     const first = await repositories.artifacts.findOwned("owner-1", "artifact-1");
