@@ -138,6 +138,27 @@ cases:
       status: 200
       json_paths:
         artifacts.0.id: "{artifact_id}"
+        nextPageToken: null
+
+  - id: filter_owned_artifacts
+    request:
+      method: GET
+      path: /api/artifacts?publication=unpublished&processing=accepted&pageSize=1
+      cookie_ref: owner
+    expect:
+      status: 200
+      json_paths:
+        artifacts.0.id: "{artifact_id}"
+
+  - id: reject_invalid_list_filter
+    request:
+      method: GET
+      path: /api/artifacts?publication=private
+      cookie_ref: owner
+    expect:
+      status: 400
+      json_paths:
+        error.code: invalid_request
 
   - id: rename_artifact
     request:

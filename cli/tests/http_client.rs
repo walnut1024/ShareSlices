@@ -49,3 +49,59 @@ async fn maps_upgrade_required_without_exposing_server_internals() {
         Err(AuthError::UpgradeRequired { .. })
     ));
 }
+
+#[tokio::test]
+async fn lists_artifacts_across_server_pages_with_filters_and_compatibility_headers() {
+    use shareslices_cli::{ProcessingFilter, PublicationFilter};
+    use wiremock::matchers::query_param;
+    let server = MockServer::start().await;
+    let artifact = |id: &str| {
+        serde_json::json!({
+            "id": id, "name": format!("Report {id}"), "updatedAt": "2026-07-12T08:00:00Z",
+            "processingState": "ready", "shareLink": { "state": "active", "expiresAt": null },
+            "publication": { "id": "publication-1" }
+        })
+    };
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts"))
+        .and(query_param("pageSize", "3"))
+        .and(query_param("publication", "published"))
+        .and(query_param("processing", "ready"))
+        .and(header("authorization", "Bearer secret"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifacts": [artifact("one"), artifact("two")], "nextPageToken": "next"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts"))
+        .and(query_param("pageSize", "1"))
+        .and(query_param("pageToken", "next"))
+        .and(query_param("publication", "published"))
+        .and(query_param("processing", "ready"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifacts": [artifact("three")], "nextPageToken": null
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let artifacts = ApiClient::new(&server.uri())
+        .expect("client")
+        .list_artifacts(
+            "secret",
+            Some(PublicationFilter::Published),
+            Some(ProcessingFilter::Ready),
+            3,
+        )
+        .await
+        .expect("artifacts");
+    assert_eq!(
+        artifacts
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect::<Vec<_>>(),
+        ["one", "two", "three"]
+    );
+}

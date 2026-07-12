@@ -43,7 +43,7 @@ function managementDependencies() {
     authApi: { getSession: vi.fn().mockResolvedValue({ user: { id: "owner-1" } }) },
     repositories: artifactDependencies({ user: { id: "owner-1" } }).repositories,
     management: {
-      list: vi.fn().mockResolvedValue([artifact]),
+      list: vi.fn().mockResolvedValue({ artifacts: [artifact], nextPageToken: null }),
       get: vi.fn().mockResolvedValue(artifact),
       rename: vi.fn().mockResolvedValue({ ...artifact, name: "Renamed" }),
       setShareExpiration: vi.fn().mockResolvedValue(artifact),
@@ -91,6 +91,28 @@ describe("Artifact routes", () => {
       headers: expect.any(Headers),
       query: { disableRefresh: true }
     });
+  });
+
+  it("validates and applies Artifact list pagination and filters", async () => {
+    const dependencies = managementDependencies();
+    dependencies.management.list.mockResolvedValue({
+      artifacts: [{ ...await dependencies.management.get(), id: "artifact-1", processingState: "ready", publication: { id: "p-1" } }],
+      nextPageToken: null
+    });
+    const app = buildApp({ artifact: dependencies } as never);
+
+    const response = await app.request("/api/artifacts?publication=published&processing=ready&pageSize=1&pageToken=1");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      artifacts: [{ id: "artifact-1" }],
+      nextPageToken: null
+    });
+    expect(dependencies.management.list).toHaveBeenCalledWith("owner-1", {
+      publication: "published", processing: "ready", pageSize: 1, pageToken: "1"
+    });
+    expect((await app.request("/api/artifacts?pageSize=0")).status).toBe(400);
+    expect((await app.request("/api/artifacts?publication=private")).status).toBe(400);
   });
 
   it("streams multipart input into the Artifact intake service", async () => {
@@ -236,7 +258,7 @@ describe("Artifact routes", () => {
     await expect(listResponse.json()).resolves.toMatchObject({ artifacts: [{ id: "artifact-1" }] });
     expect(detailResponse.status).toBe(200);
     await expect(detailResponse.json()).resolves.toMatchObject({ artifact: { id: "artifact-1" } });
-    expect(dependencies.management.list).toHaveBeenCalledWith("owner-1");
+    expect(dependencies.management.list).toHaveBeenCalledWith("owner-1", { pageSize: 30 });
     expect(dependencies.management.get).toHaveBeenCalledWith("owner-1", "artifact-1");
   });
 

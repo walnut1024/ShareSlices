@@ -1,4 +1,7 @@
-use crate::{AuthApi, AuthError, Authorization, Exchange, User};
+use crate::{
+    Artifact, ArtifactError, AuthApi, AuthError, Authorization, Exchange, ProcessingFilter,
+    PublicationFilter, User,
+};
 use async_trait::async_trait;
 use reqwest::{Client, Response, StatusCode};
 use serde::Deserialize;
@@ -80,6 +83,64 @@ impl ApiClient {
             .send()
             .await
             .map_err(|error| AuthError::Network(error.to_string()))
+    }
+
+    /// Lists owned Artifacts, following Server pages until `limit` is reached.
+    ///
+    /// # Errors
+    /// Returns [`ArtifactError`] when authentication, transport, or response decoding fails.
+    pub async fn list_artifacts(
+        &self,
+        token: &str,
+        publication: Option<PublicationFilter>,
+        processing: Option<ProcessingFilter>,
+        limit: usize,
+    ) -> Result<Vec<Artifact>, ArtifactError> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Page {
+            artifacts: Vec<Artifact>,
+            next_page_token: Option<String>,
+        }
+        let mut artifacts = Vec::new();
+        let mut page_token: Option<String> = None;
+        while artifacts.len() < limit {
+            let page_size = (limit - artifacts.len()).min(100);
+            let mut request = self
+                .request(reqwest::Method::GET, "/api/artifacts")
+                .bearer_auth(token)
+                .query(&[("pageSize", page_size.to_string())]);
+            if let Some(value) = publication {
+                request = request.query(&[("publication", format!("{value:?}").to_lowercase())]);
+            }
+            if let Some(value) = processing {
+                request = request.query(&[("processing", format!("{value:?}").to_lowercase())]);
+            }
+            if let Some(value) = &page_token {
+                request = request.query(&[("pageToken", value)]);
+            }
+            let response = request
+                .send()
+                .await
+                .map_err(|error| ArtifactError::Network(error.to_string()))?;
+            if response.status() == StatusCode::UNAUTHORIZED {
+                return Err(ArtifactError::Unauthenticated);
+            }
+            if !response.status().is_success() {
+                return Err(ArtifactError::Server);
+            }
+            let page = response
+                .json::<Page>()
+                .await
+                .map_err(|_| ArtifactError::Server)?;
+            artifacts.extend(page.artifacts);
+            page_token = page.next_page_token;
+            if page_token.is_none() {
+                break;
+            }
+        }
+        artifacts.truncate(limit);
+        Ok(artifacts)
     }
 }
 

@@ -144,7 +144,7 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
       async listOwned(ownerUserId) {
         const rows = await database.query.artifact.findMany({
           where: eq(schema.artifact.ownerUserId, ownerUserId),
-          orderBy: [desc(schema.artifact.createdAt)]
+          orderBy: [desc(schema.artifact.updatedAt)]
         });
         return rows.map(artifactRecord);
       },

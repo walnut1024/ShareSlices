@@ -9,12 +9,15 @@ publish = false
 name = "shareslices"
 path = "src/main.rs"
 
-# cspell:ignore reqwest rustls serde thiserror webbrowser
+# cspell:ignore gtmpl reqwest rustls serde thiserror webbrowser
 [dependencies]
 async-trait = "0.1"
 clap = { version = "4.5", features = ["derive", "env"] }
 keyring = { version = "3.6", features = ["apple-native", "windows-native", "sync-secret-service"] }
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+gtmpl = "0.7"
+jaq-interpret = "1.5"
+jaq-parse = "1.0"
+reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
