@@ -75,6 +75,9 @@ def test_openapi_artifact_contract_and_local_references() -> None:
     assert no_store["enum"] == ["no-store"]
 
     schemas = document["components"]["schemas"]
+    create_upload = schemas["CreateArtifactRequest"]
+    assert "entry" in create_upload["properties"]
+    assert "entry" not in create_upload["required"]
     assert schemas["UploadPolicyResponse"]["example"]["policy"] == {
         "revision": "v0.0.1-default",
         "maxArchiveBytes": 52_428_800,

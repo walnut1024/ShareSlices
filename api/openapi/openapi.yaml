@@ -1900,6 +1900,10 @@ components:
           type: string
           minLength: 1
           maxLength: 120
+        entry:
+          type: string
+          minLength: 1
+          description: Optional archive-relative HTML Entry selected by the caller.
         file:
           type: string
           format: binary

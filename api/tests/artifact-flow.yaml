@@ -415,6 +415,36 @@ cases:
         artifact.validationReport.primaryIssue.details.candidates.0: report.html
         artifact.validationReport.primaryIssue.details.candidates.1: slides.html
 
+  - id: create_explicit_ambiguous_entry_artifact
+    request:
+      method: POST
+      path: /api/artifacts
+      cookie_ref: owner
+      headers:
+        Idempotency-Key: "explicit-entry-{run_id}"
+      multipart:
+        name: Explicit Entry
+        entry: slides.html
+        archive: ambiguous_entry
+    expect:
+      status: 202
+    save:
+      explicit_entry_artifact_id: artifactId
+
+  - id: wait_for_explicit_entry_ready
+    request:
+      method: GET
+      path: "/api/artifacts/{explicit_entry_artifact_id}"
+      cookie_ref: owner
+    poll:
+      json_path: artifact.processingState
+      equals: ready
+      timeout_seconds: 60
+    expect:
+      status: 200
+      json_paths:
+        artifact.processingState: ready
+
   - id: replace_invalid_file
     request:
       method: POST

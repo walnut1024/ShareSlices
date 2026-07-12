@@ -290,6 +290,7 @@ export const artifactUploadSession = pgTable(
     rawObjectKey: text("raw_object_key").notNull(),
     rawSha256: text("raw_sha256").notNull(),
     rawSizeBytes: bigint("raw_size_bytes", { mode: "number" }).notNull(),
+    requestedEntry: text("requested_entry"),
     state: text("state").default("accepted").notNull(),
     failureReasonCode: text("failure_reason_code"),
     failureSummary: text("failure_summary"),

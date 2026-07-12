@@ -12,20 +12,25 @@ path = "src/main.rs"
 # cspell:ignore gtmpl reqwest rustls serde thiserror webbrowser
 [dependencies]
 async-trait = "0.1"
+async-stream = "0.3"
+bytes = "1"
 clap = { version = "4.5", features = ["derive", "env"] }
 keyring = { version = "3.6", features = ["apple-native", "windows-native", "sync-secret-service"] }
 gtmpl = "0.7"
 jaq-interpret = "1.5"
 jaq-parse = "1.0"
-reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "query", "multipart", "rustls", "stream"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util", "time"] }
+tokio = { version = "1", features = ["fs", "io-util", "macros", "rt-multi-thread", "signal", "sync", "test-util", "time"] }
 url = "2"
+uuid = { version = "1", features = ["v4"] }
 webbrowser = "1"
+zip = "2.4"
 
 [dev-dependencies]
+tempfile = "3"
 wiremock = "0.6"
 
 [lints]

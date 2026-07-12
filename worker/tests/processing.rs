@@ -259,6 +259,7 @@ fn input(write_concurrency: usize) -> ProcessingAttemptInput {
         upload_session_id: "upload-1".to_owned(),
         version_id: "version-1".to_owned(),
         raw_object_key: "raw/upload-1.zip".to_owned(),
+        requested_entry: None,
         staging_prefix: "staging/upload-1/attempt-1/".to_owned(),
         policy: PolicySnapshot::new(
             1024 * 1024,

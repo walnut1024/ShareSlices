@@ -94,7 +94,7 @@ impl ProcessingInputSource for PostgresInputSource {
     ) -> Result<ProcessingAttemptInput, InputError> {
         let row = sqlx::query(
             r"
-            select raw_object_key, archive_size_bytes, expanded_size_bytes,
+            select raw_object_key, requested_entry, archive_size_bytes, expanded_size_bytes,
                    file_count, single_file_size_bytes, formats
             from artifact_upload_session
             where id = $1
@@ -137,6 +137,7 @@ impl ProcessingInputSource for PostgresInputSource {
             upload_session_id: claim.upload_session_id.clone(),
             version_id: Uuid::new_v4().to_string(),
             raw_object_key: row.try_get("raw_object_key")?,
+            requested_entry: row.try_get("requested_entry")?,
             staging_prefix: claim.staging_prefix.clone(),
             policy,
             write_concurrency,
@@ -828,6 +829,7 @@ mod tests {
         for migration in [
             "db/migrations/0001_account_entry.sql",
             "db/migrations/0002_artifact_foundation.sql",
+            "db/migrations/0006_artifact_requested_entry.sql",
         ] {
             let sql = fs::read_to_string(repository_root.join(migration)).expect("read migration");
             sqlx::raw_sql(&sql)
@@ -871,6 +873,7 @@ mod tests {
             .expect("load processing input");
 
         assert_eq!(loaded.raw_object_key, "raw/artifact-1/upload-1.zip");
+        assert_eq!(loaded.requested_entry, None);
         assert_eq!(loaded.policy, PolicySnapshot::product_defaults());
         assert_eq!(loaded.write_concurrency, 4);
 
@@ -934,6 +937,7 @@ mod tests {
             upload_session_id: claim.upload_session_id.clone(),
             version_id: "version-1".to_owned(),
             raw_object_key: "raw/upload.zip".to_owned(),
+            requested_entry: None,
             staging_prefix: claim.staging_prefix.clone(),
             policy: PolicySnapshot::product_defaults(),
             write_concurrency,

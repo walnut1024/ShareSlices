@@ -12,7 +12,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use zip::ZipArchive;
 
 use crate::{
-    archive_validation::{ArchiveError, ArchiveValidationFailure, ValidatedEntry, validate_zip},
+    archive_validation::{
+        ArchiveError, ArchiveValidationFailure, ValidatedEntry, validate_zip_with_entry,
+    },
     format_rules::PolicySnapshot,
     job_store::{CommitOutcome, JobStoreError, ReadyVersionCommit, ReadyVersionStore},
     manifest::{ManifestAsset, ReadyManifest},
@@ -26,6 +28,7 @@ pub struct ProcessingAttemptInput {
     pub upload_session_id: String,
     pub version_id: String,
     pub raw_object_key: String,
+    pub requested_entry: Option<String>,
     pub staging_prefix: String,
     pub policy: PolicySnapshot,
     pub write_concurrency: usize,
@@ -190,9 +193,11 @@ async fn prepare_manifest(
     let archive_path = archive_file.path().to_owned();
     let validation_path = archive_path.clone();
     let policy = input.policy.clone();
+    let requested_entry = input.requested_entry.clone();
     let validated = tokio::task::spawn_blocking(move || {
         let file = StdFile::open(validation_path).map_err(ProcessingError::TemporaryArchive)?;
-        validate_zip(file, &policy).map_err(|failure| ProcessingError::Archive(Box::new(failure)))
+        validate_zip_with_entry(file, &policy, requested_entry.as_deref())
+            .map_err(|failure| ProcessingError::Archive(Box::new(failure)))
     })
     .await
     .map_err(|error| ProcessingError::ExtractionTask(error.to_string()))??;
