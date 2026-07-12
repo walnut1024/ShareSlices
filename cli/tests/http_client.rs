@@ -116,7 +116,14 @@ async fn upload_replays_uncertain_acceptance_with_one_idempotency_key() {
     let started = std::time::Instant::now();
     let accepted = ApiClient::new(&server.uri())
         .expect("client")
-        .upload_artifact("secret", "Report", Some("index.html"), &zip_path, None)
+        .upload_artifact(
+            "secret",
+            Some("Report"),
+            None,
+            Some("index.html"),
+            &zip_path,
+            None,
+        )
         .await
         .expect("replayed acceptance");
     assert_eq!(accepted.artifact_id, "artifact-1");

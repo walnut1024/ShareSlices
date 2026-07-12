@@ -48,8 +48,10 @@ pub struct ArtifactUploadArgs {
     pub paths: Vec<std::path::PathBuf>,
     #[arg(long, value_name = "DIRECTORY")]
     pub root: Option<std::path::PathBuf>,
-    #[arg(long)]
+    #[arg(long, conflicts_with = "artifact")]
     pub name: Option<String>,
+    #[arg(long, conflicts_with = "name")]
+    pub artifact: Option<String>,
     #[arg(long)]
     pub entry: Option<String>,
     #[arg(long)]
