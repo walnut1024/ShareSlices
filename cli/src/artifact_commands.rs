@@ -1,5 +1,5 @@
 // cspell:ignore gtmpl
-use crate::packaging::prepare_upload;
+use crate::packaging::prepare_upload_with_progress;
 use crate::{
     ApiClient, Artifact, ArtifactCommand, ArtifactError, ArtifactListArgs, ArtifactUploadArgs,
     CredentialStore,
@@ -154,36 +154,77 @@ async fn run_artifact_upload_with_interaction(
     output: &mut dyn Write,
     diagnostics: &mut dyn Write,
 ) -> Result<(), ArtifactError> {
-    let token = store
-        .get()
-        .map_err(|_| ArtifactError::Unauthenticated)?
-        .ok_or(ArtifactError::Unauthenticated)?;
     if args.artifact.is_none()
         && args.name.is_none()
         && (!interaction.prompts_enabled || !interaction.is_terminal)
     {
         return Err(ArtifactError::SelectionUnavailable);
     }
+    let direct_entry = if args.paths.len() == 1
+        && args.paths[0]
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.eq_ignore_ascii_case("zip"))
+    {
+        Some(resolve_entry(
+            &args.paths[0],
+            args.entry.as_deref(),
+            interaction.prompts_enabled,
+            interaction.is_terminal,
+            interaction.input,
+            diagnostics,
+        )?)
+    } else {
+        None
+    };
+    let token = store
+        .get()
+        .map_err(|_| ArtifactError::Unauthenticated)?
+        .ok_or(ArtifactError::Unauthenticated)?;
     let policy = api.upload_policy(&token).await?;
     let paths = args.paths.clone();
     let root = args.root.clone();
-    let packaging =
-        tokio::task::spawn_blocking(move || prepare_upload(&paths, root.as_deref(), &policy));
+    let (packaging_tx, mut packaging_rx) = tokio::sync::mpsc::unbounded_channel();
+    let packaging = tokio::task::spawn_blocking(move || {
+        prepare_upload_with_progress(&paths, root.as_deref(), &policy, |bytes| {
+            let _ = packaging_tx.send(bytes);
+        })
+    });
+    tokio::pin!(packaging);
     let prepared = tokio::select! {
-        result = packaging => result.map_err(|_| ArtifactError::Server)??,
+        result = &mut packaging => result.map_err(|_| ArtifactError::Server)??,
+        Some(bytes) = packaging_rx.recv(), if !args.no_progress => {
+            writeln!(diagnostics, "Packaging {bytes} bytes").map_err(|_| ArtifactError::Server)?;
+            loop {
+                tokio::select! {
+                    result = &mut packaging => break result.map_err(|_| ArtifactError::Server)??,
+                    Some(bytes) = packaging_rx.recv() => {
+                        writeln!(diagnostics, "Packaging {bytes} bytes").map_err(|_| ArtifactError::Server)?;
+                    }
+                    result = tokio::signal::ctrl_c() => {
+                        result.map_err(|_| ArtifactError::Server)?;
+                        return Err(ArtifactError::Cancelled);
+                    }
+                }
+            }
+        },
         result = tokio::signal::ctrl_c() => {
             result.map_err(|_| ArtifactError::Server)?;
             return Err(ArtifactError::Cancelled);
         }
     };
-    let entry = resolve_entry(
-        &prepared.path,
-        args.entry.as_deref(),
-        interaction.prompts_enabled,
-        interaction.is_terminal,
-        interaction.input,
-        diagnostics,
-    )?;
+    let entry = if let Some(entry) = direct_entry {
+        entry
+    } else {
+        resolve_entry(
+            &prepared.path,
+            args.entry.as_deref(),
+            interaction.prompts_enabled,
+            interaction.is_terminal,
+            interaction.input,
+            diagnostics,
+        )?
+    };
     let (name, artifact_id) = resolve_upload_target(
         args,
         api,
