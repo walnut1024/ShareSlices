@@ -60,35 +60,6 @@ A registered user SHALL be able to log in with the correct email and password. S
 - **WHEN** a user logs in with an unregistered email
 - **THEN** login fails and no signed-in state is created
 
-### Requirement: Web sign-up page
-
-The Web UI SHALL expose a dedicated self-service sign-up page with name, email, password, and a sign-up action. Invalid input MUST produce visible field-level feedback and MUST NOT imply account creation. When registration verification is required, accepted sign-up SHALL replace the form with a code-entry state that includes a masked destination, one accessible numeric code input, a server-owned resend countdown, a resend action, and an action to use a different email. Successful verification SHALL direct the user to login without creating signed-in state.
-
-#### Scenario: Reach the sign-up form
-
-- **WHEN** a visitor opens the sign-up page
-- **THEN** a form with name, email, password, and a sign-up action is available
-
-#### Scenario: Invalid input feedback
-
-- **WHEN** a visitor submits invalid name, email, or password input
-- **THEN** field-level feedback is visible and no account is created
-
-#### Scenario: Enter registration verification
-
-- **WHEN** registration is accepted while registration verification is required
-- **THEN** the Web shows the masked destination, verification-code input, resend waiting period, resend action, and use-different-email action
-
-#### Scenario: Complete registration verification
-
-- **WHEN** the visitor submits the correct active registration code
-- **THEN** the email becomes verified and the Web directs the visitor to login without creating signed-in state
-
-#### Scenario: Skip registration verification
-
-- **WHEN** registration is accepted while registration verification is skipped
-- **THEN** the Web shows that the account was created and directs the visitor to login without showing code controls
-
 ### Requirement: Web log-in screen
 
 The Web UI SHALL expose a dedicated login page with email, password, a login action, and a **Forgot password?** action. Failed login shows neutral failure feedback. Successful login MUST open the signed-in user's Artifact list without requiring a separate confirmation action. An unverified-account response while registration verification is required SHALL offer a protected way to request a verification code without exposing whether a submitted password was correct in other failure cases.
@@ -118,6 +89,35 @@ The account-entry surface MUST NOT expose social login, phone login, artifact ac
 - **THEN** only registration, login, registration email verification, and email password-reset actions required by the current state are available
 
 ## ADDED Requirements
+
+### Requirement: Web sign-up page
+
+The Web UI SHALL expose a dedicated self-service sign-up page with name, email, password, and a sign-up action. Invalid input MUST produce visible field-level feedback and MUST NOT imply account creation. When registration verification is required, accepted sign-up SHALL replace the form with a code-entry state that includes a masked destination, one accessible numeric code input, a server-owned resend countdown, a resend action, and an action to use a different email. Successful verification SHALL direct the user to login without creating signed-in state.
+
+#### Scenario: Reach the sign-up form
+
+- **WHEN** a visitor opens the sign-up page
+- **THEN** a form with name, email, password, and a sign-up action is available
+
+#### Scenario: Invalid input feedback
+
+- **WHEN** a visitor submits invalid name, email, or password input
+- **THEN** field-level feedback is visible and no account is created
+
+#### Scenario: Enter registration verification
+
+- **WHEN** registration is accepted while registration verification is required
+- **THEN** the Web shows the masked destination, verification-code input, resend waiting period, resend action, and use-different-email action
+
+#### Scenario: Complete registration verification
+
+- **WHEN** the visitor submits the correct active registration code
+- **THEN** the email becomes verified and the Web directs the visitor to login without creating signed-in state
+
+#### Scenario: Skip registration verification
+
+- **WHEN** registration is accepted while registration verification is skipped
+- **THEN** the Web shows that the account was created and directs the visitor to login without showing code controls
 
 ### Requirement: Deployment-controlled registration verification
 
@@ -288,3 +288,11 @@ Authentication-email and password-reset logs, traces, errors, and ordinary job-i
 
 - **WHEN** verification, delivery, limit, circuit-breaker, or password-reset events are recorded
 - **THEN** the records contain stable reason codes and safe correlation identifiers without authentication secrets or raw email addresses
+
+## REMOVED Requirements
+
+### Requirement: Web register screen
+
+**Reason**: The self-service account action and route component now use the product term sign up.
+
+**Migration**: Use the Web sign-up page requirement and the `signup` query route.
