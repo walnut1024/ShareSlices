@@ -52,6 +52,12 @@ pub struct ArtifactUploadArgs {
     pub entry: Option<String>,
     #[arg(long)]
     pub no_progress: bool,
+    #[arg(long, value_name = "FIELDS")]
+    pub json: Option<String>,
+    #[arg(long, requires = "json", conflicts_with = "template")]
+    pub jq: Option<String>,
+    #[arg(long, requires = "json", conflicts_with = "jq")]
+    pub template: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]

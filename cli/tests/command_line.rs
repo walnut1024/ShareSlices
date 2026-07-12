@@ -75,6 +75,10 @@ fn parses_prepared_zip_upload_options() {
         "--entry",
         "report.html",
         "--no-progress",
+        "--json",
+        "artifact,version",
+        "--jq",
+        ".artifact.id",
     ])
     .expect("upload command");
     let Command::Artifact {
@@ -87,5 +91,7 @@ fn parses_prepared_zip_upload_options() {
     assert_eq!(args.name.as_deref(), Some("Report"));
     assert_eq!(args.entry.as_deref(), Some("report.html"));
     assert!(args.no_progress);
+    assert_eq!(args.json.as_deref(), Some("artifact,version"));
+    assert_eq!(args.jq.as_deref(), Some(".artifact.id"));
     assert!(Cli::try_parse_from(["shareslices", "artifact", "upload", "a.zip", "b.zip"]).is_err());
 }

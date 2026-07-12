@@ -1,7 +1,26 @@
 // cspell:ignore WDJF XZPL
-use shareslices_cli::{ApiClient, AuthApi, AuthError};
+use shareslices_cli::{ApiClient, ArtifactError, AuthApi, AuthError};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use wiremock::matchers::{header, method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
+use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
+
+#[derive(Clone)]
+struct PendingThenAccepted(Arc<AtomicUsize>);
+
+impl Respond for PendingThenAccepted {
+    fn respond(&self, _request: &Request) -> ResponseTemplate {
+        if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
+            ResponseTemplate::new(409).set_body_json(serde_json::json!({
+                "error": { "code": "operation_in_progress", "message": "Pending", "requestId": "req-1" }
+            }))
+        } else {
+            ResponseTemplate::new(202).set_body_json(serde_json::json!({
+                "artifactId": "artifact-1", "uploadSessionId": "upload-1"
+            }))
+        }
+    }
+}
 
 #[tokio::test]
 async fn sends_compatibility_headers_on_every_request() {
@@ -48,6 +67,63 @@ async fn maps_upgrade_required_without_exposing_server_internals() {
         client.start_authorization().await,
         Err(AuthError::UpgradeRequired { .. })
     ));
+}
+
+#[tokio::test]
+async fn artifact_requests_preserve_actionable_upgrade_details() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(ResponseTemplate::new(426).set_body_json(serde_json::json!({
+            "error": {
+                "code": "cli_upgrade_required",
+                "message": "Update ShareSlices CLI to continue.",
+                "requestId": "req-secret",
+                "details": { "currentVersion": "0.1.0", "minimumVersion": "0.2.0" }
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let error = ApiClient::new(&server.uri())
+        .expect("client")
+        .artifact_state("secret", "artifact-1")
+        .await
+        .expect_err("upgrade required");
+    assert!(matches!(
+        error,
+        ArtifactError::UpgradeRequired { current, minimum }
+            if current == "0.1.0" && minimum == "0.2.0"
+    ));
+}
+
+#[tokio::test]
+async fn upload_replays_uncertain_acceptance_with_one_idempotency_key() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/artifacts"))
+        .respond_with(PendingThenAccepted(Arc::new(AtomicUsize::new(0))))
+        .expect(2)
+        .mount(&server)
+        .await;
+    let directory = tempfile::tempdir().expect("tempdir");
+    let zip_path = directory.path().join("report.zip");
+    let file = std::fs::File::create(&zip_path).expect("ZIP");
+    zip::ZipWriter::new(file).finish().expect("finish ZIP");
+
+    let accepted = ApiClient::new(&server.uri())
+        .expect("client")
+        .upload_artifact("secret", "Report", Some("index.html"), &zip_path, None)
+        .await
+        .expect("replayed acceptance");
+    assert_eq!(accepted.artifact_id, "artifact-1");
+    let requests = server.received_requests().await.expect("requests");
+    let keys = requests
+        .iter()
+        .map(|request| request.headers.get("idempotency-key").expect("key"))
+        .collect::<Vec<_>>();
+    assert_eq!(keys.len(), 2);
+    assert_eq!(keys[0], keys[1]);
 }
 
 #[tokio::test]

@@ -139,6 +139,8 @@ pub enum ArtifactError {
     InvalidTemplate,
     #[error("Could not reach ShareSlices: {0}")]
     Network(String),
+    #[error("Update ShareSlices CLI before continuing.\nCurrent: {current}\nMinimum: {minimum}")]
+    UpgradeRequired { current: String, minimum: String },
     #[error("ShareSlices returned an unexpected response.")]
     Server,
     #[error("Upload input must be one readable .zip file.")]
@@ -149,4 +151,8 @@ pub enum ArtifactError {
     InvalidEntry,
     #[error("Artifact processing failed: {0}")]
     ProcessingFailed(String),
+    #[error(
+        "Upload was sent, but ShareSlices could not confirm acceptance after safe retries. Check artifact list before retrying."
+    )]
+    UploadConfirmationPending,
 }

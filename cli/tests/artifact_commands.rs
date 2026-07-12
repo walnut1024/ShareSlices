@@ -1,4 +1,4 @@
-// cspell:ignore nocapture
+// cspell:ignore nocapture rfind
 use shareslices_cli::{
     ApiClient, Artifact, ArtifactListArgs, ArtifactShareLink, ArtifactUploadArgs, AuthError,
     CredentialStore, run_artifact_list, run_artifact_upload, select_artifact,
@@ -207,6 +207,9 @@ async fn uploads_prepared_zip_waits_for_ready_and_suppresses_progress() {
         name: None,
         entry: None,
         no_progress: true,
+        json: None,
+        jq: None,
+        template: None,
     };
     let api = ApiClient::new(&server.uri()).expect("client");
     let store = Store(Mutex::new(Some("secret".into())));
@@ -220,6 +223,228 @@ async fn uploads_prepared_zip_waits_for_ready_and_suppresses_progress() {
         "Artifact artifact-1 uploaded as Version version-1\n"
     );
     assert!(stderr.is_empty());
+}
+
+#[tokio::test]
+async fn processing_failure_is_actionable_and_progress_is_kept_on_stderr() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/artifacts"))
+        .respond_with(ResponseTemplate::new(202).set_body_json(serde_json::json!({
+            "artifactId": "artifact-1", "uploadSessionId": "upload-1"
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifact": {
+                "processingState": "failed",
+                "readyVersion": null,
+                "failure": { "code": "missing_entry_file", "message": "Choose an HTML Entry file." }
+            }
+        })))
+        .mount(&server)
+        .await;
+    let directory = tempfile::tempdir().expect("tempdir");
+    let path = directory.path().join("report.zip");
+    write_zip(&path, &["index.html"]);
+    let args = ArtifactUploadArgs {
+        path,
+        name: None,
+        entry: None,
+        no_progress: false,
+        json: None,
+        jq: None,
+        template: None,
+    };
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let error = run_artifact_upload(
+        &args,
+        &ApiClient::new(&server.uri()).expect("client"),
+        &Store(Mutex::new(Some("secret".into()))),
+        &mut stdout,
+        &mut stderr,
+    )
+    .await
+    .expect_err("processing failure");
+    assert!(stdout.is_empty());
+    assert!(
+        String::from_utf8(stderr)
+            .expect("stderr")
+            .contains("Processing")
+    );
+    assert!(error.to_string().contains("missing_entry_file"));
+    assert!(error.to_string().contains("Choose an HTML Entry file"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn isolated_upload_process_passes_zip_through_and_prints_stable_json() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/artifacts"))
+        .respond_with(ResponseTemplate::new(202).set_body_json(serde_json::json!({
+            "artifactId": "artifact-1", "uploadSessionId": "upload-1"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifact": { "processingState": "ready", "readyVersion": { "id": "version-1" }, "failure": null }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let directory = tempfile::tempdir().expect("tempdir");
+    let zip_path = directory.path().join("prepared.zip");
+    write_zip(&zip_path, &["report.html"]);
+    let submitted = std::fs::read(&zip_path).expect("ZIP bytes");
+    let executable = std::env::current_exe().expect("test executable");
+    let api_url = server.uri();
+    let output = tokio::task::spawn_blocking(move || {
+        Command::new(executable)
+            .args([
+                "--ignored",
+                "--exact",
+                "process_upload_fixture",
+                "--nocapture",
+            ])
+            .env("SHARESLICES_TEST_API_URL", api_url)
+            .env("SHARESLICES_TEST_ZIP", zip_path)
+            .env("SHARESLICES_TEST_ENTRY", "report.html")
+            .output()
+            .expect("isolated upload process")
+    })
+    .await
+    .expect("process task");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).expect("UTF-8 stdout");
+    let json_start = stdout.find('{').expect("JSON start");
+    let json_end = stdout.rfind('}').expect("JSON end") + 1;
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout[json_start..json_end]).expect("JSON stdout");
+    assert_eq!(value["artifact"]["id"], "artifact-1");
+    assert_eq!(value["version"]["id"], "version-1");
+    assert!(output.stderr.is_empty());
+    let requests = server.received_requests().await.expect("requests");
+    let upload = requests
+        .iter()
+        .find(|request| request.url.path() == "/api/artifacts")
+        .expect("upload request");
+    assert!(
+        upload
+            .body
+            .windows(submitted.len())
+            .any(|window| window == submitted)
+    );
+    let multipart = String::from_utf8_lossy(&upload.body);
+    assert!(multipart.contains("report.html"));
+    assert!(multipart.contains("prepared"));
+}
+
+#[tokio::test]
+#[ignore = "fixture invoked only by isolated_upload_process_passes_zip_through_and_prints_stable_json"]
+async fn process_upload_fixture() {
+    let args = ArtifactUploadArgs {
+        path: std::env::var("SHARESLICES_TEST_ZIP")
+            .expect("ZIP path")
+            .into(),
+        name: None,
+        entry: std::env::var("SHARESLICES_TEST_ENTRY").ok(),
+        no_progress: true,
+        json: Some("artifact,version,publication".into()),
+        jq: None,
+        template: None,
+    };
+    let api = ApiClient::new(&std::env::var("SHARESLICES_TEST_API_URL").expect("API URL"))
+        .expect("client");
+    let store = Store(Mutex::new(Some("fixture-secret".into())));
+    if let Err(error) = run_artifact_upload(
+        &args,
+        &api,
+        &store,
+        &mut std::io::stdout(),
+        &mut std::io::stderr(),
+    )
+    .await
+    {
+        eprintln!("{error}");
+        std::process::exit(1);
+    }
+}
+
+#[test]
+fn ambiguous_entry_fails_locally_without_a_terminal_or_request() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let path = directory.path().join("ambiguous.zip");
+    write_zip(&path, &["one.html", "two.html"]);
+    let args = ArtifactUploadArgs {
+        path,
+        name: Some("Ambiguous".into()),
+        entry: None,
+        no_progress: true,
+        json: None,
+        jq: None,
+        template: None,
+    };
+    let runtime = tokio::runtime::Runtime::new().expect("runtime");
+    let error = runtime
+        .block_on(run_artifact_upload(
+            &args,
+            &ApiClient::new("http://127.0.0.1:1").expect("client"),
+            &Store(Mutex::new(Some("secret".into()))),
+            &mut Vec::new(),
+            &mut Vec::new(),
+        ))
+        .expect_err("ambiguous entry");
+    assert!(matches!(
+        error,
+        shareslices_cli::ArtifactError::AmbiguousEntry
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn isolated_upload_process_reports_ambiguous_entry_without_a_request() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let zip_path = directory.path().join("ambiguous.zip");
+    write_zip(&zip_path, &["one.html", "two.html"]);
+    let executable = std::env::current_exe().expect("test executable");
+    let output = tokio::task::spawn_blocking(move || {
+        Command::new(executable)
+            .args([
+                "--ignored",
+                "--exact",
+                "process_upload_fixture",
+                "--nocapture",
+            ])
+            .env("SHARESLICES_TEST_API_URL", "http://127.0.0.1:1")
+            .env("SHARESLICES_TEST_ZIP", zip_path)
+            .output()
+            .expect("isolated upload process")
+    })
+    .await
+    .expect("process task");
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("pass --entry <path>"));
+}
+
+fn write_zip(path: &std::path::Path, entries: &[&str]) {
+    let file = std::fs::File::create(path).expect("ZIP");
+    let mut writer = zip::ZipWriter::new(file);
+    for entry in entries {
+        writer
+            .start_file(*entry, zip::write::SimpleFileOptions::default())
+            .expect("entry");
+        writer.write_all(b"<html></html>").expect("body");
+    }
+    writer.finish().expect("finish");
 }
 
 #[test]
