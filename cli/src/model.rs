@@ -123,6 +123,17 @@ pub struct ArtifactFailure {
     pub message: String,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadPolicy {
+    pub revision: String,
+    pub max_archive_bytes: u64,
+    pub max_expanded_bytes: u64,
+    pub max_file_count: usize,
+    pub max_file_bytes: u64,
+    pub enabled_extensions: Vec<String>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ArtifactError {
     #[error("Not signed in. Run shareslices auth login.")]
@@ -143,6 +154,8 @@ pub enum ArtifactError {
     Server,
     #[error("Upload input must be one readable .zip file.")]
     InvalidZipInput,
+    #[error("Invalid upload input: {0}")]
+    InvalidUploadInput(String),
     #[error("The ZIP has multiple possible entry files; pass --entry <path>.")]
     AmbiguousEntry,
     #[error("The requested entry is not an HTML file in the ZIP.")]

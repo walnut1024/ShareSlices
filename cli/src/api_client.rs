@@ -1,6 +1,6 @@
 use crate::{
     Artifact, ArtifactAccepted, ArtifactError, ArtifactState, AuthApi, AuthError, Authorization,
-    Exchange, ProcessingFilter, PublicationFilter, User,
+    Exchange, ProcessingFilter, PublicationFilter, UploadPolicy, User,
 };
 use async_trait::async_trait;
 use reqwest::{Client, Response, StatusCode};
@@ -43,6 +43,37 @@ impl ApiClient {
             base_url: url::Url::parse(base_url).map_err(|_| AuthError::InvalidApiUrl)?,
             client: Client::new(),
         })
+    }
+
+    /// Reads the active upload policy used for local packaging bounds.
+    ///
+    /// # Errors
+    /// Returns an Artifact error for authentication, transport, or response failures.
+    pub async fn upload_policy(&self, token: &str) -> Result<UploadPolicy, ArtifactError> {
+        #[derive(Deserialize)]
+        struct Body {
+            policy: UploadPolicy,
+        }
+        let response = self
+            .request(
+                reqwest::Method::GET,
+                "/api/artifact-upload-policies/current",
+            )
+            .bearer_auth(token)
+            .send()
+            .await
+            .map_err(|error| ArtifactError::Network(error.to_string()))?;
+        if response.status() == StatusCode::UNAUTHORIZED {
+            return Err(ArtifactError::Unauthenticated);
+        }
+        if !response.status().is_success() {
+            return Err(ArtifactError::Server);
+        }
+        response
+            .json::<Body>()
+            .await
+            .map(|body| body.policy)
+            .map_err(|_| ArtifactError::Server)
     }
 
     fn request(&self, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {

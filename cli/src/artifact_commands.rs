@@ -1,4 +1,5 @@
 // cspell:ignore gtmpl
+use crate::packaging::prepare_upload;
 use crate::{
     ApiClient, Artifact, ArtifactError, ArtifactListArgs, ArtifactUploadArgs, CredentialStore,
 };
@@ -28,15 +29,23 @@ pub async fn run_artifact_upload(
     output: &mut dyn Write,
     diagnostics: &mut dyn Write,
 ) -> Result<(), ArtifactError> {
-    if args
-        .path
-        .extension()
-        .and_then(|v| v.to_str())
-        .is_none_or(|v| !v.eq_ignore_ascii_case("zip"))
-    {
-        return Err(ArtifactError::InvalidZipInput);
-    }
-    let file = File::open(&args.path).map_err(|_| ArtifactError::InvalidZipInput)?;
+    let token = store
+        .get()
+        .map_err(|_| ArtifactError::Unauthenticated)?
+        .ok_or(ArtifactError::Unauthenticated)?;
+    let policy = api.upload_policy(&token).await?;
+    let paths = args.paths.clone();
+    let root = args.root.clone();
+    let packaging =
+        tokio::task::spawn_blocking(move || prepare_upload(&paths, root.as_deref(), &policy));
+    let prepared = tokio::select! {
+        result = packaging => result.map_err(|_| ArtifactError::Server)??,
+        result = tokio::signal::ctrl_c() => {
+            result.map_err(|_| ArtifactError::Server)?;
+            return Err(ArtifactError::Cancelled);
+        }
+    };
+    let file = File::open(&prepared.path).map_err(|_| ArtifactError::InvalidZipInput)?;
     let mut archive = zip::ZipArchive::new(file).map_err(|_| ArtifactError::InvalidZipInput)?;
     let mut html = Vec::new();
     for index in 0..archive.len() {
@@ -95,19 +104,10 @@ pub async fn run_artifact_upload(
     let name = args
         .name
         .clone()
-        .or_else(|| {
-            args.path
-                .file_stem()
-                .and_then(|v| v.to_str())
-                .map(str::to_owned)
-        })
+        .or_else(|| Some(prepared.default_name.clone()))
         .filter(|v| !v.trim().is_empty())
         .ok_or(ArtifactError::InvalidZipInput)?;
-    let token = store
-        .get()
-        .map_err(|_| ArtifactError::Unauthenticated)?
-        .ok_or(ArtifactError::Unauthenticated)?;
-    let total = args
+    let total = prepared
         .path
         .metadata()
         .map_err(|_| ArtifactError::InvalidZipInput)?
@@ -117,7 +117,7 @@ pub async fn run_artifact_upload(
         &token,
         &name,
         entry.as_deref(),
-        &args.path,
+        &prepared.path,
         (!args.no_progress).then_some(progress_tx),
     );
     tokio::pin!(upload);
@@ -126,6 +126,10 @@ pub async fn run_artifact_upload(
             result = &mut upload => break result?,
             Some(sent) = progress_rx.recv(), if !args.no_progress => {
                 writeln!(diagnostics, "Uploading {sent}/{total} bytes").map_err(|_| ArtifactError::Server)?;
+            }
+            result = tokio::signal::ctrl_c() => {
+                result.map_err(|_| ArtifactError::Server)?;
+                return Err(ArtifactError::Cancelled);
             }
         }
     };

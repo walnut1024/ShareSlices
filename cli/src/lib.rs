@@ -4,6 +4,7 @@ mod auth_commands;
 mod command_line;
 mod credential_store;
 mod model;
+mod packaging;
 
 pub use api_client::ApiClient;
 pub use artifact_commands::{
@@ -17,6 +18,6 @@ pub use command_line::{
 pub use credential_store::KeyringCredentialStore;
 pub use model::{
     Artifact, ArtifactAccepted, ArtifactError, ArtifactFailure, ArtifactPublication,
-    ArtifactShareLink, ArtifactState, ReadyVersion,
+    ArtifactShareLink, ArtifactState, ReadyVersion, UploadPolicy,
 };
 pub use model::{AuthApi, AuthError, Authorization, CredentialStore, Exchange, User};
