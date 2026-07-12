@@ -16,14 +16,14 @@ function Brand() {
 
 export function AuthLayout({ children, footer }: { children: ReactNode; footer?: ReactNode }) {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-neutral-50 px-8 py-8">
-      <Card className="min-h-[640px] w-[880px] flex-row gap-0 overflow-hidden py-0">
-        <CardContent className="flex min-w-0 flex-1 flex-col px-14 py-10">
+    <main className="flex min-h-screen items-center justify-center bg-neutral-50 px-8 py-5">
+      <Card className="min-h-[680px] w-[1088px] flex-row gap-0 overflow-hidden py-0">
+        <CardContent className="flex min-w-0 flex-1 flex-col px-16 py-10">
           <Brand />
-          <div className="my-auto w-full max-w-[320px] py-11">{children}</div>
+          <div className="my-auto w-full max-w-[360px] py-11">{children}</div>
           {footer ? <div className="text-xs text-neutral-400">{footer}</div> : null}
         </CardContent>
-        <aside className="flex w-[340px] flex-none flex-col justify-center bg-neutral-950 px-10 py-14 text-neutral-50">
+        <aside className="flex w-[416px] flex-none flex-col justify-center bg-neutral-950 px-10 py-14 text-neutral-50">
           <h2 className="m-0 text-2xl font-semibold leading-tight tracking-[-0.015em]">
             Give Every Idea An Audience
           </h2>
