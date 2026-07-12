@@ -371,6 +371,124 @@ async fn isolated_upload_process_passes_zip_through_and_prints_stable_json() {
     assert!(multipart.contains("prepared"));
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn isolated_upload_process_packages_only_the_selected_file_and_removes_temporary_zip() {
+    let server = MockServer::start().await;
+    mount_upload_policy(&server).await;
+    Mock::given(method("POST"))
+        .and(path("/api/artifacts"))
+        .respond_with(ResponseTemplate::new(202).set_body_json(serde_json::json!({
+            "artifactId": "artifact-1", "uploadSessionId": "upload-1"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifact": { "processingState": "ready", "readyVersion": { "id": "version-1" }, "failure": null }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let directory = tempfile::tempdir().expect("input tree");
+    let selected = directory.path().join("index.html");
+    std::fs::write(&selected, "selected-content").expect("selected input");
+    std::fs::write(directory.path().join("secret.txt"), "sibling-secret").expect("sibling");
+    let temporary = tempfile::tempdir().expect("temporary ZIP directory");
+    let executable = std::env::current_exe().expect("test executable");
+    let output = tokio::task::spawn_blocking({
+        let api_url = server.uri();
+        let temporary = temporary.path().to_owned();
+        move || {
+            Command::new(executable)
+                .args([
+                    "--ignored",
+                    "--exact",
+                    "process_upload_fixture",
+                    "--nocapture",
+                ])
+                .env("SHARESLICES_TEST_API_URL", api_url)
+                .env("SHARESLICES_TEST_ZIP", selected)
+                .env("SHARESLICES_TEST_ROOT", directory.path())
+                .env("TMPDIR", temporary)
+                .output()
+                .expect("isolated upload process")
+        }
+    })
+    .await
+    .expect("process task");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let requests = server.received_requests().await.expect("requests");
+    let body = &requests
+        .iter()
+        .find(|request| request.url.path() == "/api/artifacts")
+        .expect("upload request")
+        .body;
+    let start = body
+        .windows(4)
+        .position(|bytes| bytes == b"PK\x03\x04")
+        .expect("ZIP start");
+    let mut archive = zip::ZipArchive::new(Cursor::new(&body[start..])).expect("submitted ZIP");
+    assert_eq!(archive.len(), 1);
+    let mut entry = archive.by_index(0).expect("archive entry");
+    assert_eq!(entry.name(), "index.html");
+    let mut content = String::new();
+    std::io::Read::read_to_string(&mut entry, &mut content).expect("entry content");
+    assert_eq!(content, "selected-content");
+    assert_eq!(
+        std::fs::read_dir(temporary.path())
+            .expect("temporary directory")
+            .count(),
+        0
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn isolated_upload_process_removes_temporary_zip_after_local_entry_failure() {
+    let server = MockServer::start().await;
+    mount_upload_policy(&server).await;
+    let inputs = tempfile::tempdir().expect("input tree");
+    std::fs::write(inputs.path().join("one.html"), "one").expect("first entry");
+    std::fs::write(inputs.path().join("two.html"), "two").expect("second entry");
+    let temporary = tempfile::tempdir().expect("temporary ZIP directory");
+    let executable = std::env::current_exe().expect("test executable");
+    let output = tokio::task::spawn_blocking({
+        let input = inputs.path().to_owned();
+        let temporary_path = temporary.path().to_owned();
+        let api_url = server.uri();
+        move || {
+            Command::new(executable)
+                .args([
+                    "--ignored",
+                    "--exact",
+                    "process_upload_fixture",
+                    "--nocapture",
+                ])
+                .env("SHARESLICES_TEST_API_URL", api_url)
+                .env("SHARESLICES_TEST_ZIP", &input)
+                .env("SHARESLICES_TEST_ROOT", &input)
+                .env("TMPDIR", temporary_path)
+                .output()
+                .expect("isolated upload process")
+        }
+    })
+    .await
+    .expect("process task");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("pass --entry <path>"));
+    assert_eq!(
+        std::fs::read_dir(temporary.path())
+            .expect("temporary directory")
+            .count(),
+        0
+    );
+}
+
 #[tokio::test]
 #[ignore = "fixture invoked only by isolated_upload_process_passes_zip_through_and_prints_stable_json"]
 async fn process_upload_fixture() {
@@ -389,6 +507,9 @@ async fn process_upload_fixture() {
     ];
     if let Ok(entry) = std::env::var("SHARESLICES_TEST_ENTRY") {
         argv.extend(["--entry".to_owned(), entry]);
+    }
+    if let Ok(root) = std::env::var("SHARESLICES_TEST_ROOT") {
+        argv.extend(["--root".to_owned(), root]);
     }
     let cli = Cli::try_parse_from(argv).expect("CLI arguments");
     let api = ApiClient::new(&cli.api_url).expect("client");
@@ -507,8 +628,9 @@ async fn isolated_production_entrypoint_maps_sigint_to_exit_two() {
         .mount(&server)
         .await;
     let directory = tempfile::tempdir().expect("tempdir");
-    let zip_path = directory.path().join("report.zip");
-    write_zip(&zip_path, &["index.html"]);
+    let input_path = directory.path().join("index.html");
+    std::fs::write(&input_path, "cancelled-content").expect("input");
+    let temporary = tempfile::tempdir().expect("temporary ZIP directory");
     let executable = std::env::current_exe().expect("test executable");
     let child = Command::new(executable)
         .args([
@@ -518,7 +640,9 @@ async fn isolated_production_entrypoint_maps_sigint_to_exit_two() {
             "--nocapture",
         ])
         .env("SHARESLICES_TEST_API_URL", server.uri())
-        .env("SHARESLICES_TEST_ZIP", zip_path)
+        .env("SHARESLICES_TEST_ZIP", input_path)
+        .env("SHARESLICES_TEST_ROOT", directory.path())
+        .env("TMPDIR", temporary.path())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -532,6 +656,12 @@ async fn isolated_production_entrypoint_maps_sigint_to_exit_two() {
     let output = child.wait_with_output().expect("CLI output");
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&output.stderr).contains("cancelled"));
+    assert_eq!(
+        std::fs::read_dir(temporary.path())
+            .expect("temporary directory")
+            .count(),
+        0
+    );
 }
 
 fn write_zip(path: &std::path::Path, entries: &[&str]) {

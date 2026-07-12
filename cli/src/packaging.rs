@@ -109,8 +109,10 @@ pub fn prepare_upload(
 fn write_archive(
     entries: BTreeMap<String, PathBuf>,
 ) -> Result<tempfile::NamedTempFile, ArtifactError> {
-    let mut temporary =
-        tempfile::NamedTempFile::new().map_err(|_| invalid_error("cannot create temporary ZIP"))?;
+    let mut temporary = tempfile::Builder::new()
+        .suffix(".zip")
+        .tempfile()
+        .map_err(|_| invalid_error("cannot create temporary ZIP"))?;
     let mut writer = zip::ZipWriter::new(temporary.as_file_mut());
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
