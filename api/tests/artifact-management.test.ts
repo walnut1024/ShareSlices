@@ -74,10 +74,29 @@ function harness(options: {
               artifactId: "artifact-1",
               uploadSessionId: "upload-1",
               versionNumber: 1,
-              state: "ready"
+              state: "ready",
+              createdAt: new Date("2026-07-10T00:30:00Z")
             }
           : null
-      )
+      ),
+      listReadyByArtifact: vi.fn().mockResolvedValue([
+        {
+          id: "version-2",
+          artifactId: "artifact-1",
+          uploadSessionId: "upload-2",
+          versionNumber: 2,
+          state: "ready",
+          createdAt: new Date("2026-07-10T02:00:00Z")
+        },
+        {
+          id: "version-1",
+          artifactId: "artifact-1",
+          uploadSessionId: "upload-1",
+          versionNumber: 1,
+          state: "ready",
+          createdAt: new Date("2026-07-10T01:00:00Z")
+        }
+      ])
     },
     publications: {
       findCurrent: vi.fn().mockResolvedValue(
@@ -110,6 +129,17 @@ function harness(options: {
 }
 
 describe("ArtifactManagementService", () => {
+  it("lists ready Versions only after owned Artifact resolution", async () => {
+    const { service, repositories } = harness({ ready: true });
+    await expect(service.listReadyVersions("owner-1", "artifact-1")).resolves.toEqual([
+      { id: "version-2", versionNumber: 2, createdAt: "2026-07-10T02:00:00.000Z" },
+      { id: "version-1", versionNumber: 1, createdAt: "2026-07-10T01:00:00.000Z" }
+    ]);
+    vi.mocked(repositories.artifacts.findOwned).mockResolvedValueOnce(null);
+    await expect(service.listReadyVersions("other", "artifact-1")).rejects.toEqual(
+      new ArtifactManagementError("artifact_not_found")
+    );
+  });
   it("returns bounded pages with opaque tokens and rejects malformed tokens", async () => {
     const { service, repositories } = harness({ ready: true });
     const first = await repositories.artifacts.findOwned("owner-1", "artifact-1");

@@ -100,6 +100,12 @@ describe("Artifact repository adapters", () => {
     expect(policy?.formats).toHaveLength(18);
   });
 
+  it("lists ready Versions newest first for one Artifact", async () => {
+    await expect(repositories.versions.listReadyByArtifact("artifact-1")).resolves.toMatchObject([
+      { id: "version-1", artifactId: "artifact-1", versionNumber: 1, state: "ready" }
+    ]);
+  });
+
   it("keeps Artifact reads and name updates scoped to the owner", async () => {
     await expect(repositories.artifacts.listOwned("owner-1")).resolves.toHaveLength(1);
     await expect(repositories.artifacts.findOwned("owner-1", "artifact-2")).resolves.toBeNull();

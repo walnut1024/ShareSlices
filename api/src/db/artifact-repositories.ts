@@ -103,7 +103,8 @@ function versionRecord(row: typeof schema.artifactVersion.$inferSelect): Version
     artifactId: row.artifactId,
     uploadSessionId: row.uploadSessionId,
     versionNumber: row.versionNumber,
-    state: row.state
+    state: row.state,
+    createdAt: row.createdAt
   };
 }
 
@@ -291,6 +292,14 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
           orderBy: [desc(schema.artifactVersion.versionNumber)]
         });
         return row ? versionRecord(row) : null;
+      },
+      async listReadyByArtifact(artifactId) {
+        const rows = await database.query.artifactVersion.findMany({
+          where: and(eq(schema.artifactVersion.artifactId, artifactId), eq(schema.artifactVersion.state, "ready")),
+          orderBy: [desc(schema.artifactVersion.versionNumber)],
+          limit: 100
+        });
+        return rows.map(versionRecord);
       }
     },
     publications: {

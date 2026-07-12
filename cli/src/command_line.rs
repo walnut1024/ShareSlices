@@ -40,6 +40,34 @@ pub enum AuthCommand {
 pub enum ArtifactCommand {
     List(ArtifactListArgs),
     Upload(ArtifactUploadArgs),
+    Publish(ArtifactPublishArgs),
+    Unpublish(ArtifactUnpublishArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct ArtifactPublishArgs {
+    #[arg(value_name = "ARTIFACT_ID")]
+    pub artifact: Option<String>,
+    #[arg(long, value_name = "VERSION_ID")]
+    pub version: Option<String>,
+    #[arg(long, value_name = "FIELDS")]
+    pub json: Option<String>,
+    #[arg(long, requires = "json", conflicts_with = "template")]
+    pub jq: Option<String>,
+    #[arg(long, requires = "json", conflicts_with = "jq")]
+    pub template: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct ArtifactUnpublishArgs {
+    #[arg(value_name = "ARTIFACT_ID")]
+    pub artifact: Option<String>,
+    #[arg(long, value_name = "FIELDS")]
+    pub json: Option<String>,
+    #[arg(long, requires = "json", conflicts_with = "template")]
+    pub jq: Option<String>,
+    #[arg(long, requires = "json", conflicts_with = "jq")]
+    pub template: Option<String>,
 }
 
 #[derive(Debug, Args)]

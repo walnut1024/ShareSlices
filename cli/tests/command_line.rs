@@ -121,3 +121,36 @@ fn parses_prepared_zip_upload_options() {
         .is_err()
     );
 }
+
+#[test]
+fn parses_publish_and_unpublish_commands() {
+    let publish = Cli::try_parse_from([
+        "shareslices",
+        "artifact",
+        "publish",
+        "artifact-1",
+        "--version",
+        "version-2",
+        "--json",
+        "artifact,access",
+    ])
+    .expect("publish");
+    let Command::Artifact {
+        command: ArtifactCommand::Publish(args),
+    } = publish.command
+    else {
+        panic!("publish command")
+    };
+    assert_eq!(args.artifact.as_deref(), Some("artifact-1"));
+    assert_eq!(args.version.as_deref(), Some("version-2"));
+    assert_eq!(args.json.as_deref(), Some("artifact,access"));
+
+    let unpublish = Cli::try_parse_from(["shareslices", "artifact", "unpublish", "artifact-1"])
+        .expect("unpublish");
+    assert!(matches!(
+        unpublish.command,
+        Command::Artifact {
+            command: ArtifactCommand::Unpublish(_)
+        }
+    ));
+}

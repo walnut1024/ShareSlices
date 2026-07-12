@@ -88,6 +88,7 @@ export type VersionRecord = {
   uploadSessionId: string;
   versionNumber: number;
   state: string;
+  createdAt: Date;
 };
 
 export type PublicationRecord = {
@@ -198,6 +199,7 @@ export interface ProcessingJobRepository {
 export interface VersionRepository {
   findReadyOwned(ownerUserId: string, versionId: string): Promise<VersionRecord | null>;
   findReadyByArtifact(artifactId: string): Promise<VersionRecord | null>;
+  listReadyByArtifact(artifactId: string): Promise<VersionRecord[]>;
 }
 
 export interface PublicationRepository {

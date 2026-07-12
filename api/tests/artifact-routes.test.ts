@@ -45,6 +45,9 @@ function managementDependencies() {
     management: {
       list: vi.fn().mockResolvedValue({ artifacts: [artifact], nextPageToken: null }),
       get: vi.fn().mockResolvedValue(artifact),
+      listReadyVersions: vi.fn().mockResolvedValue([
+        { id: "version-2", versionNumber: 2, createdAt: "2026-07-10T02:00:00.000Z" }
+      ]),
       rename: vi.fn().mockResolvedValue({ ...artifact, name: "Renamed" }),
       setShareExpiration: vi.fn().mockResolvedValue(artifact),
       delete: vi.fn().mockResolvedValue(undefined)
@@ -67,6 +70,16 @@ describe("Artifact routes", () => {
     expect(response.status).toBe(401);
     await expect(response.json()).resolves.toMatchObject({ error: { code: "unauthenticated" } });
     expect(dependencies.repositories.uploadPolicies.getActive).not.toHaveBeenCalled();
+  });
+
+  it("lists ready Versions for the owned Artifact", async () => {
+    const dependencies = managementDependencies();
+    const app = buildApp({ artifact: dependencies } as never);
+    const response = await app.request("/api/artifacts/artifact-1/versions");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      versions: [{ id: "version-2", versionNumber: 2, createdAt: "2026-07-10T02:00:00.000Z" }]
+    });
   });
 
   it("returns the complete active policy and opaque revision", async () => {

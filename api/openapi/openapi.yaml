@@ -774,6 +774,33 @@ paths:
           $ref: "#/components/responses/OperationConflict"
         "500":
           $ref: "#/components/responses/InternalError"
+  /api/artifacts/{artifactId}/versions:
+    parameters:
+      - $ref: "#/components/parameters/ArtifactId"
+    get:
+      tags:
+        - artifacts
+      operationId: listArtifactVersions
+      summary: List the owned Artifact's ready immutable Versions.
+      security:
+        - sessionCookie: []
+        - sessionBearer: []
+      parameters:
+        - $ref: "#/components/parameters/CliVersionWhenBearer"
+        - $ref: "#/components/parameters/CliOperatingSystemWhenBearer"
+      responses:
+        "200":
+          description: Up to 100 ready Versions returned newest first for interactive selection.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactVersionListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/ArtifactNotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /api/artifacts/{artifactId}/share-link:
     parameters:
       - $ref: "#/components/parameters/ArtifactId"
@@ -1993,6 +2020,33 @@ components:
       properties:
         artifact:
           $ref: "#/components/schemas/Artifact"
+    ArtifactVersionListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - versions
+      properties:
+        versions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArtifactVersionSummary"
+    ArtifactVersionSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - versionNumber
+        - createdAt
+      properties:
+        id:
+          type: string
+          minLength: 1
+        versionNumber:
+          type: integer
+          minimum: 1
+        createdAt:
+          type: string
+          format: date-time
     Artifact:
       type: object
       additionalProperties: false

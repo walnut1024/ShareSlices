@@ -52,6 +52,12 @@ export type ArtifactListOptions = {
   pageToken?: string | undefined;
 };
 
+export type ReadyVersionState = {
+  id: string;
+  versionNumber: number;
+  createdAt: string;
+};
+
 export class ArtifactManagementError extends Error {
   constructor(readonly code: "artifact_not_found" | "invalid_artifact_name" | "invalid_expiration" | "invalid_artifact_state" | "invalid_page_token") {
     super({
@@ -145,6 +151,17 @@ export class ArtifactManagementService {
       throw new ArtifactManagementError("artifact_not_found");
     }
     return this.#state(artifact);
+  }
+
+  async listReadyVersions(ownerUserId: string, artifactId: string): Promise<ReadyVersionState[]> {
+    if (!(await this.#repositories.artifacts.findOwned(ownerUserId, artifactId))) {
+      throw new ArtifactManagementError("artifact_not_found");
+    }
+    return (await this.#repositories.versions.listReadyByArtifact(artifactId)).map((version) => ({
+      id: version.id,
+      versionNumber: version.versionNumber,
+      createdAt: version.createdAt.toISOString()
+    }));
   }
 
   async rename(ownerUserId: string, artifactId: string, requestedName: string): Promise<ArtifactManagementState> {

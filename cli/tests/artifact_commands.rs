@@ -1,10 +1,11 @@
 // cspell:ignore nocapture
 use clap::Parser as _;
 use shareslices_cli::{
-    ApiClient, Artifact, ArtifactCommand, ArtifactListArgs, ArtifactShareLink, ArtifactUploadArgs,
-    AuthError, Cli, Command as CliCommand, CredentialStore, UploadTargetChoice, artifact_exit_code,
-    run_artifact_command, run_artifact_list, run_artifact_upload, select_artifact,
-    select_upload_target,
+    ApiClient, Artifact, ArtifactCommand, ArtifactListArgs, ArtifactPublishArgs, ArtifactShareLink,
+    ArtifactUnpublishArgs, ArtifactUploadArgs, AuthError, Cli, Command as CliCommand,
+    CredentialStore, ReadyVersionSummary, UploadTargetChoice, artifact_exit_code,
+    run_artifact_command, run_artifact_list, run_artifact_publish, run_artifact_unpublish,
+    run_artifact_upload, select_artifact, select_ready_version, select_upload_target,
 };
 use std::io::Cursor;
 use std::io::Write as _;
@@ -30,6 +31,45 @@ impl Respond for ExistingVersionThenNewVersion {
                 "processingState": processing_state,
                 "readyVersion": { "id": version_id },
                 "failure": null
+            }
+        }))
+    }
+}
+
+struct PublishedThenUnpublished(Arc<AtomicUsize>);
+
+impl Respond for PublishedThenUnpublished {
+    fn respond(&self, _request: &Request) -> ResponseTemplate {
+        let published = self.0.fetch_add(1, Ordering::SeqCst) == 0;
+        ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifact": {
+                "name": "Report", "processingState": "ready",
+                "readyVersion": { "id": "version-2" }, "failure": null,
+                "shareLink": { "url": "http://example.test/a/stable/", "state": "active", "expiresAt": null },
+                "publication": if published { serde_json::json!({
+                    "id": "publication-1", "versionId": "version-2", "publishedAt": "2026-07-12T08:00:00Z"
+                }) } else { serde_json::Value::Null }
+            }
+        }))
+    }
+}
+
+struct PublishedForCalls {
+    calls: Arc<AtomicUsize>,
+    published_calls: usize,
+}
+
+impl Respond for PublishedForCalls {
+    fn respond(&self, _request: &Request) -> ResponseTemplate {
+        let published = self.calls.fetch_add(1, Ordering::SeqCst) < self.published_calls;
+        ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifact": {
+                "name": "Report", "processingState": "ready",
+                "readyVersion": { "id": "version-2" }, "failure": null,
+                "shareLink": { "url": "http://example.test/a/stable/", "state": "active", "expiresAt": null },
+                "publication": if published { serde_json::json!({
+                    "id": "publication-1", "versionId": "version-2", "publishedAt": "2026-07-12T08:00:00Z"
+                }) } else { serde_json::Value::Null }
             }
         }))
     }
@@ -557,6 +597,102 @@ async fn process_package_fixture() {
     }
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn isolated_production_entrypoint_publishes_and_unpublishes_explicit_resources() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/artifacts/artifact-1/publications"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+            "publication": { "id": "publication-1", "versionId": "version-2", "publishedAt": "2026-07-12T08:00:00Z" }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path("/api/artifacts/artifact-1/publications/publication-1"))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(PublishedForCalls {
+            calls: Arc::new(AtomicUsize::new(0)),
+            published_calls: 2,
+        })
+        .expect(3)
+        .mount(&server)
+        .await;
+    let executable = std::env::current_exe().expect("test executable");
+    for action in ["publish", "unpublish"] {
+        let output = tokio::task::spawn_blocking({
+            let executable = executable.clone();
+            let uri = server.uri();
+            move || {
+                Command::new(executable)
+                    .args([
+                        "--ignored",
+                        "--exact",
+                        "process_publication_fixture",
+                        "--nocapture",
+                    ])
+                    .env("SHARESLICES_TEST_API_URL", uri)
+                    .env("SHARESLICES_TEST_PUBLICATION_ACTION", action)
+                    .output()
+                    .expect("isolated CLI process")
+            }
+        })
+        .await
+        .expect("process task");
+        assert!(
+            output.status.success(),
+            "{action} stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains(if action == "publish" {
+                "published"
+            } else {
+                "unpublished"
+            })
+        );
+    }
+}
+
+#[tokio::test]
+#[ignore = "fixture invoked only by isolated_production_entrypoint_publishes_and_unpublishes_explicit_resources"]
+async fn process_publication_fixture() {
+    let action = std::env::var("SHARESLICES_TEST_PUBLICATION_ACTION").expect("action");
+    let arguments = if action == "publish" {
+        vec![
+            "shareslices",
+            "artifact",
+            "publish",
+            "artifact-1",
+            "--version",
+            "version-2",
+        ]
+    } else {
+        vec!["shareslices", "artifact", "unpublish", "artifact-1"]
+    };
+    let cli = Cli::try_parse_from(arguments).expect("production command parser");
+    let CliCommand::Artifact { command } = cli.command else {
+        unreachable!("fixture parses Artifact command")
+    };
+    let api = ApiClient::new(&std::env::var("SHARESLICES_TEST_API_URL").expect("API URL"))
+        .expect("client");
+    let store = Store(Mutex::new(Some("fixture-secret".into())));
+    run_artifact_command(
+        command,
+        &api,
+        &store,
+        &mut std::io::stdout(),
+        &mut std::io::stderr(),
+    )
+    .await
+    .expect("publication command");
+}
+
 #[test]
 fn shared_selector_never_prompts_when_disabled_or_without_a_terminal() {
     let artifacts = vec![Artifact {
@@ -565,6 +701,7 @@ fn shared_selector_never_prompts_when_disabled_or_without_a_terminal() {
         updated_at: "2026-07-12T08:00:00Z".into(),
         processing_state: "ready".into(),
         share_link: ArtifactShareLink {
+            url: "http://example.test/a/share/".into(),
             state: "active".into(),
             expires_at: None,
         },
@@ -593,6 +730,138 @@ fn shared_selector_never_prompts_when_disabled_or_without_a_terminal() {
     )
     .expect("selection");
     assert_eq!(selected.id, "artifact-1");
+}
+
+#[test]
+fn ready_version_selector_uses_only_the_explicit_terminal_choice() {
+    let versions = vec![
+        ReadyVersionSummary {
+            id: "version-2".into(),
+            version_number: 2,
+            created_at: "2026-07-12T08:00:00Z".into(),
+        },
+        ReadyVersionSummary {
+            id: "version-1".into(),
+            version_number: 1,
+            created_at: "2026-07-11T08:00:00Z".into(),
+        },
+    ];
+    let selected = select_ready_version(
+        &versions,
+        true,
+        true,
+        &mut Cursor::new(b"2\n"),
+        &mut Vec::new(),
+    )
+    .expect("selection");
+    assert_eq!(selected.id, "version-1");
+    assert!(
+        select_ready_version(
+            &versions,
+            false,
+            true,
+            &mut Cursor::new(b"1\n"),
+            &mut Vec::new()
+        )
+        .is_err()
+    );
+}
+
+#[tokio::test]
+async fn publishes_explicit_version_and_reports_external_access() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/artifacts/artifact-1/publications"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+            "publication": { "id": "publication-1", "versionId": "version-2", "publishedAt": "2026-07-12T08:00:00Z" }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(PublishedThenUnpublished(Arc::new(AtomicUsize::new(0))))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let args = ArtifactPublishArgs {
+        artifact: Some("artifact-1".into()),
+        version: Some("version-2".into()),
+        json: Some("artifact,version,publication,access".into()),
+        jq: None,
+        template: None,
+    };
+    let api = ApiClient::new(&server.uri()).expect("client");
+    let store = Store(Mutex::new(Some("secret".into())));
+    let mut output = Vec::new();
+    run_artifact_publish(&args, &api, &store, &mut output, &mut Vec::new())
+        .await
+        .expect("publish");
+    let value: serde_json::Value = serde_json::from_slice(&output).expect("JSON");
+    assert_eq!(value["version"]["id"], "version-2");
+    assert_eq!(value["access"]["state"], "published");
+    assert_eq!(value["access"]["url"], "http://example.test/a/stable/");
+}
+
+#[tokio::test]
+async fn unpublishes_current_publication_and_reports_repeatable_result() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(PublishedThenUnpublished(Arc::new(AtomicUsize::new(0))))
+        .expect(2)
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path("/api/artifacts/artifact-1/publications/publication-1"))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let args = ArtifactUnpublishArgs {
+        artifact: Some("artifact-1".into()),
+        json: Some("access,publication".into()),
+        jq: None,
+        template: None,
+    };
+    let api = ApiClient::new(&server.uri()).expect("client");
+    let store = Store(Mutex::new(Some("secret".into())));
+    let mut output = Vec::new();
+    run_artifact_unpublish(&args, &api, &store, &mut output, &mut Vec::new())
+        .await
+        .expect("unpublish");
+    let value: serde_json::Value = serde_json::from_slice(&output).expect("JSON");
+    assert_eq!(value["access"]["state"], "unpublished");
+    assert!(value["publication"].is_null());
+}
+
+#[tokio::test]
+async fn publication_commands_require_explicit_identifiers_without_a_terminal() {
+    let api = ApiClient::new("http://127.0.0.1:1").expect("client");
+    let store = Store(Mutex::new(Some("secret".into())));
+    let publish = ArtifactPublishArgs {
+        artifact: Some("artifact-1".into()),
+        version: None,
+        json: None,
+        jq: None,
+        template: None,
+    };
+    assert!(
+        run_artifact_publish(&publish, &api, &store, &mut Vec::new(), &mut Vec::new())
+            .await
+            .is_err()
+    );
+    let unpublish = ArtifactUnpublishArgs {
+        artifact: None,
+        json: None,
+        jq: None,
+        template: None,
+    };
+    assert!(
+        run_artifact_unpublish(&unpublish, &api, &store, &mut Vec::new(), &mut Vec::new())
+            .await
+            .is_err()
+    );
 }
 
 #[test]
