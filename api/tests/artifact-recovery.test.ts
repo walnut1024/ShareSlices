@@ -22,7 +22,15 @@ async function* body(value: string): AsyncIterable<Uint8Array> {
   yield Buffer.from(value);
 }
 
-function harness(options: { retryable?: boolean; ready?: boolean; existing?: IdempotencyRecord } = {}) {
+function harness(
+  options: {
+    retryable?: boolean;
+    ready?: boolean;
+    currentState?: "failed" | "committed";
+    owned?: boolean;
+    existing?: IdempotencyRecord;
+  } = {}
+) {
   const records = new Map<string, IdempotencyRecord>();
   if (options.existing) {
     records.set(options.existing.key, options.existing);
@@ -33,13 +41,17 @@ function harness(options: { retryable?: boolean; ready?: boolean; existing?: Ide
   const repositories = {
     artifacts: {
       listOwned: vi.fn(),
-      findOwned: vi.fn().mockResolvedValue({
-        id: "artifact-1",
-        ownerUserId: "owner-1",
-        name: "Report",
-        createdAt: new Date(),
-        updatedAt: new Date()
-      }),
+      findOwned: vi.fn().mockResolvedValue(
+        options.owned === false
+          ? null
+          : {
+              id: "artifact-1",
+              ownerUserId: "owner-1",
+              name: "Report",
+              createdAt: new Date(),
+              updatedAt: new Date()
+            }
+      ),
       updateName: vi.fn(),
       hasReadyVersion: vi.fn().mockResolvedValue(options.ready ?? false)
     },
@@ -58,7 +70,7 @@ function harness(options: { retryable?: boolean; ready?: boolean; existing?: Ide
       findOwned: vi.fn().mockResolvedValue({
         id: "upload-1",
         artifactId: "artifact-1",
-        state: options.ready ? "committed" : "failed",
+        state: options.currentState ?? (options.ready ? "committed" : "failed"),
         retryable: options.retryable ?? true,
         rawObjectKey: "raw/artifact-1/upload-1.zip",
         rawSha256: "a".repeat(64),
@@ -69,7 +81,7 @@ function harness(options: { retryable?: boolean; ready?: boolean; existing?: Ide
       findCurrent: vi.fn().mockImplementation(async () => ({
         id: "upload-1",
         artifactId: "artifact-1",
-        state: options.ready ? "committed" : "failed",
+        state: options.currentState ?? (options.ready ? "committed" : "failed"),
         retryable: options.retryable ?? false,
         rawObjectKey: "raw/artifact-1/upload-1.zip",
         rawSha256: "a".repeat(64),
@@ -123,6 +135,21 @@ function harness(options: { retryable?: boolean; ready?: boolean; existing?: Ide
 }
 
 describe("ArtifactRecoveryService", () => {
+  it("does not reveal or mutate an Artifact outside the signed-in owner", async () => {
+    const { service, commitReplacement, commitVersionUpload } = harness({ owned: false });
+
+    await expect(
+      service.replace({
+        ownerUserId: "other-user",
+        artifactId: "artifact-1",
+        idempotencyKey: "foreign-version-key",
+        body: body("version-zip"),
+        policy
+      })
+    ).rejects.toEqual(new ArtifactRecoveryError("artifact_not_found"));
+    expect(commitReplacement).not.toHaveBeenCalled();
+    expect(commitVersionUpload).not.toHaveBeenCalled();
+  });
   it("queues manual Retry against the retained Upload session", async () => {
     const { service, queueManualRetry } = harness({ retryable: true });
 
@@ -188,6 +215,30 @@ describe("ArtifactRecoveryService", () => {
     expect(commitReplacement).not.toHaveBeenCalled();
     expect(commitVersionUpload).toHaveBeenCalledWith(
       expect.objectContaining({ artifactId: "artifact-1", requestedEntry: "report.html" })
+    );
+  });
+
+  it("replaces only failed temporary input while preserving an earlier ready Version", async () => {
+    const { service, commitReplacement, commitVersionUpload } = harness({
+      retryable: false,
+      ready: true,
+      currentState: "failed"
+    });
+
+    await service.replace({
+      ownerUserId: "owner-1",
+      artifactId: "artifact-1",
+      idempotencyKey: "replace-failed-version-key",
+      body: body("replacement-zip"),
+      policy
+    });
+
+    expect(commitVersionUpload).not.toHaveBeenCalled();
+    expect(commitReplacement).toHaveBeenCalledWith(
+      expect.objectContaining({
+        artifactId: "artifact-1",
+        previousUploadSessionId: "upload-1"
+      })
     );
   });
 

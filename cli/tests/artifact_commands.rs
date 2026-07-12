@@ -1,15 +1,39 @@
 // cspell:ignore nocapture
+use clap::Parser as _;
 use shareslices_cli::{
-    ApiClient, Artifact, ArtifactListArgs, ArtifactShareLink, ArtifactUploadArgs, AuthError,
-    CredentialStore, UploadTargetChoice, run_artifact_list, run_artifact_upload, select_artifact,
+    ApiClient, Artifact, ArtifactCommand, ArtifactListArgs, ArtifactShareLink, ArtifactUploadArgs,
+    AuthError, Cli, Command as CliCommand, CredentialStore, UploadTargetChoice, artifact_exit_code,
+    run_artifact_command, run_artifact_list, run_artifact_upload, select_artifact,
     select_upload_target,
 };
 use std::io::Cursor;
 use std::io::Write as _;
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
+use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
+
+struct ExistingVersionThenNewVersion(Arc<AtomicUsize>);
+
+impl Respond for ExistingVersionThenNewVersion {
+    fn respond(&self, _request: &Request) -> ResponseTemplate {
+        let call = self.0.fetch_add(1, Ordering::SeqCst);
+        let (processing_state, version_id) = if call == 0 {
+            ("processing", "version-1")
+        } else {
+            ("ready", "version-2")
+        };
+        ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifact": {
+                "name": "Existing report",
+                "processingState": processing_state,
+                "readyVersion": { "id": version_id },
+                "failure": null
+            }
+        }))
+    }
+}
 
 struct Store(Mutex<Option<String>>);
 impl CredentialStore for Store {
@@ -258,10 +282,8 @@ async fn uploads_new_version_to_explicit_artifact_without_sending_a_name() {
         .await;
     Mock::given(method("GET"))
         .and(path("/api/artifacts/artifact-existing"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "artifact": { "processingState": "ready", "readyVersion": { "id": "version-2" }, "failure": null }
-        })))
-        .expect(1)
+        .respond_with(ExistingVersionThenNewVersion(Arc::new(AtomicUsize::new(0))))
+        .expect(2)
         .mount(&server)
         .await;
     let directory = tempfile::tempdir().expect("tempdir");
@@ -280,7 +302,7 @@ async fn uploads_new_version_to_explicit_artifact_without_sending_a_name() {
         artifact: Some("artifact-existing".into()),
         entry: None,
         no_progress: true,
-        json: None,
+        json: Some("artifact,version,publication".into()),
         jq: None,
         template: None,
     };
@@ -290,10 +312,11 @@ async fn uploads_new_version_to_explicit_artifact_without_sending_a_name() {
     run_artifact_upload(&args, &api, &store, &mut stdout, &mut Vec::new())
         .await
         .expect("upload version");
-    assert_eq!(
-        String::from_utf8(stdout).expect("stdout"),
-        "Artifact artifact-existing uploaded as Version version-2\n"
-    );
+    let output: serde_json::Value =
+        serde_json::from_slice(&stdout).expect("structured Upload output");
+    assert_eq!(output["artifact"]["name"], "Existing report");
+    assert_eq!(output["version"]["id"], "version-2");
+    assert!(output["publication"].is_null());
     let request = server
         .received_requests()
         .await
@@ -436,38 +459,102 @@ async fn isolated_process_uploads_an_explicit_new_version() {
     assert!(String::from_utf8_lossy(&output.stdout).contains("Version version-2"));
 }
 
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn isolated_production_entrypoint_reports_accepted_version_upload_on_sigint() {
+    let server = MockServer::start().await;
+    mount_upload_policy(&server).await;
+    Mock::given(method("POST"))
+        .and(path("/api/artifacts/artifact-existing/upload-sessions"))
+        .respond_with(ResponseTemplate::new(202).set_body_json(serde_json::json!({
+            "artifactId": "artifact-existing", "uploadSessionId": "upload-cancelled"
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-existing"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(std::time::Duration::from_secs(10))
+                .set_body_json(serde_json::json!({
+                    "artifact": {
+                        "name": "Existing report",
+                        "processingState": "processing",
+                        "readyVersion": { "id": "version-1" },
+                        "failure": null
+                    }
+                })),
+        )
+        .mount(&server)
+        .await;
+    let directory = tempfile::tempdir().expect("tempdir");
+    std::fs::write(directory.path().join("index.html"), "version two").expect("input");
+    let executable = std::env::current_exe().expect("test executable");
+    let child = Command::new(executable)
+        .args([
+            "--ignored",
+            "--exact",
+            "process_package_fixture",
+            "--nocapture",
+        ])
+        .env("SHARESLICES_TEST_API_URL", server.uri())
+        .env("SHARESLICES_TEST_UPLOAD_PATH", "index.html")
+        .env("SHARESLICES_TEST_ARTIFACT_ID", "artifact-existing")
+        .current_dir(directory.path())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("isolated CLI process");
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let signal = Command::new("kill")
+        .args(["-INT", &child.id().to_string()])
+        .status()
+        .expect("send SIGINT");
+    assert!(signal.success());
+    let output = child.wait_with_output().expect("CLI output");
+    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Server processing continues"));
+    assert!(stderr.contains("artifact-existing"));
+    assert!(stderr.contains("upload-cancelled"));
+}
+
 #[tokio::test]
 #[ignore = "fixture invoked only by isolated_process_packages_only_selected_file_and_uploads_it"]
 async fn process_package_fixture() {
     let api = ApiClient::new(&std::env::var("SHARESLICES_TEST_API_URL").expect("API URL"))
         .expect("client");
-    let args = ArtifactUploadArgs {
-        paths: vec![
-            std::env::var("SHARESLICES_TEST_UPLOAD_PATH")
-                .expect("upload path")
-                .into(),
-        ],
-        root: None,
-        name: std::env::var_os("SHARESLICES_TEST_ARTIFACT_ID")
-            .is_none()
-            .then(|| "Process package".into()),
-        artifact: std::env::var("SHARESLICES_TEST_ARTIFACT_ID").ok(),
-        entry: None,
-        no_progress: true,
-        json: None,
-        jq: None,
-        template: None,
+    let mut arguments = vec![
+        "shareslices".to_owned(),
+        "artifact".to_owned(),
+        "upload".to_owned(),
+        std::env::var("SHARESLICES_TEST_UPLOAD_PATH").expect("upload path"),
+        "--no-progress".to_owned(),
+    ];
+    if let Ok(artifact_id) = std::env::var("SHARESLICES_TEST_ARTIFACT_ID") {
+        arguments.extend(["--artifact".to_owned(), artifact_id]);
+    } else {
+        arguments.extend(["--name".to_owned(), "Process package".to_owned()]);
+    }
+    let cli = Cli::try_parse_from(arguments).expect("production command parser");
+    let CliCommand::Artifact { command } = cli.command else {
+        unreachable!("fixture parses Artifact command")
     };
+    assert!(matches!(command, ArtifactCommand::Upload(_)));
     let store = Store(Mutex::new(Some("fixture-secret".into())));
-    run_artifact_upload(
-        &args,
+    if let Err(error) = run_artifact_command(
+        command,
         &api,
         &store,
         &mut std::io::stdout(),
         &mut std::io::stderr(),
     )
     .await
-    .expect("upload");
+    {
+        let code = artifact_exit_code(&error);
+        eprintln!("{error}");
+        std::process::exit(code);
+    }
 }
 
 #[test]

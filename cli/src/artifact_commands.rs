@@ -20,6 +20,9 @@ const FIELDS: &[&str] = &[
 const UPLOAD_FIELDS: &[&str] = &["artifact", "version", "publication"];
 
 /// Executes one parsed Artifact command through the production command-dispatch path.
+///
+/// # Errors
+/// Returns the command's typed Artifact error.
 pub async fn run_artifact_command(
     command: ArtifactCommand,
     api: &ApiClient,
@@ -29,7 +32,9 @@ pub async fn run_artifact_command(
 ) -> Result<(), ArtifactError> {
     match command {
         ArtifactCommand::List(args) => run_artifact_list(&args, api, store, output).await,
-        ArtifactCommand::Upload(args) => run_artifact_upload(&args, api, store, output, diagnostics).await,
+        ArtifactCommand::Upload(args) => {
+            run_artifact_upload(&args, api, store, output, diagnostics).await
+        }
     }
 }
 
@@ -234,8 +239,12 @@ pub async fn run_artifact_upload(
     loop {
         if !args.no_progress {
             const FRAMES: [&str; 4] = ["|", "/", "-", "\\"];
-            write!(diagnostics, "\rProcessing {}", FRAMES[activity % FRAMES.len()])
-                .map_err(|_| ArtifactError::Server)?;
+            write!(
+                diagnostics,
+                "\rProcessing {}",
+                FRAMES[activity % FRAMES.len()]
+            )
+            .map_err(|_| ArtifactError::Server)?;
             diagnostics.flush().map_err(|_| ArtifactError::Server)?;
             activity += 1;
         }
@@ -253,7 +262,9 @@ pub async fn run_artifact_upload(
                 return Err(ArtifactError::Cancelled);
             }
         };
-        if let Some(version) = state.ready_version {
+        if state.processing_state == "ready"
+            && let Some(version) = state.ready_version
+        {
             if !args.no_progress {
                 writeln!(diagnostics, "\rProcessing ready").map_err(|_| ArtifactError::Server)?;
             }
@@ -261,7 +272,7 @@ pub async fn run_artifact_upload(
                 args,
                 output,
                 &accepted.artifact_id,
-                name.as_deref().unwrap_or(""),
+                &state.name,
                 &version.id,
             );
         }
@@ -298,18 +309,30 @@ fn write_upload_result(
     });
     if let Some(fields) = &args.json {
         let fields = parse_fields_from(fields, UPLOAD_FIELDS)?;
-        let selected = Value::Object(fields.into_iter().map(|field| (field.to_owned(), value[field].clone())).collect());
+        let selected = Value::Object(
+            fields
+                .into_iter()
+                .map(|field| (field.to_owned(), value[field].clone()))
+                .collect(),
+        );
         if let Some(expression) = &args.jq {
             write_jq(output, &selected, expression)
         } else if let Some(template) = &args.template {
             write_template(output, &selected, template)
         } else {
-            writeln!(output, "{}", serde_json::to_string_pretty(&selected).map_err(|_| ArtifactError::Server)?)
-                .map_err(|_| ArtifactError::Server)
+            writeln!(
+                output,
+                "{}",
+                serde_json::to_string_pretty(&selected).map_err(|_| ArtifactError::Server)?
+            )
+            .map_err(|_| ArtifactError::Server)
         }
     } else {
-        writeln!(output, "Artifact {artifact_id} uploaded as Version {version_id}")
-            .map_err(|_| ArtifactError::Server)
+        writeln!(
+            output,
+            "Artifact {artifact_id} uploaded as Version {version_id}"
+        )
+        .map_err(|_| ArtifactError::Server)
     }
 }
 
@@ -476,11 +499,7 @@ fn select(artifact: &Artifact, fields: &[&str]) -> Value {
     )
 }
 
-fn write_jq(
-    output: &mut dyn Write,
-    value: &Value,
-    expression: &str,
-) -> Result<(), ArtifactError> {
+fn write_jq(output: &mut dyn Write, value: &Value, expression: &str) -> Result<(), ArtifactError> {
     use jaq_interpret::{Ctx, FilterT, ParseCtx, RcIter, Val};
     let (parsed, parse_errors) = jaq_parse::parse(expression, jaq_parse::main());
     if !parse_errors.is_empty() {
@@ -492,10 +511,7 @@ fn write_jq(
         return Err(ArtifactError::InvalidJq);
     }
     let inputs = RcIter::new(core::iter::empty());
-    for result in filter.run((
-        Ctx::new([], &inputs),
-        Val::from(value.clone()),
-    )) {
+    for result in filter.run((Ctx::new([], &inputs), Val::from(value.clone()))) {
         let value = Value::from(result.map_err(|_| ArtifactError::InvalidJq)?);
         match value {
             Value::String(text) => writeln!(output, "{text}"),

@@ -459,6 +459,37 @@ cases:
       status: 202
       json_paths:
         artifactId: "{explicit_entry_artifact_id}"
+    save:
+      version_upload_session_id: uploadSessionId
+
+  - id: replay_new_version_upload
+    request:
+      method: POST
+      path: "/api/artifacts/{explicit_entry_artifact_id}/upload-sessions"
+      cookie_ref: owner
+      headers:
+        Idempotency-Key: "version-{run_id}"
+      multipart:
+        entry: index.html
+        archive: replacement
+    expect:
+      status: 202
+      json_paths:
+        artifactId: "{explicit_entry_artifact_id}"
+        uploadSessionId: "{version_upload_session_id}"
+
+  - id: reject_unauthenticated_version_upload
+    request:
+      method: POST
+      path: "/api/artifacts/{explicit_entry_artifact_id}/upload-sessions"
+      headers:
+        Idempotency-Key: "unauthenticated-version-{run_id}"
+      multipart:
+        archive: replacement
+    expect:
+      status: 401
+      json_paths:
+        error.code: authentication_required
 
   - id: replace_invalid_file
     request:

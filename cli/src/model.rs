@@ -107,6 +107,8 @@ pub struct ArtifactAccepted {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtifactState {
+    #[serde(default)]
+    pub name: String,
     pub processing_state: String,
     pub ready_version: Option<ReadyVersion>,
     pub failure: Option<ArtifactFailure>,

@@ -507,7 +507,7 @@ export const artifactIdempotencyRecord = pgTable(
       .nullsNotDistinct(),
     check(
       "artifact_idempotency_record_operation_check",
-      sql`${table.operation} in ('create_artifact', 'replace_upload', 'retry_upload', 'publish')`
+      sql`${table.operation} in ('create_artifact', 'replace_upload', 'retry_upload', 'upload_version', 'publish')`
     ),
     check("artifact_idempotency_record_hash_check", sql`${table.requestHash} ~ '^[0-9a-f]{64}$'`),
     check("artifact_idempotency_record_state_check", sql`${table.state} in ('pending', 'completed')`),

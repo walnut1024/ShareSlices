@@ -172,10 +172,7 @@ export class ArtifactRecoveryService {
     const current = await this.#repositories.uploadSessions.findCurrent(input.artifactId);
     const hasReadyVersion = await this.#repositories.artifacts.hasReadyVersion(input.artifactId);
     const replacesFailedInput =
-      !hasReadyVersion &&
-      current?.state === "failed" &&
-      !current.retryable &&
-      !current.supersededAt;
+      current?.state === "failed" && !current.retryable && !current.supersededAt;
     const createsVersion = hasReadyVersion && current?.state === "committed";
     if (!current || (!replacesFailedInput && !createsVersion)) {
       throw new ArtifactRecoveryError("invalid_artifact_state");

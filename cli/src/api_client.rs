@@ -46,11 +46,19 @@ impl ApiClient {
     }
 
     /// Reads the active upload policy used for local packaging bounds.
+    ///
+    /// # Errors
+    /// Returns an Artifact error for authentication, transport, or response failures.
     pub async fn upload_policy(&self, token: &str) -> Result<UploadPolicy, ArtifactError> {
         #[derive(Deserialize)]
-        struct Body { policy: UploadPolicy }
+        struct Body {
+            policy: UploadPolicy,
+        }
         let response = self
-            .request(reqwest::Method::GET, "/api/artifact-upload-policies/current")
+            .request(
+                reqwest::Method::GET,
+                "/api/artifact-upload-policies/current",
+            )
             .bearer_auth(token)
             .send()
             .await
@@ -58,7 +66,11 @@ impl ApiClient {
         if !response.status().is_success() {
             return Err(Self::artifact_error(response).await);
         }
-        response.json::<Body>().await.map(|body| body.policy).map_err(|_| ArtifactError::Server)
+        response
+            .json::<Body>()
+            .await
+            .map(|body| body.policy)
+            .map_err(|_| ArtifactError::Server)
     }
 
     fn request(&self, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
