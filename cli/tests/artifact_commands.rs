@@ -1,39 +1,16 @@
-// cspell:ignore nocapture
-use clap::Parser as _;
+// cspell:ignore nocapture rfind
+use clap::Parser;
 use shareslices_cli::{
-    ApiClient, Artifact, ArtifactCommand, ArtifactListArgs, ArtifactShareLink, ArtifactUploadArgs,
-    AuthError, Cli, Command as CliCommand, CredentialStore, UploadTargetChoice, artifact_exit_code,
-    run_artifact_command, run_artifact_list, run_artifact_upload, select_artifact,
-    select_upload_target,
+    ApiClient, Artifact, ArtifactListArgs, ArtifactShareLink, ArtifactUploadArgs, AuthError, Cli,
+    Command as CliCommand, CredentialStore, artifact_exit_code, run_artifact_command,
+    run_artifact_list, run_artifact_upload, select_artifact,
 };
 use std::io::Cursor;
 use std::io::Write as _;
 use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
-
-struct ExistingVersionThenNewVersion(Arc<AtomicUsize>);
-
-impl Respond for ExistingVersionThenNewVersion {
-    fn respond(&self, _request: &Request) -> ResponseTemplate {
-        let call = self.0.fetch_add(1, Ordering::SeqCst);
-        let (processing_state, version_id) = if call == 0 {
-            ("processing", "version-1")
-        } else {
-            ("ready", "version-2")
-        };
-        ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "artifact": {
-                "name": "Existing report",
-                "processingState": processing_state,
-                "readyVersion": { "id": version_id },
-                "failure": null
-            }
-        }))
-    }
-}
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 struct Store(Mutex<Option<String>>);
 impl CredentialStore for Store {
@@ -246,8 +223,7 @@ async fn uploads_prepared_zip_waits_for_ready_and_suppresses_progress() {
     let args = ArtifactUploadArgs {
         paths: vec![path],
         root: None,
-        name: Some("Report".into()),
-        artifact: None,
+        name: None,
         entry: None,
         no_progress: true,
         json: None,
@@ -269,87 +245,63 @@ async fn uploads_prepared_zip_waits_for_ready_and_suppresses_progress() {
 }
 
 #[tokio::test]
-async fn uploads_new_version_to_explicit_artifact_without_sending_a_name() {
+async fn processing_failure_is_actionable_and_progress_is_kept_on_stderr() {
     let server = MockServer::start().await;
     mount_upload_policy(&server).await;
     Mock::given(method("POST"))
-        .and(path("/api/artifacts/artifact-existing/upload-sessions"))
+        .and(path("/api/artifacts"))
         .respond_with(ResponseTemplate::new(202).set_body_json(serde_json::json!({
-            "artifactId": "artifact-existing", "uploadSessionId": "upload-2"
+            "artifactId": "artifact-1", "uploadSessionId": "upload-1"
         })))
-        .expect(1)
         .mount(&server)
         .await;
     Mock::given(method("GET"))
-        .and(path("/api/artifacts/artifact-existing"))
-        .respond_with(ExistingVersionThenNewVersion(Arc::new(AtomicUsize::new(0))))
-        .expect(2)
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifact": {
+                "processingState": "failed",
+                "readyVersion": null,
+                "failure": { "code": "missing_entry_file", "message": "Choose an HTML Entry file." }
+            }
+        })))
         .mount(&server)
         .await;
     let directory = tempfile::tempdir().expect("tempdir");
     let path = directory.path().join("report.zip");
-    let file = std::fs::File::create(&path).expect("zip");
-    let mut writer = zip::ZipWriter::new(file);
-    writer
-        .start_file("index.html", zip::write::SimpleFileOptions::default())
-        .expect("entry");
-    writer.write_all(b"<html></html>").expect("body");
-    writer.finish().expect("finish");
+    write_zip(&path, &["index.html"]);
     let args = ArtifactUploadArgs {
         paths: vec![path],
         root: None,
         name: None,
-        artifact: Some("artifact-existing".into()),
         entry: None,
-        no_progress: true,
-        json: Some("artifact,version,publication".into()),
-        jq: None,
-        template: None,
-    };
-    let api = ApiClient::new(&server.uri()).expect("client");
-    let store = Store(Mutex::new(Some("secret".into())));
-    let mut stdout = Vec::new();
-    run_artifact_upload(&args, &api, &store, &mut stdout, &mut Vec::new())
-        .await
-        .expect("upload version");
-    let output: serde_json::Value =
-        serde_json::from_slice(&stdout).expect("structured Upload output");
-    assert_eq!(output["artifact"]["name"], "Existing report");
-    assert_eq!(output["version"]["id"], "version-2");
-    assert!(output["publication"].is_null());
-    let request = server
-        .received_requests()
-        .await
-        .expect("requests")
-        .into_iter()
-        .find(|request| request.method.as_str() == "POST")
-        .expect("upload request");
-    assert!(!String::from_utf8_lossy(&request.body).contains("name=\"name\""));
-}
-
-#[tokio::test]
-async fn missing_upload_target_fails_before_any_request_without_a_terminal() {
-    let args = ArtifactUploadArgs {
-        paths: vec!["missing.zip".into()],
-        root: None,
-        name: None,
-        artifact: None,
-        entry: None,
-        no_progress: true,
+        no_progress: false,
         json: None,
         jq: None,
         template: None,
     };
-    let api = ApiClient::new("http://127.0.0.1:1").expect("client");
-    let store = Store(Mutex::new(Some("secret".into())));
-    let error = run_artifact_upload(&args, &api, &store, &mut Vec::new(), &mut Vec::new())
-        .await
-        .expect_err("selection unavailable");
-    assert!(error.to_string().contains("--name or --artifact"));
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let error = run_artifact_upload(
+        &args,
+        &ApiClient::new(&server.uri()).expect("client"),
+        &Store(Mutex::new(Some("secret".into()))),
+        &mut stdout,
+        &mut stderr,
+    )
+    .await
+    .expect_err("processing failure");
+    assert!(stdout.is_empty());
+    assert!(
+        String::from_utf8(stderr)
+            .expect("stderr")
+            .contains("Processing")
+    );
+    assert!(error.to_string().contains("missing_entry_file"));
+    assert!(error.to_string().contains("Choose an HTML Entry file"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn isolated_process_packages_only_selected_file_and_uploads_it() {
+async fn isolated_upload_process_passes_zip_through_and_prints_stable_json() {
     let server = MockServer::start().await;
     mount_upload_policy(&server).await;
     Mock::given(method("POST"))
@@ -369,179 +321,202 @@ async fn isolated_process_packages_only_selected_file_and_uploads_it() {
         .mount(&server)
         .await;
     let directory = tempfile::tempdir().expect("tempdir");
-    let selected = directory.path().join("index.html");
-    std::fs::write(&selected, "selected-content").expect("selected");
-    std::fs::write(directory.path().join("secret.txt"), "sibling-secret").expect("sibling");
+    let zip_path = directory.path().join("prepared.zip");
+    write_zip(&zip_path, &["report.html"]);
+    let submitted = std::fs::read(&zip_path).expect("ZIP bytes");
     let executable = std::env::current_exe().expect("test executable");
-    let uri = server.uri();
+    let api_url = server.uri();
     let output = tokio::task::spawn_blocking(move || {
         Command::new(executable)
             .args([
                 "--ignored",
                 "--exact",
-                "process_package_fixture",
+                "process_upload_fixture",
                 "--nocapture",
             ])
-            .env("SHARESLICES_TEST_API_URL", uri)
-            .env("SHARESLICES_TEST_UPLOAD_PATH", "index.html")
-            .current_dir(directory.path())
+            .env("SHARESLICES_TEST_API_URL", api_url)
+            .env("SHARESLICES_TEST_ZIP", zip_path)
+            .env("SHARESLICES_TEST_ENTRY", "report.html")
             .output()
-            .expect("isolated CLI process")
+            .expect("isolated upload process")
     })
     .await
     .expect("process task");
     assert!(
         output.status.success(),
-        "stderr: {}",
+        "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(String::from_utf8_lossy(&output.stdout).contains("uploaded as Version version-1"));
+    let stdout = String::from_utf8(output.stdout).expect("UTF-8 stdout");
+    let json_start = stdout.find('{').expect("JSON start");
+    let json_end = stdout.rfind('}').expect("JSON end") + 1;
+    let value: serde_json::Value =
+        serde_json::from_str(&stdout[json_start..json_end]).expect("JSON stdout");
+    assert_eq!(value["artifact"]["id"], "artifact-1");
+    assert_eq!(value["version"]["id"], "version-1");
+    assert!(output.stderr.is_empty());
     let requests = server.received_requests().await.expect("requests");
     let upload = requests
         .iter()
-        .find(|request| request.method.as_str() == "POST")
+        .find(|request| request.url.path() == "/api/artifacts")
         .expect("upload request");
-    let body = String::from_utf8_lossy(&upload.body);
-    assert!(body.contains("index.html"));
-    assert!(!body.contains("secret.txt"));
-    assert!(!body.contains("sibling-secret"));
+    assert!(
+        upload
+            .body
+            .windows(submitted.len())
+            .any(|window| window == submitted)
+    );
+    let multipart = String::from_utf8_lossy(&upload.body);
+    assert!(multipart.contains("report.html"));
+    assert!(multipart.contains("prepared"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn isolated_process_uploads_an_explicit_new_version() {
+async fn isolated_upload_process_packages_only_the_selected_file_and_removes_temporary_zip() {
     let server = MockServer::start().await;
     mount_upload_policy(&server).await;
     Mock::given(method("POST"))
-        .and(path("/api/artifacts/artifact-existing/upload-sessions"))
+        .and(path("/api/artifacts"))
         .respond_with(ResponseTemplate::new(202).set_body_json(serde_json::json!({
-            "artifactId": "artifact-existing", "uploadSessionId": "upload-2"
+            "artifactId": "artifact-1", "uploadSessionId": "upload-1"
         })))
         .expect(1)
         .mount(&server)
         .await;
     Mock::given(method("GET"))
-        .and(path("/api/artifacts/artifact-existing"))
+        .and(path("/api/artifacts/artifact-1"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "artifact": { "processingState": "ready", "readyVersion": { "id": "version-2" }, "failure": null }
+            "artifact": { "processingState": "ready", "readyVersion": { "id": "version-1" }, "failure": null }
         })))
         .expect(1)
         .mount(&server)
         .await;
-    let directory = tempfile::tempdir().expect("tempdir");
-    std::fs::write(directory.path().join("index.html"), "version two").expect("input");
+    let directory = tempfile::tempdir().expect("input tree");
+    let selected = directory.path().join("index.html");
+    std::fs::write(&selected, "selected-content").expect("selected input");
+    std::fs::write(directory.path().join("secret.txt"), "sibling-secret").expect("sibling");
+    let temporary = tempfile::tempdir().expect("temporary ZIP directory");
     let executable = std::env::current_exe().expect("test executable");
     let output = tokio::task::spawn_blocking({
-        let uri = server.uri();
-        let working_directory = directory.path().to_owned();
+        let api_url = server.uri();
+        let temporary = temporary.path().to_owned();
         move || {
             Command::new(executable)
                 .args([
                     "--ignored",
                     "--exact",
-                    "process_package_fixture",
+                    "process_upload_fixture",
                     "--nocapture",
                 ])
-                .env("SHARESLICES_TEST_API_URL", uri)
-                .env("SHARESLICES_TEST_UPLOAD_PATH", "index.html")
-                .env("SHARESLICES_TEST_ARTIFACT_ID", "artifact-existing")
-                .current_dir(working_directory)
+                .env("SHARESLICES_TEST_API_URL", api_url)
+                .env("SHARESLICES_TEST_ZIP", selected)
+                .env("SHARESLICES_TEST_ROOT", directory.path())
+                .env("TMPDIR", temporary)
                 .output()
-                .expect("isolated CLI process")
+                .expect("isolated upload process")
         }
     })
     .await
     .expect("process task");
     assert!(
         output.status.success(),
-        "stderr: {}",
+        "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(String::from_utf8_lossy(&output.stdout).contains("Version version-2"));
+    let requests = server.received_requests().await.expect("requests");
+    let body = &requests
+        .iter()
+        .find(|request| request.url.path() == "/api/artifacts")
+        .expect("upload request")
+        .body;
+    let start = body
+        .windows(4)
+        .position(|bytes| bytes == b"PK\x03\x04")
+        .expect("ZIP start");
+    let mut archive = zip::ZipArchive::new(Cursor::new(&body[start..])).expect("submitted ZIP");
+    assert_eq!(archive.len(), 1);
+    let mut entry = archive.by_index(0).expect("archive entry");
+    assert_eq!(entry.name(), "index.html");
+    let mut content = String::new();
+    std::io::Read::read_to_string(&mut entry, &mut content).expect("entry content");
+    assert_eq!(content, "selected-content");
+    assert_eq!(
+        std::fs::read_dir(temporary.path())
+            .expect("temporary directory")
+            .count(),
+        0
+    );
 }
 
-#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
-async fn isolated_production_entrypoint_reports_accepted_version_upload_on_sigint() {
+async fn isolated_upload_process_removes_temporary_zip_after_local_entry_failure() {
     let server = MockServer::start().await;
     mount_upload_policy(&server).await;
-    Mock::given(method("POST"))
-        .and(path("/api/artifacts/artifact-existing/upload-sessions"))
-        .respond_with(ResponseTemplate::new(202).set_body_json(serde_json::json!({
-            "artifactId": "artifact-existing", "uploadSessionId": "upload-cancelled"
-        })))
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
-        .and(path("/api/artifacts/artifact-existing"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_delay(std::time::Duration::from_secs(10))
-                .set_body_json(serde_json::json!({
-                    "artifact": {
-                        "name": "Existing report",
-                        "processingState": "processing",
-                        "readyVersion": { "id": "version-1" },
-                        "failure": null
-                    }
-                })),
-        )
-        .mount(&server)
-        .await;
-    let directory = tempfile::tempdir().expect("tempdir");
-    std::fs::write(directory.path().join("index.html"), "version two").expect("input");
+    let inputs = tempfile::tempdir().expect("input tree");
+    std::fs::write(inputs.path().join("one.html"), "one").expect("first entry");
+    std::fs::write(inputs.path().join("two.html"), "two").expect("second entry");
+    let temporary = tempfile::tempdir().expect("temporary ZIP directory");
     let executable = std::env::current_exe().expect("test executable");
-    let child = Command::new(executable)
-        .args([
-            "--ignored",
-            "--exact",
-            "process_package_fixture",
-            "--nocapture",
-        ])
-        .env("SHARESLICES_TEST_API_URL", server.uri())
-        .env("SHARESLICES_TEST_UPLOAD_PATH", "index.html")
-        .env("SHARESLICES_TEST_ARTIFACT_ID", "artifact-existing")
-        .current_dir(directory.path())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("isolated CLI process");
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    let signal = Command::new("kill")
-        .args(["-INT", &child.id().to_string()])
-        .status()
-        .expect("send SIGINT");
-    assert!(signal.success());
-    let output = child.wait_with_output().expect("CLI output");
-    assert_eq!(output.status.code(), Some(2));
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("Server processing continues"));
-    assert!(stderr.contains("artifact-existing"));
-    assert!(stderr.contains("upload-cancelled"));
+    let output = tokio::task::spawn_blocking({
+        let input = inputs.path().to_owned();
+        let temporary_path = temporary.path().to_owned();
+        let api_url = server.uri();
+        move || {
+            Command::new(executable)
+                .args([
+                    "--ignored",
+                    "--exact",
+                    "process_upload_fixture",
+                    "--nocapture",
+                ])
+                .env("SHARESLICES_TEST_API_URL", api_url)
+                .env("SHARESLICES_TEST_ZIP", &input)
+                .env("SHARESLICES_TEST_ROOT", &input)
+                .env("TMPDIR", temporary_path)
+                .output()
+                .expect("isolated upload process")
+        }
+    })
+    .await
+    .expect("process task");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("pass --entry <path>"));
+    assert_eq!(
+        std::fs::read_dir(temporary.path())
+            .expect("temporary directory")
+            .count(),
+        0
+    );
 }
 
 #[tokio::test]
-#[ignore = "fixture invoked only by isolated_process_packages_only_selected_file_and_uploads_it"]
-async fn process_package_fixture() {
-    let api = ApiClient::new(&std::env::var("SHARESLICES_TEST_API_URL").expect("API URL"))
-        .expect("client");
-    let mut arguments = vec![
+#[ignore = "fixture invoked only by isolated_upload_process_passes_zip_through_and_prints_stable_json"]
+async fn process_upload_fixture() {
+    let api_url = std::env::var("SHARESLICES_TEST_API_URL").expect("API URL");
+    let zip_path = std::env::var("SHARESLICES_TEST_ZIP").expect("ZIP path");
+    let mut argv = vec![
         "shareslices".to_owned(),
+        "--api-url".to_owned(),
+        api_url,
         "artifact".to_owned(),
         "upload".to_owned(),
-        std::env::var("SHARESLICES_TEST_UPLOAD_PATH").expect("upload path"),
+        zip_path,
         "--no-progress".to_owned(),
+        "--json".to_owned(),
+        "artifact,version,publication".to_owned(),
     ];
-    if let Ok(artifact_id) = std::env::var("SHARESLICES_TEST_ARTIFACT_ID") {
-        arguments.extend(["--artifact".to_owned(), artifact_id]);
-    } else {
-        arguments.extend(["--name".to_owned(), "Process package".to_owned()]);
+    if let Ok(entry) = std::env::var("SHARESLICES_TEST_ENTRY") {
+        argv.extend(["--entry".to_owned(), entry]);
     }
-    let cli = Cli::try_parse_from(arguments).expect("production command parser");
-    let CliCommand::Artifact { command } = cli.command else {
-        unreachable!("fixture parses Artifact command")
-    };
-    assert!(matches!(command, ArtifactCommand::Upload(_)));
+    if let Ok(root) = std::env::var("SHARESLICES_TEST_ROOT") {
+        argv.extend(["--root".to_owned(), root]);
+    }
+    let cli = Cli::try_parse_from(argv).expect("CLI arguments");
+    let api = ApiClient::new(&cli.api_url).expect("client");
     let store = Store(Mutex::new(Some("fixture-secret".into())));
+    let CliCommand::Artifact { command } = cli.command else {
+        unreachable!("fixture command")
+    };
     if let Err(error) = run_artifact_command(
         command,
         &api,
@@ -555,6 +530,150 @@ async fn process_package_fixture() {
         eprintln!("{error}");
         std::process::exit(code);
     }
+}
+
+#[test]
+fn ambiguous_entry_fails_locally_without_a_terminal_or_request() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let path = directory.path().join("ambiguous.zip");
+    write_zip(&path, &["one.html", "two.html"]);
+    let args = ArtifactUploadArgs {
+        paths: vec![path],
+        root: None,
+        name: Some("Ambiguous".into()),
+        entry: None,
+        no_progress: true,
+        json: None,
+        jq: None,
+        template: None,
+    };
+    let runtime = tokio::runtime::Runtime::new().expect("runtime");
+    let error = runtime
+        .block_on(run_artifact_upload(
+            &args,
+            &ApiClient::new("http://127.0.0.1:1").expect("client"),
+            &Store(Mutex::new(Some("secret".into()))),
+            &mut Vec::new(),
+            &mut Vec::new(),
+        ))
+        .expect_err("ambiguous entry");
+    assert!(matches!(
+        error,
+        shareslices_cli::ArtifactError::AmbiguousEntry
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn isolated_upload_process_reports_ambiguous_entry_without_a_request() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let zip_path = directory.path().join("ambiguous.zip");
+    write_zip(&zip_path, &["one.html", "two.html"]);
+    let executable = std::env::current_exe().expect("test executable");
+    let output = tokio::task::spawn_blocking(move || {
+        Command::new(executable)
+            .args([
+                "--ignored",
+                "--exact",
+                "process_upload_fixture",
+                "--nocapture",
+            ])
+            .env("SHARESLICES_TEST_API_URL", "http://127.0.0.1:1")
+            .env("SHARESLICES_TEST_ZIP", zip_path)
+            .output()
+            .expect("isolated upload process")
+    })
+    .await
+    .expect("process task");
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("pass --entry <path>"));
+}
+
+#[test]
+fn shipping_binary_maps_ambiguous_preflight_to_failure_before_authentication() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let path = directory.path().join("ambiguous.zip");
+    write_zip(&path, &["one.html", "two.html"]);
+    let output = Command::new(env!("CARGO_BIN_EXE_shareslices"))
+        .args(["artifact", "upload"])
+        .arg(path)
+        .arg("--no-progress")
+        .output()
+        .expect("shipping CLI process");
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("pass --entry <path>"));
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn isolated_production_entrypoint_maps_sigint_to_exit_two() {
+    let server = MockServer::start().await;
+    mount_upload_policy(&server).await;
+    Mock::given(method("POST"))
+        .and(path("/api/artifacts"))
+        .respond_with(ResponseTemplate::new(202).set_body_json(serde_json::json!({
+            "artifactId": "artifact-1", "uploadSessionId": "upload-1"
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(std::time::Duration::from_secs(10))
+                .set_body_json(serde_json::json!({
+                    "artifact": { "processingState": "processing", "readyVersion": null, "failure": null }
+                })),
+        )
+        .mount(&server)
+        .await;
+    let directory = tempfile::tempdir().expect("tempdir");
+    let input_path = directory.path().join("index.html");
+    std::fs::write(&input_path, "cancelled-content").expect("input");
+    let temporary = tempfile::tempdir().expect("temporary ZIP directory");
+    let executable = std::env::current_exe().expect("test executable");
+    let child = Command::new(executable)
+        .args([
+            "--ignored",
+            "--exact",
+            "process_upload_fixture",
+            "--nocapture",
+        ])
+        .env("SHARESLICES_TEST_API_URL", server.uri())
+        .env("SHARESLICES_TEST_ZIP", input_path)
+        .env("SHARESLICES_TEST_ROOT", directory.path())
+        .env("TMPDIR", temporary.path())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("isolated CLI process");
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let signal = Command::new("kill")
+        .args(["-INT", &child.id().to_string()])
+        .status()
+        .expect("send SIGINT");
+    assert!(signal.success());
+    let output = child.wait_with_output().expect("CLI output");
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("cancelled"));
+    assert_eq!(
+        std::fs::read_dir(temporary.path())
+            .expect("temporary directory")
+            .count(),
+        0
+    );
+}
+
+fn write_zip(path: &std::path::Path, entries: &[&str]) {
+    let file = std::fs::File::create(path).expect("ZIP");
+    let mut writer = zip::ZipWriter::new(file);
+    for entry in entries {
+        writer
+            .start_file(*entry, zip::write::SimpleFileOptions::default())
+            .expect("entry");
+        writer.write_all(b"<html></html>").expect("body");
+    }
+    writer.finish().expect("finish");
 }
 
 #[test]
@@ -593,25 +712,4 @@ fn shared_selector_never_prompts_when_disabled_or_without_a_terminal() {
     )
     .expect("selection");
     assert_eq!(selected.id, "artifact-1");
-}
-
-#[test]
-fn upload_target_prompt_selects_new_or_existing_and_never_waits_when_disabled() {
-    let mut output = Vec::new();
-    assert_eq!(
-        select_upload_target(true, true, &mut Cursor::new(b"1\n"), &mut output)
-            .expect("new target"),
-        UploadTargetChoice::New
-    );
-    assert!(
-        String::from_utf8(output)
-            .expect("prompt")
-            .contains("new Version")
-    );
-    assert_eq!(
-        select_upload_target(true, true, &mut Cursor::new(b"2\n"), &mut Vec::new())
-            .expect("existing target"),
-        UploadTargetChoice::Existing
-    );
-    assert!(select_upload_target(false, true, &mut Cursor::new(b"1\n"), &mut Vec::new()).is_err());
 }

@@ -1,7 +1,7 @@
 use crate::{ArtifactError, UploadPolicy};
 use std::collections::BTreeMap;
 use std::fs::{self, FileType};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
 
 #[derive(Debug)]
@@ -11,10 +11,20 @@ pub struct PreparedUpload {
     _temporary: Option<tempfile::NamedTempFile>,
 }
 
-pub fn prepare_upload(
+#[cfg(test)]
+fn prepare_upload(
     inputs: &[PathBuf],
     root: Option<&Path>,
     policy: &UploadPolicy,
+) -> Result<PreparedUpload, ArtifactError> {
+    prepare_upload_with_progress(inputs, root, policy, |_| {})
+}
+
+pub fn prepare_upload_with_progress(
+    inputs: &[PathBuf],
+    root: Option<&Path>,
+    policy: &UploadPolicy,
+    mut progress: impl FnMut(u64),
 ) -> Result<PreparedUpload, ArtifactError> {
     let inputs = expand_inputs(inputs)?;
     if inputs.len() == 1 && is_zip(&inputs[0]) {
@@ -75,7 +85,7 @@ pub fn prepare_upload(
     }
     validate_policy(&entries, policy)?;
 
-    let temporary = write_archive(entries)?;
+    let temporary = write_archive(entries, policy.max_archive_bytes, &mut progress)?;
     if temporary
         .as_file()
         .metadata()
@@ -108,14 +118,20 @@ pub fn prepare_upload(
 
 fn write_archive(
     entries: BTreeMap<String, PathBuf>,
+    max_archive_bytes: u64,
+    progress: &mut impl FnMut(u64),
 ) -> Result<tempfile::NamedTempFile, ArtifactError> {
-    let mut temporary =
-        tempfile::NamedTempFile::new().map_err(|_| invalid_error("cannot create temporary ZIP"))?;
-    let mut writer = zip::ZipWriter::new(temporary.as_file_mut());
+    let mut temporary = tempfile::Builder::new()
+        .suffix(".zip")
+        .tempfile()
+        .map_err(|_| invalid_error("cannot create temporary ZIP"))?;
+    let bounded = BoundedWriter::new(temporary.as_file_mut(), max_archive_bytes);
+    let mut writer = zip::ZipWriter::new(bounded);
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)
         .last_modified_time(zip::DateTime::default());
     let mut buffer = vec![0_u8; 64 * 1024];
+    let mut packaged_bytes = 0_u64;
     for (archive_path, source) in entries {
         writer
             .start_file(archive_path, options)
@@ -132,12 +148,58 @@ fn write_archive(
             writer
                 .write_all(&buffer[..read])
                 .map_err(|_| invalid_error("cannot write temporary ZIP"))?;
+            packaged_bytes += u64::try_from(read).map_err(|_| invalid_error("input too large"))?;
+            progress(packaged_bytes);
         }
     }
     writer
         .finish()
         .map_err(|_| invalid_error("cannot finish temporary ZIP"))?;
     Ok(temporary)
+}
+
+struct BoundedWriter<W> {
+    inner: W,
+    position: u64,
+    maximum: u64,
+    limit: u64,
+}
+
+impl<W> BoundedWriter<W> {
+    const fn new(inner: W, limit: u64) -> Self {
+        Self {
+            inner,
+            position: 0,
+            maximum: 0,
+            limit,
+        }
+    }
+}
+
+impl<W: Write> Write for BoundedWriter<W> {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        let allowed = usize::try_from(self.limit.saturating_sub(self.position))
+            .unwrap_or(usize::MAX)
+            .min(buffer.len());
+        let written = self.inner.write(&buffer[..allowed])?;
+        self.position += u64::try_from(written).unwrap_or(u64::MAX);
+        self.maximum = self.maximum.max(self.position);
+        if written < buffer.len() {
+            return Err(std::io::Error::other("archive size limit exceeded"));
+        }
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+impl<W: Seek> Seek for BoundedWriter<W> {
+    fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+        self.position = self.inner.seek(position)?;
+        Ok(self.position)
+    }
 }
 
 fn validate_policy(
@@ -284,7 +346,7 @@ fn reject_file_type(kind: FileType) -> Result<(), ArtifactError> {
 }
 
 fn ignored_component(value: &str) -> bool {
-    value == ".DS_Store" || value == "__MACOSX"
+    value == ".DS_Store" || value == "__MACOSX" || value.starts_with("._")
 }
 fn is_zip(path: &Path) -> bool {
     path.extension()
@@ -349,6 +411,7 @@ mod tests {
         fs::write(directory.join("index.html"), "index").expect("index");
         fs::write(directory.join("assets/app.js"), "app").expect("asset");
         fs::write(directory.join(".DS_Store"), "metadata").expect("metadata");
+        fs::write(directory.join("._index.html"), "apple-double").expect("AppleDouble metadata");
         let prepared =
             prepare_upload(&[directory], Some(parent.path()), &policy()).expect("package");
         assert_eq!(
@@ -408,6 +471,31 @@ mod tests {
         let mut bounded = policy();
         bounded.max_file_bytes = 1;
         assert!(prepare_upload(&[root.path().to_owned()], Some(root.path()), &bounded).is_err());
+
+        let mut archive_bounded = policy();
+        archive_bounded.max_archive_bytes = 1;
+        let error = prepare_upload(
+            &[root.path().to_owned()],
+            Some(root.path()),
+            &archive_bounded,
+        )
+        .expect_err("archive bound");
+        assert!(error.to_string().contains("temporary ZIP"));
+    }
+
+    #[test]
+    fn packaging_reports_measured_source_bytes() {
+        let root = tempfile::tempdir().expect("root");
+        fs::write(root.path().join("index.html"), "123456").expect("index");
+        let mut observed = Vec::new();
+        prepare_upload_with_progress(
+            &[root.path().to_owned()],
+            Some(root.path()),
+            &policy(),
+            |bytes| observed.push(bytes),
+        )
+        .expect("package");
+        assert_eq!(observed.last(), Some(&6));
     }
 
     #[test]
