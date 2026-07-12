@@ -81,8 +81,8 @@ async fn exports_ready_version_atomically_without_transient_stdout() {
     };
     let mut stdout = Vec::new();
     let mut stderr = Vec::new();
-    run_artifact_export_with_interaction(
-        &args,
+    run_artifact_command_with_interaction(
+        ArtifactCommand::Export(args),
         &api,
         &store,
         &mut interaction,
@@ -202,8 +202,8 @@ async fn interactive_export_selects_artifact_and_its_ready_version() {
         input: &mut input,
     };
     let mut diagnostics = Vec::new();
-    run_artifact_export_with_interaction(
-        &args,
+    run_artifact_command_with_interaction(
+        ArtifactCommand::Export(args),
         &api,
         &store,
         &mut interaction,
@@ -354,14 +354,14 @@ async fn export_uses_safe_default_filename_and_selectable_json() {
     let server = MockServer::start().await;
     Mock::given(method("GET")).and(path("/api/artifacts/artifact-default"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "artifact": { "name": "Issue07 / Default Filename", "processingState": "ready", "readyVersion": { "id": "version-default-773" }, "publication": null, "failure": null }
+            "artifact": { "name": "CON", "processingState": "ready", "readyVersion": { "id": "version-default-773" }, "publication": null, "failure": null }
         }))).mount(&server).await;
     Mock::given(method("GET"))
         .and(path("/api/versions/version-default-773/export"))
         .respond_with(ResponseTemplate::new(200).set_body_bytes(b"default-zip"))
         .mount(&server)
         .await;
-    let destination = std::path::PathBuf::from("Issue07-Default-Filename-version-default-773.zip");
+    let destination = std::path::PathBuf::from("_CON-version-default-773.zip");
     let _ = std::fs::remove_file(&destination);
     let api = ApiClient::new(&server.uri()).expect("client");
     let store = Store(Mutex::new(Some("secret".into())));

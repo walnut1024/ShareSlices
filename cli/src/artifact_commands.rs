@@ -105,9 +105,35 @@ fn safe_file_component(value: &str) -> String {
     while value.ends_with('-') {
         value.pop();
     }
-    let value = value.trim_matches('-');
+    let value = value.trim_matches(['-', '.']);
     if value.is_empty() {
         "artifact".to_owned()
+    } else if matches!(
+        value.to_ascii_uppercase().as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    ) {
+        format!("_{value}")
     } else {
         value.to_owned()
     }
