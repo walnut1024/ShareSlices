@@ -40,6 +40,21 @@ pub enum AuthCommand {
 pub enum ArtifactCommand {
     List(ArtifactListArgs),
     Upload(ArtifactUploadArgs),
+    Export(ArtifactExportArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct ArtifactExportArgs {
+    #[arg(long)]
+    pub artifact: Option<String>,
+    #[arg(long)]
+    pub version: Option<String>,
+    #[arg(short, long, value_name = "FILE")]
+    pub output: Option<std::path::PathBuf>,
+    #[arg(long)]
+    pub clobber: bool,
+    #[arg(long)]
+    pub no_progress: bool,
 }
 
 #[derive(Debug, Args)]

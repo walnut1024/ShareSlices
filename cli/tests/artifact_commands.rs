@@ -1,10 +1,11 @@
 // cspell:ignore nocapture
 use clap::Parser as _;
 use shareslices_cli::{
-    ApiClient, Artifact, ArtifactCommand, ArtifactInteraction, ArtifactListArgs, ArtifactShareLink,
-    ArtifactUploadArgs, AuthError, Cli, Command as CliCommand, CredentialStore, UploadTargetChoice,
-    artifact_exit_code, run_artifact_command, run_artifact_command_with_interaction,
-    run_artifact_list, run_artifact_upload, select_artifact, select_upload_target,
+    ApiClient, Artifact, ArtifactCommand, ArtifactExportArgs, ArtifactInteraction,
+    ArtifactListArgs, ArtifactShareLink, ArtifactUploadArgs, AuthError, Cli, Command as CliCommand,
+    CredentialStore, UploadTargetChoice, artifact_exit_code, run_artifact_command,
+    run_artifact_command_with_interaction, run_artifact_export_with_interaction, run_artifact_list,
+    run_artifact_upload, select_artifact, select_upload_target,
 };
 use std::io::Cursor;
 use std::io::Write as _;
@@ -38,6 +39,238 @@ impl Respond for ExistingVersionThenNewVersion {
             }
         }))
     }
+}
+
+#[tokio::test]
+async fn exports_ready_version_atomically_without_transient_stdout() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifact": { "name": "Quarterly / report", "processingState": "ready",
+                "readyVersion": { "id": "version-2" }, "publication": null, "failure": null }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/versions/version-2/export"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(b"normalized-zip"))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let api = ApiClient::new(&server.uri()).expect("client");
+    let store = Store(Mutex::new(Some("secret".into())));
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let destination = directory.path().join("copy.zip");
+    let args = ArtifactExportArgs {
+        artifact: Some("artifact-1".into()),
+        version: Some("version-2".into()),
+        output: Some(destination.clone()),
+        clobber: false,
+        no_progress: true,
+    };
+    let mut input = Cursor::new(Vec::<u8>::new());
+    let mut interaction = ArtifactInteraction {
+        prompts_enabled: false,
+        is_terminal: false,
+        input: &mut input,
+    };
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    run_artifact_export_with_interaction(
+        &args,
+        &api,
+        &store,
+        &mut interaction,
+        &mut stdout,
+        &mut stderr,
+    )
+    .await
+    .expect("export");
+    assert_eq!(
+        std::fs::read(&destination).expect("exported bytes"),
+        b"normalized-zip"
+    );
+    assert!(
+        String::from_utf8(stdout)
+            .expect("stdout")
+            .contains("artifact-1 Version version-2")
+    );
+    assert!(stderr.is_empty());
+}
+
+#[tokio::test]
+async fn preserves_existing_export_without_request_unless_clobber_is_explicit() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifact": { "name": "Report", "processingState": "ready",
+                "readyVersion": { "id": "version-2" }, "publication": null, "failure": null }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let api = ApiClient::new(&server.uri()).expect("client");
+    let store = Store(Mutex::new(Some("secret".into())));
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let destination = directory.path().join("copy.zip");
+    std::fs::write(&destination, b"keep-me").expect("fixture");
+    let args = ArtifactExportArgs {
+        artifact: Some("artifact-1".into()),
+        version: Some("version-2".into()),
+        output: Some(destination.clone()),
+        clobber: false,
+        no_progress: true,
+    };
+    let mut input = Cursor::new(Vec::<u8>::new());
+    let mut interaction = ArtifactInteraction {
+        prompts_enabled: false,
+        is_terminal: false,
+        input: &mut input,
+    };
+    let error = run_artifact_export_with_interaction(
+        &args,
+        &api,
+        &store,
+        &mut interaction,
+        &mut Vec::new(),
+        &mut Vec::new(),
+    )
+    .await
+    .expect_err("refuse overwrite");
+    assert!(matches!(
+        error,
+        shareslices_cli::ArtifactError::OutputExists
+    ));
+    assert_eq!(
+        std::fs::read(destination).expect("existing bytes"),
+        b"keep-me"
+    );
+}
+
+#[tokio::test]
+async fn interactive_export_selects_artifact_and_its_ready_version() {
+    let server = server().await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifact": { "name": "Quarterly report", "processingState": "ready",
+                "readyVersion": { "id": "version-7" }, "publication": null, "failure": null }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/versions/version-7/export"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(b"zip-seven"))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let api = ApiClient::new(&server.uri()).expect("client");
+    let store = Store(Mutex::new(Some("secret".into())));
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let destination = directory.path().join("selected.zip");
+    let args = ArtifactExportArgs {
+        artifact: None,
+        version: None,
+        output: Some(destination.clone()),
+        clobber: false,
+        no_progress: true,
+    };
+    let mut input = Cursor::new(b"1\n".to_vec());
+    let mut interaction = ArtifactInteraction {
+        prompts_enabled: true,
+        is_terminal: true,
+        input: &mut input,
+    };
+    let mut diagnostics = Vec::new();
+    run_artifact_export_with_interaction(
+        &args,
+        &api,
+        &store,
+        &mut interaction,
+        &mut Vec::new(),
+        &mut diagnostics,
+    )
+    .await
+    .expect("interactive export");
+    assert_eq!(std::fs::read(destination).expect("export"), b"zip-seven");
+    assert!(
+        String::from_utf8(diagnostics)
+            .expect("diagnostics")
+            .contains("Select an Artifact")
+    );
+}
+
+#[tokio::test]
+async fn clobber_atomically_replaces_existing_export() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifact": { "name": "Report", "processingState": "ready",
+                "readyVersion": { "id": "version-2" }, "publication": null, "failure": null }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/versions/version-2/export"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(b"replacement"))
+        .mount(&server)
+        .await;
+    let api = ApiClient::new(&server.uri()).expect("client");
+    let store = Store(Mutex::new(Some("secret".into())));
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let destination = directory.path().join("copy.zip");
+    std::fs::write(&destination, b"old").expect("fixture");
+    let args = ArtifactExportArgs {
+        artifact: Some("artifact-1".into()),
+        version: Some("version-2".into()),
+        output: Some(destination.clone()),
+        clobber: true,
+        no_progress: true,
+    };
+    let mut input = Cursor::new(Vec::<u8>::new());
+    let mut interaction = ArtifactInteraction {
+        prompts_enabled: false,
+        is_terminal: false,
+        input: &mut input,
+    };
+    run_artifact_export_with_interaction(
+        &args,
+        &api,
+        &store,
+        &mut interaction,
+        &mut Vec::new(),
+        &mut Vec::new(),
+    )
+    .await
+    .expect("clobber");
+    assert_eq!(
+        std::fs::read(destination).expect("replacement"),
+        b"replacement"
+    );
+}
+
+#[test]
+fn shipping_binary_export_requires_authentication() {
+    let output = Command::new(env!("CARGO_BIN_EXE_shareslices"))
+        .args([
+            "--api-url",
+            "http://127.0.0.1:1",
+            "artifact",
+            "export",
+            "--artifact",
+            "artifact-1",
+            "--version",
+            "version-1",
+            "--no-progress",
+        ])
+        .output()
+        .expect("CLI process");
+    assert_eq!(output.status.code(), Some(4));
+    assert!(output.stdout.is_empty());
 }
 
 struct InProgressThenAccepted(Arc<AtomicUsize>);

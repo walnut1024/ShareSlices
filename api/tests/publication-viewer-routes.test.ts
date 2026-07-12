@@ -39,6 +39,7 @@ async function dependencies(session: { user: { id: string } } | null = { user: {
         asset(path || "腾讯文档盘点分析报告.html")
       ),
       exportVersion: vi.fn().mockResolvedValue({
+        artifactId: "artifact-1",
         artifactName: "Board deck",
         assets: [asset("index.html"), asset("assets/app.js")]
       }),
@@ -125,7 +126,15 @@ describe("Publication, Preview, and Viewer routes", () => {
     expect(response.headers.get("content-type")).toBe("application/zip");
     expect(response.headers.get("content-disposition")).toContain("Board-deck.zip");
     expect((await response.arrayBuffer()).byteLength).toBeGreaterThan(0);
-    expect(deps.service.exportVersion).toHaveBeenCalledWith("owner-1", "version-1");
+    expect(deps.service.exportVersion).toHaveBeenCalledWith("owner-1", "version-1", undefined);
+  });
+
+  it("passes the optional Artifact constraint through Export", async () => {
+    const deps = await dependencies();
+    const app = buildApp({ publicationViewer: deps } as never);
+    const response = await app.request("/api/versions/version-1/export?artifactId=artifact-1");
+    expect(response.status).toBe(200);
+    expect(deps.service.exportVersion).toHaveBeenCalledWith("owner-1", "version-1", "artifact-1");
   });
 
   it("publishes and supports idempotent Unpublish through management routes", async () => {

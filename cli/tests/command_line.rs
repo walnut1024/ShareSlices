@@ -113,3 +113,35 @@ fn parses_prepared_zip_upload_options() {
     assert_eq!(args.paths.len(), 2);
     assert_eq!(args.root.as_deref(), Some(std::path::Path::new(".")));
 }
+
+#[test]
+fn parses_artifact_export_options() {
+    let cli = Cli::try_parse_from([
+        "shareslices",
+        "artifact",
+        "export",
+        "--artifact",
+        "artifact-1",
+        "--version",
+        "version-2",
+        "--output",
+        "saved.zip",
+        "--clobber",
+        "--no-progress",
+    ])
+    .expect("export command");
+    let Command::Artifact {
+        command: ArtifactCommand::Export(args),
+    } = cli.command
+    else {
+        panic!("artifact export command")
+    };
+    assert_eq!(args.artifact.as_deref(), Some("artifact-1"));
+    assert_eq!(args.version.as_deref(), Some("version-2"));
+    assert_eq!(
+        args.output.as_deref(),
+        Some(std::path::Path::new("saved.zip"))
+    );
+    assert!(args.clobber);
+    assert!(args.no_progress);
+}
