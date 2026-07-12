@@ -29,6 +29,11 @@ impl Respond for ExistingVersionThenNewVersion {
                 "name": "Existing report",
                 "processingState": processing_state,
                 "readyVersion": { "id": version_id },
+                "publication": {
+                    "id": "publication-1",
+                    "versionId": "version-1",
+                    "publishedAt": "2026-07-12T08:00:00Z"
+                },
                 "failure": null
             }
         }))
@@ -316,7 +321,8 @@ async fn uploads_new_version_to_explicit_artifact_without_sending_a_name() {
         serde_json::from_slice(&stdout).expect("structured Upload output");
     assert_eq!(output["artifact"]["name"], "Existing report");
     assert_eq!(output["version"]["id"], "version-2");
-    assert!(output["publication"].is_null());
+    assert_eq!(output["publication"]["versionId"], "version-1");
+    assert_ne!(output["publication"]["versionId"], output["version"]["id"]);
     let request = server
         .received_requests()
         .await
@@ -517,6 +523,62 @@ async fn isolated_production_entrypoint_reports_accepted_version_upload_on_sigin
     assert!(stderr.contains("Server processing continues"));
     assert!(stderr.contains("artifact-existing"));
     assert!(stderr.contains("upload-cancelled"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn isolated_production_entrypoint_reports_terminal_version_failure() {
+    let server = MockServer::start().await;
+    mount_upload_policy(&server).await;
+    Mock::given(method("POST"))
+        .and(path("/api/artifacts/artifact-existing/upload-sessions"))
+        .respond_with(ResponseTemplate::new(202).set_body_json(serde_json::json!({
+            "artifactId": "artifact-existing", "uploadSessionId": "upload-failed"
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-existing"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifact": {
+                "name": "Existing report",
+                "processingState": "failed",
+                "readyVersion": { "id": "version-1" },
+                "publication": null,
+                "failure": { "code": "invalid_zip", "message": "Replace the ZIP." }
+            }
+        })))
+        .mount(&server)
+        .await;
+    let directory = tempfile::tempdir().expect("tempdir");
+    std::fs::write(directory.path().join("index.html"), "version two").expect("input");
+    let executable = std::env::current_exe().expect("test executable");
+    let output = tokio::task::spawn_blocking({
+        let api_url = server.uri();
+        let working_directory = directory.path().to_owned();
+        move || {
+            Command::new(executable)
+                .args([
+                    "--ignored",
+                    "--exact",
+                    "process_package_fixture",
+                    "--nocapture",
+                ])
+                .env("SHARESLICES_TEST_API_URL", api_url)
+                .env("SHARESLICES_TEST_UPLOAD_PATH", "index.html")
+                .env("SHARESLICES_TEST_ARTIFACT_ID", "artifact-existing")
+                .current_dir(working_directory)
+                .output()
+                .expect("isolated CLI process")
+        }
+    })
+    .await
+    .expect("process task");
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("upload-failed"));
+    assert!(stderr.contains("artifact-existing"));
+    assert!(stderr.contains("invalid_zip"));
+    assert!(stderr.contains("retry explicitly with --artifact"));
 }
 
 #[tokio::test]

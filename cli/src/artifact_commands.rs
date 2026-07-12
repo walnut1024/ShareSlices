@@ -86,7 +86,6 @@ pub fn select_upload_target(
 ///
 /// # Errors
 /// Returns an Artifact error for invalid input, authentication, transfer, or processing failure.
-#[allow(clippy::too_many_lines)]
 pub async fn run_artifact_upload(
     args: &ArtifactUploadArgs,
     api: &ApiClient,
@@ -117,7 +116,45 @@ pub async fn run_artifact_upload(
             return Err(ArtifactError::Cancelled);
         }
     };
-    let file = File::open(&prepared.path).map_err(|_| ArtifactError::InvalidZipInput)?;
+    let entry = resolve_entry(&prepared.path, args.entry.as_deref(), diagnostics)?;
+    let (name, artifact_id) =
+        resolve_upload_target(args, api, store, &prepared.default_name, diagnostics).await?;
+    let total = prepared
+        .path
+        .metadata()
+        .map_err(|_| ArtifactError::InvalidZipInput)?
+        .len();
+    let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel();
+    let upload = api.upload_artifact(
+        &token,
+        name.as_deref(),
+        artifact_id.as_deref(),
+        entry.as_deref(),
+        &prepared.path,
+        (!args.no_progress).then_some(progress_tx),
+    );
+    tokio::pin!(upload);
+    let accepted = loop {
+        tokio::select! {
+            result = &mut upload => break result?,
+            Some(sent) = progress_rx.recv(), if !args.no_progress => {
+                writeln!(diagnostics, "Uploading {sent}/{total} bytes").map_err(|_| ArtifactError::Server)?;
+            }
+            result = tokio::signal::ctrl_c() => {
+                result.map_err(|_| ArtifactError::Server)?;
+                return Err(ArtifactError::Cancelled);
+            }
+        }
+    };
+    wait_for_ready(args, api, &token, &accepted, output, diagnostics).await
+}
+
+fn resolve_entry(
+    path: &std::path::Path,
+    requested: Option<&str>,
+    diagnostics: &mut dyn Write,
+) -> Result<Option<String>, ArtifactError> {
+    let file = File::open(path).map_err(|_| ArtifactError::InvalidZipInput)?;
     let mut archive = zip::ZipArchive::new(file).map_err(|_| ArtifactError::InvalidZipInput)?;
     let mut html = Vec::new();
     for index in 0..archive.len() {
@@ -134,11 +171,11 @@ pub async fn run_artifact_upload(
             html.push(entry.name().to_owned());
         }
     }
-    let entry = if let Some(requested) = &args.entry {
+    let entry = if let Some(requested) = requested {
         if !html.iter().any(|value| value == requested) {
             return Err(ArtifactError::InvalidEntry);
         }
-        Some(requested.clone())
+        Some(requested.to_owned())
     } else if html.iter().any(|value| value == "index.html") {
         Some("index.html".to_owned())
     } else {
@@ -173,6 +210,16 @@ pub async fn run_artifact_upload(
             _ => return Err(ArtifactError::AmbiguousEntry),
         }
     };
+    Ok(entry)
+}
+
+async fn resolve_upload_target(
+    args: &ArtifactUploadArgs,
+    api: &ApiClient,
+    store: &dyn CredentialStore,
+    default_name: &str,
+    diagnostics: &mut dyn Write,
+) -> Result<(Option<String>, Option<String>), ArtifactError> {
     let mut artifact_id = args.artifact.clone();
     let mut name = args.name.clone();
     if artifact_id.is_none() && name.is_none() {
@@ -183,7 +230,7 @@ pub async fn run_artifact_upload(
         }
         let target = select_upload_target(true, true, &mut std::io::stdin().lock(), diagnostics)?;
         match target {
-            UploadTargetChoice::New => name = Some(prepared.default_name.clone()),
+            UploadTargetChoice::New => name = Some(default_name.to_owned()),
             UploadTargetChoice::Existing => {
                 let selected = select_owned_artifact(
                     api,
@@ -200,7 +247,7 @@ pub async fn run_artifact_upload(
     }
     if artifact_id.is_none() {
         name = Some(
-            name.unwrap_or_else(|| prepared.default_name.clone())
+            name.unwrap_or_else(|| default_name.to_owned())
                 .trim()
                 .to_owned(),
         );
@@ -208,33 +255,17 @@ pub async fn run_artifact_upload(
             return Err(ArtifactError::InvalidZipInput);
         }
     }
-    let total = prepared
-        .path
-        .metadata()
-        .map_err(|_| ArtifactError::InvalidZipInput)?
-        .len();
-    let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel();
-    let upload = api.upload_artifact(
-        &token,
-        name.as_deref(),
-        artifact_id.as_deref(),
-        entry.as_deref(),
-        &prepared.path,
-        (!args.no_progress).then_some(progress_tx),
-    );
-    tokio::pin!(upload);
-    let accepted = loop {
-        tokio::select! {
-            result = &mut upload => break result?,
-            Some(sent) = progress_rx.recv(), if !args.no_progress => {
-                writeln!(diagnostics, "Uploading {sent}/{total} bytes").map_err(|_| ArtifactError::Server)?;
-            }
-            result = tokio::signal::ctrl_c() => {
-                result.map_err(|_| ArtifactError::Server)?;
-                return Err(ArtifactError::Cancelled);
-            }
-        }
-    };
+    Ok((name, artifact_id))
+}
+
+async fn wait_for_ready(
+    args: &ArtifactUploadArgs,
+    api: &ApiClient,
+    token: &str,
+    accepted: &crate::ArtifactAccepted,
+    output: &mut dyn Write,
+    diagnostics: &mut dyn Write,
+) -> Result<(), ArtifactError> {
     let mut activity = 0_usize;
     loop {
         if !args.no_progress {
@@ -249,7 +280,19 @@ pub async fn run_artifact_upload(
             activity += 1;
         }
         let state = tokio::select! {
-            result = api.artifact_state(&token, &accepted.artifact_id) => result?,
+            result = api.artifact_state(token, &accepted.artifact_id) => match result {
+                Ok(state) => state,
+                Err(error) => {
+                    writeln!(
+                        diagnostics,
+                        "Upload session {} was accepted for Artifact {}, but its result could not be confirmed. Inspect the Artifact before retrying with --artifact {}.",
+                        accepted.upload_session_id,
+                        accepted.artifact_id,
+                        accepted.artifact_id
+                    ).map_err(|_| ArtifactError::Server)?;
+                    return Err(error);
+                }
+            },
             result = tokio::signal::ctrl_c() => {
                 result.map_err(|_| ArtifactError::Server)?;
                 writeln!(
@@ -274,6 +317,7 @@ pub async fn run_artifact_upload(
                 &accepted.artifact_id,
                 &state.name,
                 &version.id,
+                state.publication.as_ref(),
             );
         }
         if state.processing_state == "failed" {
@@ -301,11 +345,12 @@ fn write_upload_result(
     artifact_id: &str,
     artifact_name: &str,
     version_id: &str,
+    publication: Option<&crate::ArtifactPublication>,
 ) -> Result<(), ArtifactError> {
     let value = serde_json::json!({
         "artifact": { "id": artifact_id, "name": artifact_name },
         "version": { "id": version_id, "state": "ready" },
-        "publication": null
+        "publication": publication
     });
     if let Some(fields) = &args.json {
         let fields = parse_fields_from(fields, UPLOAD_FIELDS)?;
