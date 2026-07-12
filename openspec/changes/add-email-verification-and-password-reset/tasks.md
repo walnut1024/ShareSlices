@@ -38,3 +38,14 @@
 - [x] 5.3 Inspect structured output and persisted delivery records to confirm codes, passwords, reset grants, raw emails, and message bodies are absent.
 - [x] 5.4 Render registration verification and password-reset flows at `1440x900` and compare their composition with the current authentication design.
 - [x] 5.5 Run `mise exec -- openspec validate add-email-verification-and-password-reset --strict` and `mise run check`.
+
+## 6. Close the SMTP delivery gap
+
+- [x] 6.1 Replace capture and generic HTTP delivery with one Nodemailer SMTP adapter configured by `AUTH_EMAIL_SMTP_URL` or `AUTH_EMAIL_SMTP_URL_FILE` plus `AUTH_EMAIL_FROM`.
+- [x] 6.2 Add Mailpit to local Compose, route containerized API email through `smtp://mailpit:1025`, bind SMTP to host loopback at `127.0.0.1:1025` for host-process development, and expose the Mailpit Web interface only at `http://127.0.0.1:8025`.
+- [x] 6.3 Replace capture-based dispatcher tests with a disposable in-process SMTP server and assertions for the SMTP exchange, envelope, recipient, sender, subject, bodies, stable `Message-ID`, six-digit code, failure handling, secret-free logs, and terminal payload deletion.
+- [x] 6.4 Make the full YAML account-flow gate depend on Compose Mailpit, retrieve messages by unique test recipient through the Mailpit API, and complete registration verification and password reset through the public API.
+- [x] 6.5 Update non-Kubernetes and Kubernetes deployment examples so production provider switching requires only a Nodemailer SMTP URL change when the sender identity stays constant.
+- [x] 6.6 Add `mise run smtp-check` for explicit DNS, TCP, TLS, and authentication verification plus an optional real probe to `AUTH_EMAIL_SMTP_CHECK_TO`, without making SMTP connectivity an API readiness dependency.
+- [x] 6.7 Parameterize and validate SMTP connection, greeting, and socket timeouts plus delivery lease and persistent retry delay, with bounded defaults that keep SMTP work inside its lease.
+- [x] 6.8 Add a root `.env.example` as the grouped deployment-configuration catalog, keep one typed configuration module per runtime, and add a drift check covering runtime schemas plus Compose and Kubernetes variable names.

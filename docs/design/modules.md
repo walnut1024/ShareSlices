@@ -16,6 +16,7 @@ Status: current for the 0.0.1 runtime seams and CLI authentication; Skill entry 
 | User and Artifact requests into API | current | `api/src/http/` | Hono route handlers | HTTP and YAML/Python contract tests |
 | Hono HTTP into business behavior | current | `api/src/application/` | Hono handler mapping | Direct Module tests |
 | Authenticated request into user account | current | `api/src/http/` | Better Auth Cookie, Device Authorization, and Bearer Adapters | Fake auth Adapter plus YAML/Python contracts |
+| Authentication email delivery | current | `api/src/application/accounts/` | Durable PostgreSQL queue and Nodemailer SMTP Adapter | In-process SMTP server and Mailpit YAML/Python flow |
 | Application data persistence | current | `api/src/application/*` | Drizzle Adapter | Local PostgreSQL or in-memory Adapter |
 | Raw and processed object access | current | Application and worker Modules | S3-compatible Adapter | In-memory object Adapter |
 | Processing job handoff | current | `db/migrations/` schema plus job Interfaces | Drizzle enqueue Adapter and SQLx claim Adapter | Local PostgreSQL and fake Adapters |
@@ -39,6 +40,7 @@ Status: mixed. Account entry remains a thin current HTTP/Auth/DB path. Artifact,
 - `ReconciliationModule` is current. It owns bounded expired-lease recovery and raw/staging object cleanup while preserving the current retryable input.
 - `UserModule` remains target. Current account entry intentionally stays in `api/src/http/account-routes.ts`, Better Auth, and focused account queries until another caller or implementation requires extraction.
 - `AdministrationModule` is a roadmap Module for user search, deactivation, reactivation, soft deletion, forced sign out, session revocation, email verification policy, and administrative audit. It stays separate because the actor and permissions differ from user-managed flows.
+- `AuthenticationEmailDelivery` is current. Account routes persist encrypted delivery payloads and return without contacting SMTP; the API-runtime dispatcher leases pending rows, renders fixed authentication templates, sends through `api/src/email/`, records bounded retry outcomes, and removes terminal payloads. SMTP outages do not affect API readiness.
 
 ## Rust worker Modules
 

@@ -84,6 +84,56 @@ A background dispatcher in the TypeScript API runtime leases pending delivery re
 
 An in-request email send was rejected because timeout retries can duplicate messages and provider latency would expose account-dependent timing. Dispatch in the Rust worker was rejected because authentication email is ordinary account infrastructure and the worker must not own account policy.
 
+### Keep SMTP configuration independent of the secret store
+
+Development and production use the same Nodemailer SMTP adapter. The adapter reads one Nodemailer connection URL from exactly one of `AUTH_EMAIL_SMTP_URL` or `AUTH_EMAIL_SMTP_URL_FILE`; startup fails when neither or both are configured in SMTP mode. The URL is passed to Nodemailer without ShareSlices-specific parsing or provider branches. It carries the scheme, host, port, optional percent-encoded credentials, and only transport query parameters supported by Nodemailer, so changing deployment requires replacing one value rather than changing application behavior.
+
+`AUTH_EMAIL_FROM` separately owns the stable RFC 5322 sender identity, such as `ShareSlices <no-reply@example.com>`. The SMTP URL selects transport; the sender setting selects the identity that the deployment has authorized with its mail provider. Switching providers for the same authorized identity changes only the SMTP URL, while a deployment using another sender domain configures its sender once.
+
+The file form lets Docker secrets, systemd credentials, Kubernetes Secrets, Vault agents, or another deployment facility mount the URL without making ShareSlices depend on that facility. Local Compose uses the non-secret URL `smtp://mailpit:1025`. Production uses the provider's documented host, port, credentials, and encryption mode expressed as a Nodemailer URL: `smtp://...:587?requireTLS=true` for required STARTTLS or `smtps://...:465` for implicit TLS. Neither URL nor credentials may be logged.
+
+A Kubernetes-only secret contract was rejected because supported intranet deployments may not use Kubernetes. Separate host, port, username, password, and TLS variables were rejected because they make provider switching a coordinated multi-value change and create more invalid configuration combinations. A ShareSlices-specific SMTP URL grammar and provider-specific adapters were rejected because they duplicate Nodemailer behavior and make ordinary provider changes application concerns.
+
+SMTP is the only authentication-email delivery mode in development, automated integration tests, and production. Local Compose delivers to Mailpit through SMTP, while production changes the SMTP URL and sender identity. Unit tests may replace the adapter at a module boundary, but dispatcher integration and end-to-end account-flow tests must exercise an SMTP server and assert the received message content.
+
+The previous capture mode was rejected because it marked a delivery sent while discarding the message, so it could not prove that a person could obtain the code. The generic HTTP mode was rejected because its private JSON contract was not compatible with provider APIs and created a second production transport without a product requirement.
+
+Startup reads exactly one SMTP URL source, validates its protocol and sender configuration, and constructs the transporter. SMTP network reachability is not an API readiness dependency: an SMTP outage must not prevent login or Artifact management. Deployments run `mise run smtp-check` explicitly to call Nodemailer's transport verification before enabling email-dependent account flows; local Compose separately waits for Mailpit health. Runtime connection, TLS, authentication, and provider failures remain isolated behind durable retries and the circuit breaker.
+
+Making SMTP connectivity part of API readiness was rejected because an external mail outage would take unrelated product capabilities offline. Deferring even local configuration validation until the first delivery was rejected because malformed or conflicting configuration should fail deterministically at startup.
+
+SMTP delivery is at least once. Each durable delivery owns one stable RFC 5322 `Message-ID`; every bounded retry reuses that ID and sends the same recipient, subject, body, and six-digit code. A crash after SMTP acceptance but before the database records success may therefore produce a duplicate message. The duplicate remains usable because retries do not rotate the code, and an `ambiguous_delivery_retry` event identifies this recovery path.
+
+Strict provider-side deduplication was rejected because standard SMTP has no idempotency-key contract and `Message-ID` deduplication is not guaranteed. Adding a provider HTTP API only to close this rare ambiguity was rejected in favor of transport portability, bounded retries, stable message identity, and the existing delivery limits.
+
+Local Compose runs Mailpit as a container. A containerized API reaches its SMTP listener through the Compose network at `mailpit:1025`; a host-process API reaches it through `smtp://127.0.0.1:1025`. Compose publishes SMTP only as `127.0.0.1:1025:1025` and the Web interface only as `127.0.0.1:8025:8025`, so development processes and a browser on the Docker host can use Mailpit while other machines on the network cannot reach either port by default. Kubernetes and production manifests do not deploy Mailpit.
+
+Local Compose enables registration email verification by default so the complete registration flow is available immediately through Mailpit; a local `.env` may turn it off for policy testing. Kubernetes and production examples keep registration verification disabled until the operator validates SMTP with `mise run smtp-check` and deliberately enables the policy.
+
+Authentication email has three explicit English templates: registration verification, password-reset verification, and password-changed notification. Each message has plain-text and minimal HTML bodies. Verification messages contain the six-digit code, its ten-minute lifetime, and guidance to ignore an unrequested message; the password-changed notification contains no code and directs an unintended recipient to contact their administrator. Subjects never contain codes, and templates contain no login link, reset link, button, application origin, domain, or IP address.
+
+A template engine and deployment-aware links were rejected because three fixed transactional messages do not justify another abstraction and link delivery would reintroduce the intranet-domain problem that led to six-digit codes.
+
+The SMTP adapter supports unauthenticated relay and username/password SMTP AUTH as represented by a Nodemailer connection URL. SMTP OAuth2 is outside the first version because token acquisition and refresh require additional provider-specific configuration that cannot be reduced to one stable URL. A deployment that mandates OAuth2 places an organization-managed SMTP relay between ShareSlices and that provider.
+
+TLS certificate validation cannot be disabled by SMTP configuration. Public providers use the system trust store; intranet deployments add their private CA through Node's standard `NODE_EXTRA_CA_CERTS` file mechanism. The adapter forces Nodemailer protocol and message debugging off regardless of URL query parameters so credentials, recipients, codes, and message bodies cannot enter application logs. Local Mailpit uses plain SMTP only inside the private Compose network.
+
+An application-specific insecure-TLS flag was rejected because it would turn a temporary certificate workaround into a deployable credential-interception mode. Private-CA injection preserves certificate verification without adding SMTP-provider behavior to ShareSlices.
+
+The default quality gate starts a disposable in-process SMTP server for adapter integration tests, covering the SMTP exchange, envelope, sender, recipient, subjects, bodies, six-digit code, stable `Message-ID`, failure handling, and secret-free logs without requiring Docker. The full YAML account-flow gate depends on Compose Mailpit, retrieves each message through Mailpit's API by its unique test recipient, extracts the code, and completes registration verification and password reset through public HTTP routes. Tests do not use a capture delivery mode.
+
+Every deployment explicitly configures `AUTH_EMAIL_FROM`; only local Compose supplies the development identity `ShareSlices <no-reply@shareslices.local>`. ShareSlices never derives the sender from SMTP credentials. `mise run smtp-check` always runs Nodemailer's connection verification; when `AUTH_EMAIL_SMTP_CHECK_TO` is configured, it additionally sends a probe message to verify that the provider accepts the configured sender. The probe recipient is optional because some environments permit connectivity checks but prohibit unsolicited test delivery.
+
+SMTP configuration is immutable for one API process lifetime. The URL or URL file is read once and one transporter is constructed at startup. Provider changes update the single URL source, run `mise run smtp-check`, and roll the API replicas; pending deliveries remain durable in PostgreSQL and continue after restart. The adapter does not watch secret files or hot-swap transporters.
+
+Hot reload was rejected because concurrent replicas could retain different credentials and open connections while obscuring which provider handled a delivery. A controlled restart gives one configuration generation per process without losing queued work.
+
+SMTP timing and durable retry behavior use the existing environment-variable configuration system, including Compose `.env` and systemd `EnvironmentFile`; ShareSlices does not add a YAML, JSON, or TOML runtime configuration file. Defaults are a 60-second delivery lease, 10-second connection timeout, 10-second greeting timeout, 30-second socket timeout, 30-second persistent retry delay, and three total attempts. Startup requires positive finite integers and rejects a maximum SMTP operation window that is not shorter than the delivery lease. Nodemailer-internal unbounded requeue is disabled so durable retry policy remains in PostgreSQL.
+
+Deployment configuration has one typed code entry point per runtime: `api/src/env.ts` for API configuration and `worker/src/config.rs` for Worker configuration. Runtime modules do not read process environment directly. A root `.env.example` is the operator-facing catalog for every API, Worker, Web proxy, storage, and SMTP variable, grouped by owner and annotated with required, optional, sensitive, and default behavior. Compose and Kubernetes inject those names but do not redefine their semantics, and a repository check detects drift between the catalog, typed runtime schemas, and deployment manifests.
+
+A single cross-language configuration code file was rejected because TypeScript, Rust, Caddy, Compose, and Kubernetes cannot consume it without code generation or a new parser. Per-runtime typed ownership plus one checked deployment catalog provides one maintenance surface for operators without weakening runtime validation.
+
 ### Stop broad storms with a deployment circuit breaker
 
 A circuit breaker is a deployment-wide pause on new authentication-email deliveries. It opens when the global delivery limit is exhausted or a configured run of provider failures indicates that continued retries would amplify an outage.

@@ -1,6 +1,8 @@
 # cspell:ignore dont
 base_url: "http://127.0.0.1:7456"
 failure_base_url: "http://127.0.0.1:7457"
+smtp_base_url: "http://127.0.0.1:7458"
+mailpit_url: "http://127.0.0.1:8025"
 cases:
   - id: health
     request:
@@ -553,3 +555,96 @@ cases:
       json_paths:
         error.code: internal_error
         error.message: Internal server error.
+
+  - id: smtp_register_requires_verification
+    server: smtp
+    request:
+      method: POST
+      path: /api/users
+      json:
+        name: SMTP User
+        email: "smtp-{run_id}@example.com"
+        password: initial-password
+    expect:
+      status: 202
+      no_set_cookie: true
+      json_paths:
+        verification.expiresIn: 600
+    save:
+      smtp_registration_verification_id: verification.id
+
+  - id: smtp_verify_registration_with_delivered_code
+    server: smtp
+    request:
+      method: POST
+      path: /api/email-verifications/$saved.smtp_registration_verification_id/verify
+      mailpit_code_for: "smtp-{run_id}@example.com"
+      mailpit_subject: Verify your ShareSlices email
+      json:
+        code: $mailpit_code
+    expect:
+      status: 200
+      no_set_cookie: true
+      json:
+        verified: true
+
+  - id: smtp_request_password_reset
+    server: smtp
+    request:
+      method: POST
+      path: /api/password-reset-attempts
+      json:
+        email: "smtp-{run_id}@example.com"
+    expect:
+      status: 202
+      no_set_cookie: true
+      json_paths:
+        verification.expiresIn: 600
+    save:
+      smtp_password_reset_attempt_id: verification.id
+
+  - id: smtp_verify_password_reset_with_delivered_code
+    server: smtp
+    request:
+      method: POST
+      path: /api/password-reset-attempts/$saved.smtp_password_reset_attempt_id/verify
+      mailpit_code_for: "smtp-{run_id}@example.com"
+      mailpit_subject: Reset your ShareSlices password
+      json:
+        code: $mailpit_code
+    expect:
+      status: 200
+      no_set_cookie: true
+      json_paths:
+        expiresIn: 600
+    save:
+      smtp_reset_grant: resetGrant
+
+  - id: smtp_complete_password_reset
+    server: smtp
+    request:
+      method: POST
+      path: /api/password-resets
+      json:
+        resetGrant: $saved.smtp_reset_grant
+        password: replacement-password
+        confirmPassword: replacement-password
+    expect:
+      status: 200
+      no_set_cookie: true
+      json:
+        reset: true
+
+  - id: smtp_login_with_replacement_password
+    server: smtp
+    request:
+      method: POST
+      path: /api/sessions
+      json:
+        email: "smtp-{run_id}@example.com"
+        password: replacement-password
+    expect:
+      status: 201
+      set_cookie: true
+      json_paths:
+        signedIn: true

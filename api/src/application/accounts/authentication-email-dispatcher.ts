@@ -2,35 +2,47 @@ import { randomUUID } from "node:crypto";
 import { decryptAuthenticationEmail } from "./authentication-email.js";
 import { pool } from "../../db/client.js";
 import { env } from "../../env.js";
+import {
+  createAuthenticationEmailSmtpAdapter,
+  type AuthenticationEmailSmtpAdapter
+} from "../../email/authentication-email-smtp.js";
 import { apiLogger, exceptionAttributes } from "../../logging/index.js";
 
 type DeliveryRow = { id: string; encrypted_payload: string; attempt_count: number };
 
-async function sendHttp(payload: unknown, deliveryId: string): Promise<string | null> {
-  if (!env.AUTH_EMAIL_HTTP_URL) throw new Error("Authentication email HTTP provider is not configured.");
-  const response = await fetch(env.AUTH_EMAIL_HTTP_URL, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "idempotency-key": deliveryId,
-      ...(env.AUTH_EMAIL_HTTP_TOKEN ? { authorization: `Bearer ${env.AUTH_EMAIL_HTTP_TOKEN}` } : {})
-    },
-    body: JSON.stringify(payload)
-  });
-  if (!response.ok) throw new Error(`Authentication email provider returned ${response.status}.`);
-  return response.headers.get("x-message-id");
-}
+const smtpAdapter = createAuthenticationEmailSmtpAdapter({
+  url: env.AUTH_EMAIL_SMTP_URL,
+  from: env.AUTH_EMAIL_FROM,
+  connectionTimeoutMs: env.AUTH_EMAIL_SMTP_CONNECTION_TIMEOUT_MS,
+  greetingTimeoutMs: env.AUTH_EMAIL_SMTP_GREETING_TIMEOUT_MS,
+  socketTimeoutMs: env.AUTH_EMAIL_SMTP_SOCKET_TIMEOUT_MS
+});
 
-export async function dispatchOneAuthenticationEmail(workerId: string = randomUUID()): Promise<boolean> {
+export async function dispatchOneAuthenticationEmail(
+  workerId: string = randomUUID(),
+  adapter: AuthenticationEmailSmtpAdapter = smtpAdapter
+): Promise<boolean> {
   const client = await pool.connect();
   let delivery: DeliveryRow | undefined;
   try {
     await client.query("begin");
-    await client.query(
+    const recovered = await client.query<{ id: string }>(
       `update authentication_email_delivery
        set state = 'pending', lease_owner = null, lease_expires_at = null
-       where state = 'sending' and lease_expires_at <= now()`
+       where state = 'sending' and lease_expires_at <= now()
+       returning id`
     );
+    for (const row of recovered.rows) {
+      apiLogger.emit({
+        severity: "WARN",
+        body: "Ambiguous authentication email delivery scheduled for retry.",
+        eventName: "shareslices.authentication_email.delivery.ambiguous_retry_scheduled",
+        attributes: {
+          "shareslices.authentication_email.delivery.id": row.id,
+          "shareslices.retry.reason_code": "ambiguous_delivery_retry"
+        }
+      });
+    }
     const claimed = await client.query<DeliveryRow>(
       `select id, encrypted_payload, attempt_count
        from authentication_email_delivery
@@ -45,9 +57,10 @@ export async function dispatchOneAuthenticationEmail(workerId: string = randomUU
     }
     await client.query(
       `update authentication_email_delivery
-       set state = 'sending', lease_owner = $2, lease_expires_at = now() + interval '30 seconds', attempt_count = attempt_count + 1
+       set state = 'sending', lease_owner = $2,
+           lease_expires_at = now() + ($3 * interval '1 second'), attempt_count = attempt_count + 1
        where id = $1`,
-      [delivery.id, workerId]
+      [delivery.id, workerId, env.AUTH_EMAIL_DELIVERY_LEASE_SECONDS]
     );
     await client.query("commit");
   } catch (error) {
@@ -59,9 +72,7 @@ export async function dispatchOneAuthenticationEmail(workerId: string = randomUU
 
   try {
     const payload = decryptAuthenticationEmail(delivery.encrypted_payload, env.AUTH_EMAIL_ENCRYPTION_KEY);
-    const providerMessageId = env.AUTH_EMAIL_DELIVERY_MODE === "capture"
-      ? `capture:${delivery.id}`
-      : await sendHttp(payload, delivery.id);
+    const providerMessageId = await adapter.send(payload, delivery.id);
     await pool.query(
       `update authentication_email_delivery
        set state = 'sent', sent_at = now(), provider_message_id = $2,
@@ -79,10 +90,11 @@ export async function dispatchOneAuthenticationEmail(workerId: string = randomUU
     const retry = delivery.attempt_count + 1 < env.AUTH_EMAIL_MAX_ATTEMPTS;
     await pool.query(
       `update authentication_email_delivery
-       set state = $2, available_at = case when $2 = 'pending' then now() + interval '30 seconds' else available_at end,
+       set state = $2,
+           available_at = case when $2 = 'pending' then now() + ($3 * interval '1 second') else available_at end,
            failure_reason_code = 'provider_failure', lease_owner = null, lease_expires_at = null
        where id = $1`,
-      [delivery.id, retry ? "pending" : "failed"]
+      [delivery.id, retry ? "pending" : "failed", env.AUTH_EMAIL_RETRY_DELAY_SECONDS]
     );
     if (!retry) {
       await pool.query(
@@ -152,5 +164,8 @@ export function startAuthenticationEmailDispatcher(): () => void {
     }
   }, 1000);
   timer.unref();
-  return () => clearInterval(timer);
+  return () => {
+    clearInterval(timer);
+    smtpAdapter.close();
+  };
 }

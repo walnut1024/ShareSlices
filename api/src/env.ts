@@ -1,7 +1,7 @@
+import { readFileSync } from "node:fs";
 import { z } from "zod";
 
 const booleanString = z.enum(["true", "false"]).transform((value) => value === "true");
-const optionalUrl = z.preprocess((value) => value === "" ? undefined : value, z.string().url().optional());
 
 const envSchema = z
   .object({
@@ -24,9 +24,14 @@ const envSchema = z
     MINIMUM_CLI_VERSION: z.string().regex(/^\d+\.\d+\.\d+$/),
     REQUIRE_EMAIL_VERIFICATION: booleanString.default(false),
     AUTH_EMAIL_ENCRYPTION_KEY: z.string().min(32).default("development-email-encryption-key-32"),
-    AUTH_EMAIL_DELIVERY_MODE: z.enum(["capture", "http"]).default("capture"),
-    AUTH_EMAIL_HTTP_URL: optionalUrl,
-    AUTH_EMAIL_HTTP_TOKEN: z.string().optional(),
+    AUTH_EMAIL_SMTP_URL: z.string().url(),
+    AUTH_EMAIL_FROM: z.string().trim().min(3),
+    AUTH_EMAIL_SMTP_CHECK_TO: z.string().email().optional(),
+    AUTH_EMAIL_DELIVERY_LEASE_SECONDS: z.coerce.number().int().positive().default(60),
+    AUTH_EMAIL_SMTP_CONNECTION_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
+    AUTH_EMAIL_SMTP_GREETING_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
+    AUTH_EMAIL_SMTP_SOCKET_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+    AUTH_EMAIL_RETRY_DELAY_SECONDS: z.coerce.number().int().positive().default(30),
     AUTH_EMAIL_RESEND_SECONDS: z.coerce.number().int().positive().default(60),
     AUTH_EMAIL_PER_EMAIL_HOUR: z.coerce.number().int().positive().default(5),
     AUTH_EMAIL_PER_EMAIL_DAY: z.coerce.number().int().positive().default(10),
@@ -46,11 +51,39 @@ const envSchema = z
         message: "Worker heartbeat must be shorter than the job lease."
       });
     }
-    if (value.AUTH_EMAIL_DELIVERY_MODE === "http" && !value.AUTH_EMAIL_HTTP_URL) {
+    const smtpUrl = new URL(value.AUTH_EMAIL_SMTP_URL);
+    if (!(["smtp:", "smtps:"] as const).includes(smtpUrl.protocol as "smtp:" | "smtps:")) {
       context.addIssue({
         code: "custom",
-        path: ["AUTH_EMAIL_HTTP_URL"],
-        message: "HTTP email delivery requires AUTH_EMAIL_HTTP_URL."
+        path: ["AUTH_EMAIL_SMTP_URL"],
+        message: "SMTP URL must use smtp or smtps."
+      });
+    }
+    if (smtpUrl.searchParams.get("tls.rejectUnauthorized") === "false") {
+      context.addIssue({
+        code: "custom",
+        path: ["AUTH_EMAIL_SMTP_URL"],
+        message: "SMTP TLS certificate validation cannot be disabled."
+      });
+    }
+    if (
+      value.NODE_ENV === "production" &&
+      smtpUrl.protocol === "smtp:" &&
+      smtpUrl.searchParams.get("requireTLS") !== "true"
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["AUTH_EMAIL_SMTP_URL"],
+        message: "Production smtp URLs must require STARTTLS."
+      });
+    }
+    const smtpWindow = value.AUTH_EMAIL_SMTP_CONNECTION_TIMEOUT_MS +
+      value.AUTH_EMAIL_SMTP_GREETING_TIMEOUT_MS + value.AUTH_EMAIL_SMTP_SOCKET_TIMEOUT_MS;
+    if (smtpWindow >= value.AUTH_EMAIL_DELIVERY_LEASE_SECONDS * 1000) {
+      context.addIssue({
+        code: "custom",
+        path: ["AUTH_EMAIL_DELIVERY_LEASE_SECONDS"],
+        message: "Authentication email delivery lease must exceed the SMTP timeout window."
       });
     }
   });
@@ -58,7 +91,13 @@ const envSchema = z
 export type ApiEnv = z.infer<typeof envSchema>;
 
 export function readEnv(source: NodeJS.ProcessEnv = process.env): ApiEnv {
-  return envSchema.parse(source);
+  const directUrl = source.AUTH_EMAIL_SMTP_URL?.trim();
+  const urlFile = source.AUTH_EMAIL_SMTP_URL_FILE?.trim();
+  if (Boolean(directUrl) === Boolean(urlFile)) {
+    throw new Error("Configure exactly one of AUTH_EMAIL_SMTP_URL or AUTH_EMAIL_SMTP_URL_FILE.");
+  }
+  const smtpUrl = directUrl ?? readFileSync(urlFile!, "utf8").trim();
+  return envSchema.parse({ ...source, AUTH_EMAIL_SMTP_URL: smtpUrl });
 }
 
 export const env = readEnv();

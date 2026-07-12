@@ -17,5 +17,6 @@ process.env.WORKER_JOB_MAX_ATTEMPTS ??= "3";
 process.env.MINIMUM_CLI_VERSION ??= "0.1.0";
 process.env.REQUIRE_EMAIL_VERIFICATION ??= "false";
 process.env.AUTH_EMAIL_ENCRYPTION_KEY ??= "test-email-encryption-key-at-least-32-bytes";
-process.env.AUTH_EMAIL_DELIVERY_MODE ??= "capture";
+process.env.AUTH_EMAIL_SMTP_URL ??= "smtp://127.0.0.1:1025";
+process.env.AUTH_EMAIL_FROM ??= "ShareSlices <no-reply@shareslices.local>";
 process.env.NODE_ENV ??= "test";

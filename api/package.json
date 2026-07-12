@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "start": "tsx src/main.ts",
+    "smtp:check": "tsx src/email/smtp-check.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "db:migrate": "tsx src/db/migrate.ts"
@@ -19,13 +20,17 @@
     "better-auth": "^1.3.4",
     "drizzle-orm": "^0.44.5",
     "hono": "^4.10.7",
+    "nodemailer": "^9.0.3",
     "pg": "^8.16.3",
     "zod": "^4.1.12"
   },
   "devDependencies": {
     "@types/archiver": "^8.0.0",
     "@types/node": "^26.0.0",
+    "@types/nodemailer": "^8.0.1",
     "@types/pg": "^8.15.5",
+    "@types/smtp-server": "^3.5.13",
+    "smtp-server": "^3.19.2",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vitest": "^4.0.15"

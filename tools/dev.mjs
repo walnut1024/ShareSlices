@@ -27,6 +27,10 @@ const defaults = {
   WORKER_JOB_HEARTBEAT_SECONDS: "10",
   WORKER_JOB_MAX_ATTEMPTS: "3",
   MINIMUM_CLI_VERSION: "0.1.0",
+  REQUIRE_EMAIL_VERIFICATION: "true",
+  AUTH_EMAIL_ENCRYPTION_KEY: "local-email-encryption-secret-at-least-32-bytes",
+  AUTH_EMAIL_SMTP_URL: "smtp://127.0.0.1:1025",
+  AUTH_EMAIL_FROM: "ShareSlices <no-reply@shareslices.local>",
   PORT: "7456",
   NODE_ENV: "development"
 };
@@ -47,7 +51,8 @@ run("docker", [
   "-d",
   "--wait",
   "postgres",
-  "object-storage"
+  "object-storage",
+  "mailpit"
 ]);
 run("docker", ["compose", "run", "--rm", "object-storage-init"]);
 run("pnpm", ["--dir", "api", "db:migrate"]);

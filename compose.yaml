@@ -50,6 +50,18 @@ services:
         mc mb --ignore-existing "local/$${S3_BUCKET}"
     restart: "no"
 
+  mailpit:
+    image: ghcr.io/axllent/mailpit:v1.30.0
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
   migrate:
     build:
       context: .
@@ -73,11 +85,15 @@ services:
       WORKER_JOB_HEARTBEAT_SECONDS: ${WORKER_JOB_HEARTBEAT_SECONDS:-10}
       WORKER_JOB_MAX_ATTEMPTS: ${WORKER_JOB_MAX_ATTEMPTS:-3}
       MINIMUM_CLI_VERSION: ${MINIMUM_CLI_VERSION:-0.1.0}
-      REQUIRE_EMAIL_VERIFICATION: ${REQUIRE_EMAIL_VERIFICATION:-false}
+      REQUIRE_EMAIL_VERIFICATION: ${REQUIRE_EMAIL_VERIFICATION:-true}
       AUTH_EMAIL_ENCRYPTION_KEY: ${AUTH_EMAIL_ENCRYPTION_KEY:-local-email-encryption-secret-at-least-32-bytes}
-      AUTH_EMAIL_DELIVERY_MODE: ${AUTH_EMAIL_DELIVERY_MODE:-capture}
-      AUTH_EMAIL_HTTP_URL: ${AUTH_EMAIL_HTTP_URL:-}
-      AUTH_EMAIL_HTTP_TOKEN: ${AUTH_EMAIL_HTTP_TOKEN:-}
+      AUTH_EMAIL_SMTP_URL: ${AUTH_EMAIL_SMTP_URL:-smtp://mailpit:1025}
+      AUTH_EMAIL_FROM: ${AUTH_EMAIL_FROM:-ShareSlices <no-reply@shareslices.local>}
+      AUTH_EMAIL_DELIVERY_LEASE_SECONDS: ${AUTH_EMAIL_DELIVERY_LEASE_SECONDS:-60}
+      AUTH_EMAIL_SMTP_CONNECTION_TIMEOUT_MS: ${AUTH_EMAIL_SMTP_CONNECTION_TIMEOUT_MS:-10000}
+      AUTH_EMAIL_SMTP_GREETING_TIMEOUT_MS: ${AUTH_EMAIL_SMTP_GREETING_TIMEOUT_MS:-10000}
+      AUTH_EMAIL_SMTP_SOCKET_TIMEOUT_MS: ${AUTH_EMAIL_SMTP_SOCKET_TIMEOUT_MS:-30000}
+      AUTH_EMAIL_RETRY_DELAY_SECONDS: ${AUTH_EMAIL_RETRY_DELAY_SECONDS:-30}
       PORT: "7456"
       NODE_ENV: development
     depends_on:
@@ -97,6 +113,8 @@ services:
         condition: service_completed_successfully
       object-storage-init:
         condition: service_completed_successfully
+      mailpit:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:7456/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 2s

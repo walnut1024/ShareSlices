@@ -1,15 +1,48 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { SMTPServer } from "smtp-server";
 import {
   acceptAuthenticationEmailDelivery,
   createVerificationAttempt
 } from "../src/db/authentication-email-repository.js";
 import { dispatchOneAuthenticationEmail } from "../src/application/accounts/authentication-email-dispatcher.js";
+import {
+  createAuthenticationEmailSmtpAdapter,
+  type AuthenticationEmailSmtpAdapter
+} from "../src/email/authentication-email-smtp.js";
 import { pool } from "../src/db/client.js";
+
+let smtpServer: SMTPServer;
+let smtpAdapter: AuthenticationEmailSmtpAdapter;
+let receivedMessages = 0;
 
 describe("authentication email repository", () => {
   beforeAll(async () => {
+    smtpServer = new SMTPServer({
+      authOptional: true,
+      disableReverseLookup: true,
+      disabledCommands: ["STARTTLS"],
+      closeTimeout: 100,
+      onData(stream, _session, callback) {
+        stream.on("data", () => undefined);
+        stream.on("end", () => {
+          receivedMessages += 1;
+          callback();
+        });
+        stream.resume();
+      }
+    });
+    await new Promise<void>((resolve) => smtpServer.listen(0, "127.0.0.1", resolve));
+    const address = smtpServer.server.address();
+    if (!address || typeof address === "string") throw new Error("SMTP test server did not bind a TCP port.");
+    smtpAdapter = createAuthenticationEmailSmtpAdapter({
+      url: `smtp://127.0.0.1:${address.port}`,
+      from: "ShareSlices <no-reply@shareslices.local>",
+      connectionTimeoutMs: 1_000,
+      greetingTimeoutMs: 1_000,
+      socketTimeoutMs: 2_000
+    });
     await pool.query(await readFile(resolve(process.cwd(), "../db/migrations/0005_email_verification_and_password_reset.sql"), "utf8"));
     await pool.query("delete from authentication_email_delivery");
     await pool.query("delete from password_reset_grant");
@@ -23,6 +56,8 @@ describe("authentication email repository", () => {
     await pool.query("delete from authentication_email_delivery");
     await pool.query("delete from password_reset_grant");
     await pool.query("delete from email_verification_attempt");
+    smtpAdapter.close();
+    await new Promise<void>((resolve) => smtpServer.close(() => resolve()));
   });
 
   it("deduplicates repeated delivery during the server waiting period", async () => {
@@ -109,12 +144,14 @@ describe("authentication email repository", () => {
     })).resolves.toEqual({ status: "limited" });
   });
 
-  it("dispatches a captured delivery and removes its encrypted payload", async () => {
-    await expect(dispatchOneAuthenticationEmail("test-dispatcher")).resolves.toBe(true);
+  it("marks a delivery sent only after SMTP accepts it and removes its encrypted payload", async () => {
+    const before = receivedMessages;
+    await expect(dispatchOneAuthenticationEmail("test-dispatcher", smtpAdapter)).resolves.toBe(true);
     const sent = await pool.query(
       "select state, encrypted_payload, provider_message_id from authentication_email_delivery where state = 'sent' order by sent_at desc limit 1"
     );
     expect(sent.rows[0]).toMatchObject({ state: "sent", encrypted_payload: "" });
-    expect(sent.rows[0].provider_message_id).toMatch(/^capture:/);
+    expect(sent.rows[0].provider_message_id).toMatch(/^<.+@shareslices\.local>$/);
+    expect(receivedMessages).toBe(before + 1);
   });
 });

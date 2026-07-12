@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import { readEnv } from "../src/env.js";
 
 const validEnv = {
@@ -19,9 +22,17 @@ const validEnv = {
   WORKER_JOB_HEARTBEAT_SECONDS: "10",
   WORKER_JOB_MAX_ATTEMPTS: "3",
   MINIMUM_CLI_VERSION: "0.1.0",
+  AUTH_EMAIL_SMTP_URL: "smtp://127.0.0.1:1025",
+  AUTH_EMAIL_FROM: "ShareSlices <no-reply@shareslices.local>",
   PORT: "7456",
   NODE_ENV: "test"
 };
+
+const temporaryDirectories: string[] = [];
+
+afterEach(() => {
+  for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { recursive: true });
+});
 
 describe("API environment", () => {
   it("accepts IP-and-port deployment addresses and typed storage/job settings", () => {
@@ -57,5 +68,39 @@ describe("API environment", () => {
         WORKER_JOB_HEARTBEAT_SECONDS: "10"
       })
     ).toThrow();
+  });
+
+  it("accepts exactly one Nodemailer SMTP URL source and applies bounded defaults", () => {
+    expect(readEnv(validEnv)).toMatchObject({
+      AUTH_EMAIL_SMTP_URL: "smtp://127.0.0.1:1025",
+      AUTH_EMAIL_FROM: "ShareSlices <no-reply@shareslices.local>",
+      AUTH_EMAIL_DELIVERY_LEASE_SECONDS: 60,
+      AUTH_EMAIL_SMTP_CONNECTION_TIMEOUT_MS: 10_000,
+      AUTH_EMAIL_SMTP_GREETING_TIMEOUT_MS: 10_000,
+      AUTH_EMAIL_SMTP_SOCKET_TIMEOUT_MS: 30_000,
+      AUTH_EMAIL_RETRY_DELAY_SECONDS: 30,
+      AUTH_EMAIL_MAX_ATTEMPTS: 3
+    });
+
+    const directory = mkdtempSync(join(tmpdir(), "shareslices-smtp-"));
+    temporaryDirectories.push(directory);
+    const path = join(directory, "url");
+    writeFileSync(path, "smtps://user:pass@smtp.example.com:465\n", { mode: 0o600 });
+    const fromFile = { ...validEnv, AUTH_EMAIL_SMTP_URL: undefined, AUTH_EMAIL_SMTP_URL_FILE: path };
+    expect(readEnv(fromFile)).toMatchObject({ AUTH_EMAIL_SMTP_URL: "smtps://user:pass@smtp.example.com:465" });
+  });
+
+  it("rejects missing, conflicting, insecure, and out-of-lease SMTP configuration", () => {
+    expect(() => readEnv({ ...validEnv, AUTH_EMAIL_SMTP_URL: undefined })).toThrow();
+    expect(() => readEnv({ ...validEnv, AUTH_EMAIL_SMTP_URL_FILE: "/tmp/smtp-url" })).toThrow();
+    expect(() => readEnv({ ...validEnv, AUTH_EMAIL_SMTP_URL: "https://smtp.example.com" })).toThrow();
+    expect(() => readEnv({ ...validEnv, AUTH_EMAIL_SMTP_URL: "smtp://smtp.example.com:587?tls.rejectUnauthorized=false" })).toThrow();
+    expect(() => readEnv({
+      ...validEnv,
+      AUTH_EMAIL_DELIVERY_LEASE_SECONDS: "30",
+      AUTH_EMAIL_SMTP_CONNECTION_TIMEOUT_MS: "10000",
+      AUTH_EMAIL_SMTP_GREETING_TIMEOUT_MS: "10000",
+      AUTH_EMAIL_SMTP_SOCKET_TIMEOUT_MS: "10000"
+    })).toThrow();
   });
 });

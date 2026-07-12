@@ -56,15 +56,15 @@ describe("API structured logging", () => {
   });
 
   it("sanitizes exception evidence and its cause chain", () => {
-    const cause = new Error("GET /a/secret-share-slug/ failed with token=private-token");
-    const error = new Error("Authorization: Bearer abc.def.ghi; cookie=session=secret", { cause });
+    const cause = new Error("GET /a/secret-share-slug/ failed for ada@example.com with token=private-token");
+    const error = new Error("Authorization: Bearer abc.def.ghi; cookie=session=secret; smtp://user:pass@smtp.example.com:587", { cause });
     error.stack = "Error: Authorization: Bearer abc.def.ghi\n at /a/secret-share-slug/index.js";
 
     expect(exceptionAttributes(error)).toEqual({
       "exception.type": "Error",
-      "exception.message": "Authorization: [REDACTED]; cookie=[REDACTED]",
+      "exception.message": "Authorization: [REDACTED]; cookie=[REDACTED]; smtp://[REDACTED]",
       "exception.stacktrace": "Error: Authorization: [REDACTED]\n at /a/[REDACTED]/index.js",
-      "exception.cause_chain": ["Error: GET /a/[REDACTED]/ failed with token=[REDACTED]"]
+      "exception.cause_chain": ["Error: GET /a/[REDACTED]/ failed for [REDACTED_EMAIL] with token=[REDACTED]"]
     });
   });
 

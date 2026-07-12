@@ -82,6 +82,8 @@ export function parseTraceParent(value: string | undefined): TraceContext | unde
 
 function sanitizeText(value: string): string {
   return value
+    .replace(/smtps?:\/\/[^\s]+/gi, "smtp://[REDACTED]")
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[REDACTED_EMAIL]")
     .replace(/\bAuthorization\s*:\s*(?:Bearer\s+)?[^;\s]+/gi, "Authorization: [REDACTED]")
     .replace(/\b(cookie|set-cookie)\s*[=:]\s*[^;\s]+/gi, "$1=[REDACTED]")
     .replace(/\b(password|token|secret|session)\s*=\s*[^;\s]+/gi, "$1=[REDACTED]")
