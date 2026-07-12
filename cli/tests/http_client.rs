@@ -145,7 +145,7 @@ async fn lists_artifacts_across_server_pages_with_filters_and_compatibility_head
     let artifact = |id: &str| {
         serde_json::json!({
             "id": id, "name": format!("Report {id}"), "updatedAt": "2026-07-12T08:00:00Z",
-            "processingState": "ready", "shareLink": { "state": "active", "expiresAt": null },
+            "processingState": "ready", "shareLink": { "url": "https://viewer.example/a/stable/", "state": "active", "expiresAt": null },
             "publication": { "id": "publication-1" }
         })
     };

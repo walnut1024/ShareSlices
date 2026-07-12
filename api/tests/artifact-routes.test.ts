@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../src/http/app.js";
 import { ArtifactIntakeError } from "../src/application/artifacts/artifact-intake.js";
+import { ArtifactManagementError } from "../src/application/artifacts/artifact-management.js";
 import { apiLogger } from "../src/logging/index.js";
 
 function artifactDependencies(session: { user: { id: string } } | null) {
@@ -45,7 +46,9 @@ function managementDependencies() {
     management: {
       list: vi.fn().mockResolvedValue({ artifacts: [artifact], nextPageToken: null }),
       get: vi.fn().mockResolvedValue(artifact),
-      listReadyVersions: vi.fn().mockResolvedValue([{ id: "version-1", versionNumber: 1, state: "ready" }]),
+      listReadyVersions: vi.fn().mockResolvedValue([
+        { id: "version-2", versionNumber: 2, state: "ready" }
+      ]),
       rename: vi.fn().mockResolvedValue({ ...artifact, name: "Renamed" }),
       setShareExpiration: vi.fn().mockResolvedValue(artifact),
       delete: vi.fn().mockResolvedValue(undefined)
@@ -57,15 +60,6 @@ describe("Artifact routes", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.spyOn(apiLogger, "emit").mockImplementation(() => undefined);
-  });
-
-  it("lists ready Versions only for an owned Artifact", async () => {
-    const dependencies = managementDependencies();
-    const app = buildApp({ artifact: dependencies } as never);
-    const response = await app.request("/api/artifacts/artifact-1/versions");
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ versions: [{ id: "version-1", versionNumber: 1, state: "ready" }] });
-    expect(dependencies.management.listReadyVersions).toHaveBeenCalledWith("owner-1", "artifact-1");
   });
 
   it("requires a management session for upload-policy discovery", async () => {
@@ -123,6 +117,17 @@ describe("Artifact routes", () => {
     });
     expect((await app.request("/api/artifacts?pageSize=0")).status).toBe(400);
     expect((await app.request("/api/artifacts?publication=private")).status).toBe(400);
+  });
+
+  it("lists ready Versions through an owner-scoped resource route", async () => {
+    const dependencies = managementDependencies();
+    const app = buildApp({ artifact: dependencies } as never);
+    const response = await app.request("/api/artifacts/artifact-1/versions");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      versions: [{ id: "version-2", versionNumber: 2, state: "ready" }]
+    });
+    expect(dependencies.management.listReadyVersions).toHaveBeenCalledWith("owner-1", "artifact-1");
   });
 
   it("streams multipart input into the Artifact intake service", async () => {
@@ -305,5 +310,46 @@ describe("Artifact routes", () => {
     expect(dependencies.management.setShareExpiration).toHaveBeenCalledWith("owner-1", "artifact-1", expiresAt);
     expect(deleted.status).toBe(204);
     expect(dependencies.management.delete).toHaveBeenCalledWith("owner-1", "artifact-1");
+  });
+
+  it("rejects invalid Share expiration input and enforces ownership", async () => {
+    const dependencies = managementDependencies();
+    const app = buildApp({ artifact: dependencies } as never);
+
+    for (const body of [{}, { expiresAt: "not-a-date" }, { expiresAt: 42 }]) {
+      const response = await app.request("/api/artifacts/artifact-1/share-link", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      expect(response.status).toBe(400);
+    }
+    expect(dependencies.management.setShareExpiration).not.toHaveBeenCalled();
+
+    const unauthorizedDependencies = managementDependencies();
+    unauthorizedDependencies.authApi.getSession.mockResolvedValue(null);
+    const unauthorized = buildApp({ artifact: unauthorizedDependencies } as never);
+    const response = await unauthorized.request("/api/artifacts/artifact-1/share-link", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ expiresAt: null })
+    });
+    expect(response.status).toBe(401);
+    expect(unauthorizedDependencies.management.setShareExpiration).not.toHaveBeenCalled();
+
+    const otherOwnerDependencies = managementDependencies();
+    otherOwnerDependencies.authApi.getSession.mockResolvedValue({ user: { id: "other-owner" } });
+    otherOwnerDependencies.management.get.mockRejectedValue(new ArtifactManagementError("artifact_not_found"));
+    otherOwnerDependencies.management.setShareExpiration.mockRejectedValue(
+      new ArtifactManagementError("artifact_not_found")
+    );
+    const otherOwner = buildApp({ artifact: otherOwnerDependencies } as never);
+    expect((await otherOwner.request("/api/artifacts/artifact-1")).status).toBe(404);
+    const edit = await otherOwner.request("/api/artifacts/artifact-1/share-link", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ expiresAt: null })
+    });
+    expect(edit.status).toBe(404);
   });
 });

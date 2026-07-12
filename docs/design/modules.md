@@ -9,7 +9,7 @@ Engineering rules that constrain all designs live in `AGENTS.md`. Product behavi
 
 ## Top-level seams
 
-Status: current for the 0.0.1 runtime seams, CLI authentication, Artifact listing, and local-input or prepared-ZIP Upload; Skill entry remains target.
+Status: current for the 0.0.1 runtime seams, CLI authentication, Artifact listing, Upload, Publish, and Unpublish; Skill entry remains target.
 
 | Seam | Status | Interface owner | Production Adapter | Test Adapter |
 | --- | --- | --- | --- | --- |
@@ -20,7 +20,7 @@ Status: current for the 0.0.1 runtime seams, CLI authentication, Artifact listin
 | Application data persistence | current | `api/src/application/*` | Drizzle Adapter | Local PostgreSQL or in-memory Adapter |
 | Raw and processed object access | current | Application and worker Modules | S3-compatible Adapter | In-memory object Adapter |
 | Processing job handoff | current | `db/migrations/` schema plus job Interfaces | Drizzle enqueue Adapter and SQLx claim Adapter | Local PostgreSQL and fake Adapters |
-| Agent entry | current for authentication, Artifact listing, and local-input or prepared-ZIP Upload | `cli/` command Interface | Rust CLI with operating-system credential store | In-memory credential and fake HTTP Adapters |
+| Agent entry | current for authentication, Artifact listing, Upload, Publish, and Unpublish | `cli/` command Interface | Rust CLI with operating-system credential store | In-memory credential and fake HTTP Adapters |
 
 ## CLI authentication Modules
 
@@ -33,10 +33,10 @@ Status: current
 
 ## CLI Artifact Modules
 
-Status: current for Artifact listing, Upload of prepared ZIPs or selected local inputs, and ready-Version Export; other management commands remain target.
+Status: current for Artifact listing, Upload, Publish, Unpublish, Share-link management, and ready-Version Export; other management commands remain target.
 
-- `cli/src/artifact_commands.rs` owns bounded Artifact list presentation, selectable JSON formatting, the shared interactive selector, Upload orchestration through ready Version commit, and atomic local Export of an explicitly selected ready Version. `cli/src/packaging.rs` expands selected local inputs, applies the active Server policy, and deterministically streams safe effective paths into a temporary ZIP; a single prepared ZIP bypasses repackaging. `ApiClient` follows opaque Server pages, transfers ZIP input with safe idempotent retries, downloads normalized Version ZIPs, and supplies transient CLI compatibility metadata; production credentials still come only from the operating-system credential store.
-- `ArtifactManagementService` owns list filtering and opaque pagination semantics. The Hono route validates query DTOs and maps application errors without deriving Artifact state or page behavior.
+- `cli/src/artifact_commands.rs` owns bounded Artifact list presentation, selectable JSON formatting, shared interactive Artifact and ready-Version selection, Upload orchestration through ready Version commit, atomic Publish and Unpublish, Share-link management, and atomic local Export. `cli/src/packaging.rs` expands selected local inputs, applies the active Server policy, and deterministically streams safe effective paths into a temporary ZIP; a single prepared ZIP bypasses repackaging. `ApiClient` follows opaque Server pages, transfers ZIP input with safe idempotent retries, downloads normalized Version ZIPs, and supplies transient CLI compatibility metadata; production credentials still come only from the operating-system credential store.
+- `ArtifactManagementService` owns list filtering, opaque pagination, and the owner-scoped ready-Version collection used by interactive CLI selection. Hono routes validate DTOs and map application errors without deriving Artifact state or Publication behavior.
 
 ## Hono runtime Modules
 
@@ -84,7 +84,7 @@ type ArtifactIntakeService = {
 type ArtifactManagementService = {
   list(ownerUserId: string): Promise<ArtifactManagementState[]>;
   get(ownerUserId: string, artifactId: string): Promise<ArtifactManagementState>;
-  listReadyVersions(ownerUserId: string, artifactId: string): Promise<ReadyVersionListItem[]>;
+  listReadyVersions(ownerUserId: string, artifactId: string): Promise<ReadyVersionSummary[]>;
   rename(ownerUserId: string, artifactId: string, name: string): Promise<ArtifactManagementState>;
   setShareExpiration(ownerUserId: string, artifactId: string, expiresAt: string | null): Promise<ArtifactManagementState>;
   delete(ownerUserId: string, artifactId: string): Promise<void>;

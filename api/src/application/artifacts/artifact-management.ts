@@ -151,7 +151,11 @@ export class ArtifactManagementService {
     const artifact = await this.#repositories.artifacts.findOwned(ownerUserId, artifactId);
     if (!artifact) throw new ArtifactManagementError("artifact_not_found");
     const versions = await this.#repositories.versions.listReadyOwned(ownerUserId, artifactId);
-    return versions.map((version) => ({ id: version.id, versionNumber: version.versionNumber, state: "ready" as const }));
+    return versions.map((version) => ({
+      id: version.id,
+      versionNumber: version.versionNumber,
+      state: "ready" as const
+    }));
   }
 
   async rename(ownerUserId: string, artifactId: string, requestedName: string): Promise<ArtifactManagementState> {
@@ -227,9 +231,12 @@ export class ArtifactManagementService {
   }
 
   #shareLink(link: ShareLinkRecord): ArtifactManagementState["shareLink"] {
+    const state = link.status === "active" && link.expiresAt !== null && link.expiresAt <= new Date()
+      ? "expired"
+      : link.status;
     return {
       url: new URL(`/a/${link.slug}/`, this.#viewerOrigin).toString(),
-      state: link.status as ArtifactManagementState["shareLink"]["state"],
+      state: state as ArtifactManagementState["shareLink"]["state"],
       expiresAt: link.expiresAt?.toISOString() ?? null
     };
   }

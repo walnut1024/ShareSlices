@@ -2,7 +2,8 @@
 use crate::packaging::prepare_upload_with_progress;
 use crate::{
     ApiClient, Artifact, ArtifactCommand, ArtifactError, ArtifactExportArgs, ArtifactListArgs,
-    ArtifactUploadArgs, CredentialStore,
+    ArtifactPublishArgs, ArtifactShareCommand, ArtifactShareEditArgs, ArtifactShareViewArgs,
+    ArtifactUnpublishArgs, ArtifactUploadArgs, CredentialStore, ReadyArtifactVersion,
 };
 use serde_json::{Map, Value};
 use std::collections::HashMap;
@@ -79,6 +80,56 @@ pub async fn run_artifact_command_with_interaction(
             )
             .await
         }
+        ArtifactCommand::Publish(args) => {
+            run_artifact_publish(
+                &args,
+                api,
+                store,
+                interaction.prompts_enabled && interaction.is_terminal,
+                interaction.input,
+                output,
+                diagnostics,
+            )
+            .await
+        }
+        ArtifactCommand::Unpublish(args) => {
+            run_artifact_unpublish(
+                &args,
+                api,
+                store,
+                interaction.prompts_enabled && interaction.is_terminal,
+                interaction.input,
+                output,
+                diagnostics,
+            )
+            .await
+        }
+        ArtifactCommand::Share { command } => match command {
+            ArtifactShareCommand::View(args) => {
+                run_artifact_share_view(
+                    &args,
+                    api,
+                    store,
+                    interaction.prompts_enabled && interaction.is_terminal,
+                    interaction.input,
+                    output,
+                    diagnostics,
+                )
+                .await
+            }
+            ArtifactShareCommand::Edit(args) => {
+                run_artifact_share_edit(
+                    &args,
+                    api,
+                    store,
+                    interaction.prompts_enabled && interaction.is_terminal,
+                    interaction.input,
+                    output,
+                    diagnostics,
+                )
+                .await
+            }
+        },
         ArtifactCommand::Export(args) => {
             run_artifact_export_with_interaction(
                 &args,
@@ -94,18 +145,15 @@ pub async fn run_artifact_command_with_interaction(
 }
 
 fn safe_file_component(value: &str) -> String {
-    let mut value = value.chars().fold(String::new(), |mut safe, character| {
+    let mut safe = String::new();
+    for character in value.chars() {
         if character.is_ascii_alphanumeric() || matches!(character, '.' | '_') {
             safe.push(character);
         } else if !safe.ends_with('-') {
             safe.push('-');
         }
-        safe
-    });
-    while value.ends_with('-') {
-        value.pop();
     }
-    let value = value.trim_matches(['-', '.']);
+    let value = safe.trim_matches(['-', '.']);
     if value.is_empty() {
         "artifact".to_owned()
     } else if matches!(
@@ -139,7 +187,7 @@ fn safe_file_component(value: &str) -> String {
     }
 }
 
-/// Exports an owned ready Version to a local ZIP through an explicit interaction seam.
+/// Exports an owned ready Version using the production interaction seam.
 ///
 /// # Errors
 /// Returns an Artifact error for selection, authentication, download, or local file failures.
@@ -151,7 +199,8 @@ pub async fn run_artifact_export_with_interaction(
     output: &mut dyn Write,
     diagnostics: &mut dyn Write,
 ) -> Result<(), ArtifactError> {
-    if args.artifact.is_none() && (!interaction.prompts_enabled || !interaction.is_terminal) {
+    let is_terminal = interaction.prompts_enabled && interaction.is_terminal;
+    if args.artifact.is_none() && !is_terminal {
         return Err(ArtifactError::ExportSelectionUnavailable);
     }
     let token = store
@@ -161,26 +210,24 @@ pub async fn run_artifact_export_with_interaction(
     let (artifact_id, selected_name) = if let Some(id) = &args.artifact {
         (id.clone(), None)
     } else {
-        let artifact = select_owned_artifact(
-            api,
-            store,
-            interaction.prompts_enabled,
-            interaction.is_terminal,
-            interaction.input,
-            diagnostics,
-        )
-        .await?;
+        let artifact =
+            select_owned_artifact(api, store, true, true, interaction.input, diagnostics).await?;
         (artifact.id, Some(artifact.name))
     };
     let state = api.artifact_state(&token, &artifact_id).await?;
     let artifact_name = selected_name.unwrap_or_else(|| state.name.clone());
-    let version_id = match &args.version {
-        Some(version) => version.clone(),
-        None if interaction.prompts_enabled && interaction.is_terminal => {
-            let versions = api.list_ready_versions(&token, &artifact_id).await?;
-            select_ready_version(&versions, interaction.input, diagnostics)?
-        }
-        None => return Err(ArtifactError::ExportSelectionUnavailable),
+    let version_id = if let Some(version) = &args.version {
+        version.clone()
+    } else if is_terminal {
+        select_ready_version(
+            &api.list_ready_versions(&token, &artifact_id).await?,
+            true,
+            interaction.input,
+            diagnostics,
+        )?
+        .id
+    } else {
+        return Err(ArtifactError::ExportSelectionUnavailable);
     };
     let destination = args.output.clone().unwrap_or_else(|| {
         std::path::PathBuf::from(format!(
@@ -228,13 +275,7 @@ async fn persist_export_response(
         tempfile::NamedTempFile::new_in(parent).map_err(|_| ArtifactError::OutputWrite)?;
     let mut downloaded = 0_u64;
     loop {
-        let next = tokio::select! {
-            next = response.chunk() => next.map_err(|error| ArtifactError::Network(error.to_string()))?,
-            result = tokio::signal::ctrl_c() => {
-                result.map_err(|_| ArtifactError::Server)?;
-                return Err(ArtifactError::Cancelled);
-            }
-        };
+        let next = tokio::select! { next = response.chunk() => next.map_err(|error| ArtifactError::Network(error.to_string()))?, result = tokio::signal::ctrl_c() => { result.map_err(|_| ArtifactError::Server)?; return Err(ArtifactError::Cancelled); } };
         let Some(chunk) = next else { break };
         temporary
             .write_all(&chunk)
@@ -278,21 +319,11 @@ fn write_export_output(
         .map_err(|_| ArtifactError::OutputWrite);
     };
     let fields = parse_fields_from(fields, EXPORT_FIELDS)?;
-    let values = Map::from_iter([
-        (
-            "artifactId".to_owned(),
-            Value::String(artifact_id.to_owned()),
-        ),
-        ("versionId".to_owned(), Value::String(version_id.to_owned())),
-        (
-            "path".to_owned(),
-            Value::String(destination.display().to_string()),
-        ),
-    ]);
+    let value = serde_json::json!({"artifactId": artifact_id, "versionId": version_id, "path": destination.display().to_string()});
     let selected = Value::Object(
         fields
             .into_iter()
-            .map(|field| (field.to_owned(), values[field].clone()))
+            .map(|field| (field.to_owned(), value[field].clone()))
             .collect(),
     );
     if let Some(expression) = &args.jq {
@@ -309,17 +340,279 @@ fn write_export_output(
     }
 }
 
-fn select_ready_version(
-    versions: &[crate::ReadyArtifactVersion],
+const SHARE_FIELDS: &[&str] = &[
+    "artifactId",
+    "url",
+    "publicationState",
+    "expiresAt",
+    "accessState",
+];
+
+struct SharePresentation<'a> {
+    json: Option<&'a str>,
+    jq: Option<&'a str>,
+    template: Option<&'a str>,
+}
+
+fn share_access_state(artifact: &crate::ArtifactDetail) -> &'static str {
+    if owner_external_accessible(&artifact.share_link, artifact.publication.is_some()) {
+        "accessible"
+    } else {
+        "not accessible"
+    }
+}
+
+fn write_share_result(
+    output: &mut dyn Write,
+    presentation: &SharePresentation<'_>,
+    artifact: &crate::ArtifactDetail,
+) -> Result<(), ArtifactError> {
+    let value = serde_json::json!({
+        "artifactId": artifact.id,
+        "url": artifact.share_link.url,
+        "publicationState": if artifact.publication.is_some() { "published" } else { "unpublished" },
+        "expiresAt": artifact.share_link.expires_at,
+        "accessState": share_access_state(artifact),
+    });
+    if let Some(fields) = presentation.json {
+        let fields = parse_fields_from(fields, SHARE_FIELDS)?;
+        let selected = Value::Object(
+            fields
+                .into_iter()
+                .map(|field| (field.to_owned(), value[field].clone()))
+                .collect(),
+        );
+        if let Some(expression) = presentation.jq {
+            write_jq(output, &selected, expression)
+        } else if let Some(template) = presentation.template {
+            write_template(output, &selected, template)
+        } else {
+            writeln!(
+                output,
+                "{}",
+                serde_json::to_string_pretty(&selected).map_err(|_| ArtifactError::Server)?
+            )
+            .map_err(|_| ArtifactError::Server)
+        }
+    } else {
+        let expires = artifact.share_link.expires_at.as_deref().unwrap_or("never");
+        writeln!(output, "Share link: {}", artifact.share_link.url)
+            .and_then(|()| {
+                writeln!(
+                    output,
+                    "Publication: {}",
+                    if artifact.publication.is_some() {
+                        "published"
+                    } else {
+                        "unpublished"
+                    }
+                )
+            })
+            .and_then(|()| writeln!(output, "Expires: {expires}"))
+            .and_then(|()| writeln!(output, "Access: {}", share_access_state(artifact)))
+            .map_err(|_| ArtifactError::Server)
+    }
+}
+
+/// Reads an owned Artifact's stable Share link and effective access state.
+///
+/// # Errors
+/// Returns an Artifact error for unavailable selection, authentication, formatting, or Server failures.
+pub async fn run_artifact_share_view(
+    args: &ArtifactShareViewArgs,
+    api: &ApiClient,
+    store: &dyn CredentialStore,
+    is_terminal: bool,
     input: &mut dyn BufRead,
     output: &mut dyn Write,
-) -> Result<String, ArtifactError> {
+    diagnostics: &mut dyn Write,
+) -> Result<(), ArtifactError> {
+    let (_, artifact) = resolve_owned_artifact(
+        args.artifact.as_deref(),
+        api,
+        store,
+        is_terminal,
+        input,
+        diagnostics,
+        ArtifactError::ShareViewSelectionUnavailable,
+    )
+    .await?;
+    write_share_result(
+        output,
+        &SharePresentation {
+            json: args.json.as_deref(),
+            jq: args.jq.as_deref(),
+            template: args.template.as_deref(),
+        },
+        &artifact,
+    )
+}
+
+fn parse_share_expiration(value: &str) -> Result<Option<String>, ArtifactError> {
+    if value == "never" {
+        return Ok(None);
+    }
+    let expiration =
+        time::OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339)
+            .map_err(|_| ArtifactError::InvalidShareExpiration)?;
+    if expiration <= time::OffsetDateTime::now_utc() {
+        return Err(ArtifactError::InvalidShareExpiration);
+    }
+    Ok(Some(value.to_owned()))
+}
+
+/// Updates only an owned Artifact's Share-link expiration.
+///
+/// # Errors
+/// Returns an Artifact error for unavailable selection, invalid expiration, authentication,
+/// formatting, or Server failures.
+pub async fn run_artifact_share_edit(
+    args: &ArtifactShareEditArgs,
+    api: &ApiClient,
+    store: &dyn CredentialStore,
+    is_terminal: bool,
+    input: &mut dyn BufRead,
+    output: &mut dyn Write,
+    diagnostics: &mut dyn Write,
+) -> Result<(), ArtifactError> {
+    if !is_terminal && (args.artifact.is_none() || args.expires_at.is_none()) {
+        return Err(ArtifactError::ShareEditSelectionUnavailable);
+    }
+    let explicit_expiration = args
+        .expires_at
+        .as_deref()
+        .map(parse_share_expiration)
+        .transpose()?;
+    let (token, artifact) = resolve_owned_artifact(
+        args.artifact.as_deref(),
+        api,
+        store,
+        is_terminal,
+        input,
+        diagnostics,
+        ArtifactError::ShareEditSelectionUnavailable,
+    )
+    .await?;
+    let requested_expiration = if let Some(value) = explicit_expiration {
+        value
+    } else {
+        write!(diagnostics, "Expiration (RFC 3339 or never): ")
+            .and_then(|()| diagnostics.flush())
+            .map_err(|_| ArtifactError::Server)?;
+        let mut value = String::new();
+        input
+            .read_line(&mut value)
+            .map_err(|_| ArtifactError::Cancelled)?;
+        let value = value.trim();
+        if value.is_empty() {
+            return Err(ArtifactError::Cancelled);
+        }
+        parse_share_expiration(value)?
+    };
+    let updated = api
+        .set_share_expiration(&token, &artifact.id, requested_expiration.as_deref())
+        .await?;
+    write_share_result(
+        output,
+        &SharePresentation {
+            json: args.json.as_deref(),
+            jq: args.jq.as_deref(),
+            template: args.template.as_deref(),
+        },
+        &updated,
+    )
+}
+
+/// Executes through the production dispatcher with an injectable input and TTY state.
+///
+/// # Errors
+/// Returns the command's typed Artifact error.
+pub async fn run_artifact_command_with_input(
+    command: ArtifactCommand,
+    api: &ApiClient,
+    store: &dyn CredentialStore,
+    is_terminal: bool,
+    input: &mut dyn BufRead,
+    output: &mut dyn Write,
+    diagnostics: &mut dyn Write,
+) -> Result<(), ArtifactError> {
+    let mut interaction = ArtifactInteraction {
+        prompts_enabled: true,
+        is_terminal,
+        input,
+    };
+    run_artifact_command_with_interaction(
+        command,
+        api,
+        store,
+        &mut interaction,
+        output,
+        diagnostics,
+    )
+    .await
+}
+
+const PUBLICATION_FIELDS: &[&str] = &["artifactId", "versionId", "accessState", "expiresAt"];
+
+struct PublicationPresentation<'a> {
+    json: Option<&'a str>,
+    jq: Option<&'a str>,
+    template: Option<&'a str>,
+}
+
+struct PublicationOutcome<'a> {
+    artifact_id: &'a str,
+    version_id: Option<&'a str>,
+    access_state: &'a str,
+    expires_at: Option<&'a str>,
+}
+
+fn owner_external_accessible(share_link: &crate::ArtifactShareLink, published: bool) -> bool {
+    published && share_link.state == "active"
+}
+
+async fn resolve_owned_artifact(
+    requested_id: Option<&str>,
+    api: &ApiClient,
+    store: &dyn CredentialStore,
+    is_terminal: bool,
+    input: &mut dyn BufRead,
+    diagnostics: &mut dyn Write,
+    missing_error: ArtifactError,
+) -> Result<(String, crate::ArtifactDetail), ArtifactError> {
+    if requested_id.is_none() && !is_terminal {
+        return Err(missing_error);
+    }
+    let token = store
+        .get()
+        .map_err(|_| ArtifactError::Unauthenticated)?
+        .ok_or(ArtifactError::Unauthenticated)?;
+    let artifact_id = if let Some(id) = requested_id {
+        id.to_owned()
+    } else {
+        select_owned_artifact(api, store, true, true, input, diagnostics)
+            .await?
+            .id
+    };
+    let artifact = api.artifact(&token, &artifact_id).await?;
+    Ok((token, artifact))
+}
+
+fn select_ready_version(
+    versions: &[ReadyArtifactVersion],
+    is_terminal: bool,
+    input: &mut dyn BufRead,
+    diagnostics: &mut dyn Write,
+) -> Result<ReadyArtifactVersion, ArtifactError> {
+    if !is_terminal {
+        return Err(ArtifactError::PublishSelectionUnavailable);
+    }
     if versions.is_empty() {
-        return Err(ArtifactError::VersionNotReady);
+        return Err(ArtifactError::NoReadyVersion);
     }
     for (index, version) in versions.iter().enumerate() {
         writeln!(
-            output,
+            diagnostics,
             "{}: Version {} ({})",
             index + 1,
             version.version_number,
@@ -327,8 +620,8 @@ fn select_ready_version(
         )
         .map_err(|_| ArtifactError::Server)?;
     }
-    write!(output, "Select a ready Version: ").map_err(|_| ArtifactError::Server)?;
-    output.flush().map_err(|_| ArtifactError::Server)?;
+    write!(diagnostics, "Select a ready Version: ").map_err(|_| ArtifactError::Server)?;
+    diagnostics.flush().map_err(|_| ArtifactError::Server)?;
     let mut choice = String::new();
     input
         .read_line(&mut choice)
@@ -339,10 +632,150 @@ fn select_ready_version(
         .ok()
         .and_then(|value| value.checked_sub(1))
         .ok_or(ArtifactError::Cancelled)?;
-    versions
-        .get(index)
-        .map(|version| version.id.clone())
-        .ok_or(ArtifactError::Cancelled)
+    versions.get(index).cloned().ok_or(ArtifactError::Cancelled)
+}
+
+fn write_publication_result(
+    output: &mut dyn Write,
+    presentation: &PublicationPresentation<'_>,
+    outcome: &PublicationOutcome<'_>,
+) -> Result<(), ArtifactError> {
+    let value = serde_json::json!({
+        "artifactId": outcome.artifact_id,
+        "versionId": outcome.version_id,
+        "accessState": outcome.access_state,
+        "expiresAt": outcome.expires_at,
+    });
+    if let Some(fields) = presentation.json {
+        let fields = parse_fields_from(fields, PUBLICATION_FIELDS)?;
+        let selected = Value::Object(
+            fields
+                .into_iter()
+                .map(|field| (field.to_owned(), value[field].clone()))
+                .collect(),
+        );
+        if let Some(expression) = presentation.jq {
+            write_jq(output, &selected, expression)
+        } else if let Some(template) = presentation.template {
+            write_template(output, &selected, template)
+        } else {
+            writeln!(
+                output,
+                "{}",
+                serde_json::to_string_pretty(&selected).map_err(|_| ArtifactError::Server)?
+            )
+            .map_err(|_| ArtifactError::Server)
+        }
+    } else {
+        let version = outcome
+            .version_id
+            .map_or_else(String::new, |id| format!(" Version {id}"));
+        writeln!(
+            output,
+            "Artifact {}{version} is {} to people with its Share link",
+            outcome.artifact_id, outcome.access_state
+        )
+        .map_err(|_| ArtifactError::Server)
+    }
+}
+
+/// Publishes one explicit or interactively selected ready Version.
+///
+/// # Errors
+/// Returns an Artifact error for unavailable selection, authentication, formatting, or Server failures.
+pub async fn run_artifact_publish(
+    args: &ArtifactPublishArgs,
+    api: &ApiClient,
+    store: &dyn CredentialStore,
+    is_terminal: bool,
+    input: &mut dyn BufRead,
+    output: &mut dyn Write,
+    diagnostics: &mut dyn Write,
+) -> Result<(), ArtifactError> {
+    if !is_terminal && (args.artifact.is_none() || args.version.is_none()) {
+        return Err(ArtifactError::PublishSelectionUnavailable);
+    }
+    let (token, artifact) = resolve_owned_artifact(
+        args.artifact.as_deref(),
+        api,
+        store,
+        is_terminal,
+        input,
+        diagnostics,
+        ArtifactError::PublishSelectionUnavailable,
+    )
+    .await?;
+    let version_id = if let Some(id) = &args.version {
+        id.clone()
+    } else {
+        let versions = api.list_ready_versions(&token, &artifact.id).await?;
+        select_ready_version(&versions, is_terminal, input, diagnostics)?.id
+    };
+    let publication = api.publish(&token, &artifact.id, &version_id).await?;
+    let access_state = if owner_external_accessible(&artifact.share_link, true) {
+        "accessible"
+    } else {
+        "not accessible"
+    };
+    write_publication_result(
+        output,
+        &PublicationPresentation {
+            json: args.json.as_deref(),
+            jq: args.jq.as_deref(),
+            template: args.template.as_deref(),
+        },
+        &PublicationOutcome {
+            artifact_id: &artifact.id,
+            version_id: Some(&publication.version_id),
+            access_state,
+            expires_at: artifact.share_link.expires_at.as_deref(),
+        },
+    )
+}
+
+/// Removes the current Publication from one explicit or interactively selected Artifact.
+///
+/// # Errors
+/// Returns an Artifact error for unavailable selection, authentication, formatting, or Server failures.
+pub async fn run_artifact_unpublish(
+    args: &ArtifactUnpublishArgs,
+    api: &ApiClient,
+    store: &dyn CredentialStore,
+    is_terminal: bool,
+    input: &mut dyn BufRead,
+    output: &mut dyn Write,
+    diagnostics: &mut dyn Write,
+) -> Result<(), ArtifactError> {
+    if !is_terminal && args.artifact.is_none() {
+        return Err(ArtifactError::UnpublishSelectionUnavailable);
+    }
+    let (token, artifact) = resolve_owned_artifact(
+        args.artifact.as_deref(),
+        api,
+        store,
+        is_terminal,
+        input,
+        diagnostics,
+        ArtifactError::UnpublishSelectionUnavailable,
+    )
+    .await?;
+    if let Some(publication) = &artifact.publication {
+        api.unpublish(&token, &artifact.id, &publication.id).await?;
+    }
+    write_publication_result(
+        output,
+        &PublicationPresentation {
+            json: args.json.as_deref(),
+            jq: args.jq.as_deref(),
+            template: args.template.as_deref(),
+        },
+        &PublicationOutcome {
+            artifact_id: &artifact.id,
+            version_id: None,
+            access_state: "not accessible",
+            expires_at: artifact.share_link.expires_at.as_deref(),
+        },
+    )
 }
 
 #[must_use]

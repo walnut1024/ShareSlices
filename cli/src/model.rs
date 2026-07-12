@@ -87,6 +87,7 @@ pub struct Artifact {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtifactShareLink {
+    pub url: String,
     pub state: String,
     pub expires_at: Option<String>,
 }
@@ -99,6 +100,31 @@ pub struct ArtifactPublication {
     pub version_id: Option<String>,
     #[serde(default)]
     pub published_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadyArtifactVersion {
+    pub id: String,
+    pub version_number: u64,
+    pub state: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactDetail {
+    pub id: String,
+    pub name: String,
+    pub share_link: ArtifactShareLink,
+    pub publication: Option<ArtifactPublication>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicationResult {
+    pub id: String,
+    pub version_id: String,
+    pub published_at: String,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -123,14 +149,6 @@ pub struct ArtifactState {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 pub struct ReadyVersion {
     pub id: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct ReadyArtifactVersion {
-    pub id: String,
-    pub version_number: u64,
-    pub state: String,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -184,6 +202,20 @@ pub enum ArtifactError {
         "Upload was sent, but ShareSlices could not confirm acceptance after safe retries. Check artifact list before retrying."
     )]
     UploadConfirmationPending,
+    #[error("Publish requires --artifact and --version when interactive prompting is unavailable.")]
+    PublishSelectionUnavailable,
+    #[error("Unpublish requires --artifact when interactive prompting is unavailable.")]
+    UnpublishSelectionUnavailable,
+    #[error("Share view requires --artifact when interactive prompting is unavailable.")]
+    ShareViewSelectionUnavailable,
+    #[error(
+        "Share edit requires --artifact and --expires-at when interactive prompting is unavailable."
+    )]
+    ShareEditSelectionUnavailable,
+    #[error("--expires-at must be a future RFC 3339 timestamp or 'never'.")]
+    InvalidShareExpiration,
+    #[error("No ready Version is available for this Artifact.")]
+    NoReadyVersion,
     #[error("Export requires --artifact and --version when interactive prompting is unavailable.")]
     ExportSelectionUnavailable,
     #[error("The selected Artifact has no ready Version to export.")]

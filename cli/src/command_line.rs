@@ -40,6 +40,12 @@ pub enum AuthCommand {
 pub enum ArtifactCommand {
     List(ArtifactListArgs),
     Upload(ArtifactUploadArgs),
+    Publish(ArtifactPublishArgs),
+    Unpublish(ArtifactUnpublishArgs),
+    Share {
+        #[command(subcommand)]
+        command: ArtifactShareCommand,
+    },
     Export(ArtifactExportArgs),
 }
 
@@ -55,6 +61,64 @@ pub struct ArtifactExportArgs {
     pub clobber: bool,
     #[arg(long)]
     pub no_progress: bool,
+    #[arg(long, value_name = "FIELDS")]
+    pub json: Option<String>,
+    #[arg(long, requires = "json", conflicts_with = "template")]
+    pub jq: Option<String>,
+    #[arg(long, requires = "json", conflicts_with = "jq")]
+    pub template: Option<String>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ArtifactShareCommand {
+    View(ArtifactShareViewArgs),
+    Edit(ArtifactShareEditArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct ArtifactShareViewArgs {
+    #[arg(long)]
+    pub artifact: Option<String>,
+    #[arg(long, value_name = "FIELDS")]
+    pub json: Option<String>,
+    #[arg(long, requires = "json", conflicts_with = "template")]
+    pub jq: Option<String>,
+    #[arg(long, requires = "json", conflicts_with = "jq")]
+    pub template: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct ArtifactShareEditArgs {
+    #[arg(long)]
+    pub artifact: Option<String>,
+    #[arg(long, value_name = "RFC3339_OR_NEVER")]
+    pub expires_at: Option<String>,
+    #[arg(long, value_name = "FIELDS")]
+    pub json: Option<String>,
+    #[arg(long, requires = "json", conflicts_with = "template")]
+    pub jq: Option<String>,
+    #[arg(long, requires = "json", conflicts_with = "jq")]
+    pub template: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct ArtifactPublishArgs {
+    #[arg(long)]
+    pub artifact: Option<String>,
+    #[arg(long)]
+    pub version: Option<String>,
+    #[arg(long, value_name = "FIELDS")]
+    pub json: Option<String>,
+    #[arg(long, requires = "json", conflicts_with = "template")]
+    pub jq: Option<String>,
+    #[arg(long, requires = "json", conflicts_with = "jq")]
+    pub template: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct ArtifactUnpublishArgs {
+    #[arg(long)]
+    pub artifact: Option<String>,
     #[arg(long, value_name = "FIELDS")]
     pub json: Option<String>,
     #[arg(long, requires = "json", conflicts_with = "template")]

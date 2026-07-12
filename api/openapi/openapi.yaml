@@ -778,7 +778,8 @@ paths:
     parameters:
       - $ref: "#/components/parameters/ArtifactId"
     get:
-      tags: [artifacts]
+      tags:
+        - artifacts
       operationId: listArtifactVersions
       summary: List ready Versions of one owned Artifact.
       security:
@@ -789,7 +790,7 @@ paths:
         - $ref: "#/components/parameters/CliOperatingSystemWhenBearer"
       responses:
         "200":
-          description: Ready Versions in descending Version-number order.
+          description: Ready Versions returned in descending Version-number order.
           content:
             application/json:
               schema:
@@ -822,7 +823,7 @@ paths:
               $ref: "#/components/schemas/UpdateShareLinkRequest"
       responses:
         "200":
-          description: Share link expiration updated without changing its slug.
+          description: Share link expiration updated without changing its slug or Publication.
           content:
             application/json:
               schema:
@@ -2137,6 +2138,7 @@ components:
           format: uri
         state:
           type: string
+          description: Effective state; an active stored link is reported as expired after its expiration instant.
           enum:
             - active
             - expired
@@ -2163,7 +2165,8 @@ components:
     ReadyVersionListResponse:
       type: object
       additionalProperties: false
-      required: [versions]
+      required:
+        - versions
       properties:
         versions:
           type: array
@@ -2172,7 +2175,10 @@ components:
     ReadyVersionListItem:
       type: object
       additionalProperties: false
-      required: [id, versionNumber, state]
+      required:
+        - id
+        - versionNumber
+        - state
       properties:
         id:
           type: string
@@ -2183,7 +2189,8 @@ components:
           minimum: 1
         state:
           type: string
-          enum: [ready]
+          enum:
+            - ready
     ProcessingFailure:
       type: object
       additionalProperties: false
