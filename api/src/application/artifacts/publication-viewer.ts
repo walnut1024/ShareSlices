@@ -15,6 +15,7 @@ export type ReadyVersionAccess = {
 };
 
 export type VersionExport = {
+  artifactId: string;
   artifactName: string;
   assets: ContentAsset[];
 };
@@ -114,9 +115,11 @@ export class PublicationViewerService {
     return asset;
   }
 
-  async exportVersion(ownerUserId: string, versionId: string): Promise<VersionExport> {
+  async exportVersion(ownerUserId: string, versionId: string, artifactId?: string): Promise<VersionExport> {
     const exported = await this.repository.findOwnedVersionExport(ownerUserId, versionId);
-    if (!exported) throw new PublicationViewerError("version_not_found");
+    if (!exported || (artifactId !== undefined && exported.artifactId !== artifactId)) {
+      throw new PublicationViewerError("version_not_found");
+    }
     return exported;
   }
 

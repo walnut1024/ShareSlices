@@ -228,4 +228,14 @@ pub enum ArtifactError {
         "The delete request was sent, but ShareSlices could not confirm the result. Check artifact list, then retry the same explicit delete once; ShareSlices will safely resume pending cleanup."
     )]
     DeleteConfirmationPending,
+    #[error("Export requires --artifact and --version when interactive prompting is unavailable.")]
+    ExportSelectionUnavailable,
+    #[error("The selected Artifact has no ready Version to export.")]
+    VersionNotReady,
+    #[error("The output parent directory does not exist.")]
+    OutputParentMissing,
+    #[error("The output file already exists; pass --clobber to replace it.")]
+    OutputExists,
+    #[error("Could not write the exported ZIP.")]
+    OutputWrite,
 }

@@ -17,6 +17,7 @@ ARTIFACT_PATHS = {
     "/api/upload-sessions/{uploadSessionId}:retry",
     "/api/versions/{versionId}/content/",
     "/api/versions/{versionId}/content/{assetPath}",
+    "/api/versions/{versionId}/export",
     "/api/artifacts/{artifactId}/publications",
     "/api/artifacts/{artifactId}/publications/{publicationId}",
     "/a/{shareSlug}/",
@@ -35,6 +36,7 @@ ARTIFACT_OPERATIONS = {
     ("post", "/api/upload-sessions/{uploadSessionId}:retry"),
     ("get", "/api/versions/{versionId}/content/"),
     ("get", "/api/versions/{versionId}/content/{assetPath}"),
+    ("get", "/api/versions/{versionId}/export"),
     ("post", "/api/artifacts/{artifactId}/publications"),
     ("delete", "/api/artifacts/{artifactId}/publications/{publicationId}"),
     ("get", "/a/{shareSlug}/"),
@@ -79,6 +81,8 @@ def test_openapi_artifact_contract_and_local_references() -> None:
     assert no_store["enum"] == ["no-store"]
 
     schemas = document["components"]["schemas"]
+    export_parameters = document["paths"]["/api/versions/{versionId}/export"]["get"]["parameters"]
+    assert any(parameter.get("name") == "artifactId" and parameter.get("in") == "query" for parameter in export_parameters)
     create_upload = schemas["CreateArtifactRequest"]
     assert "entry" in create_upload["properties"]
     assert "entry" not in create_upload["required"]

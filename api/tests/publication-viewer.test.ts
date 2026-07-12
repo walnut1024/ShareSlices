@@ -9,7 +9,7 @@ import {
 function repository(): PublicationContentRepository {
   return {
     findOwnedReadyVersion: vi.fn().mockResolvedValue({ id: "version-1", artifactId: "artifact-1" }),
-    findOwnedVersionExport: vi.fn().mockResolvedValue({ artifactName: "Report", assets: [] }),
+    findOwnedVersionExport: vi.fn().mockResolvedValue({ artifactId: "artifact-1", artifactName: "Report", assets: [] }),
     findEntryAsset: vi.fn().mockResolvedValue({
       versionId: "version-1", path: "腾讯文档盘点分析报告.html",
       objectKey: "committed/version-1/腾讯文档盘点分析报告.html", sizeBytes: 14,
@@ -57,6 +57,18 @@ describe("PublicationViewerService", () => {
 
     vi.mocked(store.findOwnedReadyVersion).mockResolvedValueOnce(null);
     await expect(service.preview("other-user", "version-1", "index.html")).rejects.toEqual(
+      new PublicationViewerError("version_not_found")
+    );
+  });
+
+  it("exports only when the explicit Artifact owns the ready Version", async () => {
+    const store = repository();
+    const service = new PublicationViewerService(store);
+    await expect(service.exportVersion("owner-1", "version-1", "artifact-1")).resolves.toMatchObject({
+      artifactId: "artifact-1",
+      artifactName: "Report"
+    });
+    await expect(service.exportVersion("owner-1", "version-1", "artifact-other")).rejects.toEqual(
       new PublicationViewerError("version_not_found")
     );
   });

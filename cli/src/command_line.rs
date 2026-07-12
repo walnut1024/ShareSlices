@@ -47,6 +47,27 @@ pub enum ArtifactCommand {
         #[command(subcommand)]
         command: ArtifactShareCommand,
     },
+    Export(ArtifactExportArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct ArtifactExportArgs {
+    #[arg(long)]
+    pub artifact: Option<String>,
+    #[arg(long)]
+    pub version: Option<String>,
+    #[arg(short, long, value_name = "FILE")]
+    pub output: Option<std::path::PathBuf>,
+    #[arg(long)]
+    pub clobber: bool,
+    #[arg(long)]
+    pub no_progress: bool,
+    #[arg(long, value_name = "FIELDS")]
+    pub json: Option<String>,
+    #[arg(long, requires = "json", conflicts_with = "template")]
+    pub jq: Option<String>,
+    #[arg(long, requires = "json", conflicts_with = "jq")]
+    pub template: Option<String>,
 }
 
 #[derive(Debug, Args)]

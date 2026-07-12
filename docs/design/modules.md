@@ -33,9 +33,9 @@ Status: current
 
 ## CLI Artifact Modules
 
-Status: current for Artifact listing, Upload, Publish, Unpublish, Share-link management, and Delete; other management commands remain target.
+Status: current for Artifact listing, Upload, Publish, Unpublish, Share-link management, ready-Version Export, and Delete; other management commands remain target.
 
-- `cli/src/artifact_commands.rs` owns bounded Artifact list presentation, selectable JSON formatting, shared interactive Artifact and ready-Version selection, Upload orchestration through ready Version commit, atomic Publish and Unpublish commands, Share-link management, and confirmed permanent Delete. `cli/src/packaging.rs` expands selected local inputs, applies the active Server policy, and deterministically streams safe effective paths into a temporary ZIP; a single prepared ZIP bypasses repackaging. `ApiClient` follows opaque Server pages, transfers ZIP input with safe idempotent retries, never retries an indeterminate Delete, and supplies transient CLI compatibility metadata; production credentials still come only from the operating-system credential store.
+- `cli/src/artifact_commands.rs` owns bounded Artifact list presentation, selectable JSON formatting, shared interactive Artifact and ready-Version selection, Upload orchestration through ready Version commit, atomic Publish and Unpublish commands, Share-link management, atomic local Export, and confirmed permanent Delete. `cli/src/packaging.rs` expands selected local inputs, applies the active Server policy, and deterministically streams safe effective paths into a temporary ZIP; a single prepared ZIP bypasses repackaging. `ApiClient` follows opaque Server pages, transfers ZIP input with safe idempotent retries, downloads normalized Version ZIPs, never retries an indeterminate Delete, and supplies transient CLI compatibility metadata; production credentials still come only from the operating-system credential store.
 - `ArtifactManagementService` owns list filtering, opaque pagination, and the owner-scoped ready-Version collection used by interactive CLI selection. Hono routes validate DTOs and map application errors without deriving Artifact state or Publication behavior.
 
 ## Hono runtime Modules
@@ -97,7 +97,7 @@ type ArtifactRecoveryService = {
 
 type PublicationViewerService = {
   preview(ownerUserId: string, versionId: string, path: string): Promise<ContentAsset>;
-  exportVersion(ownerUserId: string, versionId: string): Promise<VersionExport>;
+  exportVersion(ownerUserId: string, versionId: string, artifactId?: string): Promise<VersionExport>;
   publish(input: PublishInput): Promise<PublicationView>;
   unpublish(ownerUserId: string, artifactId: string, publicationId: string): Promise<void>;
   resolveViewer(shareSlug: string, path: string): Promise<ViewerResolution>;
