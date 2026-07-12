@@ -226,6 +226,9 @@ async fn uploads_prepared_zip_waits_for_ready_and_suppresses_progress() {
         artifact: None,
         entry: None,
         no_progress: true,
+        json: None,
+        jq: None,
+        template: None,
     };
     let api = ApiClient::new(&server.uri()).expect("client");
     let store = Store(Mutex::new(Some("secret".into())));
@@ -277,6 +280,9 @@ async fn uploads_new_version_to_explicit_artifact_without_sending_a_name() {
         artifact: Some("artifact-existing".into()),
         entry: None,
         no_progress: true,
+        json: None,
+        jq: None,
+        template: None,
     };
     let api = ApiClient::new(&server.uri()).expect("client");
     let store = Store(Mutex::new(Some("secret".into())));
@@ -307,6 +313,9 @@ async fn missing_upload_target_fails_before_any_request_without_a_terminal() {
         artifact: None,
         entry: None,
         no_progress: true,
+        json: None,
+        jq: None,
+        template: None,
     };
     let api = ApiClient::new("http://127.0.0.1:1").expect("client");
     let store = Store(Mutex::new(Some("secret".into())));
@@ -445,6 +454,9 @@ async fn process_package_fixture() {
         artifact: std::env::var("SHARESLICES_TEST_ARTIFACT_ID").ok(),
         entry: None,
         no_progress: true,
+        json: None,
+        jq: None,
+        template: None,
     };
     let store = Store(Mutex::new(Some("fixture-secret".into())));
     run_artifact_upload(

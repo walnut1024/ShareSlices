@@ -1,7 +1,8 @@
 // cspell:ignore gtmpl
 use crate::packaging::prepare_upload;
 use crate::{
-    ApiClient, Artifact, ArtifactError, ArtifactListArgs, ArtifactUploadArgs, CredentialStore,
+    ApiClient, Artifact, ArtifactCommand, ArtifactError, ArtifactListArgs, ArtifactUploadArgs,
+    CredentialStore,
 };
 use serde_json::{Map, Value};
 use std::collections::HashMap;
@@ -16,6 +17,30 @@ const FIELDS: &[&str] = &[
     "expiresAt",
     "updatedAt",
 ];
+const UPLOAD_FIELDS: &[&str] = &["artifact", "version", "publication"];
+
+/// Executes one parsed Artifact command through the production command-dispatch path.
+pub async fn run_artifact_command(
+    command: ArtifactCommand,
+    api: &ApiClient,
+    store: &dyn CredentialStore,
+    output: &mut dyn Write,
+    diagnostics: &mut dyn Write,
+) -> Result<(), ArtifactError> {
+    match command {
+        ArtifactCommand::List(args) => run_artifact_list(&args, api, store, output).await,
+        ArtifactCommand::Upload(args) => run_artifact_upload(&args, api, store, output, diagnostics).await,
+    }
+}
+
+#[must_use]
+pub const fn artifact_exit_code(error: &ArtifactError) -> i32 {
+    match error {
+        ArtifactError::Unauthenticated => 4,
+        ArtifactError::Cancelled => 2,
+        _ => 1,
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UploadTargetChoice {
@@ -205,10 +230,15 @@ pub async fn run_artifact_upload(
             }
         }
     };
-    if !args.no_progress {
-        writeln!(diagnostics, "Processing...").map_err(|_| ArtifactError::Server)?;
-    }
+    let mut activity = 0_usize;
     loop {
+        if !args.no_progress {
+            const FRAMES: [&str; 4] = ["|", "/", "-", "\\"];
+            write!(diagnostics, "\rProcessing {}", FRAMES[activity % FRAMES.len()])
+                .map_err(|_| ArtifactError::Server)?;
+            diagnostics.flush().map_err(|_| ArtifactError::Server)?;
+            activity += 1;
+        }
         let state = tokio::select! {
             result = api.artifact_state(&token, &accepted.artifact_id) => result?,
             result = tokio::signal::ctrl_c() => {
@@ -224,13 +254,16 @@ pub async fn run_artifact_upload(
             }
         };
         if let Some(version) = state.ready_version {
-            writeln!(
+            if !args.no_progress {
+                writeln!(diagnostics, "\rProcessing ready").map_err(|_| ArtifactError::Server)?;
+            }
+            return write_upload_result(
+                args,
                 output,
-                "Artifact {} uploaded as Version {}",
-                accepted.artifact_id, version.id
-            )
-            .map_err(|_| ArtifactError::Server)?;
-            return Ok(());
+                &accepted.artifact_id,
+                name.as_deref().unwrap_or(""),
+                &version.id,
+            );
         }
         if state.processing_state == "failed" {
             let failure = state.failure.map_or_else(
@@ -248,6 +281,35 @@ pub async fn run_artifact_upload(
             return Err(ArtifactError::ProcessingFailed(failure));
         }
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+}
+
+fn write_upload_result(
+    args: &ArtifactUploadArgs,
+    output: &mut dyn Write,
+    artifact_id: &str,
+    artifact_name: &str,
+    version_id: &str,
+) -> Result<(), ArtifactError> {
+    let value = serde_json::json!({
+        "artifact": { "id": artifact_id, "name": artifact_name },
+        "version": { "id": version_id, "state": "ready" },
+        "publication": null
+    });
+    if let Some(fields) = &args.json {
+        let fields = parse_fields_from(fields, UPLOAD_FIELDS)?;
+        let selected = Value::Object(fields.into_iter().map(|field| (field.to_owned(), value[field].clone())).collect());
+        if let Some(expression) = &args.jq {
+            write_jq(output, &selected, expression)
+        } else if let Some(template) = &args.template {
+            write_template(output, &selected, template)
+        } else {
+            writeln!(output, "{}", serde_json::to_string_pretty(&selected).map_err(|_| ArtifactError::Server)?)
+                .map_err(|_| ArtifactError::Server)
+        }
+    } else {
+        writeln!(output, "Artifact {artifact_id} uploaded as Version {version_id}")
+            .map_err(|_| ArtifactError::Server)
     }
 }
 
@@ -275,9 +337,9 @@ pub async fn run_artifact_list(
             .map(|artifact| select(artifact, &fields))
             .collect::<Vec<_>>();
         if let Some(expression) = &args.jq {
-            write_jq(output, &selected, expression)?;
+            write_jq(output, &Value::Array(selected), expression)?;
         } else if let Some(template) = &args.template {
-            write_template(output, &selected, template)?;
+            write_template(output, &Value::Array(selected), template)?;
         } else {
             writeln!(
                 output,
@@ -368,9 +430,13 @@ pub async fn select_owned_artifact(
 }
 
 fn parse_fields(value: &str) -> Result<Vec<&str>, ArtifactError> {
+    parse_fields_from(value, FIELDS)
+}
+
+fn parse_fields_from<'a>(value: &'a str, allowed: &[&str]) -> Result<Vec<&'a str>, ArtifactError> {
     let fields = value.split(',').collect::<Vec<_>>();
     for field in &fields {
-        if !FIELDS.contains(field) {
+        if !allowed.contains(field) {
             return Err(ArtifactError::UnsupportedField((*field).to_owned()));
         }
     }
@@ -412,7 +478,7 @@ fn select(artifact: &Artifact, fields: &[&str]) -> Value {
 
 fn write_jq(
     output: &mut dyn Write,
-    values: &[Value],
+    value: &Value,
     expression: &str,
 ) -> Result<(), ArtifactError> {
     use jaq_interpret::{Ctx, FilterT, ParseCtx, RcIter, Val};
@@ -428,7 +494,7 @@ fn write_jq(
     let inputs = RcIter::new(core::iter::empty());
     for result in filter.run((
         Ctx::new([], &inputs),
-        Val::from(Value::Array(values.to_vec())),
+        Val::from(value.clone()),
     )) {
         let value = Value::from(result.map_err(|_| ArtifactError::InvalidJq)?);
         match value {
@@ -442,10 +508,10 @@ fn write_jq(
 
 fn write_template(
     output: &mut dyn Write,
-    values: &[Value],
+    value: &Value,
     template: &str,
 ) -> Result<(), ArtifactError> {
-    let context = gtmpl::Value::Array(values.iter().map(go_value).collect());
+    let context = go_value(value);
     let rendered =
         gtmpl::template(template, context).map_err(|_| ArtifactError::InvalidTemplate)?;
     write!(output, "{rendered}").map_err(|_| ArtifactError::Server)?;
