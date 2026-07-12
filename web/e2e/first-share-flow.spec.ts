@@ -22,9 +22,8 @@ test("normalize a macOS named-entry ZIP, Preview, Publish, and open the stable V
   await expect(page.getByRole("heading", { name: "Artifacts" })).toBeVisible();
 
   await page.getByRole("button", { name: "New artifact", exact: true }).click();
-  await page.getByLabel("Artifact name").fill("First share flow");
   await page.getByLabel("ZIP file").setInputFiles({
-    name: "first-share-flow.zip",
+    name: "First share flow.zip",
     mimeType: "application/zip",
     buffer: Buffer.from(
       zipSync({
@@ -109,9 +108,8 @@ test("explain ambiguous root HTML candidates after processing fails", async ({ p
   await expect(page.getByRole("heading", { name: "Artifacts" })).toBeVisible();
 
   await page.getByRole("button", { name: "New artifact", exact: true }).click();
-  await page.getByLabel("Artifact name").fill("Ambiguous entry");
   await page.getByLabel("ZIP file").setInputFiles({
-    name: "ambiguous-entry.zip",
+    name: "Ambiguous entry.zip",
     mimeType: "application/zip",
     buffer: Buffer.from(zipSync({
       "report.html": strToU8("<!doctype html><html><body>Report</body></html>"),

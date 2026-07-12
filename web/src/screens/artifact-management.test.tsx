@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../App";
@@ -260,8 +260,8 @@ describe("Artifact management", () => {
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "New artifact" }));
     await screen.findByRole("heading", { name: "New artifact" });
-    expect(screen.getByText("Choose a ZIP file").closest("label")).toHaveAttribute("data-slot", "label");
-    await interaction.type(screen.getByLabelText("Artifact name"), "Report");
+    expect(screen.getByText("Drop a ZIP file here").closest("label")).toHaveAttribute("data-slot", "label");
+    expect(screen.queryByLabelText("Artifact name")).not.toBeInTheDocument();
     await interaction.upload(
       screen.getByLabelText("ZIP file"),
       new File(["oversized"], "report.zip", { type: "application/zip" })
@@ -307,7 +307,6 @@ describe("Artifact management", () => {
 
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "New artifact" }));
-    await interaction.type(screen.getByLabelText("Artifact name"), "Report");
     await interaction.upload(screen.getByLabelText("ZIP file"), new File(["zip"], "report.zip", { type: "application/zip" }));
     await interaction.click(screen.getByRole("button", { name: "Upload" }));
 
@@ -354,7 +353,6 @@ describe("Artifact management", () => {
 
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "New artifact" }));
-    await interaction.type(screen.getByLabelText("Artifact name"), "Report");
     await interaction.upload(screen.getByLabelText("ZIP file"), new File(["zip"], "report.zip", { type: "application/zip" }));
     await interaction.click(screen.getByRole("button", { name: "Upload" }));
 
@@ -377,7 +375,6 @@ describe("Artifact management", () => {
 
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "New artifact" }));
-    await interaction.type(screen.getByLabelText("Artifact name"), "Report");
     await interaction.upload(screen.getByLabelText("ZIP file"), new File(["zip"], "report.zip", { type: "application/zip" }));
     await interaction.click(screen.getByRole("button", { name: "Upload" }));
 
@@ -385,8 +382,9 @@ describe("Artifact management", () => {
     expect(window.location.pathname).toBe("/artifacts/artifact-1");
   });
 
-  it("uses the ZIP filename when the Artifact name is empty", async () => {
+  it("derives the Artifact name from the ZIP filename", async () => {
     const interaction = userEvent.setup();
+    const send = vi.fn();
     window.history.replaceState(null, "", "/artifacts");
     stubFetch([
       json({ user }),
@@ -403,18 +401,52 @@ describe("Artifact management", () => {
       })
     ]);
 
+    vi.stubGlobal("XMLHttpRequest", acceptedUploadRequest(send));
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "New artifact" }));
-    const name = screen.getByLabelText("Artifact name");
     const file = screen.getByLabelText("ZIP file");
 
     await interaction.upload(file, new File(["zip"], "quarterly-report.zip", { type: "application/zip" }));
-    expect(name).toHaveValue("quarterly-report");
+    expect(screen.queryByLabelText("Artifact name")).not.toBeInTheDocument();
+    await interaction.click(screen.getByRole("button", { name: "Upload" }));
 
-    await interaction.clear(name);
-    await interaction.type(name, "Custom report");
-    await interaction.upload(file, new File(["zip"], "replacement.zip", { type: "application/zip" }));
-    expect(name).toHaveValue("Custom report");
+    await waitFor(() => expect(send).toHaveBeenCalled());
+    const body = send.mock.calls[0]?.[0] as FormData;
+    expect(body.get("name")).toBe("quarterly-report");
+  });
+
+  it("accepts a ZIP dropped onto the file target", async () => {
+    const interaction = userEvent.setup();
+    window.history.replaceState(null, "", "/artifacts");
+    stubFetch([json({ user }), json({ artifacts: [] }), json({ policy: uploadPolicy() })]);
+
+    render(<App />);
+    await interaction.click(await screen.findByRole("button", { name: "New artifact" }));
+    const target = screen.getByText("Drop a ZIP file here").closest("label");
+    fireEvent.drop(target!, { dataTransfer: { files: [new File(["zip"], "dropped-report.zip", { type: "application/zip" })] } });
+
+    expect(await screen.findByText("dropped-report.zip")).toBeInTheDocument();
+  });
+
+  it("rejects a ZIP filename that cannot produce an Artifact name", async () => {
+    const interaction = userEvent.setup();
+    window.history.replaceState(null, "", "/artifacts");
+    stubFetch([json({ user }), json({ artifacts: [] }), json({ policy: uploadPolicy() })]);
+    const send = vi.fn();
+    vi.stubGlobal("XMLHttpRequest", class {
+      upload = {};
+      open() {}
+      setRequestHeader() {}
+      send = send;
+    });
+
+    render(<App />);
+    await interaction.click(await screen.findByRole("button", { name: "New artifact" }));
+    await interaction.upload(screen.getByLabelText("ZIP file"), new File(["zip"], ".zip", { type: "application/zip" }));
+    await interaction.click(screen.getByRole("button", { name: "Upload" }));
+
+    expect(await screen.findByText("Rename the ZIP file before uploading.")).toBeInTheDocument();
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("opens New artifact in a dialog without changing the route", async () => {
@@ -523,7 +555,6 @@ describe("Artifact management", () => {
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "New artifact" }));
     await screen.findByRole("heading", { name: "New artifact" });
-    await interaction.type(screen.getByLabelText("Artifact name"), "Report");
     await interaction.upload(screen.getByLabelText("ZIP file"), new File(["zip"], "report.zip", { type: "application/zip" }));
     await interaction.click(screen.getByRole("button", { name: "Upload" }));
 
@@ -929,7 +960,7 @@ function stubFetch(responses: Response[]) {
   return fetchMock;
 }
 
-function acceptedUploadRequest() {
+function acceptedUploadRequest(onSend?: (body: Document | XMLHttpRequestBodyInit | null) => void) {
   return class {
     status = 0;
     responseText = "";
@@ -940,7 +971,8 @@ function acceptedUploadRequest() {
 
     open() {}
     setRequestHeader() {}
-    send() {
+    send(body: Document | XMLHttpRequestBodyInit | null) {
+      onSend?.(body);
       this.status = 202;
       this.responseText = JSON.stringify({
         artifactId: "artifact-1",

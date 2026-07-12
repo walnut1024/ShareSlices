@@ -20,6 +20,7 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Progress, ProgressLabel, ProgressValue } from "../components/ui/progress";
 import { Spinner } from "../components/ui/spinner";
+import { cn } from "../lib/utils";
 
 export function CreateArtifactDialog({ onAccepted }: { onAccepted: (artifactId: string) => void }) {
   const [open, setOpen] = useState(false);
@@ -29,9 +30,9 @@ export function CreateArtifactDialog({ onAccepted }: { onAccepted: (artifactId: 
   const [preflightIssue, setPreflightIssue] = useState<ValidationNotice | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
-  const nameInputRef = useRef<HTMLInputElement>(null);
   const idempotencyKey = useRef(crypto.randomUUID());
   const preflightController = useRef<AbortController | null>(null);
 
@@ -55,6 +56,7 @@ export function CreateArtifactDialog({ onAccepted }: { onAccepted: (artifactId: 
 
   function resetForm() {
     formRef.current?.reset();
+    setDragging(false);
     setSelectedFile(null);
     setError(null);
     setPreflightIssue(null);
@@ -66,13 +68,12 @@ export function CreateArtifactDialog({ onAccepted }: { onAccepted: (artifactId: 
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const name = String(form.get("name") ?? "").trim();
-    const validation = validateCreateInput(name, selectedFile, policy);
+    const validation = validateCreateInput(selectedFile, policy);
     if (validation) {
       setError(validation);
       return;
     }
+    const name = artifactNameFromFile(selectedFile!.name);
 
     setError(null);
     setPreflightIssue(null);
@@ -119,8 +120,14 @@ export function CreateArtifactDialog({ onAccepted }: { onAccepted: (artifactId: 
     }
   }
 
-  const nameInvalid = error?.startsWith("Artifact name") ?? false;
-  const fileInvalid = Boolean(error) && !nameInvalid;
+  function selectFile(file: File | null) {
+    setSelectedFile(file);
+    setError(null);
+    setPreflightIssue(null);
+    idempotencyKey.current = crypto.randomUUID();
+  }
+
+  const fileInvalid = Boolean(error);
 
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
@@ -131,39 +138,44 @@ export function CreateArtifactDialog({ onAccepted }: { onAccepted: (artifactId: 
       <DialogContent className="sm:max-w-[560px]" showCloseButton={!uploading}>
         <DialogHeader>
           <DialogTitle>New artifact</DialogTitle>
-          <DialogDescription>Name your artifact and choose a ZIP file to upload.</DialogDescription>
+          <DialogDescription>Drop in a ZIP file. Its filename will become the artifact name.</DialogDescription>
         </DialogHeader>
 
         <form ref={formRef} className="flex flex-col gap-5" onSubmit={submit}>
-          <FieldGroup className="gap-4">
-            <Field data-invalid={nameInvalid}>
-              <FieldLabel htmlFor="artifact-name">Artifact name</FieldLabel>
-              <Input
-                ref={nameInputRef}
-                id="artifact-name"
-                name="name"
-                maxLength={120}
-                placeholder="Quarterly report"
-                disabled={uploading}
-                aria-invalid={nameInvalid}
-                onChange={() => {
-                  setError(null);
-                  idempotencyKey.current = crypto.randomUUID();
-                }}
-              />
-            </Field>
+          <FieldGroup>
             <Field data-invalid={fileInvalid}>
               <FieldLabel htmlFor="artifact-file">ZIP file</FieldLabel>
               <Label
-                className="flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-neutral-300 bg-neutral-50 px-4 text-center transition-colors hover:border-neutral-500 hover:bg-white"
+                aria-disabled={uploading}
+                className={cn(
+                  "flex min-h-48 cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed bg-muted/40 px-6 text-center transition-[background-color,border-color,box-shadow] hover:border-foreground/30 hover:bg-muted/60",
+                  dragging && "border-foreground/40 bg-muted ring-3 ring-ring/20",
+                  uploading && "pointer-events-none opacity-50"
+                )}
                 htmlFor="artifact-file"
+                onDragEnter={(event) => {
+                  event.preventDefault();
+                  if (!uploading) setDragging(true);
+                }}
+                onDragOver={(event) => event.preventDefault()}
+                onDragLeave={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setDragging(false);
+                  if (!uploading) selectFile(event.dataTransfer.files[0] ?? null);
+                }}
               >
-                <FileArchive aria-hidden="true" className="size-7 text-neutral-400" />
-                <span className="mt-2 max-w-full truncate text-sm font-medium text-neutral-950">
-                  {selectedFile?.name ?? "Choose a ZIP file"}
+                <span className="flex size-10 items-center justify-center rounded-lg border bg-background shadow-sm">
+                  <FileArchive aria-hidden="true" className="size-5 text-muted-foreground" />
                 </span>
-                <span className="mt-1 text-xs text-neutral-500">
-                  {policy ? `Up to ${formatBytes(policy.maxArchiveBytes)}` : "The server validates all limits"}
+                <span className="mt-3 max-w-full truncate text-sm font-medium text-foreground">
+                  {selectedFile?.name ?? "Drop a ZIP file here"}
+                </span>
+                <span className="mt-1 text-xs text-muted-foreground">
+                  {selectedFile ? "Choose another file" : "or click to choose"}
+                  {policy ? ` · Up to ${formatBytes(policy.maxArchiveBytes)}` : " · The server validates all limits"}
                 </span>
               </Label>
               <Input
@@ -175,14 +187,7 @@ export function CreateArtifactDialog({ onAccepted }: { onAccepted: (artifactId: 
                 disabled={uploading}
                 aria-invalid={fileInvalid}
                 onChange={(event) => {
-                  const file = event.target.files?.[0] ?? null;
-                  setSelectedFile(file);
-                  if (file && nameInputRef.current && !nameInputRef.current.value.trim()) {
-                    const inferredName = artifactNameFromFile(file.name);
-                    if (inferredName) nameInputRef.current.value = inferredName;
-                  }
-                  setError(null);
-                  idempotencyKey.current = crypto.randomUUID();
+                  selectFile(event.target.files?.[0] ?? null);
                 }}
               />
             </Field>
@@ -219,10 +224,10 @@ function artifactNameFromFile(fileName: string): string {
   return fileName.replace(/\.zip$/i, "").trim().slice(0, 120);
 }
 
-function validateCreateInput(name: string, file: File | null, policy: UploadPolicy | null): string | null {
-  if (name.length < 1 || name.length > 120) return "Artifact name must contain 1 to 120 characters.";
+function validateCreateInput(file: File | null, policy: UploadPolicy | null): string | null {
   if (!file || file.size === 0) return "Choose a ZIP file.";
   if (!file.name.toLowerCase().endsWith(".zip")) return "Choose a file with a .zip extension.";
+  if (!artifactNameFromFile(file.name)) return "Rename the ZIP file before uploading.";
   if (policy && file.size > policy.maxArchiveBytes) return `This ZIP exceeds the ${formatBytes(policy.maxArchiveBytes)} upload limit.`;
   return null;
 }
