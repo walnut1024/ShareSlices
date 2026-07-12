@@ -9,7 +9,7 @@ Engineering rules that constrain all designs live in `AGENTS.md`. Product behavi
 
 ## Top-level seams
 
-Status: current for the 0.0.1 runtime seams, CLI authentication, Artifact listing, Upload, Publish, and Unpublish; Skill entry remains target.
+Status: current for the 0.0.1 runtime seams, CLI authentication, Artifact listing, Upload, Publish, Unpublish, and Share-link management; Skill entry remains target.
 
 | Seam | Status | Interface owner | Production Adapter | Test Adapter |
 | --- | --- | --- | --- | --- |
@@ -20,7 +20,7 @@ Status: current for the 0.0.1 runtime seams, CLI authentication, Artifact listin
 | Application data persistence | current | `api/src/application/*` | Drizzle Adapter | Local PostgreSQL or in-memory Adapter |
 | Raw and processed object access | current | Application and worker Modules | S3-compatible Adapter | In-memory object Adapter |
 | Processing job handoff | current | `db/migrations/` schema plus job Interfaces | Drizzle enqueue Adapter and SQLx claim Adapter | Local PostgreSQL and fake Adapters |
-| Agent entry | current for authentication, Artifact listing, Upload, Publish, and Unpublish | `cli/` command Interface | Rust CLI with operating-system credential store | In-memory credential and fake HTTP Adapters |
+| Agent entry | current for authentication, Artifact listing, Upload, Publish, Unpublish, and Share-link management | `cli/` command Interface | Rust CLI with operating-system credential store | In-memory credential and fake HTTP Adapters |
 
 ## CLI authentication Modules
 
@@ -33,9 +33,9 @@ Status: current
 
 ## CLI Artifact Modules
 
-Status: current for Artifact listing, Upload, Publish, and Unpublish; other management commands remain target.
+Status: current for Artifact listing, Upload, Publish, Unpublish, and Share-link management; other management commands remain target.
 
-- `cli/src/artifact_commands.rs` owns bounded Artifact list presentation, selectable JSON formatting, shared interactive Artifact and ready-Version selection, Upload orchestration through ready Version commit, and atomic Publish and Unpublish commands. `cli/src/packaging.rs` expands selected local inputs, applies the active Server policy, and deterministically streams safe effective paths into a temporary ZIP; a single prepared ZIP bypasses repackaging. `ApiClient` follows opaque Server pages, transfers ZIP input with safe idempotent retries, and supplies transient CLI compatibility metadata; production credentials still come only from the operating-system credential store.
+- `cli/src/artifact_commands.rs` owns bounded Artifact list presentation, selectable JSON formatting, shared interactive Artifact and ready-Version selection, Upload orchestration through ready Version commit, atomic Publish and Unpublish commands, and Share-link view and expiration editing. `cli/src/packaging.rs` expands selected local inputs, applies the active Server policy, and deterministically streams safe effective paths into a temporary ZIP; a single prepared ZIP bypasses repackaging. `ApiClient` follows opaque Server pages, transfers ZIP input with safe idempotent retries, and supplies transient CLI compatibility metadata; production credentials still come only from the operating-system credential store.
 - `ArtifactManagementService` owns list filtering, opaque pagination, and the owner-scoped ready-Version collection used by interactive CLI selection. Hono routes validate DTOs and map application errors without deriving Artifact state or Publication behavior.
 
 ## Hono runtime Modules
