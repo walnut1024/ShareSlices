@@ -1,0 +1,91 @@
+name: Release CLI
+
+on:
+  push:
+    tags:
+      - "cli-v*"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-version:
+    name: Verify CLI tag
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tag matches the CLI package version
+        shell: bash
+        run: |
+          tag_version="${GITHUB_REF_NAME#cli-v}"
+          package_version="$(sed -n 's/^version = "\(.*\)"$/\1/p' cli/Cargo.toml | head -n 1)"
+
+          test -n "$package_version"
+          test "$tag_version" = "$package_version"
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: verify-version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-13
+            target: x86_64-apple-darwin
+            archive: tar.gz
+          - os: macos-14
+            target: aarch64-apple-darwin
+            archive: tar.gz
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+          - os: windows-2025
+            target: x86_64-pc-windows-msvc
+            archive: zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.96.1
+      - name: Build release binary
+        run: cargo build --locked --release -p shareslices-cli
+      - name: Package Unix binary
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir package
+          cp target/release/shareslices package/shareslices
+          tar -C package -czf "shareslices-${{ matrix.target }}.tar.gz" shareslices
+      - name: Package Windows binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path target/release/shareslices.exe -DestinationPath "shareslices-${{ matrix.target }}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shareslices-${{ matrix.target }}
+          path: shareslices-${{ matrix.target }}.${{ matrix.archive }}
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Generate checksums
+        working-directory: dist
+        run: sha256sum shareslices-* > SHA256SUMS
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "ShareSlices CLI ${GITHUB_REF_NAME#cli-v}" \
+            --generate-notes

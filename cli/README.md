@@ -11,6 +11,21 @@ The ShareSlices CLI authenticates a local machine and manages owned Artifacts fr
 
 The Artifact commands in this document define the implemented CLI contract.
 
+## GitHub Releases
+
+The repository publishes a CLI-only GitHub Release when a matching `cli-v<version>` tag is pushed. The tag version must equal `cli/Cargo.toml`'s `shareslices-cli` package version.
+
+Each Release contains these archives and a `SHA256SUMS` file:
+
+| Target | Archive |
+| --- | --- |
+| macOS Intel | `shareslices-x86_64-apple-darwin.tar.gz` |
+| macOS Apple Silicon | `shareslices-aarch64-apple-darwin.tar.gz` |
+| Linux x86-64 | `shareslices-x86_64-unknown-linux-gnu.tar.gz` |
+| Windows x86-64 | `shareslices-x86_64-pc-windows-msvc.zip` |
+
+The archives contain only the native `shareslices` executable. Download a release archive and verify it against `SHA256SUMS` before adding the executable to your `PATH`. Package-manager and installer support will consume these same Release artifacts later.
+
 ## Design rules
 
 - Every command performs one explicit operation. The CLI does not provide compound commands.
