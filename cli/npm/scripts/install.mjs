@@ -23,12 +23,16 @@ function targetFor(platform, architecture) {
   return target;
 }
 
-async function download(url, destination) {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Download failed (${response.status}): ${url}`);
+function download(url, destination) {
+  const command = process.platform === 'win32' ? 'curl.exe' : 'curl';
+  const result = spawnSync(
+    command,
+    ['--fail', '--location', '--silent', '--show-error', url, '--output', destination],
+    { stdio: 'inherit' },
+  );
+  if (result.error || result.status !== 0) {
+    throw new Error(`Download failed: ${url}`);
   }
-  await writeFile(destination, Buffer.from(await response.arrayBuffer()));
 }
 
 function checksumFor(checksums, archive) {
@@ -65,10 +69,8 @@ async function main() {
   await rm(temporaryDirectory, { recursive: true, force: true });
   await mkdir(temporaryDirectory, { recursive: true });
   try {
-    await Promise.all([
-      download(`${releaseBase}/${archive}`, archivePath),
-      download(`${releaseBase}/SHA256SUMS`, checksumsPath),
-    ]);
+    download(`${releaseBase}/${archive}`, archivePath);
+    download(`${releaseBase}/SHA256SUMS`, checksumsPath);
     const expectedChecksum = checksumFor(await readFile(checksumsPath, 'utf8'), archive);
     const actualChecksum = createHash('sha256').update(await readFile(archivePath)).digest('hex');
     if (actualChecksum !== expectedChecksum) {
