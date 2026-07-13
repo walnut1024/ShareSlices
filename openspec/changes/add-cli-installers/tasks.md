@@ -15,5 +15,5 @@
 ## 3. Documentation and Verification
 
 - [x] 3.1 Document Shell, PowerShell, and npm installation commands and supported targets.
-- [ ] 3.2 Publish and verify installer assets in a GitHub Release.
+- [x] 3.2 Publish and verify installer assets in a GitHub Release.
 - [ ] 3.3 Configure the `@shareslices` npm scope for Trusted Publishing and publish the npm package.
