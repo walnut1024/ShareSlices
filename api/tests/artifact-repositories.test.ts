@@ -109,6 +109,34 @@ describe("Artifact repository adapters", () => {
     expect(updated).toMatchObject({ id: "artifact-1", ownerUserId: "owner-1", name: "Renamed" });
   });
 
+  it("applies owner, state filters, keyset cursor, and limit before Artifact projection", async () => {
+    const [artifact] = await repositories.artifacts.listOwnedPage({
+      ownerUserId: "owner-1",
+      publication: "published",
+      processing: "ready",
+      limit: 1
+    });
+    expect(artifact).toMatchObject({ id: "artifact-1", ownerUserId: "owner-1" });
+    await expect(
+      repositories.artifacts.listOwnedPage({
+        ownerUserId: "owner-1",
+        publication: "unpublished",
+        limit: 1
+      })
+    ).resolves.toEqual([]);
+    await expect(
+      repositories.artifacts.listOwnedPage({
+        ownerUserId: "owner-1",
+        cursor: { updatedAt: artifact!.updatedAt, artifactId: artifact!.id },
+        limit: 1
+      })
+    ).resolves.toEqual([]);
+    await expect(repositories.shareLinks.findActiveByArtifacts(["artifact-1"])).resolves.toHaveLength(1);
+    await expect(repositories.uploadSessions.findCurrentByArtifacts(["artifact-1"])).resolves.toHaveLength(1);
+    await expect(repositories.versions.findReadyByArtifacts(["artifact-1"])).resolves.toHaveLength(1);
+    await expect(repositories.publications.findCurrentByArtifacts(["artifact-1"])).resolves.toHaveLength(1);
+  });
+
   it("resolves the resource records needed by the application modules", async () => {
     const validationReport = {
       primaryIssue: null,

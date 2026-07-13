@@ -12,8 +12,9 @@ function repository(overrides: Partial<ReconciliationRepository> = {}): Reconcil
     recoverExpiredLeases: vi.fn(async () => 0),
     findRemovableRawObjectKeys: vi.fn(async () => []),
     findRemovableStagingObjectKeys: vi.fn(async () => []),
-    listArtifactDeletionCleanups: vi.fn(async () => []),
+    claimArtifactDeletionCleanups: vi.fn(async () => []),
     completeArtifactDeletionCleanup: vi.fn(async () => undefined),
+    failArtifactDeletionCleanup: vi.fn(async () => undefined),
     ...overrides
   };
 }
@@ -128,11 +129,13 @@ describe("ReconciliationModule", () => {
     const completeArtifactDeletionCleanup = vi.fn(async () => undefined);
     const module = new ReconciliationModule({
       repository: repository({
-        listArtifactDeletionCleanups: vi.fn(async () => [
+        claimArtifactDeletionCleanups: vi.fn(async () => [
           {
             artifactId: "artifact-delete",
             objectKeys: ["raw/artifact-delete/input.zip"],
-            stagingPrefixes: ["staging/artifact-delete/attempt-1/"]
+            stagingPrefixes: ["staging/artifact-delete/attempt-1/"],
+            attemptCount: 1,
+            leaseToken: "lease-delete"
           }
         ]),
         completeArtifactDeletionCleanup
@@ -154,7 +157,37 @@ describe("ReconciliationModule", () => {
     });
     expect(await storage.readForTest("raw/artifact-delete/input.zip")).toBeUndefined();
     expect(await storage.readForTest("staging/artifact-delete/attempt-1/index.html")).toBeUndefined();
-    expect(completeArtifactDeletionCleanup).toHaveBeenCalledWith("artifact-delete");
+    expect(completeArtifactDeletionCleanup).toHaveBeenCalledWith("artifact-delete", "lease-delete");
+  });
+
+  it("leases deletion intents and lets later cleanups finish when one object deletion fails", async () => {
+    const completeArtifactDeletionCleanup = vi.fn(async () => undefined);
+    const failArtifactDeletionCleanup = vi.fn(async () => undefined);
+    const deleteObject = vi.fn(async (key: string) => {
+      if (key === "raw/failing.zip") throw new Error("storage unavailable");
+    });
+    const module = new ReconciliationModule({
+      repository: repository({
+        claimArtifactDeletionCleanups: vi.fn(async () => [
+          { artifactId: "artifact-failing", objectKeys: ["raw/failing.zip"], stagingPrefixes: [], attemptCount: 1, leaseToken: "lease-failing" },
+          { artifactId: "artifact-success", objectKeys: ["raw/success.zip"], stagingPrefixes: [], attemptCount: 1, leaseToken: "lease-success" }
+        ]),
+        completeArtifactDeletionCleanup,
+        failArtifactDeletionCleanup
+      }),
+      storage: { deleteObject, removeStagingPrefix: vi.fn() } as unknown as InMemoryObjectStorage
+    });
+
+    await expect(
+      module.run({ workType: "artifact_deletions", olderThan: new Date("2026-07-12T00:00:00Z"), limit: 10 })
+    ).resolves.toMatchObject({ scannedCount: 2, deletedCount: 1 });
+    expect(completeArtifactDeletionCleanup).toHaveBeenCalledWith("artifact-success", "lease-success");
+    expect(failArtifactDeletionCleanup).toHaveBeenCalledWith(
+      "artifact-failing",
+      "lease-failing",
+      expect.any(Date),
+      "object_cleanup_failed"
+    );
   });
 
   it("rejects unbounded or invalid passes before accessing dependencies", async () => {

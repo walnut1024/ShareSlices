@@ -2,6 +2,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type {
   PublicationContentRepository,
+  PublicationAccessRecord,
   PublicationView,
   PublishResult,
   ShareResolution
@@ -88,6 +89,26 @@ export function createPublicationContentRepository(
 
     async publish(input): Promise<PublishResult> {
       return database.transaction(async (transaction) => {
+        const currentAccess = async (): Promise<PublicationAccessRecord> => {
+          const [shareLink] = await transaction
+            .select()
+            .from(schema.artifactShareLink)
+            .where(eq(schema.artifactShareLink.artifactId, input.artifactId))
+            .orderBy(desc(schema.artifactShareLink.createdAt))
+            .for("update")
+            .limit(1);
+          if (!shareLink) {
+            throw new Error("Published Artifact has no Share link.");
+          }
+          const accessible =
+            shareLink.status === "active" &&
+            (shareLink.expiresAt === null || shareLink.expiresAt > new Date());
+          return {
+            shareSlug: shareLink.slug,
+            state: accessible ? "accessible" : "not_accessible",
+            expiresAt: shareLink.expiresAt
+          };
+        };
         const [artifact] = await transaction
           .select({ id: schema.artifact.id })
           .from(schema.artifact)
@@ -118,6 +139,9 @@ export function createPublicationContentRepository(
           const response = existingIdempotency.responseBody.publication as
             | { id?: unknown; versionId?: unknown; publishedAt?: unknown }
             | undefined;
+          const storedAccess = existingIdempotency.responseBody.access as
+            | { shareSlug?: unknown; state?: unknown; expiresAt?: unknown }
+            | undefined;
           if (
             !response ||
             typeof response.id !== "string" ||
@@ -126,14 +150,28 @@ export function createPublicationContentRepository(
           ) {
             throw new Error("Completed Publish idempotency response is invalid.");
           }
-          return {
-            kind: "published",
-            publication: {
-              id: response.id,
-              versionId: response.versionId,
-              publishedAt: new Date(response.publishedAt)
-            }
+          const publication = {
+            id: response.id,
+            versionId: response.versionId,
+            publishedAt: new Date(response.publishedAt)
           };
+          if (
+            storedAccess &&
+            typeof storedAccess.shareSlug === "string" &&
+            (storedAccess.state === "accessible" || storedAccess.state === "not_accessible") &&
+            (storedAccess.expiresAt === null || typeof storedAccess.expiresAt === "string")
+          ) {
+            return {
+              kind: "published",
+              publication,
+              access: {
+                shareSlug: storedAccess.shareSlug,
+                state: storedAccess.state,
+                expiresAt: storedAccess.expiresAt === null ? null : new Date(storedAccess.expiresAt)
+              }
+            };
+          }
+          return { kind: "published", publication, access: await currentAccess() };
         }
 
         const [version] = await transaction
@@ -191,11 +229,17 @@ export function createPublicationContentRepository(
           }
           publication = publicationView(created);
         }
+        const access = await currentAccess();
         const responseBody = {
           publication: {
             id: publication.id,
             versionId: publication.versionId,
             publishedAt: publication.publishedAt.toISOString()
+          },
+          access: {
+            shareSlug: access.shareSlug,
+            state: access.state,
+            expiresAt: access.expiresAt?.toISOString() ?? null
           }
         };
         await transaction
@@ -209,7 +253,7 @@ export function createPublicationContentRepository(
               eq(schema.artifactIdempotencyRecord.key, input.idempotencyKey)
             )
           );
-        return { kind: "published", publication };
+        return { kind: "published", publication, access };
       });
     },
 

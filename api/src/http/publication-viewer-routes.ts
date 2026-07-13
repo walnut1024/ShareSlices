@@ -98,7 +98,7 @@ export function publicationViewerRoutes(
   const repository = createPublicationContentRepository();
   const dependencies: PublicationViewerRouteDependencies = {
     authApi: auth.api,
-    service: new PublicationViewerService(repository),
+    service: new PublicationViewerService(repository, env.VIEWER_ORIGIN),
     storage: createConfiguredObjectStorage(),
     managementOrigin: env.WEB_ORIGIN,
     ...overrides
@@ -181,7 +181,7 @@ export function publicationViewerRoutes(
       return errorJson(c, 400, "invalid_request");
     }
     try {
-      const publication = await dependencies.service.publish({
+      const result = await dependencies.service.publish({
         ownerUserId: ownerId,
         artifactId: c.req.param("artifactId"),
         versionId: parsed.data.versionId,
@@ -191,9 +191,14 @@ export function publicationViewerRoutes(
       return c.json(
         {
           publication: {
-            id: publication.id,
-            versionId: publication.versionId,
-            publishedAt: publication.publishedAt.toISOString()
+            id: result.publication.id,
+            versionId: result.publication.versionId,
+            publishedAt: result.publication.publishedAt.toISOString()
+          },
+          access: {
+            url: result.access.url,
+            state: result.access.state,
+            expiresAt: result.access.expiresAt?.toISOString() ?? null
           }
         },
         201

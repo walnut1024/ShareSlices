@@ -2,6 +2,11 @@ import { createHash, randomUUID } from "node:crypto";
 import type { ArtifactAccepted } from "./artifact-intake.js";
 import type { ArtifactRepositories, UploadPolicySnapshot } from "./repositories.js";
 import type { ObjectBody, ObjectStorage } from "../../storage/index.js";
+import {
+  discardUncommittedRawObject,
+  normalizeRequestedEntry,
+  RequestedEntryValidationError
+} from "./artifact-upload-input.js";
 
 type RecoveryRepositories = Pick<
   ArtifactRepositories,
@@ -58,13 +63,15 @@ function hash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function normalizeRequestedEntry(value: string | null): string | null {
-  if (value === null) return null;
-  const entry = value.trim();
-  if (!entry || entry.startsWith("/") || entry.includes("\\") || entry.split("/").some((part) => !part || part === "..")) {
-    throw new ArtifactRecoveryError("invalid_requested_entry");
+function recoveryRequestedEntry(value: string | null): string | null {
+  try {
+    return normalizeRequestedEntry(value);
+  } catch (error) {
+    if (error instanceof RequestedEntryValidationError) {
+      throw new ArtifactRecoveryError("invalid_requested_entry");
+    }
+    throw error;
   }
-  return entry;
 }
 
 async function hashBody(body: ObjectBody, maxBytes: number): Promise<{ sizeBytes: number; sha256: string }> {
@@ -85,10 +92,6 @@ function acceptedResponse(value: Record<string, unknown> | null): ArtifactAccept
     throw new Error("Completed idempotency record has no response body.");
   }
   return value as ArtifactAccepted;
-}
-
-async function discardRaw(storage: ObjectStorage, key: string): Promise<void> {
-  await storage.deleteObject(key).catch(() => undefined);
 }
 
 export class ArtifactRecoveryService {
@@ -183,7 +186,7 @@ export class ArtifactRecoveryService {
     }
 
     const requestPrefix = `${createsVersion ? "version" : "replace"}:${input.artifactId}`;
-    const requestedEntry = Promise.resolve(input.requestedEntry ?? null).then(normalizeRequestedEntry);
+    const requestedEntry = Promise.resolve(input.requestedEntry ?? null).then(recoveryRequestedEntry);
     const claim = await this.#repositories.idempotency.claimPending({
       id: `idem_${randomUUID().replaceAll("-", "")}`,
       ownerUserId: input.ownerUserId,
@@ -226,17 +229,17 @@ export class ArtifactRecoveryService {
       throw rawResult.reason;
     }
     if (completedResult.status === "rejected") {
-      await discardRaw(this.#storage, rawObjectKey);
+      await discardUncommittedRawObject(this.#storage, rawObjectKey);
       await this.#repositories.idempotency.releasePending(claim.record.id);
       throw completedResult.reason;
     }
     if (entryResult.status === "rejected") {
-      await discardRaw(this.#storage, rawObjectKey);
+      await discardUncommittedRawObject(this.#storage, rawObjectKey);
       await this.#repositories.idempotency.releasePending(claim.record.id);
       throw entryResult.reason;
     }
     if (rawResult.value.sizeBytes > input.policy.archiveSizeBytes) {
-      await discardRaw(this.#storage, rawObjectKey);
+      await discardUncommittedRawObject(this.#storage, rawObjectKey);
       await this.#repositories.idempotency.releasePending(claim.record.id);
       throw new ArtifactRecoveryError("archive_too_large");
     }
@@ -265,7 +268,7 @@ export class ArtifactRecoveryService {
       }
       return response;
     } catch (error) {
-      await discardRaw(this.#storage, rawObjectKey);
+      await discardUncommittedRawObject(this.#storage, rawObjectKey);
       await this.#repositories.idempotency.releasePending(claim.record.id);
       throw error;
     }

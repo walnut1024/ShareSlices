@@ -667,7 +667,7 @@ async fn delete_distinguishes_auth_state_conflict_absence_and_indeterminate_resu
 }
 
 #[tokio::test]
-async fn complete_cli_process_deletes_explicit_and_interactively_selected_artifacts() {
+async fn injected_dispatcher_process_deletes_explicit_and_interactively_selected_artifacts() {
     for interactive in [false, true] {
         let server = MockServer::start().await;
         if interactive {
@@ -725,7 +725,7 @@ async fn complete_cli_process_deletes_explicit_and_interactively_selected_artifa
 }
 
 #[tokio::test]
-#[ignore = "fixture invoked only by complete_cli_process_deletes_explicit_and_interactively_selected_artifacts"]
+#[ignore = "fixture invoked only by injected dispatcher process tests"]
 async fn process_delete_fixture() {
     let api = ApiClient::new(&std::env::var("SHARESLICES_TEST_API_URL").expect("API URL"))
         .expect("client");
@@ -1166,7 +1166,7 @@ fn shipping_binary_rejects_invalid_share_expiration_before_authentication() {
 }
 
 #[tokio::test]
-async fn complete_cli_process_views_share_through_production_dispatcher() {
+async fn injected_dispatcher_process_views_share() {
     let server = MockServer::start().await;
     Mock::given(method("GET")).and(path("/api/artifacts/artifact-1"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
@@ -1209,7 +1209,7 @@ async fn complete_cli_process_views_share_through_production_dispatcher() {
 }
 
 #[tokio::test]
-async fn complete_cli_process_reports_expired_unpublished_share() {
+async fn injected_dispatcher_process_reports_expired_unpublished_share() {
     let server = MockServer::start().await;
     Mock::given(method("GET")).and(path("/api/artifacts/artifact-1"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
@@ -1249,7 +1249,7 @@ async fn complete_cli_process_reports_expired_unpublished_share() {
 }
 
 #[tokio::test]
-async fn complete_cli_process_edits_future_and_permanent_expiration() {
+async fn injected_dispatcher_process_edits_future_and_permanent_expiration() {
     for (requested, response_expiration) in [
         ("2099-08-01T08:30:00+08:00", Some("2099-08-01T00:30:00Z")),
         ("never", None),
@@ -1319,7 +1319,7 @@ async fn complete_cli_process_edits_future_and_permanent_expiration() {
 }
 
 #[tokio::test]
-async fn complete_cli_process_maps_share_authentication_to_exit_four() {
+async fn injected_dispatcher_process_maps_share_authentication_to_exit_four() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/api/artifacts/artifact-1"))
@@ -1353,7 +1353,7 @@ async fn complete_cli_process_maps_share_authentication_to_exit_four() {
 }
 
 #[tokio::test]
-#[ignore = "fixture invoked only by complete_cli_process_views_share_through_production_dispatcher"]
+#[ignore = "fixture invoked only by injected dispatcher process tests"]
 async fn process_share_fixture() {
     let api = ApiClient::new(&std::env::var("SHARESLICES_TEST_API_URL").expect("API URL"))
         .expect("client");
@@ -1414,7 +1414,8 @@ async fn publishes_explicit_ready_version_and_reports_external_access() {
         .and(header_exists("shareslices-cli-os"))
         .and(body_json(serde_json::json!({ "versionId": "version-2" })))
         .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
-            "publication": { "id": "publication-1", "versionId": "version-2", "publishedAt": "2026-07-12T00:00:00Z" }
+            "publication": { "id": "publication-1", "versionId": "version-2", "publishedAt": "2026-07-12T00:00:00Z" },
+            "access": { "url": "https://viewer.example/a/stable/", "state": "not_accessible", "expiresAt": "2020-01-01T00:00:00Z" }
         }))).expect(1).mount(&server).await;
     let api = ApiClient::new(&server.uri()).expect("client");
     let store = Store(Mutex::new(Some("secret".into())));
@@ -1436,8 +1437,8 @@ async fn publishes_explicit_ready_version_and_reports_external_access() {
     .expect("publish");
     let value: serde_json::Value = serde_json::from_slice(&output).expect("json");
     assert_eq!(value["versionId"], "version-2");
-    assert_eq!(value["accessState"], "accessible");
-    assert_eq!(value["expiresAt"], "2026-08-01T00:00:00Z");
+    assert_eq!(value["accessState"], "not accessible");
+    assert_eq!(value["expiresAt"], "2020-01-01T00:00:00Z");
 }
 
 #[tokio::test]
@@ -1454,7 +1455,8 @@ async fn published_version_reports_expired_share_link_as_not_accessible() {
         .await;
     Mock::given(method("POST")).and(path("/api/artifacts/artifact-1/publications"))
         .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
-            "publication": { "id": "publication-1", "versionId": "version-2", "publishedAt": "2026-07-12T00:00:00Z" }
+            "publication": { "id": "publication-1", "versionId": "version-2", "publishedAt": "2026-07-12T00:00:00Z" },
+            "access": { "url": "https://viewer.example/a/stable/", "state": "not_accessible", "expiresAt": "2020-01-01T00:00:00Z" }
         }))).mount(&server).await;
     let api = ApiClient::new(&server.uri()).expect("client");
     let store = Store(Mutex::new(Some("secret".into())));
@@ -1481,9 +1483,21 @@ async fn published_version_reports_expired_share_link_as_not_accessible() {
 
 #[tokio::test]
 async fn publish_dispatcher_surfaces_authorization_and_ready_version_gates() {
-    for (artifact_status, publish_status, expected) in
-        [(401, 0, "Not signed in"), (200, 409, "unexpected response")]
-    {
+    for (artifact_status, publish_status, code, expected) in [
+        (401, 0, "", "Not signed in"),
+        (
+            200,
+            409,
+            "version_not_ready",
+            "selected Version is not ready",
+        ),
+        (
+            200,
+            409,
+            "invalid_artifact_state",
+            "current state does not allow",
+        ),
+    ] {
         let server = MockServer::start().await;
         let artifact_response = if artifact_status == 200 {
             ResponseTemplate::new(200).set_body_json(serde_json::json!({
@@ -1504,7 +1518,7 @@ async fn publish_dispatcher_surfaces_authorization_and_ready_version_gates() {
                 .and(path("/api/artifacts/artifact-1/publications"))
                 .respond_with(ResponseTemplate::new(publish_status).set_body_json(
                     serde_json::json!({
-                        "error": { "code": "version_not_ready" }
+                        "error": { "code": code }
                     }),
                 ))
                 .mount(&server)
@@ -1648,7 +1662,8 @@ async fn interactive_publish_selects_artifact_and_ready_version() {
         }))).expect(1).mount(&server).await;
     Mock::given(method("POST")).and(path("/api/artifacts/artifact-1/publications"))
         .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
-          "publication": { "id": "publication-1", "versionId": "version-2", "publishedAt": "2026-07-12T00:00:00Z" }
+          "publication": { "id": "publication-1", "versionId": "version-2", "publishedAt": "2026-07-12T00:00:00Z" },
+          "access": { "url": "https://viewer.example/a/stable/", "state": "accessible", "expiresAt": null }
         }))).mount(&server).await;
     let api = ApiClient::new(&server.uri()).expect("client");
     let store = Store(Mutex::new(Some("secret".into())));
@@ -1774,7 +1789,7 @@ async fn rejects_unsupported_json_fields_before_printing() {
 }
 
 #[test]
-fn complete_cli_process_returns_authentication_exit_code_without_waiting() {
+fn shipping_binary_returns_authentication_exit_code_without_waiting() {
     let output = Command::new(env!("CARGO_BIN_EXE_shareslices"))
         .args([
             "--api-url",
@@ -1833,7 +1848,7 @@ fn shipping_binary_rejects_noninteractive_publish_without_identifiers() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn isolated_cli_process_prints_formatted_list_without_transient_stderr() {
+async fn injected_dispatcher_process_prints_formatted_list_without_transient_stderr() {
     let server = server().await;
     let executable = std::env::current_exe().expect("test executable");
     let output = tokio::task::spawn_blocking(move || {
@@ -1862,7 +1877,7 @@ async fn isolated_cli_process_prints_formatted_list_without_transient_stderr() {
 }
 
 #[tokio::test]
-#[ignore = "fixture invoked only by isolated_cli_process_prints_formatted_list_without_transient_stderr"]
+#[ignore = "fixture invoked only by injected dispatcher process tests"]
 async fn process_list_fixture() {
     let api_url = std::env::var("SHARESLICES_TEST_API_URL").expect("fixture API URL");
     let api = ApiClient::new(&api_url).expect("client");
@@ -2007,7 +2022,7 @@ async fn missing_upload_target_fails_before_any_request_without_a_terminal() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn isolated_process_packages_only_selected_file_and_uploads_it() {
+async fn injected_dispatcher_process_packages_only_selected_file_and_uploads_it() {
     let server = MockServer::start().await;
     mount_upload_policy(&server).await;
     Mock::given(method("POST"))
@@ -2066,7 +2081,7 @@ async fn isolated_process_packages_only_selected_file_and_uploads_it() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn isolated_process_uploads_an_explicit_new_version() {
+async fn injected_dispatcher_process_uploads_an_explicit_new_version() {
     let server = MockServer::start().await;
     mount_upload_policy(&server).await;
     Mock::given(method("POST"))
@@ -2123,7 +2138,7 @@ async fn isolated_process_uploads_an_explicit_new_version() {
 
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
-async fn isolated_production_entrypoint_reports_accepted_version_upload_on_sigint() {
+async fn injected_dispatcher_process_reports_accepted_version_upload_on_sigint() {
     let server = MockServer::start().await;
     mount_upload_policy(&server).await;
     Mock::given(method("POST"))
@@ -2182,7 +2197,7 @@ async fn isolated_production_entrypoint_reports_accepted_version_upload_on_sigin
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn isolated_production_entrypoint_reports_terminal_version_failure() {
+async fn injected_dispatcher_process_reports_terminal_version_failure() {
     let server = MockServer::start().await;
     mount_upload_policy(&server).await;
     Mock::given(method("POST"))
@@ -2238,7 +2253,7 @@ async fn isolated_production_entrypoint_reports_terminal_version_failure() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn isolated_production_dispatcher_selects_an_existing_artifact_interactively() {
+async fn injected_dispatcher_process_selects_an_existing_artifact_interactively() {
     let server = MockServer::start().await;
     mount_upload_policy(&server).await;
     Mock::given(method("GET"))
@@ -2315,7 +2330,7 @@ async fn isolated_production_dispatcher_selects_an_existing_artifact_interactive
 }
 
 #[tokio::test]
-#[ignore = "fixture invoked only by isolated process tests"]
+#[ignore = "fixture invoked only by injected dispatcher process tests"]
 async fn process_package_fixture() {
     let api = ApiClient::new(&std::env::var("SHARESLICES_TEST_API_URL").expect("API URL"))
         .expect("client");

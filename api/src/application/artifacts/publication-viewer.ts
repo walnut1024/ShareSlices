@@ -26,6 +26,19 @@ export type PublicationView = {
   publishedAt: Date;
 };
 
+export type PublicationAccess = {
+  url: string;
+  state: "accessible" | "not_accessible";
+  expiresAt: Date | null;
+};
+
+export type PublishedView = {
+  publication: PublicationView;
+  access: PublicationAccess;
+};
+
+export type PublicationAccessRecord = Omit<PublicationAccess, "url"> & { shareSlug: string };
+
 export type ShareResolution =
   | { kind: "unknown" }
   | { kind: "expired" }
@@ -36,7 +49,7 @@ export type ShareResolution =
 export type ViewerResolution = Exclude<ShareResolution, { kind: "published" }> | ContentAsset;
 
 export type PublishResult =
-  | { kind: "published"; publication: PublicationView }
+  | { kind: "published"; publication: PublicationView; access: PublicationAccessRecord }
   | { kind: "artifact_not_found" }
   | { kind: "version_not_ready" }
   | { kind: "operation_in_progress" }
@@ -95,7 +108,10 @@ export function normalizeContentPath(rawPath: string): string | null {
 }
 
 export class PublicationViewerService {
-  constructor(private readonly repository: PublicationContentRepository) {}
+  constructor(
+    private readonly repository: PublicationContentRepository,
+    private readonly viewerOrigin: string
+  ) {}
 
   async preview(ownerUserId: string, versionId: string, rawPath: string): Promise<ContentAsset> {
     const version = await this.repository.findOwnedReadyVersion(ownerUserId, versionId);
@@ -128,7 +144,7 @@ export class PublicationViewerService {
     artifactId: string;
     versionId: string;
     idempotencyKey: string;
-  }): Promise<PublicationView> {
+  }): Promise<PublishedView> {
     const result = await this.repository.publish({
       id: `pub_${randomUUID().replaceAll("-", "")}`,
       ...input,
@@ -137,7 +153,14 @@ export class PublicationViewerService {
     if (result.kind !== "published") {
       throw new PublicationViewerError(result.kind);
     }
-    return result.publication;
+    return {
+      publication: result.publication,
+      access: {
+        url: new URL(`/a/${result.access.shareSlug}/`, this.viewerOrigin).toString(),
+        state: result.access.state,
+        expiresAt: result.access.expiresAt
+      }
+    };
   }
 
   async unpublish(ownerUserId: string, artifactId: string, publicationId: string): Promise<void> {

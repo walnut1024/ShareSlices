@@ -113,26 +113,54 @@ export class ArtifactManagementService {
   }
 
   async list(ownerUserId: string, options: ArtifactListOptions): Promise<{ artifacts: ArtifactManagementState[]; nextPageToken: string | null }> {
-    const artifacts = await this.#repositories.artifacts.listOwned(ownerUserId);
-    const states = await Promise.all(artifacts.map((artifact) => this.#state(artifact)));
-    const offset = options.pageToken ? this.#decodePageToken(options.pageToken) : 0;
-    const matching = states.filter((artifact) =>
-      (!options.publication || (options.publication === "published") === Boolean(artifact.publication)) &&
-      (!options.processing || artifact.processingState === options.processing)
-    );
-    const page = matching.slice(offset, offset + options.pageSize);
-    const nextOffset = offset + page.length;
-    return { artifacts: page, nextPageToken: nextOffset < matching.length ? this.#encodePageToken(nextOffset) : null };
+    const cursor = options.pageToken ? this.#decodePageToken(options.pageToken) : undefined;
+    const candidates = await this.#repositories.artifacts.listOwnedPage({
+      ownerUserId,
+      ...(options.publication ? { publication: options.publication } : {}),
+      ...(options.processing ? { processing: options.processing } : {}),
+      ...(cursor ? { cursor } : {}),
+      limit: options.pageSize + 1
+    });
+    const hasMore = candidates.length > options.pageSize;
+    const page = candidates.slice(0, options.pageSize);
+    const artifactIds = page.map(({ id }) => id);
+    const [shareLinks, uploadSessions, versions, publications] = await Promise.all([
+      this.#repositories.shareLinks.findActiveByArtifacts(artifactIds),
+      this.#repositories.uploadSessions.findCurrentByArtifacts(artifactIds),
+      this.#repositories.versions.findReadyByArtifacts(artifactIds),
+      this.#repositories.publications.findCurrentByArtifacts(artifactIds)
+    ]);
+    const shareByArtifact = new Map(shareLinks.map((value) => [value.artifactId, value]));
+    const sessionByArtifact = new Map(uploadSessions.map((value) => [value.artifactId, value]));
+    const versionByArtifact = new Map(versions.map((value) => [value.artifactId, value]));
+    const publicationByArtifact = new Map(publications.map((value) => [value.artifactId, value]));
+    const artifacts = page.map((artifact) => this.#projectState(
+      artifact,
+      shareByArtifact.get(artifact.id) ?? null,
+      sessionByArtifact.get(artifact.id) ?? null,
+      versionByArtifact.get(artifact.id) ?? null,
+      publicationByArtifact.get(artifact.id) ?? null
+    ));
+    const last = page.at(-1);
+    return {
+      artifacts,
+      nextPageToken: hasMore && last ? this.#encodePageToken(last) : null
+    };
   }
 
-  #encodePageToken(offset: number): string {
-    return Buffer.from(JSON.stringify({ offset }), "utf8").toString("base64url");
+  #encodePageToken(artifact: ArtifactRecord): string {
+    return Buffer.from(JSON.stringify({ updatedAt: artifact.updatedAt.toISOString(), artifactId: artifact.id }), "utf8").toString("base64url");
   }
 
-  #decodePageToken(token: string): number {
+  #decodePageToken(token: string): { updatedAt: Date; artifactId: string } {
     try {
       const value = JSON.parse(Buffer.from(token, "base64url").toString("utf8"));
-      if (typeof value.offset === "number" && Number.isSafeInteger(value.offset) && value.offset >= 0) return value.offset;
+      if (typeof value.updatedAt === "string" && typeof value.artifactId === "string" && value.artifactId.length > 0) {
+        const updatedAt = new Date(value.updatedAt);
+        if (Number.isFinite(updatedAt.getTime()) && updatedAt.toISOString() === value.updatedAt) {
+          return { updatedAt, artifactId: value.artifactId };
+        }
+      }
     } catch {
       throw new ArtifactManagementError("invalid_page_token");
     }
@@ -199,6 +227,16 @@ export class ArtifactManagementService {
       this.#repositories.versions.findReadyByArtifact(artifact.id),
       this.#repositories.publications.findCurrent(artifact.id)
     ]);
+    return this.#projectState(artifact, shareLink, uploadSession, version, publication);
+  }
+
+  #projectState(
+    artifact: ArtifactRecord,
+    shareLink: ShareLinkRecord | null,
+    uploadSession: UploadSessionRecord | null,
+    version: VersionRecord | null,
+    publication: PublicationRecord | null
+  ): ArtifactManagementState {
     if (!shareLink) {
       throw new Error("Artifact has no active Share link.");
     }

@@ -127,6 +127,28 @@ pub struct PublicationResult {
     pub published_at: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PublicationAccessState {
+    Accessible,
+    NotAccessible,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicationAccessResult {
+    pub url: String,
+    pub state: PublicationAccessState,
+    pub expires_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PublishedResult {
+    pub publication: PublicationResult,
+    pub access: PublicationAccessResult,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtifactAccepted {
@@ -232,8 +254,10 @@ pub enum ArtifactError {
     DeleteConfirmationPending,
     #[error("Export requires ARTIFACT_ID and --version when interactive prompting is unavailable.")]
     ExportSelectionUnavailable,
-    #[error("The selected Artifact has no ready Version to export.")]
+    #[error("The selected Version is not ready. Wait for processing to finish, then try again.")]
     VersionNotReady,
+    #[error("The Artifact's current state does not allow this operation.")]
+    InvalidArtifactState,
     #[error("The output parent directory does not exist.")]
     OutputParentMissing,
     #[error("The output file already exists; pass --clobber to replace it.")]

@@ -65,18 +65,30 @@ export class ReconciliationModule {
     }
 
     if (input.workType === "artifact_deletions") {
-      const cleanups = await this.#repository.listArtifactDeletionCleanups(input.olderThan, input.limit);
+      const cleanups = await this.#repository.claimArtifactDeletionCleanups(input.olderThan, input.limit);
+      let deletedCount = 0;
       for (const cleanup of cleanups) {
-        await Promise.all([
-          ...cleanup.objectKeys.map((key) => this.#storage.deleteObject(key)),
-          ...cleanup.stagingPrefixes.map((prefix) => this.#storage.removeStagingPrefix(prefix))
-        ]);
-        await this.#repository.completeArtifactDeletionCleanup(cleanup.artifactId);
+        try {
+          await Promise.all([
+            ...cleanup.objectKeys.map((key) => this.#storage.deleteObject(key)),
+            ...cleanup.stagingPrefixes.map((prefix) => this.#storage.removeStagingPrefix(prefix))
+          ]);
+          await this.#repository.completeArtifactDeletionCleanup(cleanup.artifactId, cleanup.leaseToken);
+          deletedCount += 1;
+        } catch {
+          const delaySeconds = Math.min(3600, 30 * 2 ** Math.min(cleanup.attemptCount - 1, 7));
+          await this.#repository.failArtifactDeletionCleanup(
+            cleanup.artifactId,
+            cleanup.leaseToken,
+            new Date(Date.now() + delaySeconds * 1000),
+            "object_cleanup_failed"
+          );
+        }
       }
       return {
         workType: input.workType,
         scannedCount: cleanups.length,
-        deletedCount: cleanups.length,
+        deletedCount,
         recoveredLeaseCount: 0
       };
     }

@@ -84,7 +84,7 @@ describe("Publication content repository", () => {
     await expect(repository.findAsset("version-1", "missing.js")).resolves.toBeNull();
   });
 
-  it("publishes atomically and replays the original result for the same key", async () => {
+  it("publishes atomically and replays the original Publication and access for the same key", async () => {
     const input = {
       id: "publication-1",
       ownerUserId: "owner-1",
@@ -94,6 +94,9 @@ describe("Publication content repository", () => {
       requestHash: "b".repeat(64)
     };
     const first = await repository.publish(input);
+    await pool.query(
+      "update artifact_share_link set expires_at = '2020-01-01T00:00:00Z' where id = 'link-1'"
+    );
     const replay = await repository.publish({ ...input, id: "publication-ignored" });
 
     await expect(
@@ -105,8 +108,16 @@ describe("Publication content repository", () => {
       })
     ).resolves.toEqual({ kind: "artifact_not_found" });
 
-    expect(first).toMatchObject({ kind: "published", publication: { id: "publication-1" } });
-    expect(replay).toMatchObject({ kind: "published", publication: { id: "publication-1" } });
+    expect(first).toMatchObject({
+      kind: "published",
+      publication: { id: "publication-1" },
+      access: { shareSlug: "stable-share-slug", state: "accessible", expiresAt: null }
+    });
+    expect(replay).toMatchObject({
+      kind: "published",
+      publication: { id: "publication-1" },
+      access: { shareSlug: "stable-share-slug", state: "accessible", expiresAt: null }
+    });
     await expect(
       repository.publish({
         ...input,
@@ -120,9 +131,9 @@ describe("Publication content repository", () => {
     );
     expect(current.rows).toEqual([{ id: "publication-1" }]);
     await expect(repository.resolveShareSlug("stable-share-slug")).resolves.toEqual({
-      kind: "published",
-      versionId: "version-1"
+      kind: "expired"
     });
+    await pool.query("update artifact_share_link set expires_at = null where id = 'link-1'");
   });
 
   it("supports idempotent Unpublish without changing the Share link and permits republish", async () => {

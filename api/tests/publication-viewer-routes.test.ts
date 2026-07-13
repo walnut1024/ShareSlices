@@ -44,9 +44,16 @@ async function dependencies(session: { user: { id: string } } | null = { user: {
         assets: [asset("index.html"), asset("assets/app.js")]
       }),
       publish: vi.fn().mockResolvedValue({
-        id: "publication-1",
-        versionId: "version-1",
-        publishedAt: new Date("2026-07-10T00:00:00Z")
+        publication: {
+          id: "publication-1",
+          versionId: "version-1",
+          publishedAt: new Date("2026-07-10T00:00:00Z")
+        },
+        access: {
+          url: "https://viewer.example/a/stable-slug/",
+          state: "not_accessible",
+          expiresAt: new Date("2020-01-01T00:00:00Z")
+        }
       }),
       unpublish: vi.fn().mockResolvedValue(undefined),
       resolveViewer: vi.fn(async (_slug: string, path: string) =>
@@ -164,7 +171,12 @@ describe("Publication, Preview, and Viewer routes", () => {
 
     expect(published.status).toBe(201);
     await expect(published.json()).resolves.toMatchObject({
-      publication: { id: "publication-1", versionId: "version-1" }
+      publication: { id: "publication-1", versionId: "version-1" },
+      access: {
+        url: "https://viewer.example/a/stable-slug/",
+        state: "not_accessible",
+        expiresAt: "2020-01-01T00:00:00.000Z"
+      }
     });
     expect(deps.service.publish).toHaveBeenCalledWith({
       ownerUserId: "owner-1",

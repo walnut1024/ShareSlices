@@ -29,6 +29,11 @@ function repository(): PublicationContentRepository {
         id: "publication-1",
         versionId: "version-1",
         publishedAt: new Date("2026-07-10T00:00:00Z")
+      },
+      access: {
+        shareSlug: "stable-slug",
+        state: "accessible",
+        expiresAt: new Date("2026-08-01T00:00:00Z")
       }
     }),
     unpublish: vi.fn().mockResolvedValue(true),
@@ -48,7 +53,7 @@ describe("PublicationViewerService", () => {
 
   it("checks owner-ready access before reading a Preview asset", async () => {
     const store = repository();
-    const service = new PublicationViewerService(store);
+    const service = new PublicationViewerService(store, "https://viewer.example");
 
     await expect(service.preview("owner-1", "version-1", "index.html")).resolves.toMatchObject({
       objectKey: "committed/version-1/index.html"
@@ -63,7 +68,7 @@ describe("PublicationViewerService", () => {
 
   it("exports only when the explicit Artifact owns the ready Version", async () => {
     const store = repository();
-    const service = new PublicationViewerService(store);
+    const service = new PublicationViewerService(store, "https://viewer.example");
     await expect(service.exportVersion("owner-1", "version-1", "artifact-1")).resolves.toMatchObject({
       artifactId: "artifact-1",
       artifactName: "Report"
@@ -75,7 +80,7 @@ describe("PublicationViewerService", () => {
 
   it("resolves Preview and Viewer roots through the manifest entry", async () => {
     const store = repository();
-    const service = new PublicationViewerService(store);
+    const service = new PublicationViewerService(store, "https://viewer.example");
     await expect(service.preview("owner-1", "version-1", "")).resolves.toMatchObject({
       path: "腾讯文档盘点分析报告.html"
     });
@@ -87,13 +92,24 @@ describe("PublicationViewerService", () => {
 
   it("publishes with a stable request hash and maps repository conflicts", async () => {
     const store = repository();
-    const service = new PublicationViewerService(store);
+    const service = new PublicationViewerService(store, "https://viewer.example");
 
-    await service.publish({
+    await expect(service.publish({
       ownerUserId: "owner-1",
       artifactId: "artifact-1",
       versionId: "version-1",
       idempotencyKey: "publish-key"
+    })).resolves.toEqual({
+      publication: {
+        id: "publication-1",
+        versionId: "version-1",
+        publishedAt: new Date("2026-07-10T00:00:00Z")
+      },
+      access: {
+        url: "https://viewer.example/a/stable-slug/",
+        state: "accessible",
+        expiresAt: new Date("2026-08-01T00:00:00Z")
+      }
     });
     expect(store.publish).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -118,7 +134,7 @@ describe("PublicationViewerService", () => {
 
   it("fixes Viewer asset resolution to the Version returned for that request", async () => {
     const store = repository();
-    const service = new PublicationViewerService(store);
+    const service = new PublicationViewerService(store, "https://viewer.example");
 
     await service.resolveViewer("stable-slug", "index.html");
 

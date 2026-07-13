@@ -1,6 +1,11 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { ArtifactRepositories, UploadPolicySnapshot } from "./repositories.js";
 import type { ObjectBody, ObjectStorage } from "../../storage/index.js";
+import {
+  discardUncommittedRawObject,
+  normalizeRequestedEntry,
+  RequestedEntryValidationError
+} from "./artifact-upload-input.js";
 
 export type ArtifactAccepted = {
   artifactId: string;
@@ -76,13 +81,15 @@ function artifactName(value: string): string {
   return name;
 }
 
-function normalizeRequestedEntry(value: string | null): string | null {
-  if (value === null) return null;
-  const entry = value.trim();
-  if (!entry || entry.startsWith("/") || entry.includes("\\") || entry.split("/").some((part) => !part || part === "..")) {
-    throw new ArtifactIntakeError("invalid_requested_entry");
+function intakeRequestedEntry(value: string | null): string | null {
+  try {
+    return normalizeRequestedEntry(value);
+  } catch (error) {
+    if (error instanceof RequestedEntryValidationError) {
+      throw new ArtifactIntakeError("invalid_requested_entry");
+    }
+    throw error;
   }
-  return entry;
 }
 
 function completedResponse(value: Record<string, unknown> | null): ArtifactAccepted {
@@ -123,7 +130,7 @@ export class ArtifactIntakeService {
   async create(input: CreateArtifactInput): Promise<ArtifactAccepted> {
     const immediateName = typeof input.name === "string" ? artifactName(input.name) : undefined;
     const namePromise = immediateName ? Promise.resolve(immediateName) : Promise.resolve(input.name).then(artifactName);
-    const entryPromise = Promise.resolve(input.requestedEntry ?? null).then(normalizeRequestedEntry);
+    const entryPromise = Promise.resolve(input.requestedEntry ?? null).then(intakeRequestedEntry);
     void namePromise.catch(() => undefined);
     if (input.idempotencyKey.trim().length < 1 || input.idempotencyKey.length > 255) {
       throw new ArtifactIntakeError("invalid_idempotency_key");
@@ -164,12 +171,15 @@ export class ArtifactIntakeService {
     const rawObjectKey = `raw/${artifactId}/${uploadSessionId}.zip`;
 
     const uploadResult = this.#storage.writeRawZip({
-        key: rawObjectKey,
-        body: input.body,
-        contentType: "application/zip"
-      });
+      key: rawObjectKey,
+      body: input.body,
+      contentType: "application/zip"
+    });
     const [nameResult, rawResult, entryResult] = await Promise.allSettled([namePromise, uploadResult, entryPromise]);
     if (nameResult.status === "rejected") {
+      if (rawResult.status === "fulfilled") {
+        await discardUncommittedRawObject(this.#storage, rawObjectKey);
+      }
       await this.#repositories.idempotency.releasePending(claim.record.id);
       throw nameResult.reason;
     }
@@ -178,6 +188,7 @@ export class ArtifactIntakeService {
       throw rawResult.reason;
     }
     if (entryResult.status === "rejected") {
+      await discardUncommittedRawObject(this.#storage, rawObjectKey);
       await this.#repositories.idempotency.releasePending(claim.record.id);
       throw entryResult.reason;
     }
@@ -190,6 +201,7 @@ export class ArtifactIntakeService {
         throw new ArtifactIntakeError("archive_too_large");
       }
     } catch (error) {
+      await discardUncommittedRawObject(this.#storage, rawObjectKey);
       await this.#repositories.idempotency.releasePending(claim.record.id);
       throw error;
     }
@@ -232,6 +244,7 @@ export class ArtifactIntakeService {
         if (slugAttempt < 2 && shareSlugCollision(error)) {
           continue;
         }
+        await discardUncommittedRawObject(this.#storage, rawObjectKey);
         await this.#repositories.idempotency.releasePending(claim.record.id);
         throw error;
       }

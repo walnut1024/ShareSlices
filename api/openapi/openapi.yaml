@@ -2338,11 +2338,37 @@ components:
           id: publication-example
           versionId: version-example
           publishedAt: "2026-07-10T08:00:00Z"
+        access:
+          url: https://viewer.example/a/stable-share-slug/
+          state: accessible
+          expiresAt: null
       required:
         - publication
+        - access
       properties:
         publication:
           $ref: "#/components/schemas/Publication"
+        access:
+          $ref: "#/components/schemas/PublicationAccess"
+    PublicationAccess:
+      type: object
+      additionalProperties: false
+      required:
+        - url
+        - state
+        - expiresAt
+      properties:
+        url:
+          type: string
+          format: uri
+        state:
+          type: string
+          enum: [accessible, not_accessible]
+        expiresAt:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
     Publication:
       type: object
       additionalProperties: false

@@ -407,7 +407,8 @@ A command may document an additional exit code only when callers need to disting
 - Missing required parameters fail locally before any request.
 - Invalid credentials direct the user to `shareslices auth login`.
 - Unsupported CLI versions stop before authorization or an authenticated mutation.
-- Upload preflight failures identify the affected path, violated rule, actual value, allowed value, and corrective action when available.
+- Upload preflight failures identify the violated constraint and provide corrective guidance when
+  known. Individual errors do not guarantee separate path, actual-value, and allowed-value fields.
 - Interrupted transfers retry only through idempotent Server operations.
 - An interrupted transfer can replace the temporary ZIP only within the same incomplete Upload session.
 - Once the ZIP is complete, Server processing continues if the CLI stops waiting.

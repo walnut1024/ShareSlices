@@ -1,6 +1,7 @@
 mod api_client;
 mod artifact_commands;
 mod auth_commands;
+mod cli_runner;
 mod command_line;
 mod credential_store;
 mod model;
@@ -15,6 +16,7 @@ pub use artifact_commands::{
     select_artifact, select_owned_artifact, select_upload_target,
 };
 pub use auth_commands::run_auth;
+pub use cli_runner::run_cli_process;
 pub use command_line::{
     ArtifactCommand, ArtifactDeleteArgs, ArtifactExportArgs, ArtifactListArgs, ArtifactPublishArgs,
     ArtifactShareCommand, ArtifactShareEditArgs, ArtifactShareViewArgs, ArtifactUnpublishArgs,
@@ -23,7 +25,8 @@ pub use command_line::{
 pub use credential_store::KeyringCredentialStore;
 pub use model::{
     Artifact, ArtifactAccepted, ArtifactDetail, ArtifactError, ArtifactFailure,
-    ArtifactPublication, ArtifactShareLink, ArtifactState, PublicationResult, ReadyArtifactVersion,
-    ReadyVersion, UploadPolicy,
+    ArtifactPublication, ArtifactShareLink, ArtifactState, PublicationAccessResult,
+    PublicationAccessState, PublicationResult, PublishedResult, ReadyArtifactVersion, ReadyVersion,
+    UploadPolicy,
 };
 pub use model::{AuthApi, AuthError, Authorization, CredentialStore, Exchange, User};

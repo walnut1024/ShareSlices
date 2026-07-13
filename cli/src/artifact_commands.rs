@@ -781,10 +781,9 @@ pub async fn run_artifact_publish(
         select_ready_version(&versions, is_terminal, input, diagnostics)?.id
     };
     let publication = api.publish(&token, &artifact.id, &version_id).await?;
-    let access_state = if owner_external_accessible(&artifact.share_link, true) {
-        "accessible"
-    } else {
-        "not accessible"
+    let access_state = match publication.access.state {
+        crate::PublicationAccessState::Accessible => "accessible",
+        crate::PublicationAccessState::NotAccessible => "not accessible",
     };
     write_publication_result(
         output,
@@ -795,9 +794,9 @@ pub async fn run_artifact_publish(
         },
         &PublicationOutcome {
             artifact_id: &artifact.id,
-            version_id: Some(&publication.version_id),
+            version_id: Some(&publication.publication.version_id),
             access_state,
-            expires_at: artifact.share_link.expires_at.as_deref(),
+            expires_at: publication.access.expires_at.as_deref(),
         },
     )
 }

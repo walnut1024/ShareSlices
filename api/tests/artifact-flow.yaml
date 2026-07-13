@@ -245,6 +245,8 @@ cases:
       status: 201
       json_paths:
         publication.versionId: "{version_id}"
+        access.state: accessible
+        access.expiresAt: null
     save:
       publication_id: publication.id
 
@@ -261,6 +263,8 @@ cases:
       status: 201
       json_paths:
         publication.id: "{publication_id}"
+        access.state: accessible
+        access.expiresAt: null
 
   - id: export_published_ready_version_without_mutation
     request:

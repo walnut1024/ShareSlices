@@ -210,7 +210,8 @@ describe("ArtifactIntakeService", () => {
   });
 
   it("releases the pending key when the requested Entry is unsafe", async () => {
-    const { service, repositories } = harness();
+    const { service, storage, repositories } = harness();
+    const deleteObject = vi.spyOn(storage, "deleteObject");
     await expect(
       service.create({
         ownerUserId: "owner-1",
@@ -221,6 +222,103 @@ describe("ArtifactIntakeService", () => {
         policy
       })
     ).rejects.toMatchObject({ code: "invalid_requested_entry" });
+    expect(repositories.idempotency.releasePending).toHaveBeenCalledOnce();
+    expect(deleteObject).toHaveBeenCalledOnce();
+    await expect(storage.readForTest(deleteObject.mock.calls[0]?.[0] ?? "missing")).resolves.toBeUndefined();
+  });
+
+  it("discards a stored raw ZIP when the multipart name is invalid", async () => {
+    const { service, storage, repositories } = harness();
+    const deleteObject = vi.spyOn(storage, "deleteObject");
+
+    await expect(
+      service.create({
+        ownerUserId: "owner-1",
+        idempotencyKey: "invalid-name-cleanup-key",
+        name: Promise.resolve("   "),
+        body: body("zip-content"),
+        policy
+      })
+    ).rejects.toMatchObject({ code: "invalid_artifact_name" });
+
+    expect(deleteObject).toHaveBeenCalledOnce();
+    expect(repositories.idempotency.releasePending).toHaveBeenCalledOnce();
+    await expect(storage.readForTest(deleteObject.mock.calls[0]?.[0] ?? "missing")).resolves.toBeUndefined();
+  });
+
+  it("discards a stored raw ZIP when multipart completion fails", async () => {
+    const { service, storage, repositories } = harness();
+    const deleteObject = vi.spyOn(storage, "deleteObject");
+    const completionError = new Error("multipart stream incomplete");
+
+    await expect(
+      service.create({
+        ownerUserId: "owner-1",
+        idempotencyKey: "completion-cleanup-key",
+        name: "Report",
+        body: body("zip-content"),
+        policy,
+        completed: Promise.reject(completionError)
+      })
+    ).rejects.toBe(completionError);
+
+    expect(deleteObject).toHaveBeenCalledOnce();
+    expect(repositories.idempotency.releasePending).toHaveBeenCalledOnce();
+  });
+
+  it("discards a stored raw ZIP when its measured size exceeds policy", async () => {
+    const { service, storage, repositories } = harness();
+    const deleteObject = vi.spyOn(storage, "deleteObject");
+
+    await expect(
+      service.create({
+        ownerUserId: "owner-1",
+        idempotencyKey: "oversize-cleanup-key",
+        name: "Report",
+        body: body("too large"),
+        policy: { ...policy, archiveSizeBytes: 3 }
+      })
+    ).rejects.toMatchObject({ code: "archive_too_large" });
+
+    expect(deleteObject).toHaveBeenCalledOnce();
+    expect(repositories.idempotency.releasePending).toHaveBeenCalledOnce();
+  });
+
+  it("discards a stored raw ZIP when the accepted graph commit fails", async () => {
+    const { service, storage, repositories, commitAccepted } = harness();
+    const deleteObject = vi.spyOn(storage, "deleteObject");
+    const commitError = new Error("database unavailable");
+    commitAccepted.mockRejectedValueOnce(commitError);
+
+    await expect(
+      service.create({
+        ownerUserId: "owner-1",
+        idempotencyKey: "commit-cleanup-key",
+        name: "Report",
+        body: body("zip-content"),
+        policy
+      })
+    ).rejects.toBe(commitError);
+
+    expect(deleteObject).toHaveBeenCalledOnce();
+    expect(repositories.idempotency.releasePending).toHaveBeenCalledOnce();
+  });
+
+  it("preserves the original failure when raw ZIP cleanup also fails", async () => {
+    const { service, storage, repositories, commitAccepted } = harness();
+    const commitError = new Error("database unavailable");
+    commitAccepted.mockRejectedValueOnce(commitError);
+    vi.spyOn(storage, "deleteObject").mockRejectedValueOnce(new Error("object store unavailable"));
+
+    await expect(
+      service.create({
+        ownerUserId: "owner-1",
+        idempotencyKey: "cleanup-failure-key",
+        name: "Report",
+        body: body("zip-content"),
+        policy
+      })
+    ).rejects.toBe(commitError);
     expect(repositories.idempotency.releasePending).toHaveBeenCalledOnce();
   });
 });

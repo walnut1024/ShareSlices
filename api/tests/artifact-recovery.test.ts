@@ -258,4 +258,24 @@ describe("ArtifactRecoveryService", () => {
     const attempted = commitVersionUpload.mock.calls[0]?.[0];
     await expect(storage.readForTest(attempted.rawObjectKey)).resolves.toBeUndefined();
   });
+
+  it("uses the shared Entry validation and discards raw input for an unsafe Entry", async () => {
+    const { service, storage, repositories, commitReplacement } = harness({ retryable: false });
+    const deleteObject = vi.spyOn(storage, "deleteObject");
+
+    await expect(
+      service.replace({
+        ownerUserId: "owner-1",
+        artifactId: "artifact-1",
+        idempotencyKey: "unsafe-entry-key",
+        body: body("replacement-zip"),
+        policy,
+        requestedEntry: "../secret.html"
+      })
+    ).rejects.toEqual(new ArtifactRecoveryError("invalid_requested_entry"));
+
+    expect(deleteObject).toHaveBeenCalledOnce();
+    expect(repositories.idempotency.releasePending).toHaveBeenCalledOnce();
+    expect(commitReplacement).not.toHaveBeenCalled();
+  });
 });

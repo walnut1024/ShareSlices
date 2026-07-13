@@ -47,6 +47,16 @@ export type ArtifactRecord = {
   updatedAt: Date;
 };
 
+export type ArtifactListCursor = { updatedAt: Date; artifactId: string };
+
+export type ArtifactListQuery = {
+  ownerUserId: string;
+  publication?: "published" | "unpublished";
+  processing?: "accepted" | "processing" | "ready" | "failed";
+  cursor?: ArtifactListCursor;
+  limit: number;
+};
+
 export type ShareLinkRecord = {
   id: string;
   artifactId: string;
@@ -179,6 +189,7 @@ export interface UploadPolicyRepository {
 
 export interface ArtifactRepository {
   listOwned(ownerUserId: string): Promise<ArtifactRecord[]>;
+  listOwnedPage(input: ArtifactListQuery): Promise<ArtifactRecord[]>;
   findOwned(ownerUserId: string, artifactId: string): Promise<ArtifactRecord | null>;
   updateName(ownerUserId: string, artifactId: string, name: string): Promise<ArtifactRecord | null>;
   deleteOwned(ownerUserId: string, artifactId: string): Promise<ArtifactDeletionResult>;
@@ -188,6 +199,7 @@ export interface ArtifactRepository {
 
 export interface ShareLinkRepository {
   findActiveByArtifact(artifactId: string): Promise<ShareLinkRecord | null>;
+  findActiveByArtifacts(artifactIds: string[]): Promise<ShareLinkRecord[]>;
   findBySlug(slug: string): Promise<ShareLinkRecord | null>;
   updateExpirationOwned(ownerUserId: string, artifactId: string, expiresAt: Date | null): Promise<ShareLinkRecord | null>;
 }
@@ -195,6 +207,7 @@ export interface ShareLinkRepository {
 export interface UploadSessionRepository {
   findOwned(ownerUserId: string, uploadSessionId: string): Promise<UploadSessionRecord | null>;
   findCurrent(artifactId: string): Promise<UploadSessionRecord | null>;
+  findCurrentByArtifacts(artifactIds: string[]): Promise<UploadSessionRecord[]>;
 }
 
 export interface ProcessingJobRepository {
@@ -204,11 +217,13 @@ export interface ProcessingJobRepository {
 export interface VersionRepository {
   findReadyOwned(ownerUserId: string, versionId: string): Promise<VersionRecord | null>;
   findReadyByArtifact(artifactId: string): Promise<VersionRecord | null>;
+  findReadyByArtifacts(artifactIds: string[]): Promise<VersionRecord[]>;
   listReadyOwned(ownerUserId: string, artifactId: string): Promise<VersionRecord[]>;
 }
 
 export interface PublicationRepository {
   findCurrent(artifactId: string): Promise<PublicationRecord | null>;
+  findCurrentByArtifacts(artifactIds: string[]): Promise<PublicationRecord[]>;
 }
 
 export interface IdempotencyRepository {

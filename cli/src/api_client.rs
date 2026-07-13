@@ -1,6 +1,6 @@
 use crate::{
     Artifact, ArtifactAccepted, ArtifactDetail, ArtifactError, ArtifactState, AuthApi, AuthError,
-    Authorization, Exchange, ProcessingFilter, PublicationFilter, PublicationResult,
+    Authorization, Exchange, ProcessingFilter, PublicationFilter, PublishedResult,
     ReadyArtifactVersion, UploadPolicy, User,
 };
 use async_trait::async_trait;
@@ -157,8 +157,11 @@ impl ApiClient {
                     .unwrap_or_else(|| "a newer version".to_owned()),
             };
         }
-        if body.as_ref().map(|value| value.error.code.as_str()) == Some("artifact_not_found") {
-            return ArtifactError::ArtifactNotFound;
+        match body.as_ref().map(|value| value.error.code.as_str()) {
+            Some("artifact_not_found") => return ArtifactError::ArtifactNotFound,
+            Some("version_not_ready") => return ArtifactError::VersionNotReady,
+            Some("invalid_artifact_state") => return ArtifactError::InvalidArtifactState,
+            _ => {}
         }
         ArtifactError::Server
     }
@@ -358,11 +361,7 @@ impl ApiClient {
         token: &str,
         artifact_id: &str,
         version_id: &str,
-    ) -> Result<PublicationResult, ArtifactError> {
-        #[derive(Deserialize)]
-        struct Body {
-            publication: PublicationResult,
-        }
+    ) -> Result<PublishedResult, ArtifactError> {
         let response = self
             .request(
                 reqwest::Method::POST,
@@ -378,9 +377,8 @@ impl ApiClient {
             return Err(Self::artifact_error(response).await);
         }
         response
-            .json::<Body>()
+            .json::<PublishedResult>()
             .await
-            .map(|body| body.publication)
             .map_err(|_| ArtifactError::Server)
     }
 

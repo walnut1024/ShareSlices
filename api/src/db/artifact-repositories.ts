@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, exists, inArray, isNull, lt, not, or } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { z } from "zod";
 import type {
@@ -195,6 +195,73 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
         });
         return rows.map(artifactRecord);
       },
+      async listOwnedPage(input) {
+        const readyVersionExists = exists(
+          database
+            .select({ id: schema.artifactVersion.id })
+            .from(schema.artifactVersion)
+            .where(
+              and(
+                eq(schema.artifactVersion.artifactId, schema.artifact.id),
+                eq(schema.artifactVersion.state, "ready")
+              )
+            )
+        );
+        const currentSessionWithState = (state: "accepted" | "processing" | "failed") =>
+          exists(
+            database
+              .select({ id: schema.artifactUploadSession.id })
+              .from(schema.artifactUploadSession)
+              .where(
+                and(
+                  eq(schema.artifactUploadSession.artifactId, schema.artifact.id),
+                  isNull(schema.artifactUploadSession.supersededAt),
+                  eq(schema.artifactUploadSession.state, state)
+                )
+              )
+          );
+        const publicationExists = exists(
+          database
+            .select({ id: schema.artifactPublication.id })
+            .from(schema.artifactPublication)
+            .where(
+              and(
+                eq(schema.artifactPublication.artifactId, schema.artifact.id),
+                isNull(schema.artifactPublication.endedAt)
+              )
+            )
+        );
+        const processingCondition = input.processing === "ready"
+          ? readyVersionExists
+          : input.processing
+            ? and(not(readyVersionExists), currentSessionWithState(input.processing))
+            : undefined;
+        const publicationCondition = input.publication === "published"
+          ? publicationExists
+          : input.publication === "unpublished"
+            ? not(publicationExists)
+            : undefined;
+        const cursorCondition = input.cursor
+          ? or(
+              lt(schema.artifact.updatedAt, input.cursor.updatedAt),
+              and(
+                eq(schema.artifact.updatedAt, input.cursor.updatedAt),
+                lt(schema.artifact.id, input.cursor.artifactId)
+              )
+            )
+          : undefined;
+        const rows = await database.query.artifact.findMany({
+          where: and(
+            eq(schema.artifact.ownerUserId, input.ownerUserId),
+            publicationCondition,
+            processingCondition,
+            cursorCondition
+          ),
+          orderBy: [desc(schema.artifact.updatedAt), desc(schema.artifact.id)],
+          limit: input.limit
+        });
+        return rows.map(artifactRecord);
+      },
       async findOwned(ownerUserId, artifactId) {
         const row = await database.query.artifact.findFirst({
           where: and(eq(schema.artifact.ownerUserId, ownerUserId), eq(schema.artifact.id, artifactId))
@@ -245,23 +312,21 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
             )
             .for("update");
           if (activeUploads.length > 0) return { kind: "invalid_state" } as const;
-          const [rawObjects, committedObjects, attempts] = await Promise.all([
-            transaction
-              .select({ key: schema.artifactUploadSession.rawObjectKey })
-              .from(schema.artifactUploadSession)
-              .where(eq(schema.artifactUploadSession.artifactId, artifactId)),
-            transaction
-              .select({ key: schema.artifactAsset.objectKey })
-              .from(schema.artifactAsset)
-              .innerJoin(schema.artifactVersion, eq(schema.artifactVersion.id, schema.artifactAsset.versionId))
-              .where(eq(schema.artifactVersion.artifactId, artifactId)),
-            transaction
-              .select({ prefix: schema.artifactProcessingAttempt.stagingPrefix })
-              .from(schema.artifactProcessingAttempt)
-              .innerJoin(schema.artifactProcessingJob, eq(schema.artifactProcessingJob.id, schema.artifactProcessingAttempt.jobId))
-              .innerJoin(schema.artifactUploadSession, eq(schema.artifactUploadSession.id, schema.artifactProcessingJob.uploadSessionId))
-              .where(eq(schema.artifactUploadSession.artifactId, artifactId))
-          ]);
+          const rawObjects = await transaction
+            .select({ key: schema.artifactUploadSession.rawObjectKey })
+            .from(schema.artifactUploadSession)
+            .where(eq(schema.artifactUploadSession.artifactId, artifactId));
+          const committedObjects = await transaction
+            .select({ key: schema.artifactAsset.objectKey })
+            .from(schema.artifactAsset)
+            .innerJoin(schema.artifactVersion, eq(schema.artifactVersion.id, schema.artifactAsset.versionId))
+            .where(eq(schema.artifactVersion.artifactId, artifactId));
+          const attempts = await transaction
+            .select({ prefix: schema.artifactProcessingAttempt.stagingPrefix })
+            .from(schema.artifactProcessingAttempt)
+            .innerJoin(schema.artifactProcessingJob, eq(schema.artifactProcessingJob.id, schema.artifactProcessingAttempt.jobId))
+            .innerJoin(schema.artifactUploadSession, eq(schema.artifactUploadSession.id, schema.artifactProcessingJob.uploadSessionId))
+            .where(eq(schema.artifactUploadSession.artifactId, artifactId));
           const record = {
             objectKeys: [...new Set([...rawObjects, ...committedObjects].map(({ key }) => key))],
             stagingPrefixes: [...new Set(attempts.map(({ prefix }) => prefix))]
@@ -305,6 +370,16 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
           )
         });
         return row ? shareLinkRecord(row) : null;
+      },
+      async findActiveByArtifacts(artifactIds) {
+        if (artifactIds.length === 0) return [];
+        const rows = await database.query.artifactShareLink.findMany({
+          where: and(
+            inArray(schema.artifactShareLink.artifactId, artifactIds),
+            eq(schema.artifactShareLink.status, "active")
+          )
+        });
+        return rows.map(shareLinkRecord);
       },
       async findBySlug(slug) {
         const row = await database.query.artifactShareLink.findFirst({
@@ -350,6 +425,21 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
           orderBy: [desc(schema.artifactUploadSession.createdAt)]
         });
         return row ? uploadSessionRecord(row) : null;
+      },
+      async findCurrentByArtifacts(artifactIds) {
+        if (artifactIds.length === 0) return [];
+        const rows = await database.query.artifactUploadSession.findMany({
+          where: and(
+            inArray(schema.artifactUploadSession.artifactId, artifactIds),
+            isNull(schema.artifactUploadSession.supersededAt)
+          ),
+          orderBy: [desc(schema.artifactUploadSession.createdAt)]
+        });
+        const current = new Map<string, UploadSessionRecord>();
+        for (const row of rows) {
+          if (!current.has(row.artifactId)) current.set(row.artifactId, uploadSessionRecord(row));
+        }
+        return [...current.values()];
       }
     },
     processingJobs: {
@@ -396,6 +486,21 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
           orderBy: [desc(schema.artifactVersion.versionNumber)]
         });
         return row ? versionRecord(row) : null;
+      },
+      async findReadyByArtifacts(artifactIds) {
+        if (artifactIds.length === 0) return [];
+        const rows = await database.query.artifactVersion.findMany({
+          where: and(
+            inArray(schema.artifactVersion.artifactId, artifactIds),
+            eq(schema.artifactVersion.state, "ready")
+          ),
+          orderBy: [desc(schema.artifactVersion.versionNumber)]
+        });
+        const ready = new Map<string, VersionRecord>();
+        for (const row of rows) {
+          if (!ready.has(row.artifactId)) ready.set(row.artifactId, versionRecord(row));
+        }
+        return [...ready.values()];
       }
     },
     publications: {
@@ -405,6 +510,17 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
           orderBy: [desc(schema.artifactPublication.createdAt)]
         });
         return row ? publicationRecord(row) : null;
+      },
+      async findCurrentByArtifacts(artifactIds) {
+        if (artifactIds.length === 0) return [];
+        const rows = await database.query.artifactPublication.findMany({
+          where: and(
+            inArray(schema.artifactPublication.artifactId, artifactIds),
+            isNull(schema.artifactPublication.endedAt)
+          ),
+          orderBy: [desc(schema.artifactPublication.createdAt)]
+        });
+        return rows.map(publicationRecord);
       }
     },
     idempotency: {

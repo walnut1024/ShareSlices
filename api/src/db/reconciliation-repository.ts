@@ -1,4 +1,5 @@
 import { asc, eq, inArray, lt, sql } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type { ReconciliationRepository } from "../application/reconciliation/repository.js";
 import { db } from "./client.js";
@@ -13,13 +14,23 @@ type ExpiredLeaseRow = {
   maxAttempts: number;
 };
 
+type DeletionCleanupRow = {
+  artifactId: string;
+  objectKeys: string[];
+  stagingPrefixes: string[];
+  attemptCount: number;
+  leaseToken: string;
+};
+
 function attemptIdFromStagingKey(key: string): string | null {
   const parts = key.split("/", 4);
   return parts.length === 4 && parts[0] === "staging" && parts[2] ? parts[2] : null;
 }
 
 export function createReconciliationRepository(
-  database: Database = db
+  database: Database = db,
+  cleanupLeaseOwner = "shareslices-api",
+  createLeaseToken = randomUUID
 ): ReconciliationRepository {
   return {
     async recoverExpiredLeases(expiredBefore, limit) {
@@ -175,23 +186,53 @@ export function createReconciliationRepository(
       });
     },
 
-    async listArtifactDeletionCleanups(createdBefore, limit) {
-      return database
-        .select({
-          artifactId: schema.artifactDeletionCleanup.artifactId,
-          objectKeys: schema.artifactDeletionCleanup.objectKeys,
-          stagingPrefixes: schema.artifactDeletionCleanup.stagingPrefixes
-        })
-        .from(schema.artifactDeletionCleanup)
-        .where(lt(schema.artifactDeletionCleanup.createdAt, createdBefore))
-        .orderBy(asc(schema.artifactDeletionCleanup.createdAt), asc(schema.artifactDeletionCleanup.artifactId))
-        .limit(limit);
+    async claimArtifactDeletionCleanups(createdBefore, limit) {
+      const leaseToken = `${cleanupLeaseOwner}-${createLeaseToken()}`;
+      const claimed = await database.execute<DeletionCleanupRow>(sql`
+        with candidates as (
+          select artifact_id
+          from artifact_deletion_cleanup
+          where created_at < ${createdBefore}
+            and next_attempt_at <= now()
+            and (lease_expires_at is null or lease_expires_at <= now())
+          order by next_attempt_at, created_at, artifact_id
+          for update skip locked
+          limit ${limit}
+        )
+        update artifact_deletion_cleanup as cleanup
+        set lease_owner = ${leaseToken},
+            lease_expires_at = now() + interval '1 minute',
+            attempt_count = cleanup.attempt_count + 1,
+            last_error_code = null
+        from candidates
+        where cleanup.artifact_id = candidates.artifact_id
+        returning cleanup.artifact_id as "artifactId",
+                  cleanup.object_keys as "objectKeys",
+                  cleanup.staging_prefixes as "stagingPrefixes",
+                  cleanup.attempt_count as "attemptCount",
+                  cleanup.lease_owner as "leaseToken"
+      `);
+      return claimed.rows;
     },
 
-    async completeArtifactDeletionCleanup(artifactId) {
+    async completeArtifactDeletionCleanup(artifactId, leaseToken) {
       await database
         .delete(schema.artifactDeletionCleanup)
-        .where(eq(schema.artifactDeletionCleanup.artifactId, artifactId));
+        .where(sql`${schema.artifactDeletionCleanup.artifactId} = ${artifactId}
+          and ${schema.artifactDeletionCleanup.leaseOwner} = ${leaseToken}`);
+    },
+
+    async failArtifactDeletionCleanup(artifactId, leaseToken, nextAttemptAt, errorCode) {
+      await database
+        .update(schema.artifactDeletionCleanup)
+        .set({
+          leaseOwner: null,
+          leaseExpiresAt: null,
+          nextAttemptAt,
+          lastErrorCode: errorCode
+        })
+        .where(sql`${schema.artifactDeletionCleanup.artifactId} = ${artifactId}
+          and ${schema.artifactDeletionCleanup.leaseOwner} = ${leaseToken}`);
     }
   };
 }

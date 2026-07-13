@@ -258,9 +258,22 @@ export const artifactDeletionCleanup = pgTable(
     ownerUserId: text("owner_user_id").notNull(),
     objectKeys: jsonb("object_keys").$type<string[]>().notNull(),
     stagingPrefixes: jsonb("staging_prefixes").$type<string[]>().notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    leaseOwner: text("lease_owner"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    attemptCount: integer("attempt_count").default(0).notNull(),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).defaultNow().notNull(),
+    lastErrorCode: text("last_error_code")
   },
-  (table) => [index("artifact_deletion_cleanup_owner_user_id_idx").on(table.ownerUserId)]
+  (table) => [
+    index("artifact_deletion_cleanup_owner_user_id_idx").on(table.ownerUserId),
+    index("artifact_deletion_cleanup_claim_idx").on(table.nextAttemptAt, table.createdAt, table.artifactId),
+    check("artifact_deletion_cleanup_attempt_count_check", sql`${table.attemptCount} >= 0`),
+    check(
+      "artifact_deletion_cleanup_lease_check",
+      sql`(${table.leaseOwner} is null) = (${table.leaseExpiresAt} is null)`
+    )
+  ]
 );
 
 export const artifactShareLink = pgTable(

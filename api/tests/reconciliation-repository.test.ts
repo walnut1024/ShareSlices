@@ -16,7 +16,8 @@ describe("PostgreSQL reconciliation repository", () => {
     connectionString: process.env.DATABASE_URL,
     options: `-c search_path=${schemaName}`
   });
-  const repository = createReconciliationRepository(drizzle(databasePool, { schema }));
+  const database = drizzle(databasePool, { schema });
+  const repository = createReconciliationRepository(database, "worker-1");
 
   beforeAll(async () => {
     await admin.connect();
@@ -275,7 +276,7 @@ describe("PostgreSQL reconciliation repository", () => {
     expect(upload.rows[0]).toEqual({ state: "processing", retryable: false });
   });
 
-  it("lists bounded old Artifact deletion intents and completes one intent", async () => {
+  it("leases bounded old Artifact deletion intents to only one worker and completes one intent", async () => {
     await databasePool.query(
       `insert into artifact_deletion_cleanup
        (artifact_id, owner_user_id, object_keys, staging_prefixes, created_at)
@@ -284,20 +285,103 @@ describe("PostgreSQL reconciliation repository", () => {
        ('artifact-recent', 'owner-1', '["raw/recent.zip"]', '[]', '2026-07-12T00:00:00Z')`
     );
 
-    await expect(
-      repository.listArtifactDeletionCleanups(new Date("2026-07-11T00:00:00Z"), 1)
-    ).resolves.toEqual([
+    const claimed = await repository.claimArtifactDeletionCleanups(
+      new Date("2026-07-11T00:00:00Z"),
+      1
+    );
+    expect(claimed).toEqual([
       {
         artifactId: "artifact-old",
         objectKeys: ["raw/old.zip"],
-        stagingPrefixes: ["staging/old/"]
+        stagingPrefixes: ["staging/old/"],
+        attemptCount: 1,
+        leaseToken: expect.stringMatching(/^worker-1-/)
       }
     ]);
+    await expect(
+      createReconciliationRepository(database, "worker-2").claimArtifactDeletionCleanups(
+        new Date("2026-07-11T00:00:00Z"),
+        1
+      )
+    ).resolves.toEqual([]);
 
-    await repository.completeArtifactDeletionCleanup("artifact-old");
+    await repository.completeArtifactDeletionCleanup("artifact-old", claimed[0]!.leaseToken);
     const remaining = await databasePool.query(
       "select artifact_id from artifact_deletion_cleanup order by artifact_id"
     );
     expect(remaining.rows).toEqual([{ artifact_id: "artifact-recent" }]);
+  });
+
+  it("releases a failed deletion cleanup with backoff and an error code", async () => {
+    await databasePool.query(
+      `insert into artifact_deletion_cleanup
+       (artifact_id, owner_user_id, object_keys, staging_prefixes, created_at)
+       values ('artifact-failed', 'owner-1', '["raw/failed.zip"]', '[]', '2026-07-10T00:00:00Z')`
+    );
+    const [claimed] = await repository.claimArtifactDeletionCleanups(
+      new Date("2026-07-11T00:00:00Z"),
+      1
+    );
+    const retryAt = new Date("2026-07-13T00:00:00Z");
+
+    await repository.failArtifactDeletionCleanup(
+      "artifact-failed",
+      claimed!.leaseToken,
+      retryAt,
+      "object_cleanup_failed"
+    );
+
+    const result = await databasePool.query(
+      `select lease_owner, lease_expires_at, attempt_count, next_attempt_at, last_error_code
+       from artifact_deletion_cleanup where artifact_id = 'artifact-failed'`
+    );
+    expect(result.rows[0]).toMatchObject({
+      lease_owner: null,
+      lease_expires_at: null,
+      attempt_count: 1,
+      last_error_code: "object_cleanup_failed"
+    });
+    expect(result.rows[0].next_attempt_at).toEqual(retryAt);
+  });
+
+  it("fences stale deletion cleanup completion and failure after the lease is reclaimed", async () => {
+    await databasePool.query(
+      `insert into artifact_deletion_cleanup
+       (artifact_id, owner_user_id, object_keys, staging_prefixes, created_at)
+       values ('artifact-reclaimed', 'owner-1', '[]', '[]', '2026-07-10T00:00:00Z')`
+    );
+    const [firstClaim] = await repository.claimArtifactDeletionCleanups(
+      new Date("2026-07-11T00:00:00Z"),
+      1
+    );
+    await databasePool.query(
+      `update artifact_deletion_cleanup set lease_expires_at = now() - interval '1 second'
+       where artifact_id = 'artifact-reclaimed'`
+    );
+    const [secondClaim] = await repository.claimArtifactDeletionCleanups(
+      new Date("2026-07-11T00:00:00Z"),
+      1
+    );
+
+    expect(secondClaim!.leaseToken).not.toBe(firstClaim!.leaseToken);
+    await repository.completeArtifactDeletionCleanup("artifact-reclaimed", firstClaim!.leaseToken);
+    await repository.failArtifactDeletionCleanup(
+      "artifact-reclaimed",
+      firstClaim!.leaseToken,
+      new Date("2026-07-14T00:00:00Z"),
+      "stale_failure"
+    );
+
+    const result = await databasePool.query(
+      `select lease_owner, attempt_count, last_error_code
+       from artifact_deletion_cleanup where artifact_id = 'artifact-reclaimed'`
+    );
+    expect(result.rows).toEqual([
+      {
+        lease_owner: secondClaim!.leaseToken,
+        attempt_count: 2,
+        last_error_code: null
+      }
+    ]);
   });
 });

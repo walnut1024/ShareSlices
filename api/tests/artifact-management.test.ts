@@ -23,6 +23,7 @@ function harness(options: {
   const repositories = {
     artifacts: {
       listOwned: vi.fn().mockResolvedValue([artifact]),
+      listOwnedPage: vi.fn().mockResolvedValue([artifact]),
       findOwned: vi.fn().mockResolvedValue(artifact),
       updateName: vi.fn(async (ownerId: string, artifactId: string, name: string) =>
         ownerId === "owner-1" && artifactId === "artifact-1" ? { ...artifact, name } : null
@@ -47,6 +48,14 @@ function harness(options: {
         expiresAt: options.shareExpiresAt ?? null
       }),
       findBySlug: vi.fn(),
+      findActiveByArtifacts: vi.fn().mockResolvedValue([{
+        id: "link-1",
+        artifactId: "artifact-1",
+        slug: "share-slug-0000000001",
+        status: options.shareStatus ?? "active",
+        retiredAt: null,
+        expiresAt: options.shareExpiresAt ?? null
+      }]),
       updateExpirationOwned: vi.fn().mockResolvedValue({
         id: "link-1",
         artifactId: "artifact-1",
@@ -69,7 +78,19 @@ function harness(options: {
         failureSummary: options.state === "failed" ? options.failureSummary ?? "Processing dependency failed." : null,
         validationReport: options.validationReport ?? null,
         supersededAt: null
-      })
+      }),
+      findCurrentByArtifacts: vi.fn().mockResolvedValue([{
+        id: "upload-1",
+        artifactId: "artifact-1",
+        state: options.state ?? "processing",
+        retryable: options.retryable ?? false,
+        rawObjectKey: "raw/artifact-1/upload-1.zip",
+        rawSha256: "a".repeat(64),
+        failureReasonCode: options.state === "failed" ? options.failureReasonCode ?? "object_store_timeout" : null,
+        failureSummary: options.state === "failed" ? options.failureSummary ?? "Processing dependency failed." : null,
+        validationReport: options.validationReport ?? null,
+        supersededAt: null
+      }])
     },
     versions: {
       findReadyOwned: vi.fn(),
@@ -86,6 +107,11 @@ function harness(options: {
               state: "ready"
             }
           : null
+      ),
+      findReadyByArtifacts: vi.fn().mockResolvedValue(
+        options.ready
+          ? [{ id: "version-1", artifactId: "artifact-1", uploadSessionId: "upload-1", versionNumber: 1, state: "ready" }]
+          : []
       )
     },
     publications: {
@@ -100,6 +126,18 @@ function harness(options: {
               endedAt: null
             }
           : null
+      ),
+      findCurrentByArtifacts: vi.fn().mockResolvedValue(
+        options.published
+          ? [{
+              id: "publication-1",
+              artifactId: "artifact-1",
+              versionId: "version-1",
+              publishedByUserId: "owner-1",
+              createdAt: new Date("2026-07-10T01:00:00Z"),
+              endedAt: null
+            }]
+          : []
       )
     }
   } as unknown as Pick<
@@ -128,9 +166,9 @@ describe("ArtifactManagementService", () => {
   it("returns bounded pages with opaque tokens and rejects malformed tokens", async () => {
     const { service, repositories } = harness({ ready: true });
     const first = await repositories.artifacts.findOwned("owner-1", "artifact-1");
-    vi.mocked(repositories.artifacts.listOwned).mockResolvedValue([
+    vi.mocked(repositories.artifacts.listOwnedPage).mockResolvedValue([
       first!,
-      { ...first!, id: "artifact-2", name: "Second" }
+      { ...first!, id: "artifact-2", name: "Second", updatedAt: new Date("2026-07-09T00:00:00Z") }
     ]);
 
     const page = await service.list("owner-1", { processing: "ready", pageSize: 1 });
@@ -138,6 +176,11 @@ describe("ArtifactManagementService", () => {
     expect(page).not.toBeInstanceOf(Array);
     const token = "nextPageToken" in page ? page.nextPageToken : null;
     expect(token).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(repositories.artifacts.listOwnedPage).toHaveBeenCalledWith({
+      ownerUserId: "owner-1",
+      processing: "ready",
+      limit: 2
+    });
     await expect(service.list("owner-1", { pageSize: 1, pageToken: "not-a-token" }))
       .rejects.toEqual(new ArtifactManagementError("invalid_page_token"));
   });
