@@ -43,7 +43,9 @@ describe("Artifact management", () => {
     expect(document.querySelector('[data-slot="avatar"]')).toBeInTheDocument();
     expect(document.querySelector('[data-slot="toggle-group"]')).toBeInTheDocument();
     expect(artifactCard).toHaveClass("shadow-[0_1px_2px_rgba(9,9,11,0.05)]");
-    expect(artifactCard?.querySelector('[data-slot="aspect-ratio"]')).toHaveStyle({ "--ratio": "1.6" });
+    expect(artifactCard).toHaveClass("h-full");
+    expect(artifactCard?.parentElement).toHaveAttribute("data-slot", "aspect-ratio");
+    expect(artifactCard?.parentElement).toHaveStyle({ "--ratio": "1.6" });
     expect(screen.getByText("Accepted").closest(".group\\/badge")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "More actions for Report" })).toHaveClass("group/button");
   });
@@ -998,6 +1000,8 @@ describe("Artifact management", () => {
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "Manage publication" }));
     expect(screen.getByRole("button", { name: "Copy Share link" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /^Save$/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Done$/ })).not.toBeInTheDocument();
     await interaction.click(screen.getByRole("button", { name: "Unpublish" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/artifacts/artifact-1/publications/publication-1", expect.objectContaining({ method: "DELETE" })));

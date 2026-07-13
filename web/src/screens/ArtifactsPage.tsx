@@ -256,10 +256,10 @@ function ArtifactTile({
 
   return (
     <li className="relative">
-      <Card className="relative gap-0 overflow-visible py-0 shadow-[0_1px_2px_rgba(9,9,11,0.05)] ring-border transition-[box-shadow,outline-color] hover:shadow-[0_6px_18px_-10px_rgba(9,9,11,0.22)] hover:ring-foreground/20">
-        <a aria-label={artifact.name} className="absolute inset-0 z-0 rounded-xl" href={detailUrl} />
-        <CardContent className="relative overflow-hidden rounded-t-xl p-0">
-          <AspectRatio ratio={8 / 5} className={`flex items-center justify-center ${previewClass(artifact, index)}`}>
+      <AspectRatio ratio={8 / 5}>
+        <Card className="relative h-full gap-0 overflow-visible py-0 shadow-[0_1px_2px_rgba(9,9,11,0.05)] ring-border transition-[box-shadow,outline-color] hover:shadow-[0_6px_18px_-10px_rgba(9,9,11,0.22)] hover:ring-foreground/20">
+          <a aria-label={artifact.name} className="absolute inset-0 z-0 rounded-xl" href={detailUrl} />
+          <CardContent className={`relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-t-xl p-0 ${previewClass(artifact, index)}`}>
             <FileText aria-hidden="true" className="size-9 text-muted-foreground/55" />
             {artifact.readyVersion?.thumbnailState === "ready" ? (
               <img
@@ -276,13 +276,13 @@ function ArtifactTile({
               <Tooltip><TooltipTrigger render={<Button aria-label={`${artifact.publicationStatus === "published" ? "Manage publication for" : "Publish"} ${artifact.name}`} className="bg-background/95 shadow-none" size="icon-xs" variant="outline" onClick={onPublication} />}><Rocket aria-hidden="true" /></TooltipTrigger><TooltipContent>{artifact.publicationStatus === "published" ? "Manage publication" : "Publish"}</TooltipContent></Tooltip>
             ) : null}
             </div>
-          </AspectRatio>
-        </CardContent>
-        <CardFooter className="pointer-events-none flex-col items-start gap-0 border-t border-muted px-3 pt-[11px] pb-[13px]">
-          <ArtifactCardName name={artifact.name} />
-          <span className="mt-0.5 truncate font-mono text-[10.5px] text-muted-foreground">{formatModified(artifact.updatedAt)}</span>
-        </CardFooter>
-      </Card>
+          </CardContent>
+          <CardFooter className="pointer-events-none flex-col items-start gap-0 border-t border-muted px-3 pt-[11px] pb-[13px]">
+            <ArtifactCardName name={artifact.name} />
+            <span className="mt-0.5 truncate font-mono text-[10.5px] text-muted-foreground">{formatModified(artifact.updatedAt)}</span>
+          </CardFooter>
+        </Card>
+      </AspectRatio>
       <div className="absolute top-2 right-2 z-30"><ArtifactMenu artifact={artifact} detailUrl={detailUrl} overlay onRename={onRename} onDelete={onDelete} /></div>
     </li>
   );
@@ -359,7 +359,7 @@ function EmptyState({ title, description }: { title: string; description: string
 }
 
 function ArtifactGridSkeleton() {
-  return <div aria-label="Loading artifacts" className="grid grid-cols-5 gap-3.5">{Array.from({ length: 10 }, (_, index) => <Skeleton key={index} className="h-[194px]" />)}</div>;
+  return <div aria-label="Loading artifacts" className="grid grid-cols-5 gap-3.5">{Array.from({ length: 10 }, (_, index) => <Skeleton key={index} className="aspect-[8/5]" />)}</div>;
 }
 
 function artifactFilter(artifact: Artifact): Exclude<ArtifactFilter, "all"> {

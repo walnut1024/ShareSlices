@@ -188,7 +188,7 @@ export function ArtifactShareDialog({ artifact, mode, onOpenChange, onUpdated, o
 
         <DialogFooter className="justify-between sm:justify-between">
           {managing ? <Button type="button" variant="destructive" disabled={pending} onClick={() => void unpublish()}>Unpublish</Button> : <span />}
-          <div className="flex gap-2"><DialogClose render={<Button type="button" variant="secondary" disabled={pending} />}>{managing ? "Done" : "Cancel"}</DialogClose><Button type="button" disabled={pending} onClick={() => void submit()}>{pending ? <Spinner data-icon="inline-start" /> : null}{managing ? "Save changes" : "Publish"}</Button></div>
+          <div className="flex gap-2">{!managing ? <DialogClose render={<Button type="button" variant="secondary" disabled={pending} />}>Cancel</DialogClose> : null}<Button type="button" disabled={pending} onClick={() => void submit()}>{pending ? <Spinner data-icon="inline-start" /> : null}{managing ? "Save" : "Publish"}</Button></div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

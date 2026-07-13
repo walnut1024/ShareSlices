@@ -84,14 +84,13 @@ test("normalize a macOS named-entry ZIP, Preview, Publish, and open the stable V
 
   const shareLink = await page.getByRole("textbox", { name: "Share link" }).inputValue();
   expect(shareLink).toBeTruthy();
-  await page.getByRole("button", { name: "Done" }).click();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
   await expect(page.getByText("Published", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Manage publication" }).click();
   await expect(page.getByRole("heading", { name: "Manage publication" })).toBeVisible();
   await selectAccessPeriod(page, "7 days");
-  await page.getByRole("button", { name: "Save changes" }).click();
-  await page.getByRole("button", { name: "Done" }).click();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("Published", { exact: true })).toBeVisible();
 
   const expiration = new Date(Date.now() + 1500).toISOString();
@@ -115,7 +114,7 @@ test("normalize a macOS named-entry ZIP, Preview, Publish, and open the stable V
   await selectAccessPeriod(page, "7 days");
   await page.getByRole("button", { name: "Publish", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Artifact published" })).toBeVisible();
-  await page.getByRole("button", { name: "Done" }).click();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
   await expect(page.getByText("Published", { exact: true })).toBeVisible();
   await expect(page.locator("dt", { hasText: "Share link" }).locator("+ dd")).toHaveText(shareLink!);
 
@@ -136,7 +135,7 @@ test("normalize a macOS named-entry ZIP, Preview, Publish, and open the stable V
   await page.getByRole("button", { name: "Publish", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Artifact published" })).toBeVisible();
   const replacementLink = await page.getByRole("textbox", { name: "Share link" }).inputValue();
-  await page.getByRole("button", { name: "Done" }).click();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
   expect(replacementLink).toBeTruthy();
   expect(replacementLink).not.toBe(shareLink);
   expect((await page.request.get(shareLink!)).status()).toBe(410);

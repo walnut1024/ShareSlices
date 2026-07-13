@@ -71,7 +71,7 @@ export function ManagementShell({
           </div>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-[1180px] px-8 py-7">{children}</main>
+      <main className="mx-auto w-full max-w-[1440px] px-8 py-7">{children}</main>
       <Toaster />
     </div>
   );
