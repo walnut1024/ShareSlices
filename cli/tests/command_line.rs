@@ -1,8 +1,99 @@
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use shareslices_cli::{
     ArtifactCommand, ArtifactPublicationCommand, AuthCommand, Cli, Command, ProcessingFilter,
     PublicationFilter,
 };
+
+#[test]
+fn every_command_has_detailed_help_and_examples() {
+    let root = Cli::command();
+    let cases: &[(&[&str], &[&str])] = &[
+        (
+            &[],
+            &[
+                "Commands",
+                "SHARESLICES_PROMPT_DISABLED",
+                "EXIT CODES",
+                "EXAMPLES",
+            ],
+        ),
+        (&["publish"], &["PATHS", "--name", "--duration", "EXAMPLES"]),
+        (
+            &["auth"],
+            &["credential", "login", "status", "logout", "EXAMPLES"],
+        ),
+        (
+            &["auth", "login"],
+            &["browser", "verification", "logout first", "EXAMPLES"],
+        ),
+        (&["auth", "status"], &["credential", "EXAMPLES"]),
+        (&["auth", "logout"], &["Revoke", "EXAMPLES"]),
+        (
+            &["artifact"],
+            &["lifecycle", "upload", "publication", "export", "EXAMPLES"],
+        ),
+        (
+            &["artifact", "list"],
+            &["--publication", "--processing", "--json", "EXAMPLES"],
+        ),
+        (
+            &["artifact", "upload"],
+            &[
+                "PATHS",
+                "--artifact",
+                "--entry",
+                "symbolic links",
+                "EXAMPLES",
+            ],
+        ),
+        (
+            &["artifact", "publish"],
+            &["--replace-link", "--expires-at", "EXAMPLES"],
+        ),
+        (
+            &["artifact", "unpublish"],
+            &["external access", "publicationState", "--json", "EXAMPLES"],
+        ),
+        (
+            &["artifact", "delete"],
+            &["Permanently", "explicit ARTIFACT_ID", "--yes", "EXAMPLES"],
+        ),
+        (
+            &["artifact", "export"],
+            &["--output", "--clobber", "--json", "EXAMPLES"],
+        ),
+        (
+            &["artifact", "publication"],
+            &["metadata", "view", "edit", "EXAMPLES"],
+        ),
+        (
+            &["artifact", "publication", "view"],
+            &["Share link", "--json", "EXAMPLES"],
+        ),
+        (
+            &["artifact", "publication", "edit"],
+            &["never", "--json", "EXAMPLES"],
+        ),
+    ];
+
+    for (path, expected) in cases {
+        let mut command = root.clone();
+        for segment in *path {
+            command = command
+                .find_subcommand(segment)
+                .unwrap_or_else(|| panic!("missing help command: {}", path.join(" ")))
+                .clone();
+        }
+        let help = command.render_long_help().to_string();
+        for needle in *expected {
+            assert!(
+                help.contains(needle),
+                "help for '{}' is missing '{needle}':\n{help}",
+                path.join(" ")
+            );
+        }
+    }
+}
 
 #[test]
 fn parses_auth_commands_without_artifact_commands() {
