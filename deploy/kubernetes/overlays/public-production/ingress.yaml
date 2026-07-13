@@ -17,6 +17,13 @@ spec:
     - host: api.shareslices.example.com
       http:
         paths:
+          - path: /internal
+            pathType: Prefix
+            backend:
+              service:
+                name: shareslices-web
+                port:
+                  name: http
           - path: /
             pathType: Prefix
             backend:

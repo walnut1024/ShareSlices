@@ -35,10 +35,13 @@
     "ftyp",
     "healthcheck",
     "idempotency",
+    "imageops",
     "hcnk",
     "isinstance",
     "isready",
     "markdownlint",
+    "Lanczos",
+    "nonblocking",
     "openapi",
     "openspec",
     "opsx",
@@ -51,6 +54,7 @@
     "regnamespace",
     "readyz",
     "rsplit",
+    "seccomp",
     "Segoe",
     "shadcn",
     "smtps",
@@ -62,6 +66,7 @@
     "unionid",
     "unrequested",
     "venv",
+    "webp",
     "webbrowser"
   ]
 }

@@ -15,6 +15,15 @@ spec:
       containers:
         - name: worker
           image: ghcr.io/walnut1024/shareslices-worker:0.0.1
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 10001
+            seccompProfile:
+              type: RuntimeDefault
           envFrom:
             - configMapRef:
                 name: shareslices-config

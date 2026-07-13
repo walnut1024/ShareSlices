@@ -481,7 +481,13 @@ async fn insert_ready_version(
     .execute(&mut **transaction)
     .await?;
 
-    insert_manifest(transaction, commit).await
+    insert_manifest(transaction, commit).await?;
+    sqlx::query("insert into artifact_thumbnail_job (id, version_id) values ($1, $2)")
+        .bind(format!("thumbnail-{}", commit.version_id))
+        .bind(&commit.version_id)
+        .execute(&mut **transaction)
+        .await?;
+    Ok(())
 }
 
 async fn insert_manifest(

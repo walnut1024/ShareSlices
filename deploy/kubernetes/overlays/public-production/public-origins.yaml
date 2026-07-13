@@ -9,6 +9,10 @@ data:
   BETTER_AUTH_URL: https://api.shareslices.example.com
   Caddyfile: |
     :8080 {
+      handle /internal/* {
+        respond 404
+      }
+
       handle /api/* {
         reverse_proxy {$API_UPSTREAM}
       }

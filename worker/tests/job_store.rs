@@ -165,6 +165,13 @@ async fn ready_version_commit_is_atomic_and_concurrent_replay_is_effectively_onc
     assert_eq!(assets[1].0, "index.html");
     assert_eq!(database.job_state().await, "completed");
     assert_eq!(database.upload_state().await, "committed");
+    let thumbnail_job: (String, i32) = sqlx::query_as(
+        "select state, attempt_count from artifact_thumbnail_job where version_id = 'version-1'",
+    )
+    .fetch_one(&database.pool)
+    .await
+    .expect("thumbnail job");
+    assert_eq!(thumbnail_job, ("queued".to_owned(), 0));
     let report: serde_json::Value = sqlx::query_scalar(
         "select validation_report from artifact_upload_session where id = 'upload-1'",
     )
@@ -531,6 +538,7 @@ impl TestDatabase {
             "db/migrations/0001_account_entry.sql",
             "db/migrations/0002_artifact_foundation.sql",
             "db/migrations/0003_artifact_validation_report.sql",
+            "db/migrations/0010_artifact_thumbnail.sql",
         ] {
             let sql = fs::read_to_string(repository_root.join(migration)).expect("read migration");
             sqlx::raw_sql(&sql)

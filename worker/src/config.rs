@@ -21,6 +21,8 @@ pub struct WorkerConfig {
     pub job_max_attempts: u32,
     pub write_concurrency: usize,
     pub recovery_limit: i64,
+    pub thumbnail_internal_api_origin: String,
+    pub chromium_path: std::path::PathBuf,
     pub deployment_environment: String,
 }
 
@@ -74,6 +76,12 @@ impl WorkerConfig {
         let job_max_attempts =
             u32::try_from(parse_positive(&values, "WORKER_JOB_MAX_ATTEMPTS")?)
                 .map_err(|_| invalid("WORKER_JOB_MAX_ATTEMPTS", "must fit in 32 bits"))?;
+        let thumbnail_internal_api_origin = required(&values, "THUMBNAIL_INTERNAL_API_ORIGIN")?;
+        validate_http_url(
+            "THUMBNAIL_INTERNAL_API_ORIGIN",
+            &thumbnail_internal_api_origin,
+        )?;
+        let chromium_path = std::path::PathBuf::from(required(&values, "CHROMIUM_PATH")?);
 
         Ok(Self {
             database_url,
@@ -89,6 +97,8 @@ impl WorkerConfig {
             job_max_attempts,
             write_concurrency: DEFAULT_WRITE_CONCURRENCY,
             recovery_limit: DEFAULT_RECOVERY_LIMIT,
+            thumbnail_internal_api_origin,
+            chromium_path,
             deployment_environment: values
                 .get("NODE_ENV")
                 .cloned()
@@ -219,6 +229,8 @@ mod tests {
             ("WORKER_JOB_LEASE_SECONDS", "30"),
             ("WORKER_JOB_HEARTBEAT_SECONDS", "10"),
             ("WORKER_JOB_MAX_ATTEMPTS", "3"),
+            ("THUMBNAIL_INTERNAL_API_ORIGIN", "http://127.0.0.1:7456"),
+            ("CHROMIUM_PATH", "chromium"),
             ("NODE_ENV", "test"),
         ]
     }

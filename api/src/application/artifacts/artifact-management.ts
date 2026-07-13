@@ -27,6 +27,7 @@ export type ArtifactAction =
   | "preview"
   | "publish"
   | "unpublish"
+  | "manage_publication"
   | "copy_share_link"
   | "export"
   | "delete";
@@ -37,9 +38,19 @@ export type ArtifactManagementState = {
   updatedAt: string;
   uploadSessionId: string | null;
   processingState: "accepted" | "processing" | "ready" | "failed";
-  shareLink: { url: string; state: "active" | "expired" | "retired"; expiresAt: string | null };
-  readyVersion: { id: string; state: "ready" } | null;
-  publication: { id: string; versionId: string; publishedAt: string } | null;
+  shareLink: { url: string; state: "active" | "retired" } | null;
+  publicationStatus: "not_published" | "published" | "expired" | "unpublished";
+  readyVersion: { id: string; state: "ready"; thumbnailState: "pending" | "ready" | "failed" } | null;
+  publication: {
+    id: string;
+    versionId: string;
+    publishedAt: string;
+    expirationKind: "permanent" | "duration" | "exact";
+    durationSeconds: number | null;
+    expiresAt: string | null;
+    endedAt: string | null;
+    endReason: "unpublished" | "superseded" | null;
+  } | null;
   failure: { code: string; message: string; recoverable: boolean } | null;
   validationReport: ValidationReport | null;
   allowedActions: ArtifactAction[];
@@ -53,11 +64,10 @@ export type ArtifactListOptions = {
 };
 
 export class ArtifactManagementError extends Error {
-  constructor(readonly code: "artifact_not_found" | "invalid_artifact_name" | "invalid_expiration" | "invalid_artifact_state" | "invalid_page_token") {
+  constructor(readonly code: "artifact_not_found" | "invalid_artifact_name" | "invalid_artifact_state" | "invalid_page_token") {
     super({
       artifact_not_found: "Artifact not found.",
       invalid_artifact_name: "Artifact name must contain 1 to 120 characters.",
-      invalid_expiration: "Share link expiration must be in the future.",
       invalid_artifact_state: "Artifact cannot be deleted while processing.",
       invalid_page_token: "Artifact page token is invalid."
     }[code]);
@@ -83,15 +93,24 @@ function actions(
   session: UploadSessionRecord | null,
   publication: PublicationRecord | null
 ): ArtifactAction[] {
-  const result: ArtifactAction[] = ["rename", "copy_share_link"];
+  const result: ArtifactAction[] = ["rename"];
+  const publicationStatus = statusOf(publication);
+  if (publicationStatus === "published") result.push("manage_publication", "copy_share_link", "unpublish");
   if (state === "failed") {
     result.push(session?.retryable ? "retry" : "replace_file");
   } else if (state === "ready") {
-    result.push("preview", publication ? "unpublish" : "publish");
+    result.push("preview", "publish");
   }
   if (state === "ready") result.push("export");
   if (state === "ready" || state === "failed") result.push("delete");
   return result;
+}
+
+function statusOf(publication: PublicationRecord | null): ArtifactManagementState["publicationStatus"] {
+  if (!publication) return "not_published";
+  if (publication.endReason === "unpublished" || publication.endedAt !== null) return "unpublished";
+  if (publication.expiresAt !== null && publication.expiresAt <= new Date()) return "expired";
+  return "published";
 }
 
 function failureMessage(session: UploadSessionRecord): string | null {
@@ -128,7 +147,7 @@ export class ArtifactManagementService {
       this.#repositories.shareLinks.findActiveByArtifacts(artifactIds),
       this.#repositories.uploadSessions.findCurrentByArtifacts(artifactIds),
       this.#repositories.versions.findReadyByArtifacts(artifactIds),
-      this.#repositories.publications.findCurrentByArtifacts(artifactIds)
+      this.#repositories.publications.findLatestByArtifacts(artifactIds)
     ]);
     const shareByArtifact = new Map(shareLinks.map((value) => [value.artifactId, value]));
     const sessionByArtifact = new Map(uploadSessions.map((value) => [value.artifactId, value]));
@@ -198,17 +217,6 @@ export class ArtifactManagementService {
     return this.#state(artifact);
   }
 
-  async setShareExpiration(ownerUserId: string, artifactId: string, requestedExpiration: string | null): Promise<ArtifactManagementState> {
-    const expiresAt = requestedExpiration === null ? null : new Date(requestedExpiration);
-    if (expiresAt && (!Number.isFinite(expiresAt.getTime()) || expiresAt <= new Date())) {
-      throw new ArtifactManagementError("invalid_expiration");
-    }
-    if (!(await this.#repositories.shareLinks.updateExpirationOwned(ownerUserId, artifactId, expiresAt))) {
-      throw new ArtifactManagementError("artifact_not_found");
-    }
-    return this.get(ownerUserId, artifactId);
-  }
-
   async delete(ownerUserId: string, artifactId: string): Promise<void> {
     const result = await this.#repositories.artifacts.deleteOwned(ownerUserId, artifactId);
     if (result.kind === "not_found") throw new ArtifactManagementError("artifact_not_found");
@@ -225,7 +233,7 @@ export class ArtifactManagementService {
       this.#repositories.shareLinks.findActiveByArtifact(artifact.id),
       this.#repositories.uploadSessions.findCurrent(artifact.id),
       this.#repositories.versions.findReadyByArtifact(artifact.id),
-      this.#repositories.publications.findCurrent(artifact.id)
+      this.#repositories.publications.findLatest(artifact.id)
     ]);
     return this.#projectState(artifact, shareLink, uploadSession, version, publication);
   }
@@ -237,9 +245,6 @@ export class ArtifactManagementService {
     version: VersionRecord | null,
     publication: PublicationRecord | null
   ): ArtifactManagementState {
-    if (!shareLink) {
-      throw new Error("Artifact has no active Share link.");
-    }
     const state = processingState(uploadSession, version);
     const message = uploadSession ? failureMessage(uploadSession) : null;
     return {
@@ -248,10 +253,20 @@ export class ArtifactManagementService {
       updatedAt: artifact.updatedAt.toISOString(),
       uploadSessionId: uploadSession?.id ?? null,
       processingState: state,
-      shareLink: this.#shareLink(shareLink),
-      readyVersion: version ? { id: version.id, state: "ready" } : null,
+      shareLink: shareLink ? this.#shareLink(shareLink) : null,
+      publicationStatus: statusOf(publication),
+      readyVersion: version ? { id: version.id, state: "ready", thumbnailState: version.thumbnailState ?? "pending" } : null,
       publication: publication
-        ? { id: publication.id, versionId: publication.versionId, publishedAt: publication.createdAt.toISOString() }
+        ? {
+            id: publication.id,
+            versionId: publication.versionId,
+            publishedAt: publication.createdAt.toISOString(),
+            expirationKind: publication.expirationKind,
+            durationSeconds: publication.durationSeconds,
+            expiresAt: publication.expiresAt?.toISOString() ?? null,
+            endedAt: publication.endedAt?.toISOString() ?? null,
+            endReason: publication.endReason
+          }
         : null,
       failure:
         state === "failed" && uploadSession?.failureReasonCode && message
@@ -267,13 +282,9 @@ export class ArtifactManagementService {
   }
 
   #shareLink(link: ShareLinkRecord): ArtifactManagementState["shareLink"] {
-    const state = link.status === "active" && link.expiresAt !== null && link.expiresAt <= new Date()
-      ? "expired"
-      : link.status;
     return {
       url: new URL(`/a/${link.slug}/`, this.#viewerOrigin).toString(),
-      state: state as ArtifactManagementState["shareLink"]["state"],
-      expiresAt: link.expiresAt?.toISOString() ?? null
+      state: link.status as "active" | "retired"
     };
   }
 }

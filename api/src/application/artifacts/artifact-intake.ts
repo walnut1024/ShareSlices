@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { ArtifactRepositories, UploadPolicySnapshot } from "./repositories.js";
 import type { ObjectBody, ObjectStorage } from "../../storage/index.js";
 import {
@@ -11,10 +11,6 @@ export type ArtifactAccepted = {
   artifactId: string;
   uploadSessionId: string;
   processingState: "accepted";
-  shareLink: {
-    url: string;
-    state: "active";
-  };
 };
 
 export type CreateArtifactInput = {
@@ -99,27 +95,14 @@ function completedResponse(value: Record<string, unknown> | null): ArtifactAccep
   return value as ArtifactAccepted;
 }
 
-function shareSlugCollision(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "23505" &&
-    "constraint" in error &&
-    error.constraint === "artifact_share_link_slug_key"
-  );
-}
-
 export class ArtifactIntakeService {
   readonly #repositories: IntakeRepositories;
   readonly #storage: ObjectStorage;
-  readonly #viewerOrigin: string;
   readonly #maxProcessingAttempts: number;
 
   constructor(options: ArtifactIntakeOptions) {
     this.#repositories = options.repositories;
     this.#storage = options.storage;
-    this.#viewerOrigin = options.viewerOrigin;
     this.#maxProcessingAttempts = options.maxProcessingAttempts;
   }
 
@@ -167,7 +150,6 @@ export class ArtifactIntakeService {
     const artifactId = `artifact_${randomUUID().replaceAll("-", "")}`;
     const uploadSessionId = `upload_${randomUUID().replaceAll("-", "")}`;
     const processingJobId = `job_${randomUUID().replaceAll("-", "")}`;
-    const shareLinkId = `link_${randomUUID().replaceAll("-", "")}`;
     const rawObjectKey = `raw/${artifactId}/${uploadSessionId}.zip`;
 
     const uploadResult = this.#storage.writeRawZip({
@@ -207,49 +189,30 @@ export class ArtifactIntakeService {
     }
 
     const requestHash = ArtifactIntakeService.inputHash(name, raw.sha256, requestedEntry);
-    for (let slugAttempt = 0; slugAttempt < 3; slugAttempt += 1) {
-      const shareSlug = randomBytes(16).toString("base64url");
-      const response: ArtifactAccepted = {
+    const response: ArtifactAccepted = { artifactId, uploadSessionId, processingState: "accepted" };
+    try {
+      await this.#repositories.intake.commitAccepted({
         artifactId,
+        ownerUserId: input.ownerUserId,
+        name,
         uploadSessionId,
-        processingState: "accepted",
-        shareLink: {
-          url: new URL(`/a/${shareSlug}/`, this.#viewerOrigin).toString(),
-          state: "active"
-        }
-      };
-
-      try {
-        await this.#repositories.intake.commitAccepted({
-          artifactId,
-          ownerUserId: input.ownerUserId,
-          name,
-          shareLinkId,
-          shareSlug,
-          uploadSessionId,
-          policy,
-          rawObjectKey,
-          rawSha256: raw.sha256,
-          rawSizeBytes: raw.sizeBytes,
-          requestedEntry,
-          processingJobId,
-          maxAttempts: this.#maxProcessingAttempts,
-          idempotencyRecordId: claim.record.id,
-          requestHash,
-          responseStatus: 202,
-          responseBody: response
-        });
-        return response;
-      } catch (error) {
-        if (slugAttempt < 2 && shareSlugCollision(error)) {
-          continue;
-        }
-        await discardUncommittedRawObject(this.#storage, rawObjectKey);
-        await this.#repositories.idempotency.releasePending(claim.record.id);
-        throw error;
-      }
+        policy,
+        rawObjectKey,
+        rawSha256: raw.sha256,
+        rawSizeBytes: raw.sizeBytes,
+        requestedEntry,
+        processingJobId,
+        maxAttempts: this.#maxProcessingAttempts,
+        idempotencyRecordId: claim.record.id,
+        requestHash,
+        responseStatus: 202,
+        responseBody: response
+      });
+      return response;
+    } catch (error) {
+      await discardUncommittedRawObject(this.#storage, rawObjectKey);
+      await this.#repositories.idempotency.releasePending(claim.record.id);
+      throw error;
     }
-
-    throw new Error("Share slug retry loop ended unexpectedly.");
   }
 }

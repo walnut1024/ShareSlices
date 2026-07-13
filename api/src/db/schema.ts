@@ -286,16 +286,14 @@ export const artifactShareLink = pgTable(
     slug: text("slug").notNull().unique(),
     status: text("status").default("active").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-    retiredAt: timestamp("retired_at", { withTimezone: true }),
-    expiresAt: timestamp("expires_at", { withTimezone: true })
+    retiredAt: timestamp("retired_at", { withTimezone: true })
   },
   (table) => [
     uniqueIndex("artifact_share_link_one_active_idx")
       .on(table.artifactId)
       .where(sql`${table.status} = 'active'`),
-    check("artifact_share_link_status_check", sql`${table.status} in ('active', 'retired', 'expired')`),
-    check("artifact_share_link_retired_at_check", sql`${table.status} <> 'retired' or ${table.retiredAt} is not null`),
-    check("artifact_share_link_expires_at_check", sql`${table.status} <> 'expired' or ${table.expiresAt} is not null`)
+    check("artifact_share_link_status_check", sql`${table.status} in ('active', 'retired')`),
+    check("artifact_share_link_retired_at_check", sql`${table.status} <> 'retired' or ${table.retiredAt} is not null`)
   ]
 );
 
@@ -436,6 +434,71 @@ export const artifactVersion = pgTable(
   ]
 );
 
+export const artifactThumbnailJob = pgTable(
+  "artifact_thumbnail_job",
+  {
+    id: text("id").primaryKey(),
+    versionId: text("version_id").notNull().unique().references(() => artifactVersion.id, { onDelete: "cascade" }),
+    state: text("state").default("queued").notNull(),
+    availableAt: timestamp("available_at", { withTimezone: true }).defaultNow().notNull(),
+    leaseOwner: text("lease_owner"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
+    attemptCount: integer("attempt_count").default(0).notNull(),
+    maxAttempts: integer("max_attempts").default(3).notNull(),
+    failureReasonCode: text("failure_reason_code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    index("artifact_thumbnail_job_claim_idx").on(table.state, table.availableAt).where(sql`${table.state} = 'queued'`),
+    check("artifact_thumbnail_job_state_check", sql`${table.state} in ('queued', 'running', 'completed', 'failed')`),
+    check("artifact_thumbnail_job_attempt_count_check", sql`${table.attemptCount} >= 0`),
+    check("artifact_thumbnail_job_max_attempts_check", sql`${table.maxAttempts} = 3`),
+    check("artifact_thumbnail_job_lease_check", sql`(${table.state} = 'running') = (${table.leaseOwner} is not null and ${table.leaseExpiresAt} is not null)`)
+  ]
+);
+
+export const artifactThumbnail = pgTable(
+  "artifact_thumbnail",
+  {
+    versionId: text("version_id").primaryKey().references(() => artifactVersion.id, { onDelete: "cascade" }),
+    objectKey: text("object_key").notNull().unique(),
+    contentType: text("content_type").notNull(),
+    sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    sha256: text("sha256").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    check("artifact_thumbnail_content_type_check", sql`${table.contentType} = 'image/webp'`),
+    check("artifact_thumbnail_size_check", sql`${table.sizeBytes} > 0`),
+    check("artifact_thumbnail_dimensions_check", sql`${table.width} = 480 and ${table.height} = 300`),
+    check("artifact_thumbnail_sha256_check", sql`${table.sha256} ~ '^[0-9a-f]{64}$'`)
+  ]
+);
+
+export const artifactThumbnailCaptureGrant = pgTable(
+  "artifact_thumbnail_capture_grant",
+  {
+    tokenHash: text("token_hash").primaryKey(),
+    versionId: text("version_id").notNull().references(() => artifactVersion.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    sessionTokenHash: text("session_token_hash"),
+    sessionExpiresAt: timestamp("session_expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+  },
+  (table) => [
+    index("artifact_thumbnail_capture_grant_expiry_idx").on(table.expiresAt).where(sql`${table.consumedAt} is null`),
+    check("artifact_thumbnail_capture_grant_hash_check", sql`${table.tokenHash} ~ '^[0-9a-f]{64}$'`),
+    check("artifact_thumbnail_capture_grant_expiry_check", sql`${table.expiresAt} > ${table.createdAt}`),
+    check("artifact_thumbnail_capture_grant_session_hash_check", sql`${table.sessionTokenHash} is null or ${table.sessionTokenHash} ~ '^[0-9a-f]{64}$'`),
+    check("artifact_thumbnail_capture_grant_session_check", sql`(${table.consumedAt} is null) = (${table.sessionTokenHash} is null and ${table.sessionExpiresAt} is null)`)
+  ]
+);
+
 export const artifactAsset = pgTable(
   "artifact_asset",
   {
@@ -493,8 +556,12 @@ export const artifactPublication = pgTable(
     publishedByUserId: text("published_by_user_id")
       .notNull()
       .references(() => user.id, { onDelete: "restrict" }),
+    expirationKind: text("expiration_kind").default("permanent").notNull(),
+    durationSeconds: integer("duration_seconds"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-    endedAt: timestamp("ended_at", { withTimezone: true })
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    endReason: text("end_reason")
   },
   (table) => [
     foreignKey({
@@ -505,7 +572,20 @@ export const artifactPublication = pgTable(
     uniqueIndex("artifact_publication_one_current_idx")
       .on(table.artifactId)
       .where(sql`${table.endedAt} is null`),
-    index("artifact_publication_version_id_idx").on(table.versionId)
+    index("artifact_publication_version_id_idx").on(table.versionId),
+    index("artifact_publication_artifact_created_idx").on(table.artifactId, table.createdAt),
+    check("artifact_publication_expiration_kind_check", sql`${table.expirationKind} in ('permanent', 'duration', 'exact')`),
+    check(
+      "artifact_publication_expiration_policy_check",
+      sql`(${table.expirationKind} = 'permanent' and ${table.durationSeconds} is null and ${table.expiresAt} is null)
+        or (${table.expirationKind} = 'duration' and ${table.durationSeconds} > 0 and ${table.expiresAt} is not null)
+        or (${table.expirationKind} = 'exact' and ${table.durationSeconds} is null and ${table.expiresAt} is not null)`
+    ),
+    check(
+      "artifact_publication_end_reason_check",
+      sql`(${table.endedAt} is null and ${table.endReason} is null)
+        or (${table.endedAt} is not null and ${table.endReason} in ('unpublished', 'superseded'))`
+    )
   ]
 );
 

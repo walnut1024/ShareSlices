@@ -14,6 +14,7 @@ use shareslices_worker::{
     logging::{LogConfig, SanitizedException, Severity, WorkerEvent},
     object_storage::AwsS3ObjectStorage,
     retry_policy::RetryPolicy,
+    thumbnail::{ThumbnailConfig, run_thumbnail_loop},
 };
 use sqlx::postgres::PgPoolOptions;
 use uuid::Uuid;
@@ -76,7 +77,7 @@ async fn run(config: WorkerConfig) -> Result<(), sqlx::Error> {
     let runtime: ProductionRuntime = WorkerRuntime::new(
         store,
         PostgresInputSource::new(pool.clone()),
-        StorageAttemptProcessor::new(storage),
+        StorageAttemptProcessor::new(storage.clone()),
         RetryPolicy::new(jitter),
         RuntimeConfig {
             worker_id: format!("worker-{}", Uuid::new_v4()),
@@ -95,7 +96,26 @@ async fn run(config: WorkerConfig) -> Result<(), sqlx::Error> {
         "worker started",
     )
     .emit();
-    runtime.run_until(shutdown_signal()).await;
+    let (shutdown_sender, shutdown_receiver) = tokio::sync::watch::channel(false);
+    let thumbnail_task = tokio::spawn(run_thumbnail_loop(
+        pool.clone(),
+        storage,
+        ThumbnailConfig {
+            worker_id: format!("thumbnail-worker-{}", Uuid::new_v4()),
+            internal_api_origin: config.thumbnail_internal_api_origin,
+            chromium_path: config.chromium_path,
+            lease_duration: config.lease_duration,
+            poll_interval: config.poll_interval,
+        },
+        shutdown_receiver.clone(),
+    ));
+    runtime
+        .run_until(async move {
+            shutdown_signal().await;
+            shutdown_sender.send_replace(true);
+        })
+        .await;
+    let _ = thumbnail_task.await;
     pool.close().await;
     Ok(())
 }

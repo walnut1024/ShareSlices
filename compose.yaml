@@ -145,7 +145,13 @@ services:
       WORKER_JOB_LEASE_SECONDS: ${WORKER_JOB_LEASE_SECONDS:-30}
       WORKER_JOB_HEARTBEAT_SECONDS: ${WORKER_JOB_HEARTBEAT_SECONDS:-10}
       WORKER_JOB_MAX_ATTEMPTS: ${WORKER_JOB_MAX_ATTEMPTS:-3}
+      THUMBNAIL_INTERNAL_API_ORIGIN: http://api:7456
+      CHROMIUM_PATH: /usr/bin/chromium
       NODE_ENV: development
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       migrate:
         condition: service_completed_successfully

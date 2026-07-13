@@ -17,6 +17,8 @@ data:
   WORKER_JOB_LEASE_SECONDS: "30"
   WORKER_JOB_HEARTBEAT_SECONDS: "10"
   WORKER_JOB_MAX_ATTEMPTS: "3"
+  THUMBNAIL_INTERNAL_API_ORIGIN: http://shareslices-api:7456
+  CHROMIUM_PATH: /usr/bin/chromium
   MINIMUM_CLI_VERSION: "0.1.0"
   REQUIRE_EMAIL_VERIFICATION: "false"
   AUTH_EMAIL_FROM: ShareSlices <no-reply@shareslices.example.com>
@@ -37,6 +39,10 @@ data:
   API_UPSTREAM: 10.96.10.11:7456
   Caddyfile: |
     :8080 {
+      handle /internal/* {
+        respond 404
+      }
+
       handle /api/* {
         reverse_proxy {$API_UPSTREAM}
       }

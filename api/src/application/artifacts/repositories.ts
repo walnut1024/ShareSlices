@@ -63,7 +63,6 @@ export type ShareLinkRecord = {
   slug: string;
   status: string;
   retiredAt: Date | null;
-  expiresAt: Date | null;
 };
 
 export type ArtifactDeletionRecord = {
@@ -103,6 +102,7 @@ export type VersionRecord = {
   uploadSessionId: string;
   versionNumber: number;
   state: string;
+  thumbnailState?: "pending" | "ready" | "failed";
 };
 
 export type PublicationRecord = {
@@ -110,8 +110,12 @@ export type PublicationRecord = {
   artifactId: string;
   versionId: string;
   publishedByUserId: string;
+  expirationKind: "permanent" | "duration" | "exact";
+  durationSeconds: number | null;
+  expiresAt: Date | null;
   createdAt: Date;
   endedAt: Date | null;
+  endReason: "unpublished" | "superseded" | null;
 };
 
 export type IdempotencyRecord = {
@@ -130,8 +134,6 @@ export type CommitAcceptedArtifactInput = {
   artifactId: string;
   ownerUserId: string;
   name: string;
-  shareLinkId: string;
-  shareSlug: string;
   uploadSessionId: string;
   policy: UploadPolicySnapshot;
   rawObjectKey: string;
@@ -201,7 +203,6 @@ export interface ShareLinkRepository {
   findActiveByArtifact(artifactId: string): Promise<ShareLinkRecord | null>;
   findActiveByArtifacts(artifactIds: string[]): Promise<ShareLinkRecord[]>;
   findBySlug(slug: string): Promise<ShareLinkRecord | null>;
-  updateExpirationOwned(ownerUserId: string, artifactId: string, expiresAt: Date | null): Promise<ShareLinkRecord | null>;
 }
 
 export interface UploadSessionRepository {
@@ -222,8 +223,8 @@ export interface VersionRepository {
 }
 
 export interface PublicationRepository {
-  findCurrent(artifactId: string): Promise<PublicationRecord | null>;
-  findCurrentByArtifacts(artifactIds: string[]): Promise<PublicationRecord[]>;
+  findLatest(artifactId: string): Promise<PublicationRecord | null>;
+  findLatestByArtifacts(artifactIds: string[]): Promise<PublicationRecord[]>;
 }
 
 export interface IdempotencyRepository {

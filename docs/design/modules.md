@@ -9,7 +9,7 @@ Engineering rules that constrain all designs live in `AGENTS.md`. Product behavi
 
 ## Top-level seams
 
-Status: current for the 0.0.1 runtime seams, CLI authentication, Artifact listing, Upload, Publish, Unpublish, Share-link management, and Delete; Skill entry remains target.
+Status: current for the 0.0.1 runtime seams, CLI authentication, Artifact listing, Upload, thumbnail generation and reads, Publish, Unpublish, Share-link management, and Delete; Skill entry remains target.
 
 | Seam | Status | Interface owner | Production Adapter | Test Adapter |
 | --- | --- | --- | --- | --- |
@@ -20,6 +20,7 @@ Status: current for the 0.0.1 runtime seams, CLI authentication, Artifact listin
 | Application data persistence | current | `api/src/application/*` | Drizzle Adapter | Local PostgreSQL or in-memory Adapter |
 | Raw and processed object access | current | Application and worker Modules | S3-compatible Adapter | In-memory object Adapter |
 | Processing job handoff | current | `db/migrations/` schema plus job Interfaces | Drizzle enqueue Adapter and SQLx claim Adapter | Local PostgreSQL and fake Adapters |
+| Thumbnail job handoff | current | `db/migrations/` schema plus thumbnail job Interfaces | ready-Version enqueue and SQLx claim Adapter | Local PostgreSQL and fake Adapters |
 | Agent entry | current for authentication, Artifact listing, Upload, Publish, Unpublish, Share-link management, and Delete | `cli/` command Interface | Rust CLI with operating-system credential store | In-memory credential and fake HTTP Adapters |
 
 ## CLI authentication Modules
@@ -45,6 +46,7 @@ Status: mixed. Account entry remains a thin current HTTP/Auth/DB path. Artifact,
 - `ArtifactIntakeService`, `ArtifactManagementService`, and `ArtifactRecoveryService` are the current Artifact application modules. Together they own raw upload acceptance, Artifact state projection, name changes, permanent deletion, Share-link expiration, Retry, Replace file, idempotency, and ready-Version gates.
 - `PublicationViewerService` is the current Publication and Viewer application module. It owns owner Preview and Version export checks, atomic Publish and Unpublish behavior, Share-slug lifecycle resolution, normalized manifest lookup, and immutable Version selection for each request.
 - `ReconciliationModule` is current. It owns bounded expired-lease recovery, raw/staging object cleanup while preserving the current retryable input, and completion of durable Artifact-deletion cleanup intents after interrupted requests.
+- Version thumbnail reads and internal capture routing are current thin HTTP paths over `ArtifactThumbnailRepository`. The repository owns Owner-scoped immutable thumbnail lookup, one-time capture-grant consumption, capture-session validation, and manifest asset lookup; a separate application Module is deferred until a second caller or Adapter appears.
 - `UserModule` remains target. Current account entry intentionally stays in `api/src/http/account-routes.ts`, Better Auth, and focused account queries until another caller or implementation requires extraction.
 - `AdministrationModule` is a roadmap Module for user search, deactivation, reactivation, soft deletion, forced sign out, session revocation, email verification policy, and administrative audit. It stays separate because the actor and permissions differ from user-managed flows.
 - `AuthenticationEmailDelivery` is current. Account routes persist encrypted delivery payloads and return without contacting SMTP; the API-runtime dispatcher leases pending rows, renders fixed authentication templates, sends through `api/src/email/`, records bounded retry outcomes, and removes terminal payloads. SMTP outages do not affect API readiness.
@@ -57,13 +59,16 @@ Status: current
 - `ArchiveModule` is an internal Module for safe archive traversal and normalization. It validates raw paths before filtering supported system metadata, removes at most one common wrapper directory, resolves a dynamic root HTML entry, and retains each immutable `sourcePath` beside its normalized `effectivePath`.
 - `ManifestModule` is an internal Module for manifest creation. It records the resolved dynamic entry file and path-sorted assets with their effective paths, object keys, sizes, content types, and hashes.
 - `ProcessingJobModule` owns claim, heartbeat, retry, completion, and failure transitions for processing jobs. Its external Interface is the durable job state shared with the Hono runtime.
+- `ThumbnailRenderingModule` is current in `worker/src/thumbnail.rs`. It owns the non-blocking thumbnail attempt after Version commit, including the bounded Chromium child process, fixed `1440x900` capture, animation suppression, render timeout, WebP encoding, and private object writes. It never changes Version readiness or Publication state.
+- `ThumbnailJobModule` is current in the same focused Worker module. It owns independent claim, lease, heartbeat, bounded retry, completion, and terminal failure transitions for thumbnail jobs; thumbnail work does not extend or reopen a processing job.
 
 ## Cross-runtime Interfaces
 
 Status: current
 
 - The Hono runtime and Rust worker do not import each other.
-- They coordinate through PostgreSQL migration files, processing job states, upload session states including the structured validation report, object key layout, dynamic manifest entry paths, manifest JSON shape, and version commit fields.
+- They coordinate through PostgreSQL migration files, processing and thumbnail job states, upload session states including the structured validation report, object key layout, dynamic manifest entry paths, manifest JSON shape, version commit fields, and Version thumbnail metadata.
+- Thumbnail rendering uses a non-public internal content route authorized by a short-lived, single-use grant scoped to one Version. The route serves only manifest-listed objects, and the Chromium process blocks every external network request.
 - Changing any cross-runtime Interface requires tests that exercise both Adapters.
 
 ## Core Module Interfaces
@@ -117,6 +122,8 @@ Interface rules:
 - Publish updates the current Publication only for a ready Version owned by the target Artifact.
 - Delete locks the owned Artifact and active Upload rows while it checks state, persists object cleanup targets, and removes the database graph in one transaction. The application layer then removes recorded objects and clears the durable cleanup intent; an interrupted or failed cleanup remains safe to continue through the same explicit Delete request.
 - Preview and Viewer serve only committed Version objects referenced by a manifest.
+- Thumbnail reads require Artifact ownership and stream private immutable Version objects. Successful responses may use private immutable caching because a new Version receives a new URL.
+- Capture grants are service credentials, not Preview Sessions. Each grant is short-lived, single-use, scoped to one Version, unavailable through public ingress, and unable to call management APIs.
 - `ReconciliationModule.run` is bounded by work type, time window, and row limit.
 
 ## Rust worker Interfaces
@@ -147,6 +154,13 @@ pub trait ObjectStorage {
     async fn promote_staging_object(&self, input: Promotion) -> Result<(), ObjectStorageError>;
     async fn remove_staging_prefix(&self, prefix: &str) -> Result<u64, ObjectStorageError>;
 }
+
+pub trait ThumbnailJobStore {
+    async fn claim_next(&self, worker_id: &str, lease: Duration) -> Result<Option<ClaimedThumbnailJob>, JobStoreError>;
+    async fn heartbeat(&self, job_id: &str, worker_id: &str, lease: Duration) -> Result<bool, JobStoreError>;
+    async fn complete(&self, job_id: &str, worker_id: &str, thumbnail: &ThumbnailObject) -> Result<bool, JobStoreError>;
+    async fn fail(&self, job_id: &str, worker_id: &str, failure: &ThumbnailFailure) -> Result<bool, JobStoreError>;
+}
 ```
 
 Interface rules:
@@ -157,6 +171,8 @@ Interface rules:
 - Deterministic validation failures persist a bounded structured report; scalar failure fields remain for state transitions, operational search, and legacy or infrastructure failures.
 - Archive extraction reads immutable `sourcePath` values, while staging, manifests, validation details, Preview, and Viewer routing use normalized `effectivePath` values.
 - Crash recovery is handled by lease expiry and a later retry.
+- A ready-Version commit enqueues one thumbnail job without delaying the ready transition. Thumbnail attempts allow at most three retries for classified transient failures; deterministic render failures become terminal.
+- Chromium loads the internal entry route with a `1440x900` viewport, reduced motion, disabled animation and transition, and no external network. Capture waits for `load`, `document.fonts.ready`, and two animation frames within one 10-second deadline, then writes an approximately `480x300` WebP.
 
 ## Adapter test surfaces
 
