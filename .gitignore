@@ -15,4 +15,7 @@ output/playwright/
 playwright-report/
 test-results/
 .codex/
+.agents/
+.claude/skills/
+skills-lock.json
 .worktrees/
