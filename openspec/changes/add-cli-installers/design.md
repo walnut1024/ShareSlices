@@ -23,7 +23,7 @@ GitHub Releases are the canonical source for ShareSlices CLI binaries. Installat
 
 - **One Release source.** Shell, PowerShell, and Homebrew download immutable archives from the matching GitHub Release. Each installer also downloads `SHA256SUMS` and refuses an archive with a different SHA-256 digest; the Formula records the corresponding immutable SHA-256 value.
 - **Stable installer asset names.** `install.sh` and `install.ps1` are attached to every CLI Release. GitHub's `releases/latest/download` path makes the default installation command select the newest release; installer options select an explicit version.
-- **Supported target mapping.** Shell and Homebrew support macOS Apple Silicon, macOS Intel, and Linux x86-64. PowerShell supports Windows x86-64.
+- **Supported target mapping.** Shell and Homebrew support macOS Apple Silicon and Linux x86-64. PowerShell supports Windows x86-64.
 - **User-local installations.** Shell defaults to `~/.local/bin` and does not rewrite shell startup files. PowerShell defaults to `%LOCALAPPDATA%\\ShareSlices\\bin` and adds that directory to the user PATH when absent.
 - **Formula synchronization.** The `walnut1024/homebrew-tap` Formula is updated manually for the first release. Future synchronization is a post-Release job gated by `HOMEBREW_TAP_SYNC_ENABLED=true` and a cross-repository GitHub token.
 

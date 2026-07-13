@@ -19,7 +19,6 @@ Each Release contains these archives and a `SHA256SUMS` file:
 
 | Target | Archive |
 | --- | --- |
-| macOS Intel | `shareslices-x86_64-apple-darwin.tar.gz` |
 | macOS Apple Silicon | `shareslices-aarch64-apple-darwin.tar.gz` |
 | Linux x86-64 | `shareslices-x86_64-unknown-linux-gnu.tar.gz` |
 | Windows x86-64 | `shareslices-x86_64-pc-windows-msvc.zip` |
@@ -36,7 +35,7 @@ Every supported installation method downloads and verifies the matching GitHub R
 curl -fsSL https://github.com/walnut1024/ShareSlices/releases/latest/download/install.sh | sh
 ```
 
-The installer supports macOS Apple Silicon, macOS Intel, and Linux x86-64. It installs to `~/.local/bin` by default; set `SHARESLICES_INSTALL_DIR` or pass `--install-dir` to select another directory. Re-run the same command to update. Install an exact version with `--version`, for example:
+The installer supports macOS Apple Silicon and Linux x86-64. It installs to `~/.local/bin` by default; set `SHARESLICES_INSTALL_DIR` or pass `--install-dir` to select another directory. Re-run the same command to update. Install an exact version with `--version`, for example:
 
 ```sh
 curl -fsSL https://github.com/walnut1024/ShareSlices/releases/latest/download/install.sh | sh -s -- --version <version>
@@ -56,7 +55,7 @@ The installer supports Windows x86-64, installs under `%LOCALAPPDATA%\\ShareSlic
 brew install walnut1024/tap/shareslices
 ```
 
-The Formula downloads the same checksum-verified GitHub Release archive as the official installers. It supports macOS Apple Silicon, macOS Intel, and Linux x86-64.
+The Formula downloads the same checksum-verified GitHub Release archive as the official installers. It supports macOS Apple Silicon and Linux x86-64.
 
 ## Design rules
 

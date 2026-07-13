@@ -4,7 +4,7 @@
 
 ### Requirement: Install the CLI through official platform installers
 
-Each CLI GitHub Release SHALL include `install.sh` and `install.ps1`. The Shell installer SHALL support macOS Apple Silicon, macOS Intel, and Linux x86-64; the PowerShell installer SHALL support Windows x86-64. Each installer SHALL download the matching Release archive, verify it against the Release `SHA256SUMS` asset, and fail without installing on a checksum mismatch.
+Each CLI GitHub Release SHALL include `install.sh` and `install.ps1`. The Shell installer SHALL support macOS Apple Silicon and Linux x86-64; the PowerShell installer SHALL support Windows x86-64. Each installer SHALL download the matching Release archive, verify it against the Release `SHA256SUMS` asset, and fail without installing on a checksum mismatch.
 
 #### Scenario: Shell installation selects the current macOS binary
 

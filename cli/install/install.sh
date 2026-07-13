@@ -44,7 +44,6 @@ case "$(uname -s)" in
   Darwin)
     case "$(uname -m)" in
       arm64) target="aarch64-apple-darwin" ;;
-      x86_64) target="x86_64-apple-darwin" ;;
       *) printf 'Unsupported macOS architecture: %s\n' "$(uname -m)" >&2; exit 1 ;;
     esac
     ;;
