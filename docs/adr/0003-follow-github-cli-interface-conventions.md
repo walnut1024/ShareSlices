@@ -1,0 +1,3 @@
+# Follow GitHub CLI interface conventions
+
+The ShareSlices CLI follows GitHub CLI conventions for resource-oriented command groups, optional interactive selection, explicit non-interactive flags, `--json <fields>` with `--jq` and `--template`, list limits, destructive `--yes` confirmation, progress on stderr, and exit codes. Upload remains one user-facing operation: the CLI uploads an existing ZIP directly or deterministically packages selected non-ZIP inputs first, while `--name` and `--artifact` distinguish a new Artifact from a new Version. Separate create, package, and Version-upload commands were rejected because they expose Server and local-preparation mechanics instead of the user's Upload intent.

@@ -2,6 +2,20 @@
 
 Project-level engineering guidance for agents working on ShareSlices.
 
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs live as local Markdown files under `.scratch/`; pull requests are not a triage surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Uses the canonical `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix` statuses. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout: root `CONTEXT.md` and `docs/adr/`. See `docs/agents/domain.md`.
+
 ## Documentation scope
 
 - The documentation map, ownership rules, and conflict precedence live in `docs/README.md`. Read it before editing any durable document.
