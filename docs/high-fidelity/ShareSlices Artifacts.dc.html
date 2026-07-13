@@ -85,7 +85,7 @@
                   <span style="width:34px;height:34px;flex:none;border-radius:50%;background:#09090b;color:#fff;display:flex;align-items:center;justify-content:center;font:600 12.5px Geist">W4</span>
                   <div style="min-width:0">
                     <div style="font:600 13px Geist;color:#18181b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">walnut 4096</div>
-                    <div style="font:400 11.5px Geist;color:#a1a1aa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="96e1f7faf8e3e2d6e5fef7e4f3e5fafff5f3e5b8fff9">[email&#160;protected]</a></div>
+                    <div style="font:400 11.5px Geist;color:#a1a1aa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">walnut@shareslices.io</div>
                   </div>
                 </div>
                 <div style="height:1px;background:#f0f0f1;margin:2px 4px 5px"></div>
@@ -396,7 +396,7 @@
 
 </div>
 </x-dc>
-<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script type="text/x-dc" data-dc-script>
+<script type="text/x-dc" data-dc-script>
 class Component extends DCLogic {
   state = { openMenu: null, avatarOpen: false, shareIdx: null, expiry: 'permanent', copied: false, revokeConfirm: false, revoked: {} };
 
@@ -452,7 +452,7 @@ class Component extends DCLogic {
       menuOpen: this.state.openMenu === i,
       onToggle: (e) => { e.stopPropagation(); this.setState(s => ({ openMenu: s.openMenu === i ? null : i, avatarOpen: false })); },
       onClose: (e) => { e.stopPropagation(); this.setState({ openMenu: null }); },
-      onPresent: (e) => { e.stopPropagation(); },
+      onPresent: (e) => { e.stopPropagation(); window.location.href = './ShareSlices Presentation Mode.dc.html'; },
       onShare: (e) => {
         e.stopPropagation();
         const isShared = !!r.shared && !revoked[i];

@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  html,body{margin:0}
+  body{background:#f4f4f5;font-family:Geist,system-ui,sans-serif;color:#09090b;-webkit-font-smoothing:antialiased}
+  input::placeholder{color:#a1a1aa}
+  a{color:#18181b;text-decoration:none}
+  a:hover{color:#000}
+  *{box-sizing:border-box}
+  ::selection{background:#e4e4e7}
+  @keyframes sl-pop{from{opacity:0;transform:translateY(6px) scale(.985)}to{opacity:1;transform:none}}
+  @keyframes sl-fade{from{opacity:0}to{opacity:1}}
+</style>
+</helmet>
+
+<template id="__bundler_thumbnail" data-bg-color="#f4f4f5">
+  <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <rect width="1200" height="800" fill="#f4f4f5"></rect>
+    <g transform="translate(360,330)">
+      <rect x="0" y="0" width="480" height="20" rx="4" fill="#e4e4e7"></rect>
+      <rect x="0" y="40" width="480" height="20" rx="4" fill="#ececed"></rect>
+      <rect x="0" y="80" width="480" height="20" rx="4" fill="#e4e4e7"></rect>
+    </g>
+    <text x="600" y="480" font-family="Geist, system-ui, sans-serif" font-size="34" font-weight="600" fill="#09090b" text-anchor="middle">ShareSlices Admin</text>
+  </svg>
+</template>
+
+<div style="min-height:100vh;padding:52px 56px 64px;display:flex;flex-direction:column;gap:16px">
+
+  <div style="display:flex;align-items:baseline;gap:12px">
+    <span style="font:600 15px Geist;color:#18181b">Admin · Accounts (2a)</span>
+    <span style="font:400 12px Geist;color:#a1a1aa">Enterprise data grid · saved views · composable filters · sort · scale pagination · batch-create · 1360×860</span>
+  </div>
+
+  <div data-screen-label="Admin — Accounts" style="width:1360px;height:860px;border-radius:14px;overflow:hidden;border:1px solid #e4e4e7;box-shadow:0 24px 60px -32px rgba(9,9,11,.28);background:#fff;display:flex;position:relative">
+
+    <!-- ===================== SIDEBAR ===================== -->
+    <aside style="width:212px;flex:none;border-right:1px solid #f0f0f1;background:#fafafa;display:flex;flex-direction:column;padding:16px 12px">
+      <div style="display:flex;align-items:center;gap:9px;padding:4px 8px 16px">
+        <div style="width:28px;height:28px;flex:none;border-radius:7px;background:#09090b;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2.5px">
+          <div style="width:13px;height:2.5px;border-radius:1px;background:#fff"></div>
+          <div style="width:13px;height:2.5px;border-radius:1px;background:#fff;opacity:.55"></div>
+          <div style="width:13px;height:2.5px;border-radius:1px;background:#fff;opacity:.28"></div>
+        </div>
+        <div style="min-width:0">
+          <div style="font:600 13.5px Geist;letter-spacing:-.01em;line-height:1.1">ShareSlices</div>
+          <div style="font:500 10px Geist Mono,monospace;color:#a1a1aa;letter-spacing:.06em;text-transform:uppercase">Admin console</div>
+        </div>
+      </div>
+
+      <nav style="display:flex;flex-direction:column;gap:2px">
+        <div style="height:33px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:8px;font:400 13px Geist;color:#52525b;cursor:pointer" style-hover="background:#f0f0f1;color:#18181b"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"></rect><rect width="7" height="5" x="14" y="3" rx="1"></rect><rect width="7" height="9" x="14" y="12" rx="1"></rect><rect width="7" height="5" x="3" y="16" rx="1"></rect></svg>Overview</div>
+        <div style="height:33px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:8px;background:#f0f0f1;font:500 13px Geist;color:#09090b;cursor:pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>Accounts</div>
+        <div style="height:33px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:8px;font:400 13px Geist;color:#52525b;cursor:pointer" style-hover="background:#f0f0f1;color:#18181b"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"></path><path d="M14 2v5h5"></path></svg>Artifacts</div>
+        <div style="height:33px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:8px;font:400 13px Geist;color:#52525b;cursor:pointer" style-hover="background:#f0f0f1;color:#18181b"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"></path><path d="m19 9-5 5-4-4-3 3"></path></svg>Activity</div>
+        <div style="height:33px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:8px;font:400 13px Geist;color:#52525b;cursor:pointer" style-hover="background:#f0f0f1;color:#18181b"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"></path><circle cx="12" cy="12" r="3"></circle></svg>Settings</div>
+      </nav>
+
+      <div style="margin:18px 8px 8px;font:500 10px Geist Mono,monospace;color:#a1a1aa;letter-spacing:.08em;text-transform:uppercase">Saved views</div>
+      <nav style="display:flex;flex-direction:column;gap:1px">
+        <sc-for list="{{ views }}" as="v" hint-placeholder-count="5">
+          <div onClick="{{ v.onSelect }}" style="height:31px;display:flex;align-items:center;gap:9px;padding:0 10px;border-radius:7px;background:{{ v.bg }};font:{{ v.font }};color:{{ v.color }};cursor:pointer" style-hover="background:#f0f0f1">
+            <span style="width:6px;height:6px;flex:none;border-radius:50%;background:{{ v.dot }}"></span>
+            <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ v.label }}</span>
+            <span style="font:500 11px Geist Mono,monospace;color:#a1a1aa">{{ v.count }}</span>
+          </div>
+        </sc-for>
+      </nav>
+    </aside>
+
+    <!-- ===================== MAIN ===================== -->
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+
+      <!-- page header -->
+      <div style="padding:22px 26px 0;display:flex;align-items:center;gap:14px">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:10px">
+            <h1 style="margin:0;font:600 21px Geist;letter-spacing:-.02em;color:#09090b">Accounts</h1>
+            <span style="display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:6px;background:#f4f4f5;font:500 11.5px Geist Mono,monospace;color:#52525b">{{ totalLabel }} total</span>
+          </div>
+        </div>
+        <button style="height:36px;display:flex;align-items:center;gap:7px;padding:0 13px;border:1px solid #e4e4e7;border-radius:8px;background:#fff;font:500 12.5px Geist;color:#3f3f46;cursor:pointer" style-hover="background:#fafafa"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" x2="12" y1="15" y2="3"></line></svg>Export</button>
+        <button onClick="{{ openCreate }}" style="height:36px;display:flex;align-items:center;gap:7px;padding:0 14px;border:none;border-radius:8px;background:#18181b;font:500 12.5px Geist;color:#fff;cursor:pointer" style-hover="background:#000"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>Create accounts</button>
+      </div>
+
+      <!-- toolbar -->
+      <div style="padding:16px 26px 0;display:flex;align-items:center;gap:10px">
+        <label style="flex:1;max-width:420px;height:36px;display:flex;align-items:center;gap:9px;padding:0 11px;border:1px solid #e4e4e7;border-radius:8px;background:#fff">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+          <input value="{{ query }}" onInput="{{ onSearch }}" placeholder="Search name, email or domain…" style="flex:1;min-width:0;border:none;outline:none;background:none;font:400 13px Geist;color:#18181b">
+          <span style="flex:none;font:500 11px Geist Mono,monospace;color:#a1a1aa;border:1px solid #e4e4e7;border-radius:4px;padding:1px 5px">/</span>
+        </label>
+
+        <!-- add filter -->
+        <div style="position:relative">
+          <button onClick="{{ toggleAddFilter }}" style="height:36px;display:flex;align-items:center;gap:7px;padding:0 12px;border:1px solid {{ addFilterBorder }};border-radius:8px;background:{{ addFilterBg }};font:500 12.5px Geist;color:#3f3f46;cursor:pointer" style-hover="background:#fafafa"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#71717a" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"></path></svg>Add filter</button>
+          <sc-if value="{{ addFilterOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;top:42px;left:0;width:210px;background:#fff;border:1px solid #e4e4e7;border-radius:11px;box-shadow:0 14px 36px -8px rgba(9,9,11,.3);padding:6px;z-index:35;animation:sl-pop .14s ease-out;max-height:340px;overflow:auto">
+              <sc-for list="{{ filterGroups }}" as="g" hint-placeholder-count="3">
+                <div style="padding:7px 8px 4px;font:500 10px Geist Mono,monospace;color:#a1a1aa;letter-spacing:.07em;text-transform:uppercase">{{ g.label }}</div>
+                <sc-for list="{{ g.options }}" as="o" hint-placeholder-count="3">
+                  <div onClick="{{ o.onToggle }}" style="height:31px;display:flex;align-items:center;justify-content:space-between;padding:0 9px;border-radius:7px;font:400 12.5px Geist;color:#3f3f46;cursor:pointer" style-hover="background:#f4f4f5">
+                    {{ o.label }}
+                    <sc-if value="{{ o.active }}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#18181b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg></sc-if>
+                  </div>
+                </sc-for>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+
+        <div style="flex:1"></div>
+
+        <span style="font:400 12px Geist;color:#a1a1aa">Sorted by <span style="color:#52525b;font-weight:500">{{ sortLabel }}</span></span>
+      </div>
+
+      <!-- active filter tokens -->
+      <sc-if value="{{ hasFilters }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:12px 26px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <sc-for list="{{ tokens }}" as="t" hint-placeholder-count="2">
+            <span style="display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 6px 0 10px;border-radius:7px;background:#f4f4f5;border:1px solid #ececee;font:500 12px Geist;color:#3f3f46">
+              <span style="color:#a1a1aa;font-weight:400">{{ t.field }}</span>{{ t.value }}
+              <span onClick="{{ t.onRemove }}" style="width:17px;height:17px;display:flex;align-items:center;justify-content:center;border-radius:5px;cursor:pointer;color:#a1a1aa" style-hover="background:rgba(9,9,11,.08);color:#3f3f46"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></span>
+            </span>
+          </sc-for>
+          <span onClick="{{ clearFilters }}" style="font:500 12px Geist;color:#71717a;cursor:pointer;padding:0 6px" style-hover="color:#18181b">Clear all</span>
+        </div>
+      </sc-if>
+
+      <!-- table -->
+      <div style="flex:1;min-height:0;padding:14px 26px 20px;display:flex;flex-direction:column">
+        <div style="flex:1;min-height:0;border:1px solid #e4e4e7;border-radius:12px;overflow:hidden;display:flex;flex-direction:column;background:#fff">
+
+          <!-- head -->
+          <div style="flex:none;display:grid;grid-template-columns:40px minmax(230px,1.4fr) 112px 118px 138px 88px 112px 124px 40px;align-items:center;height:38px;padding:0 8px 0 14px;border-bottom:1px solid #f0f0f1;background:#fafafa">
+            <span onClick="{{ toggleAll }}" style="display:flex;align-items:center;cursor:pointer">{{ headCheckbox }}</span>
+            <span onClick="{{ onSortName }}" style="display:flex;align-items:center;gap:5px;font:500 11px Geist Mono,monospace;color:#71717a;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;user-select:none">Account{{ arrowName }}</span>
+            <span style="font:500 11px Geist Mono,monospace;color:#a1a1aa;letter-spacing:.06em;text-transform:uppercase">Role</span>
+            <span style="font:500 11px Geist Mono,monospace;color:#a1a1aa;letter-spacing:.06em;text-transform:uppercase">Status</span>
+            <span style="font:500 11px Geist Mono,monospace;color:#a1a1aa;letter-spacing:.06em;text-transform:uppercase">Team</span>
+            <span onClick="{{ onSortArtifacts }}" style="display:flex;align-items:center;gap:5px;font:500 11px Geist Mono,monospace;color:#71717a;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;user-select:none">Artifacts{{ arrowArtifacts }}</span>
+            <span onClick="{{ onSortCreated }}" style="display:flex;align-items:center;gap:5px;font:500 11px Geist Mono,monospace;color:#71717a;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;user-select:none">Created{{ arrowCreated }}</span>
+            <span onClick="{{ onSortLast }}" style="display:flex;align-items:center;gap:5px;font:500 11px Geist Mono,monospace;color:#71717a;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;user-select:none">Last active{{ arrowLast }}</span>
+            <span></span>
+          </div>
+
+          <!-- select-all-across banner -->
+          <sc-if value="{{ bannerOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="flex:none;height:36px;display:flex;align-items:center;justify-content:center;gap:8px;background:#faf8ef;border-bottom:1px solid #f0ecdb;font:400 12.5px Geist;color:#71717a;animation:sl-fade .16s ease-out">
+              {{ bannerText }}<span onClick="{{ bannerAction }}" style="font-weight:600;color:#18181b;cursor:pointer;text-decoration:underline;text-underline-offset:2px">{{ bannerCta }}</span>
+            </div>
+          </sc-if>
+
+          <!-- rows -->
+          <div style="flex:1;min-height:0;overflow:auto">
+            <sc-for list="{{ rows }}" as="u" hint-placeholder-count="14">
+              <div style="display:grid;grid-template-columns:40px minmax(230px,1.4fr) 112px 118px 138px 88px 112px 124px 40px;align-items:center;height:46px;padding:0 8px 0 14px;border-bottom:1px solid #f6f6f7;background:{{ u.rowBg }};position:relative" style-hover="background:#fafafa">
+                <span onClick="{{ u.onToggle }}" style="display:flex;align-items:center;cursor:pointer">{{ u.checkbox }}</span>
+                <div style="display:flex;align-items:center;gap:10px;min-width:0">
+                  <span style="width:28px;height:28px;flex:none;border-radius:50%;background:#f4f4f5;border:1px solid #ececee;color:#52525b;display:flex;align-items:center;justify-content:center;font:600 11px Geist">{{ u.initials }}</span>
+                  <div style="min-width:0;display:flex;flex-direction:column;line-height:1.25">
+                    <span style="font:500 13px Geist;color:#18181b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ u.name }}</span>
+                    <span style="font:400 11.5px Geist Mono,monospace;color:#a1a1aa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ u.email }}</span>
+                  </div>
+                </div>
+                <div><span style="display:inline-flex;align-items:center;gap:6px;font:400 12.5px Geist;color:#3f3f46">{{ u.roleIcon }}{{ u.role }}</span></div>
+                <div><span style="display:inline-flex;align-items:center;gap:6px;font:500 12px Geist;color:{{ u.statusColor }}"><span style="width:6px;height:6px;border-radius:50%;background:{{ u.statusDot }}"></span>{{ u.status }}</span></div>
+                <span style="font:400 12.5px Geist;color:#52525b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ u.team }}</span>
+                <span style="font:400 12.5px Geist Mono,monospace;color:#52525b">{{ u.artifacts }}</span>
+                <span style="font:400 12px Geist;color:#71717a">{{ u.created }}</span>
+                <span style="font:400 12px Geist;color:#71717a">{{ u.lastActive }}</span>
+                <div style="position:relative;display:flex;justify-content:center">
+                  <button onClick="{{ u.onMenu }}" style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;border:none;border-radius:7px;background:none;color:#a1a1aa;cursor:pointer" style-hover="background:#f0f0f1;color:#3f3f46"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="5" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="12" cy="19" r="1.6"></circle></svg></button>
+                  <sc-if value="{{ u.menuOpen }}" hint-placeholder-val="{{ false }}">
+                    <div style="position:absolute;top:32px;right:0;width:184px;background:#fff;border:1px solid #e4e4e7;border-radius:10px;box-shadow:0 12px 32px -8px rgba(9,9,11,.28);padding:5px;z-index:25;animation:sl-pop .14s ease-out">
+                      <div onClick="{{ u.closeMenu }}" style="height:31px;display:flex;align-items:center;gap:9px;padding:0 9px;border-radius:7px;font:400 12.5px Geist;color:#3f3f46;cursor:pointer" style-hover="background:#f4f4f5"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>Edit profile</div>
+                      <div onClick="{{ u.closeMenu }}" style="height:31px;display:flex;align-items:center;gap:9px;padding:0 9px;border-radius:7px;font:400 12.5px Geist;color:#3f3f46;cursor:pointer" style-hover="background:#f4f4f5"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" x2="4" y1="22" y2="15"></line></svg>Change role</div>
+                      <div onClick="{{ u.closeMenu }}" style="height:31px;display:flex;align-items:center;gap:9px;padding:0 9px;border-radius:7px;font:400 12.5px Geist;color:#3f3f46;cursor:pointer" style-hover="background:#f4f4f5"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>Resend invite</div>
+                      <div style="height:1px;background:#f0f0f1;margin:4px 6px"></div>
+                      <div onClick="{{ u.closeMenu }}" style="height:31px;display:flex;align-items:center;gap:9px;padding:0 9px;border-radius:7px;font:400 12.5px Geist;color:#dc2626;cursor:pointer" style-hover="background:#fef2f2"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="m4.9 4.9 14.2 14.2"></path></svg>Suspend</div>
+                    </div>
+                  </sc-if>
+                </div>
+              </div>
+            </sc-for>
+
+            <sc-if value="{{ empty }}" hint-placeholder-val="{{ false }}">
+              <div style="height:300px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;animation:sl-fade .2s ease-out">
+                <span style="width:44px;height:44px;border-radius:12px;background:#f4f4f5;display:flex;align-items:center;justify-content:center"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#a1a1aa" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg></span>
+                <div style="text-align:center"><div style="font:500 13.5px Geist;color:#18181b">No matching accounts</div><div style="margin-top:3px;font:400 12.5px Geist;color:#a1a1aa">Adjust your search or filters.</div></div>
+              </div>
+            </sc-if>
+          </div>
+
+          <!-- pagination footer -->
+          <div style="flex:none;height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-top:1px solid #f0f0f1;background:#fafafa">
+            <div style="display:flex;align-items:center;gap:16px">
+              <div style="display:flex;align-items:center;gap:8px;font:400 12px Geist;color:#71717a">
+                Rows per page
+                <div style="display:inline-flex;align-items:center;gap:1px;padding:2px;background:#f0f0f1;border-radius:7px">
+                  <sc-for list="{{ pageSizes }}" as="p" hint-placeholder-count="3">
+                    <span onClick="{{ p.onSelect }}" style="height:24px;display:flex;align-items:center;padding:0 9px;border-radius:5px;background:{{ p.bg }};box-shadow:{{ p.shadow }};font:500 11.5px Geist Mono,monospace;color:{{ p.color }};cursor:pointer">{{ p.label }}</span>
+                  </sc-for>
+                </div>
+              </div>
+              <span style="font:400 12px Geist;color:#71717a"><span style="color:#18181b;font-weight:500;font-family:Geist Mono,monospace">{{ rangeLabel }}</span> of <span style="font-family:Geist Mono,monospace">{{ totalLabel }}</span></span>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px">
+              <span style="width:30px;height:30px;display:flex;align-items:center;justify-content:center;border:1px solid #e4e4e7;border-radius:7px;background:#fff;color:#c4c4c8"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m11 17-5-5 5-5"></path><path d="m18 17-5-5 5-5"></path></svg></span>
+              <span style="width:30px;height:30px;display:flex;align-items:center;justify-content:center;border:1px solid #e4e4e7;border-radius:7px;background:#fff;color:#c4c4c8"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"></path></svg></span>
+              <span style="width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:7px;background:#18181b;color:#fff;font:500 12px Geist Mono,monospace">1</span>
+              <span style="width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:7px;font:500 12px Geist Mono,monospace;color:#52525b;cursor:pointer" style-hover="background:#f0f0f1">2</span>
+              <span style="width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:7px;font:500 12px Geist Mono,monospace;color:#52525b;cursor:pointer" style-hover="background:#f0f0f1">3</span>
+              <span style="width:28px;text-align:center;font:400 12px Geist;color:#a1a1aa">…</span>
+              <span style="min-width:44px;height:30px;display:flex;align-items:center;justify-content:center;padding:0 8px;border-radius:7px;font:500 12px Geist Mono,monospace;color:#52525b;cursor:pointer" style-hover="background:#f0f0f1">{{ lastPage }}</span>
+              <span style="width:30px;height:30px;display:flex;align-items:center;justify-content:center;border:1px solid #e4e4e7;border-radius:7px;background:#fff;color:#52525b;cursor:pointer" style-hover="background:#f4f4f5"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg></span>
+              <span style="width:30px;height:30px;display:flex;align-items:center;justify-content:center;border:1px solid #e4e4e7;border-radius:7px;background:#fff;color:#52525b;cursor:pointer" style-hover="background:#f4f4f5"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 17 5-5-5-5"></path><path d="m13 17 5-5-5-5"></path></svg></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== BULK ACTION BAR ===================== -->
+    <sc-if value="{{ hasSelection }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;bottom:26px;left:calc(50% + 106px);transform:translateX(-50%);z-index:45;display:flex;align-items:center;gap:6px;height:52px;padding:0 8px 0 18px;background:#18181b;border-radius:12px;box-shadow:0 18px 44px -14px rgba(9,9,11,.55);animation:sl-pop .16s ease-out">
+        <span style="font:500 13px Geist;color:#fff;font-variant-numeric:tabular-nums">{{ selectedLabel }}</span>
+        <span style="width:1px;height:22px;background:rgba(255,255,255,.16);margin:0 8px"></span>
+        <button style="height:36px;display:flex;align-items:center;gap:7px;padding:0 12px;border:none;border-radius:8px;background:transparent;font:500 12.5px Geist;color:#e4e4e7;cursor:pointer" style-hover="background:rgba(255,255,255,.1)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" x2="4" y1="22" y2="15"></line></svg>Change role</button>
+        <button style="height:36px;display:flex;align-items:center;gap:7px;padding:0 12px;border:none;border-radius:8px;background:transparent;font:500 12.5px Geist;color:#e4e4e7;cursor:pointer" style-hover="background:rgba(255,255,255,.1)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>Send invite</button>
+        <button style="height:36px;display:flex;align-items:center;gap:7px;padding:0 12px;border:none;border-radius:8px;background:transparent;font:500 12.5px Geist;color:#e4e4e7;cursor:pointer" style-hover="background:rgba(255,255,255,.1)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="m4.9 4.9 14.2 14.2"></path></svg>Suspend</button>
+        <button style="height:36px;display:flex;align-items:center;gap:7px;padding:0 12px;border:none;border-radius:8px;background:transparent;font:500 12.5px Geist;color:#fca5a5;cursor:pointer" style-hover="background:rgba(220,38,38,.18)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>Delete</button>
+        <button onClick="{{ clearSelection }}" style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;border:none;border-radius:8px;background:transparent;color:#a1a1aa;cursor:pointer;margin-left:2px" style-hover="background:rgba(255,255,255,.1);color:#fff"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
+      </div>
+    </sc-if>
+
+    <!-- ===================== BATCH CREATE DIALOG ===================== -->
+    <sc-if value="{{ createOpen }}" hint-placeholder-val="{{ false }}">
+      <div onClick="{{ closeCreate }}" style="position:absolute;inset:0;z-index:60;background:rgba(9,9,11,.42);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;animation:sl-fade .14s ease-out">
+        <div onClick="{{ stop }}" style="width:568px;max-height:770px;background:#fff;border:1px solid #e4e4e7;border-radius:14px;box-shadow:0 30px 70px -20px rgba(9,9,11,.5);display:flex;flex-direction:column;animation:sl-pop .18s ease-out">
+          <div style="padding:22px 22px 0;display:flex;align-items:flex-start;gap:12px">
+            <span style="width:38px;height:38px;flex:none;border-radius:10px;background:#f4f4f5;display:flex;align-items:center;justify-content:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#18181b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg></span>
+            <div style="flex:1;min-width:0">
+              <div style="font:600 16px Geist;color:#09090b;letter-spacing:-.01em">Create accounts</div>
+              <div style="margin-top:3px;font:400 12.5px Geist;color:#71717a;line-height:1.5">Enter or paste up to 500 email addresses. Each person gets an invite to set a password.</div>
+            </div>
+            <button onClick="{{ closeCreate }}" style="width:28px;height:28px;flex:none;display:flex;align-items:center;justify-content:center;border:none;border-radius:7px;background:none;color:#a1a1aa;cursor:pointer" style-hover="background:#f4f4f5;color:#3f3f46"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
+          </div>
+
+          <div style="padding:18px 22px 4px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <label style="font:500 12.5px Geist;color:#18181b">Email addresses</label>
+              <span style="font:400 11.5px Geist;color:#a1a1aa">Comma, space or Enter to separate</span>
+            </div>
+            <div onClick="{{ focusInput }}" style="min-height:120px;max-height:220px;overflow:auto;border:1px solid #d4d4d8;border-radius:10px;padding:9px;background:#fff;display:flex;flex-wrap:wrap;align-content:flex-start;gap:7px;cursor:text">
+              <sc-for list="{{ chips }}" as="c" hint-placeholder-count="0">
+                <span style="display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 6px 0 10px;border-radius:7px;background:{{ c.bg }};border:1px solid {{ c.border }};font:400 12.5px Geist;color:{{ c.color }};max-width:100%">
+                  <sc-if value="{{ c.invalid }}" hint-placeholder-val="{{ false }}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg></sc-if>
+                  <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ c.value }}</span>
+                  <span onClick="{{ c.onRemove }}" style="flex:none;width:17px;height:17px;display:flex;align-items:center;justify-content:center;border-radius:5px;cursor:pointer;color:{{ c.xColor }}" style-hover="background:rgba(9,9,11,.07)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></span>
+                </span>
+              </sc-for>
+              <input id="sl-email-input" value="{{ draft }}" onInput="{{ onDraft }}" onKeyDown="{{ onKey }}" onBlur="{{ onBlur }}" placeholder="{{ inputPlaceholder }}" style="flex:1;min-width:160px;height:28px;border:none;outline:none;background:none;font:400 13px Geist;color:#18181b">
+            </div>
+            <div style="margin-top:9px;min-height:18px;display:flex;align-items:center;gap:14px;font:400 12px Geist">
+              <sc-if value="{{ hasChips }}" hint-placeholder-val="{{ false }}">
+                <span style="display:flex;align-items:center;gap:6px;color:#16a34a"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>{{ validCount }} valid</span>
+                <sc-if value="{{ hasInvalid }}" hint-placeholder-val="{{ false }}"><span style="display:flex;align-items:center;gap:6px;color:#dc2626"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>{{ invalidCount }} need fixing</span></sc-if>
+              </sc-if>
+            </div>
+          </div>
+
+          <div style="padding:8px 22px 0;display:flex;align-items:center;justify-content:space-between;gap:12px">
+            <div><div style="font:500 12.5px Geist;color:#18181b">Assign role</div><div style="margin-top:2px;font:400 11.5px Geist;color:#a1a1aa">Applied to all new accounts</div></div>
+            <div style="display:inline-flex;align-items:center;gap:2px;padding:3px;background:#f4f4f5;border-radius:9px">
+              <sc-for list="{{ roleSeg }}" as="r" hint-placeholder-count="3">
+                <span onClick="{{ r.onSelect }}" style="height:30px;display:flex;align-items:center;padding:0 14px;border-radius:6px;background:{{ r.bg }};box-shadow:{{ r.shadow }};font:500 12.5px Geist;color:{{ r.color }};cursor:pointer;white-space:nowrap">{{ r.label }}</span>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="padding:16px 22px 0">
+            <div onClick="{{ toggleInvite }}" style="display:flex;align-items:center;gap:11px;padding:12px;border:1px solid #e4e4e7;border-radius:10px;cursor:pointer">
+              <span style="width:38px;height:22px;flex:none;border-radius:999px;background:{{ inviteTrackBg }};position:relative;transition:background .16s"><span style="position:absolute;top:2px;left:{{ inviteKnobLeft }};width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(9,9,11,.3);transition:left .16s"></span></span>
+              <div style="flex:1;min-width:0"><div style="font:500 12.5px Geist;color:#18181b">Send invitation email now</div><div style="margin-top:2px;font:400 11.5px Geist;color:#a1a1aa">Off — accounts are created but not notified until you send.</div></div>
+            </div>
+          </div>
+
+          <div style="margin-top:auto;padding:18px 22px 20px;display:flex;align-items:center;gap:9px">
+            <span style="font:400 12.5px Geist;color:#71717a">{{ footerSummary }}</span>
+            <div style="flex:1"></div>
+            <button onClick="{{ closeCreate }}" style="height:38px;padding:0 15px;border:1px solid #e4e4e7;border-radius:8px;background:#fff;font:500 12.5px Geist;color:#18181b;cursor:pointer" style-hover="background:#f4f4f5">Cancel</button>
+            <button onClick="{{ onSubmit }}" style="height:38px;padding:0 16px;border:none;border-radius:8px;background:{{ submitBg }};color:{{ submitColor }};font:500 12.5px Geist;cursor:{{ submitCursor }}">{{ submitLabel }}</button>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ===================== SUCCESS TOAST ===================== -->
+    <sc-if value="{{ toastOpen }}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;top:24px;left:calc(50% + 106px);transform:translateX(-50%);z-index:70;display:flex;align-items:center;gap:10px;height:44px;padding:0 16px;background:#18181b;border-radius:10px;box-shadow:0 16px 40px -12px rgba(9,9,11,.5);animation:sl-pop .18s ease-out">
+        <span style="width:20px;height:20px;border-radius:50%;background:#16a34a;display:flex;align-items:center;justify-content:center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg></span>
+        <span style="font:500 13px Geist;color:#fff">{{ toastMsg }}</span>
+      </div>
+    </sc-if>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = {
+    query: '', filters: [], sort: { key:'last', dir:'asc' },
+    selected: {}, selectAllMatching: false, rowMenu: null, addFilterOpen: false,
+    pageSize: 50,
+    createOpen: false, draft: '', chips: [], createRole: 'member', sendInvite: false, toast: null,
+  };
+  BIG_TOTAL = 24318;
+
+  componentDidMount() {
+    this._onDoc = () => { if (this.state.rowMenu !== null || this.state.addFilterOpen) this.setState({ rowMenu: null, addFilterOpen: false }); };
+    document.addEventListener('click', this._onDoc);
+  }
+  componentWillUnmount() { document.removeEventListener('click', this._onDoc); if (this._t) clearTimeout(this._t); }
+
+  data() {
+    return [
+      { id:'u1',  name:'Ada Lovelace',      email:'ada@shareslices.io',      role:'Admin',  status:'Active',    team:'Executive',   artifacts:24, created:'Jan 4, 2024',  cTs:20240104, last:'2 min ago',   lMin:2 },
+      { id:'u2',  name:'Grace Hopper',      email:'grace@shareslices.io',    role:'Admin',  status:'Active',    team:'Engineering', artifacts:18, created:'Jan 4, 2024',  cTs:20240104, last:'1 hr ago',    lMin:60 },
+      { id:'u3',  name:'Alan Turing',       email:'alan@shareslices.io',     role:'Member', status:'Active',    team:'Engineering', artifacts:31, created:'Feb 12, 2024', cTs:20240212, last:'3 hr ago',    lMin:180 },
+      { id:'u4',  name:'Katherine Johnson', email:'katherine@northwind.co',  role:'Member', status:'Active',    team:'Data',        artifacts:12, created:'Mar 1, 2024',  cTs:20240301, last:'Yesterday',   lMin:1440 },
+      { id:'u5',  name:'Margaret Hamilton', email:'margaret@northwind.co',   role:'Member', status:'Invited',   team:'Engineering', artifacts:0,  created:'Jul 9, 2026',  cTs:20260709, last:'—',           lMin:1e9 },
+      { id:'u6',  name:'Dorothy Vaughan',   email:'dorothy@northwind.co',    role:'Viewer', status:'Active',    team:'Data',        artifacts:5,  created:'Apr 18, 2024', cTs:20240418, last:'2 days ago',  lMin:2880 },
+      { id:'u7',  name:'Edsger Dijkstra',   email:'edsger@acme.dev',         role:'Member', status:'Invited',   team:'Design',      artifacts:0,  created:'Jul 10, 2026', cTs:20260710, last:'—',           lMin:1e9 },
+      { id:'u8',  name:'Barbara Liskov',    email:'barbara@acme.dev',        role:'Viewer', status:'Active',    team:'Design',      artifacts:9,  created:'May 6, 2024',  cTs:20240506, last:'5 hr ago',    lMin:300 },
+      { id:'u9',  name:'Donald Knuth',      email:'don@acme.dev',            role:'Member', status:'Suspended', team:'Engineering', artifacts:14, created:'Jun 2, 2023',  cTs:20230602, last:'3 wks ago',   lMin:30240 },
+      { id:'u10', name:'Linus Torvalds',    email:'linus@kernel.org',        role:'Viewer', status:'Active',    team:'Engineering', artifacts:2,  created:'Aug 22, 2024', cTs:20240822, last:'1 week ago',  lMin:10080 },
+      { id:'u11', name:'Radia Perlman',     email:'radia@shareslices.io',    role:'Member', status:'Active',    team:'Sales',       artifacts:7,  created:'Sep 14, 2024', cTs:20240914, last:'6 hr ago',    lMin:360 },
+      { id:'u12', name:'Vint Cerf',         email:'vint@shareslices.io',     role:'Viewer', status:'Invited',   team:'Sales',       artifacts:0,  created:'Jul 8, 2026',  cTs:20260708, last:'—',           lMin:1e9 },
+      { id:'u13', name:'Frances Allen',     email:'frances@northwind.co',    role:'Member', status:'Active',    team:'Data',        artifacts:16, created:'Oct 30, 2024', cTs:20241030, last:'40 min ago',  lMin:40 },
+      { id:'u14', name:'Tim Berners-Lee',   email:'tim@acme.dev',            role:'Admin',  status:'Active',    team:'Executive',   artifacts:22, created:'Nov 11, 2024', cTs:20241111, last:'12 min ago',  lMin:12 },
+      { id:'u15', name:'Shafi Goldwasser',  email:'shafi@acme.dev',          role:'Member', status:'Suspended', team:'Sales',       artifacts:4,  created:'Dec 1, 2023',  cTs:20231201, last:'2 mo ago',    lMin:86400 },
+      { id:'u16', name:'John McCarthy',     email:'john@kernel.org',         role:'Viewer', status:'Active',    team:'Design',      artifacts:8,  created:'Jan 20, 2025', cTs:20250120, last:'4 days ago',  lMin:5760 },
+    ];
+  }
+
+  fmt(n) { return n.toLocaleString('en-US'); }
+  initials(name) { const p = name.trim().split(/\s+/); return ((p[0]||'')[0]||'').concat((p[1]||'')[0]||'').toUpperCase(); }
+  validEmail(v) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
+  statusStyle(s) { if (s==='Active') return {color:'#15803d',dot:'#16a34a'}; if (s==='Invited') return {color:'#b45309',dot:'#d97706'}; return {color:'#71717a',dot:'#a1a1aa'}; }
+
+  roleGlyph(role) {
+    const c = { width:12, height:12, viewBox:'0 0 24 24', fill:'none', stroke:'#a1a1aa', strokeWidth:1.7, strokeLinecap:'round', strokeLinejoin:'round', style:{flex:'none'} };
+    if (role==='Admin') return React.createElement('svg', c, React.createElement('path',{key:1,d:'M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z'}));
+    if (role==='Member') return React.createElement('svg', c, React.createElement('path',{key:1,d:'M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2'}), React.createElement('circle',{key:2,cx:12,cy:7,r:4}));
+    return React.createElement('svg', c, React.createElement('path',{key:1,d:'M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z'}), React.createElement('circle',{key:2,cx:12,cy:12,r:3}));
+  }
+  checkboxEl(checked, indeterminate) {
+    const box = { width:'17px', height:'17px', borderRadius:'5px', display:'flex', alignItems:'center', justifyContent:'center', border:(checked||indeterminate)?'1px solid #18181b':'1px solid #d4d4d8', background:(checked||indeterminate)?'#18181b':'#fff', transition:'all .12s' };
+    let inner = null;
+    if (indeterminate) inner = React.createElement('div',{style:{width:'8px',height:'2px',borderRadius:'1px',background:'#fff'}});
+    else if (checked) inner = React.createElement('svg',{width:11,height:11,viewBox:'0 0 24 24',fill:'none',stroke:'#fff',strokeWidth:3,strokeLinecap:'round',strokeLinejoin:'round'},React.createElement('path',{d:'M20 6 9 17l-5-5'}));
+    return React.createElement('div',{style:box}, inner);
+  }
+  sortArrow(active, dir) {
+    if (!active) return null;
+    const d = dir==='asc' ? 'm18 15-6-6-6 6' : 'm6 9 6 6 6-6';
+    return React.createElement('svg',{width:13,height:13,viewBox:'0 0 24 24',fill:'none',stroke:'#18181b',strokeWidth:2.2,strokeLinecap:'round',strokeLinejoin:'round'},React.createElement('path',{d}));
+  }
+
+  // view presets
+  viewDefs() {
+    return [
+      { key:'all',       label:'All users',       dot:'#a1a1aa', filters:[] },
+      { key:'admins',    label:'Admins',          dot:'#6366f1', filters:[{field:'role',value:'Admin'}] },
+      { key:'pending',   label:'Pending invites', dot:'#d97706', filters:[{field:'status',value:'Invited'}] },
+      { key:'suspended', label:'Suspended',       dot:'#dc2626', filters:[{field:'status',value:'Suspended'}] },
+      { key:'active',    label:'Active users',    dot:'#16a34a', filters:[{field:'status',value:'Active'}] },
+    ];
+  }
+  filterMatch(u, filters) {
+    const byField = {};
+    filters.forEach(f => { (byField[f.field] = byField[f.field] || []).push(f.value); });
+    for (const field in byField) { if (!byField[field].some(v => u[field] === v)) return false; }
+    return true;
+  }
+  filtersEqual(a, b) {
+    if (a.length !== b.length) return false;
+    const ka = a.map(f=>f.field+':'+f.value).sort().join('|');
+    const kb = b.map(f=>f.field+':'+f.value).sort().join('|');
+    return ka === kb;
+  }
+
+  filtered() {
+    const q = this.state.query.trim().toLowerCase();
+    let list = this.data().filter(u => this.filterMatch(u, this.state.filters) && (!q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || u.team.toLowerCase().includes(q)));
+    const { key, dir } = this.state.sort;
+    const cmp = { name:(a,b)=>a.name.localeCompare(b.name), artifacts:(a,b)=>a.artifacts-b.artifacts, created:(a,b)=>a.cTs-b.cTs, last:(a,b)=>a.lMin-b.lMin }[key];
+    if (cmp) { list = [...list].sort((a,b)=> dir==='asc' ? cmp(a,b) : -cmp(a,b)); }
+    return list;
+  }
+
+  toggleFilter(field, value) {
+    this.setState(s => {
+      const exists = s.filters.some(f => f.field===field && f.value===value);
+      return { filters: exists ? s.filters.filter(f => !(f.field===field && f.value===value)) : [...s.filters, {field, value}], selectAllMatching:false };
+    });
+  }
+  setSort(key) { this.setState(s => ({ sort: s.sort.key===key ? { key, dir: s.sort.dir==='asc'?'desc':'asc' } : { key, dir:'asc' } })); }
+
+  commitDraft() {
+    const tokens = this.state.draft.split(/[\s,;]+/).map(t=>t.trim()).filter(Boolean);
+    if (!tokens.length) { this.setState({ draft:'' }); return; }
+    this.setState(s => {
+      const seen = new Set(s.chips.map(c=>c.value.toLowerCase()));
+      const add = [];
+      for (const t of tokens) { const k=t.toLowerCase(); if (!seen.has(k)) { seen.add(k); add.push({ value:t, invalid:!this.validEmail(t) }); } }
+      return { chips:[...s.chips, ...add], draft:'' };
+    });
+  }
+
+  renderVals() {
+    const all = this.data();
+    const list = this.filtered();
+    const filtersActive = this.state.filters.length > 0 || this.state.query.trim().length > 0;
+    const total = filtersActive ? list.length : this.BIG_TOTAL;
+
+    // views with counts
+    const vd = this.viewDefs();
+    const activeViewKey = (vd.find(v => this.filtersEqual(v.filters, this.state.filters)) || {}).key;
+    const views = vd.map(v => {
+      const cnt = v.filters.length ? Math.round(all.filter(u => this.filterMatch(u, v.filters)).length / all.length * this.BIG_TOTAL) : this.BIG_TOTAL;
+      const sel = activeViewKey === v.key;
+      return { label:v.label, dot:v.dot, count:this.fmt(cnt), bg: sel?'#eeeef0':'transparent', color: sel?'#09090b':'#52525b', font: sel?'500 12.5px Geist':'400 12.5px Geist',
+        onSelect:(e)=>{ e.stopPropagation(); this.setState({ filters: v.filters.map(f=>({...f})), selected:{}, selectAllMatching:false }); } };
+    });
+
+    // add-filter groups
+    const groupsDef = [
+      { field:'status', label:'Status', values:['Active','Invited','Suspended'] },
+      { field:'role',   label:'Role',   values:['Admin','Member','Viewer'] },
+      { field:'team',   label:'Team',   values:['Executive','Engineering','Design','Data','Sales'] },
+    ];
+    const filterGroups = groupsDef.map(g => ({ label:g.label, options: g.values.map(v => ({
+      label:v, active: this.state.filters.some(f=>f.field===g.field && f.value===v),
+      onToggle:(e)=>{ e.stopPropagation(); this.toggleFilter(g.field, v); } })) }));
+
+    const fieldNames = { status:'Status', role:'Role', team:'Team' };
+    const tokens = this.state.filters.map((f,i)=>({ field:fieldNames[f.field]+' is', value:f.value,
+      onRemove:(e)=>{ e.stopPropagation(); this.setState(s=>({ filters:s.filters.filter((_,j)=>j!==i), selectAllMatching:false })); } }));
+
+    // selection
+    const selected = this.state.selected;
+    const selInView = list.filter(u=>selected[u.id]).length;
+    const allSel = list.length>0 && selInView===list.length;
+    const someSel = selInView>0 && !allSel;
+
+    const rows = list.map(u => {
+      const st = this.statusStyle(u.status);
+      const on = this.state.selectAllMatching || !!selected[u.id];
+      return { name:u.name, email:u.email, role:u.role, status:u.status, team:u.team, initials:this.initials(u.name),
+        artifacts: u.artifacts===0?'—':this.fmt(u.artifacts), created:u.created, lastActive:u.last,
+        statusColor:st.color, statusDot:st.dot, roleIcon:this.roleGlyph(u.role), rowBg: on?'#fafafa':'#fff',
+        checkbox:this.checkboxEl(on,false),
+        onToggle:(e)=>{ e.stopPropagation(); this.setState(s=>({ selected:{...s.selected,[u.id]:!s.selected[u.id]}, selectAllMatching:false })); },
+        menuOpen:this.state.rowMenu===u.id,
+        onMenu:(e)=>{ e.stopPropagation(); this.setState(s=>({ rowMenu:s.rowMenu===u.id?null:u.id, addFilterOpen:false })); },
+        closeMenu:(e)=>{ e.stopPropagation(); this.setState({ rowMenu:null }); } };
+    });
+
+    const pageSelectedCount = Object.values(selected).filter(Boolean).length;
+    const hasSelection = this.state.selectAllMatching || pageSelectedCount>0;
+    const selectedNum = this.state.selectAllMatching ? total : pageSelectedCount;
+    const selectedLabel = `${this.fmt(selectedNum)} selected`;
+
+    // banner (select all across pages)
+    const bannerOpen = !this.state.selectAllMatching && allSel && total > list.length;
+    const bannerOpen2 = this.state.selectAllMatching;
+    const sortLabels = { name:'Name', artifacts:'Artifacts', created:'Created', last:'Last active' };
+
+    const pageSizes = [25,50,100].map(n=>{ const sel=this.state.pageSize===n; return { label:String(n), bg:sel?'#fff':'transparent', shadow:sel?'0 1px 2px rgba(9,9,11,.1)':'none', color:sel?'#18181b':'#71717a', onSelect:(e)=>{ e.stopPropagation(); this.setState({pageSize:n}); } }; });
+    const rangeEnd = filtersActive ? list.length : Math.min(this.state.pageSize, this.BIG_TOTAL);
+    const lastPage = filtersActive ? 1 : Math.ceil(this.BIG_TOTAL/this.state.pageSize);
+
+    // dialog
+    const chips = this.state.chips.map((c,i)=>({ value:c.value, invalid:c.invalid, bg:c.invalid?'#fef2f2':'#f4f4f5', border:c.invalid?'#fecaca':'#ececee', color:c.invalid?'#b91c1c':'#3f3f46', xColor:c.invalid?'#dc2626':'#a1a1aa', onRemove:(e)=>{ e.stopPropagation(); this.setState(s=>({ chips:s.chips.filter((_,j)=>j!==i) })); } }));
+    const validCount = this.state.chips.filter(c=>!c.invalid).length;
+    const invalidCount = this.state.chips.length - validCount;
+    const roleSeg = [{key:'admin',label:'Admin'},{key:'member',label:'Member'},{key:'viewer',label:'Viewer'}].map(r=>{ const sel=this.state.createRole===r.key; return { label:r.label, bg:sel?'#fff':'transparent', shadow:sel?'0 1px 2px rgba(9,9,11,.08)':'none', color:sel?'#18181b':'#71717a', onSelect:(e)=>{ e.stopPropagation(); this.setState({createRole:r.key}); } }; });
+    const canSubmit = validCount>0 && invalidCount===0;
+    const submitLabel = validCount>0 ? `Create ${validCount} account${validCount===1?'':'s'}` : 'Create accounts';
+    let footerSummary = this.state.chips.length===0 ? 'No addresses yet' : (invalidCount>0 ? `Fix ${invalidCount} address${invalidCount===1?'':'es'} to continue` : `Ready to invite ${validCount}`);
+
+    return {
+      totalLabel: this.fmt(total),
+      views, filterGroups,
+      addFilterOpen: this.state.addFilterOpen,
+      addFilterBg: this.state.addFilterOpen ? '#f4f4f5' : '#fff',
+      addFilterBorder: this.state.addFilterOpen ? '#d4d4d8' : '#e4e4e7',
+      toggleAddFilter:(e)=>{ e.stopPropagation(); this.setState(s=>({ addFilterOpen:!s.addFilterOpen, rowMenu:null })); },
+      hasFilters: this.state.filters.length>0, tokens,
+      clearFilters:(e)=>{ e.stopPropagation(); this.setState({ filters:[], selectAllMatching:false }); },
+
+      query:this.state.query,
+      onSearch:(e)=>this.setState({ query:e.target.value, selectAllMatching:false }),
+
+      sortLabel: sortLabels[this.state.sort.key] + (this.state.sort.dir==='asc'?' ↑':' ↓'),
+      arrowName:this.sortArrow(this.state.sort.key==='name', this.state.sort.dir),
+      arrowArtifacts:this.sortArrow(this.state.sort.key==='artifacts', this.state.sort.dir),
+      arrowCreated:this.sortArrow(this.state.sort.key==='created', this.state.sort.dir),
+      arrowLast:this.sortArrow(this.state.sort.key==='last', this.state.sort.dir),
+      onSortName:(e)=>{ e.stopPropagation(); this.setSort('name'); },
+      onSortArtifacts:(e)=>{ e.stopPropagation(); this.setSort('artifacts'); },
+      onSortCreated:(e)=>{ e.stopPropagation(); this.setSort('created'); },
+      onSortLast:(e)=>{ e.stopPropagation(); this.setSort('last'); },
+
+      headCheckbox:this.checkboxEl(this.state.selectAllMatching||allSel, someSel),
+      toggleAll:(e)=>{ e.stopPropagation(); this.setState(s=>{ const sel={...s.selected}; const doOff = allSel||s.selectAllMatching; if (doOff) list.forEach(u=>delete sel[u.id]); else list.forEach(u=>sel[u.id]=true); return { selected:sel, selectAllMatching:false }; }); },
+      rows, empty:list.length===0,
+
+      bannerOpen: bannerOpen || bannerOpen2,
+      bannerText: bannerOpen2 ? `All ${this.fmt(total)} accounts matching this view are selected. ` : `All ${list.length} on this page are selected. `,
+      bannerCta: bannerOpen2 ? 'Clear selection' : `Select all ${this.fmt(total)}`,
+      bannerAction:(e)=>{ e.stopPropagation(); this.setState(s=>({ selectAllMatching:!s.selectAllMatching, selected: s.selectAllMatching?{}:s.selected })); },
+
+      pageSizes, rangeLabel: `1–${this.fmt(rangeEnd)}`, lastPage: this.fmt(lastPage),
+
+      hasSelection, selectedLabel,
+      clearSelection:(e)=>{ e.stopPropagation(); this.setState({ selected:{}, selectAllMatching:false }); },
+
+      createOpen:this.state.createOpen,
+      openCreate:(e)=>{ e.stopPropagation(); this.setState({ createOpen:true, rowMenu:null, addFilterOpen:false }); },
+      closeCreate:(e)=>{ e.stopPropagation(); this.setState({ createOpen:false }); },
+      stop:(e)=>e.stopPropagation(),
+      focusInput:()=>{ const el=document.getElementById('sl-email-input'); if (el) el.focus(); },
+      draft:this.state.draft, inputPlaceholder: this.state.chips.length?'Add more…':'name@company.com',
+      onDraft:(e)=>{ const v=e.target.value; if (/[\s,;]/.test(v)) this.setState({ draft:v }, ()=>this.commitDraft()); else this.setState({ draft:v }); },
+      onKey:(e)=>{ if (e.key==='Enter'||e.key===','||e.key===';'){ e.preventDefault(); this.commitDraft(); } else if (e.key==='Backspace' && this.state.draft==='' && this.state.chips.length) this.setState(s=>({ chips:s.chips.slice(0,-1) })); },
+      onBlur:()=>{ if (this.state.draft.trim()) this.commitDraft(); },
+      chips, hasChips:this.state.chips.length>0, validCount, invalidCount, hasInvalid:invalidCount>0,
+      roleSeg, toggleInvite:(e)=>{ e.stopPropagation(); this.setState(s=>({ sendInvite:!s.sendInvite })); },
+      inviteTrackBg:this.state.sendInvite?'#18181b':'#d4d4d8', inviteKnobLeft:this.state.sendInvite?'18px':'2px',
+      footerSummary, submitLabel, submitBg:canSubmit?'#18181b':'#e4e4e7', submitColor:canSubmit?'#fff':'#a1a1aa', submitCursor:canSubmit?'pointer':'not-allowed',
+      onSubmit:(e)=>{ e.stopPropagation(); if (!canSubmit) return; const n=validCount; this.setState({ createOpen:false, chips:[], draft:'', toast:`${n} account${n===1?'':'s'} created` }); if (this._t) clearTimeout(this._t); this._t=setTimeout(()=>this.setState({toast:null}),2600); },
+      toastOpen:!!this.state.toast, toastMsg:this.state.toast||'',
+    };
+  }
+}
+</script>
+</body>
+</html>
