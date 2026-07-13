@@ -19,9 +19,11 @@ jobs:
         run: |
           tag_version="${GITHUB_REF_NAME#cli-v}"
           package_version="$(sed -n 's/^version = "\(.*\)"$/\1/p' cli/Cargo.toml | head -n 1)"
+          npm_package_version="$(node -p "require('./cli/npm/package.json').version")"
 
           test -n "$package_version"
           test "$tag_version" = "$package_version"
+          test "$package_version" = "$npm_package_version"
 
   build:
     name: Build ${{ matrix.target }}
@@ -79,13 +81,18 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+      - name: Add official installers
+        run: |
+          cp cli/install/install.sh dist/install.sh
+          cp cli/install/install.ps1 dist/install.ps1
       - name: Generate checksums
         working-directory: dist
-        run: sha256sum shareslices-* > SHA256SUMS
+        run: sha256sum * > SHA256SUMS
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -94,3 +101,20 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "ShareSlices CLI ${GITHUB_REF_NAME#cli-v}" \
             --generate-notes
+
+  publish-npm:
+    name: Publish npm package
+    needs: publish
+    if: ${{ vars.NPM_PUBLISH_ENABLED == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+      - name: Publish with npm Trusted Publishing
+        working-directory: cli/npm
+        run: npm publish --access public --provenance

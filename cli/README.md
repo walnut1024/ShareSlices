@@ -24,7 +24,39 @@ Each Release contains these archives and a `SHA256SUMS` file:
 | Linux x86-64 | `shareslices-x86_64-unknown-linux-gnu.tar.gz` |
 | Windows x86-64 | `shareslices-x86_64-pc-windows-msvc.zip` |
 
-The archives contain only the native `shareslices` executable. Download a release archive and verify it against `SHA256SUMS` before adding the executable to your `PATH`. Package-manager and installer support will consume these same Release artifacts later.
+The archives contain only the native `shareslices` executable. Download a release archive and verify it against `SHA256SUMS` before adding the executable to your `PATH`.
+
+## Install
+
+Every supported installation method downloads and verifies the matching GitHub Release binary. The CLI does not require Rust or Node.js after installation.
+
+### macOS and Linux
+
+```sh
+curl -fsSL https://github.com/walnut1024/ShareSlices/releases/latest/download/install.sh | sh
+```
+
+The installer supports macOS Apple Silicon, macOS Intel, and Linux x86-64. It installs to `~/.local/bin` by default; set `SHARESLICES_INSTALL_DIR` or pass `--install-dir` to select another directory. Re-run the same command to update. Install an exact version with `--version`, for example:
+
+```sh
+curl -fsSL https://github.com/walnut1024/ShareSlices/releases/latest/download/install.sh | sh -s -- --version 0.1.1
+```
+
+### Windows PowerShell
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/walnut1024/ShareSlices/releases/latest/download/install.ps1 | iex"
+```
+
+The installer supports Windows x86-64, installs under `%LOCALAPPDATA%\\ShareSlices\\bin`, and adds that directory to the user `PATH` when needed. Use `-Version 0.1.1` with a downloaded script to select an exact version.
+
+### npm
+
+```sh
+npm install -g @shareslices/cli
+```
+
+The npm package is a thin launcher. Its install lifecycle downloads the matching versioned binary from GitHub Releases and verifies its SHA-256 checksum. npm publishing is enabled only after the `@shareslices` scope configures GitHub Trusted Publishing for this repository.
 
 ## Design rules
 
