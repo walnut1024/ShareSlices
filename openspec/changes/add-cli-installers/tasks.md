@@ -8,7 +8,7 @@
 
 ## 2. Homebrew Distribution
 
-- [ ] 2.1 Create a public `walnut1024/homebrew-tap` repository and Formula backed by immutable Release archives.
+- [x] 2.1 Create a public `walnut1024/homebrew-tap` repository and Formula backed by immutable Release archives.
 - [x] 2.2 Add a post-Release Formula synchronization job gated by repository configuration.
 
 ## 3. Documentation and Verification
