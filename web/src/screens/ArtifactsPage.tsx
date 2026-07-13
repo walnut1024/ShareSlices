@@ -2,14 +2,13 @@ import {
   Check,
   CircleAlert,
   Download,
-  ExternalLink,
   FileText,
   Filter,
   Grid2X2,
+  Info,
   List,
   MoreVertical,
   Pencil,
-  Play,
   Search,
   Rocket,
   Trash2
@@ -23,6 +22,7 @@ import {
   updateArtifactName
 } from "../api/artifacts";
 import { Alert, AlertDescription } from "../components/ui/alert";
+import { AspectRatio } from "../components/ui/aspect-ratio";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardFooter } from "../components/ui/card";
@@ -258,32 +258,32 @@ function ArtifactTile({
     <li className="relative">
       <Card className="relative gap-0 overflow-visible py-0 shadow-[0_1px_2px_rgba(9,9,11,0.05)] ring-border transition-[box-shadow,outline-color] hover:shadow-[0_6px_18px_-10px_rgba(9,9,11,0.22)] hover:ring-foreground/20">
         <a aria-label={artifact.name} className="absolute inset-0 z-0 rounded-xl" href={detailUrl} />
-        <CardContent className={`pointer-events-none relative flex aspect-[8/5] items-center justify-center overflow-hidden rounded-t-xl p-0 ${previewClass(artifact, index)}`}>
-          <FileText aria-hidden="true" className="size-9 text-muted-foreground/55" />
-          {artifact.readyVersion?.thumbnailState === "ready" ? (
-            <img
-              alt=""
-              className="absolute inset-0 size-full object-cover"
-              onError={(event) => { event.currentTarget.hidden = true; }}
-              src={`/api/versions/${encodeURIComponent(artifact.readyVersion.id)}/thumbnail`}
-            />
-          ) : null}
-          <div className="absolute top-2 left-2"><StatusBadge artifact={artifact} overlay /></div>
-          <div className="pointer-events-auto absolute right-2 bottom-2 z-10 flex gap-1.5">
-            {previewUrl && artifact.allowedActions.includes("preview") ? (
-              <Tooltip><TooltipTrigger render={<Button aria-label={`Start presentation for ${artifact.name}`} className="bg-background/95 shadow-none" size="icon-xs" variant="outline" onClick={() => window.open(previewUrl, "_blank")} />}><Play aria-hidden="true" /></TooltipTrigger><TooltipContent>Start presentation</TooltipContent></Tooltip>
+        <CardContent className="relative overflow-hidden rounded-t-xl p-0">
+          <AspectRatio ratio={8 / 5} className={`flex items-center justify-center ${previewClass(artifact, index)}`}>
+            <FileText aria-hidden="true" className="size-9 text-muted-foreground/55" />
+            {artifact.readyVersion?.thumbnailState === "ready" ? (
+              <img
+                alt=""
+                className="absolute inset-0 size-full object-cover"
+                onError={(event) => { event.currentTarget.hidden = true; }}
+                src={`/api/versions/${encodeURIComponent(artifact.readyVersion.id)}/thumbnail`}
+              />
             ) : null}
+            {previewUrl && artifact.allowedActions.includes("preview") ? <a aria-label={`Preview ${artifact.name}`} className="absolute inset-0 z-10 cursor-pointer" href={previewUrl} target="_blank" /> : null}
+            <div className="pointer-events-none absolute top-2 left-2 z-20"><StatusBadge artifact={artifact} overlay /></div>
+            <div className="absolute right-2 bottom-2 z-20 flex gap-1.5">
             {ready && (artifact.allowedActions.includes("publish") || artifact.allowedActions.includes("manage_publication")) ? (
               <Tooltip><TooltipTrigger render={<Button aria-label={`${artifact.publicationStatus === "published" ? "Manage publication for" : "Publish"} ${artifact.name}`} className="bg-background/95 shadow-none" size="icon-xs" variant="outline" onClick={onPublication} />}><Rocket aria-hidden="true" /></TooltipTrigger><TooltipContent>{artifact.publicationStatus === "published" ? "Manage publication" : "Publish"}</TooltipContent></Tooltip>
             ) : null}
-          </div>
+            </div>
+          </AspectRatio>
         </CardContent>
         <CardFooter className="pointer-events-none flex-col items-start gap-0 border-t border-muted px-3 pt-[11px] pb-[13px]">
           <ArtifactCardName name={artifact.name} />
           <span className="mt-0.5 truncate font-mono text-[10.5px] text-muted-foreground">{formatModified(artifact.updatedAt)}</span>
         </CardFooter>
       </Card>
-      <div className="absolute top-2 right-2"><ArtifactMenu artifact={artifact} detailUrl={detailUrl} overlay onRename={onRename} onDelete={onDelete} /></div>
+      <div className="absolute top-2 right-2 z-30"><ArtifactMenu artifact={artifact} detailUrl={detailUrl} overlay onRename={onRename} onDelete={onDelete} /></div>
     </li>
   );
 }
@@ -309,7 +309,7 @@ function ArtifactMenu({ artifact, detailUrl, overlay = false, onRename, onDelete
       <DropdownMenuTrigger render={<Button aria-label={`More actions for ${artifact.name}`} className={overlay ? "bg-background/95 shadow-none" : "bg-white/95 shadow-sm"} size="icon-xs" variant="outline" />}><MoreVertical aria-hidden="true" /></DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-44">
         <DropdownMenuGroup>
-          <DropdownMenuItem onClick={() => { window.location.href = detailUrl; }}><ExternalLink />Open</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => { window.location.href = detailUrl; }}><Info />Info</DropdownMenuItem>
           {artifact.allowedActions.includes("export") && artifact.readyVersion ? <DropdownMenuItem onClick={() => { window.location.href = artifactExportUrl(artifact.readyVersion!.id); }}><Download />Export</DropdownMenuItem> : null}
           {artifact.allowedActions.includes("rename") ? <DropdownMenuItem onClick={onRename}><Pencil />Rename</DropdownMenuItem> : null}
         </DropdownMenuGroup>

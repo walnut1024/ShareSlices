@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { strToU8, zipSync } from "fflate";
 
 test("normalize a macOS named-entry ZIP, Preview, Publish, and open the stable Viewer link", async ({ page }, testInfo) => {
@@ -64,19 +65,33 @@ test("normalize a macOS named-entry ZIP, Preview, Publish, and open the stable V
   await expect(preview.locator("body")).toHaveAttribute("data-ready", "true");
   await preview.close();
 
+  await page.goto("/artifacts");
+  await expect(page.getByRole("heading", { name: "Artifacts" })).toBeVisible();
+  const cardPreviewPromise = page.waitForEvent("popup");
+  await page.getByRole("link", { name: "Preview First share flow" }).click();
+  const cardPreview = await cardPreviewPromise;
+  await expect(cardPreview.getByRole("heading", { name: "Published artifact" })).toBeVisible();
+  await cardPreview.close();
+  await page.getByRole("button", { name: "More actions for First share flow" }).click();
+  await page.getByRole("menuitem", { name: "Info" }).click();
+  await expect(page.getByRole("heading", { name: "First share flow" })).toBeVisible();
+
   await page.getByRole("button", { name: "Publish" }).click();
   await expect(page.getByRole("heading", { name: "Publish artifact" })).toBeVisible();
-  await expect(page.getByLabel("Publication expiration")).toHaveValue("permanent");
+  await expect(page.getByRole("combobox", { name: "Access period" })).toContainText("Permanent");
   await page.getByRole("button", { name: "Publish", exact: true }).click();
-  await expect(page.getByText("Published", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Artifact published" })).toBeVisible();
 
-  const shareLink = await page.locator("dt", { hasText: "Share link" }).locator("+ dd").textContent();
+  const shareLink = await page.getByRole("textbox", { name: "Share link" }).inputValue();
   expect(shareLink).toBeTruthy();
+  await page.getByRole("button", { name: "Done" }).click();
+  await expect(page.getByText("Published", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Manage publication" }).click();
   await expect(page.getByRole("heading", { name: "Manage publication" })).toBeVisible();
-  await page.getByLabel("Publication expiration").selectOption("7d");
-  await page.getByRole("button", { name: "Save" }).click();
+  await selectAccessPeriod(page, "7 days");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await page.getByRole("button", { name: "Done" }).click();
   await expect(page.getByText("Published", { exact: true })).toBeVisible();
 
   const expiration = new Date(Date.now() + 1500).toISOString();
@@ -97,8 +112,10 @@ test("normalize a macOS named-entry ZIP, Preview, Publish, and open the stable V
   await expect(page.getByText("Expired", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Publish" }).click();
   await expect(page.getByRole("heading", { name: "Publish again" })).toBeVisible();
-  await page.getByLabel("Publication expiration").selectOption("7d");
+  await selectAccessPeriod(page, "7 days");
   await page.getByRole("button", { name: "Publish", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Artifact published" })).toBeVisible();
+  await page.getByRole("button", { name: "Done" }).click();
   await expect(page.getByText("Published", { exact: true })).toBeVisible();
   await expect(page.locator("dt", { hasText: "Share link" }).locator("+ dd")).toHaveText(shareLink!);
 
@@ -108,13 +125,18 @@ test("normalize a macOS named-entry ZIP, Preview, Publish, and open the stable V
   expect((await page.request.get(shareLink!)).status()).toBe(200);
 
   await page.getByRole("button", { name: "Publish" }).click();
-  await page.getByLabel("Generate a new Share link").check();
+  const replaceLinkCheckbox = page.getByRole("checkbox", { name: "Generate a new Share link" });
+  await replaceLinkCheckbox.click();
+  await expect(replaceLinkCheckbox).toBeChecked();
   await page.getByRole("button", { name: "Publish", exact: true }).click();
   await expect(page.getByText("Confirm that the previous link will permanently stop working.")).toBeVisible();
-  await page.getByLabel("I understand the previous link will permanently stop working.").check();
+  const confirmReplacementCheckbox = page.getByRole("checkbox", { name: "I understand the previous link will permanently stop working." });
+  await confirmReplacementCheckbox.click();
+  await expect(confirmReplacementCheckbox).toBeChecked();
   await page.getByRole("button", { name: "Publish", exact: true }).click();
-  await expect(page.getByText("Published", { exact: true })).toBeVisible();
-  const replacementLink = await page.locator("dt", { hasText: "Share link" }).locator("+ dd").textContent();
+  await expect(page.getByRole("heading", { name: "Artifact published" })).toBeVisible();
+  const replacementLink = await page.getByRole("textbox", { name: "Share link" }).inputValue();
+  await page.getByRole("button", { name: "Done" }).click();
   expect(replacementLink).toBeTruthy();
   expect(replacementLink).not.toBe(shareLink);
   expect((await page.request.get(shareLink!)).status()).toBe(410);
@@ -129,6 +151,11 @@ test("normalize a macOS named-entry ZIP, Preview, Publish, and open the stable V
   });
   expect(diagnostics).toEqual([]);
 });
+
+async function selectAccessPeriod(page: Page, option: string) {
+  await page.getByRole("combobox", { name: "Access period" }).click();
+  await page.getByRole("option", { name: option }).click();
+}
 
 test("explain ambiguous root HTML candidates after processing fails", async ({ page }, testInfo) => {
   const diagnostics = observePageDiagnostics(page);

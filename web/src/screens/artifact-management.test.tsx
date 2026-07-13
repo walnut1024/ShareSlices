@@ -43,7 +43,7 @@ describe("Artifact management", () => {
     expect(document.querySelector('[data-slot="avatar"]')).toBeInTheDocument();
     expect(document.querySelector('[data-slot="toggle-group"]')).toBeInTheDocument();
     expect(artifactCard).toHaveClass("shadow-[0_1px_2px_rgba(9,9,11,0.05)]");
-    expect(artifactCard?.querySelector('[data-slot="card-content"]')).toHaveClass("aspect-[8/5]");
+    expect(artifactCard?.querySelector('[data-slot="aspect-ratio"]')).toHaveStyle({ "--ratio": "1.6" });
     expect(screen.getByText("Accepted").closest(".group\\/badge")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "More actions for Report" })).toHaveClass("group/button");
   });
@@ -69,7 +69,8 @@ describe("Artifact management", () => {
       json({ user }),
       json({ artifacts: [artifact({
         processingState: "ready",
-        readyVersion: { id: "version/1", state: "ready", thumbnailState: "ready" }
+        readyVersion: { id: "version/1", state: "ready", thumbnailState: "ready" },
+        allowedActions: ["preview"]
       })] })
     ]);
 
@@ -79,6 +80,9 @@ describe("Artifact management", () => {
     const thumbnail = card.querySelector("img");
     expect(thumbnail).toHaveAttribute("src", "/api/versions/version%2F1/thumbnail");
     expect(thumbnail).toHaveClass("object-cover");
+    expect(within(card).getByRole("link", { name: "Preview Report" })).toHaveAttribute("href", "/api/versions/version%2F1/content/");
+    expect(within(card).getByRole("link", { name: "Preview Report" })).toHaveAttribute("target", "_blank");
+    expect(within(card).queryByRole("button", { name: "Start presentation for Report" })).not.toBeInTheDocument();
   });
 
   it("hides grid card actions that the server does not allow", async () => {
@@ -95,7 +99,7 @@ describe("Artifact management", () => {
     expect(screen.queryByRole("button", { name: "Start presentation for Report" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Share Report" })).not.toBeInTheDocument();
     await interaction.click(screen.getByRole("button", { name: "More actions for Report" }));
-    expect(await screen.findByRole("menuitem", { name: "Open" })).toBeInTheDocument();
+    expect(await screen.findByRole("menuitem", { name: "Info" })).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: "Rename" })).not.toBeInTheDocument();
   });
 
@@ -932,10 +936,42 @@ describe("Artifact management", () => {
     expect(await screen.findByText("Created when published")).toBeInTheDocument();
     await interaction.click(screen.getByRole("button", { name: "Publish" }));
     expect(await screen.findByRole("heading", { name: "Publish artifact" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Share link")).toHaveValue("Available after publishing");
+    expect(screen.getByRole("button", { name: "Copy Share link" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Access period" })).toHaveAttribute("data-slot", "select-trigger");
     await interaction.click(screen.getByRole("button", { name: "Publish" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/artifacts/artifact-1/publications", expect.objectContaining({ method: "POST", body: JSON.stringify({ versionId: "version-1", expiration: { kind: "permanent" }, link: { mode: "reuse" } }) })));
-    expect(await screen.findByText("https://view.example.test/a/new-link/")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Artifact published" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Share link")).toHaveValue("https://view.example.test/a/new-link/");
+    expect(screen.getByRole("button", { name: "Copy Share link" })).toBeEnabled();
+  });
+
+  it("uses the Base UI custom date picker and rejects an incomplete expiration", async () => {
+    const interaction = userEvent.setup();
+    const ready = artifact({
+      processingState: "ready",
+      shareLink: null,
+      readyVersion: { id: "version-1", state: "ready" },
+      allowedActions: ["publish"]
+    });
+    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    const fetchMock = stubFetch([json({ user }), json({ artifact: ready })]);
+
+    render(<App />);
+    await interaction.click(await screen.findByRole("button", { name: "Publish" }));
+    await interaction.click(screen.getByRole("combobox", { name: "Access period" }));
+    await interaction.click(await screen.findByRole("option", { name: "Custom date and time" }));
+
+    expect(screen.getByRole("button", { name: "Choose date" })).toHaveAttribute("data-slot", "popover-trigger");
+    expect(screen.getByLabelText("Expiration time")).toHaveAttribute("type", "time");
+    await interaction.click(screen.getByRole("button", { name: "Choose date" }));
+    expect(document.querySelector('[data-slot="calendar"]')).toBeInTheDocument();
+    await interaction.keyboard("{Escape}");
+    await interaction.click(screen.getByRole("button", { name: "Publish" }));
+
+    expect(await screen.findByText("Choose a future expiration date and time. Use Unpublish to end access now.")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("requires explicit irreversible confirmation before replacing a Share link", async () => {
@@ -961,12 +997,12 @@ describe("Artifact management", () => {
 
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "Manage publication" }));
-    expect(screen.getByRole("button", { name: "Copy" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Copy Share link" })).toBeEnabled();
     await interaction.click(screen.getByRole("button", { name: "Unpublish" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/artifacts/artifact-1/publications/publication-1", expect.objectContaining({ method: "DELETE" })));
     expect(await screen.findByText("Unpublished")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Copy Share link" })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Copy Share link" })).not.toBeInTheDocument());
   });
 });
 
