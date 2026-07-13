@@ -14,4 +14,4 @@
 ## 3. Documentation and Verification
 
 - [x] 3.1 Document the tag and artifact contract in the CLI documentation.
-- [ ] 3.2 Push a real `cli-v<version>` tag and verify the GitHub Release artifacts from the hosted workflow.
+- [x] 3.2 Push a real `cli-v<version>` tag and verify the GitHub Release artifacts from the hosted workflow.
