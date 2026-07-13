@@ -103,7 +103,7 @@ pub enum ArtifactCommand {
     Delete(ArtifactDeleteArgs),
     /// View or edit Publication metadata without changing content.
     #[command(
-        long_about = "Inspect or change Publication metadata without uploading, publishing, unpublishing, or replacing content. View reports the Share link and access state; edit changes only its expiration.",
+        long_about = "Inspect or change Publication metadata without uploading or replacing content, publishing it, or ending its Publication. View reports the Share link and access state; edit changes only its expiration.",
         after_long_help = "EXAMPLES:\n  shareslices artifact publication view artifact_123\n  shareslices artifact publication edit artifact_123 --expires-at never"
     )]
     Publication {
