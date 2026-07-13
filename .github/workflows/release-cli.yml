@@ -30,7 +30,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-13
+          - os: macos-14
             target: x86_64-apple-darwin
             archive: tar.gz
           - os: macos-14
@@ -48,22 +48,24 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.96.1
+      - name: Install Rust target
+        run: rustup target add ${{ matrix.target }}
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install --yes libdbus-1-dev pkg-config
       - name: Build release binary
-        run: cargo build --locked --release -p shareslices-cli
+        run: cargo build --locked --release --target ${{ matrix.target }} -p shareslices-cli
       - name: Package Unix binary
         if: runner.os != 'Windows'
         shell: bash
         run: |
           mkdir package
-          cp target/release/shareslices package/shareslices
+          cp target/${{ matrix.target }}/release/shareslices package/shareslices
           tar -C package -czf "shareslices-${{ matrix.target }}.tar.gz" shareslices
       - name: Package Windows binary
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path target/release/shareslices.exe -DestinationPath "shareslices-${{ matrix.target }}.zip"
+        run: Compress-Archive -Path target/${{ matrix.target }}/release/shareslices.exe -DestinationPath "shareslices-${{ matrix.target }}.zip"
       - uses: actions/upload-artifact@v4
         with:
           name: shareslices-${{ matrix.target }}

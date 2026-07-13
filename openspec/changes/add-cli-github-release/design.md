@@ -22,7 +22,7 @@ The Rust CLI already embeds the package version in compatibility requests. Distr
 ## Decisions
 
 - **CLI-specific tags.** A `cli-v<version>` tag releases only the CLI. This avoids coupling CLI releases to future Web, API, or Worker deployment tags.
-- **Native hosted runners.** The workflow builds each initially supported target on its matching GitHub-hosted operating system instead of adding a cross-compilation layer before it is needed.
+- **Hosted runners with an explicit Rust target.** Linux and Windows build natively. Both macOS targets build on the available Apple Silicon macOS runner; the Intel target is cross-compiled with the Apple SDK already present on that runner. This avoids making Release availability depend on the constrained Intel macOS runner queue.
 - **One archive per target.** Unix targets use `.tar.gz`; Windows uses `.zip`. Each archive contains the platform-native `shareslices` executable at its root.
 - **Checksums are a Release asset.** The publishing job generates `SHA256SUMS` from the exact uploaded archives and attaches it to the same Release.
 - **Manifest version is authoritative.** The release tag version must equal `cli/Cargo.toml`; a mismatch fails before any artifacts are built.
