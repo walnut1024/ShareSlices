@@ -19,11 +19,9 @@ jobs:
         run: |
           tag_version="${GITHUB_REF_NAME#cli-v}"
           package_version="$(sed -n 's/^version = "\(.*\)"$/\1/p' cli/Cargo.toml | head -n 1)"
-          npm_package_version="$(node -p "require('./cli/npm/package.json').version")"
 
           test -n "$package_version"
           test "$tag_version" = "$package_version"
-          test "$package_version" = "$npm_package_version"
 
   build:
     name: Build ${{ matrix.target }}
@@ -102,19 +100,64 @@ jobs:
             --title "ShareSlices CLI ${GITHUB_REF_NAME#cli-v}" \
             --generate-notes
 
-  publish-npm:
-    name: Publish npm package
+  update-homebrew-tap:
+    name: Update Homebrew tap
     needs: publish
-    if: ${{ vars.NPM_PUBLISH_ENABLED == 'true' }}
+    if: ${{ vars.HOMEBREW_TAP_SYNC_ENABLED == 'true' }}
     runs-on: ubuntu-24.04
     permissions:
-      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          registry-url: https://registry.npmjs.org
-      - name: Publish with npm Trusted Publishing
-        working-directory: cli/npm
-        run: npm publish --access public --provenance
+          repository: walnut1024/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+      - name: Write Formula
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#cli-v}"
+          release="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME")"
+          arm_sha="$(jq -r '.assets[] | select(.name == "shareslices-aarch64-apple-darwin.tar.gz") | .digest | sub("^sha256:"; "")' <<<"$release")"
+          intel_sha="$(jq -r '.assets[] | select(.name == "shareslices-x86_64-apple-darwin.tar.gz") | .digest | sub("^sha256:"; "")' <<<"$release")"
+          linux_sha="$(jq -r '.assets[] | select(.name == "shareslices-x86_64-unknown-linux-gnu.tar.gz") | .digest | sub("^sha256:"; "")' <<<"$release")"
+          mkdir -p tap/Formula
+          cat > tap/Formula/shareslices.rb <<EOF
+          class Shareslices < Formula
+            desc "Publish and manage ShareSlices artifacts"
+            homepage "https://github.com/walnut1024/ShareSlices"
+            version "$version"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/walnut1024/ShareSlices/releases/download/cli-v$version/shareslices-aarch64-apple-darwin.tar.gz"
+                sha256 "$arm_sha"
+              else
+                url "https://github.com/walnut1024/ShareSlices/releases/download/cli-v$version/shareslices-x86_64-apple-darwin.tar.gz"
+                sha256 "$intel_sha"
+              end
+            end
+
+            on_linux do
+              url "https://github.com/walnut1024/ShareSlices/releases/download/cli-v$version/shareslices-x86_64-unknown-linux-gnu.tar.gz"
+              sha256 "$linux_sha"
+            end
+
+            def install
+              bin.install "shareslices"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/shareslices --version")
+            end
+          end
+          EOF
+      - name: Commit Formula
+        working-directory: tap
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/shareslices.rb
+          git diff --cached --quiet || git commit -m "brew: update shareslices to ${GITHUB_REF_NAME#cli-v}"
+          git push

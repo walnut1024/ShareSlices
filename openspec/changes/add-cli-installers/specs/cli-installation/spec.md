@@ -16,20 +16,20 @@ Each CLI GitHub Release SHALL include `install.sh` and `install.ps1`. The Shell 
 - **WHEN** an installer runs on an unsupported operating system or CPU architecture
 - **THEN** it fails before downloading an archive and identifies the unsupported platform
 
-### Requirement: npm package installs the matching verified native binary
+### Requirement: Homebrew Formula installs the matching verified native binary
 
-The `@shareslices/cli` npm package SHALL expose a `shareslices` command and SHALL install only the native archive whose version equals its npm package version. It SHALL verify the archive against the matching Release `SHA256SUMS` asset before exposing the command.
+The `walnut1024/homebrew-tap` Formula SHALL install only a native archive from an explicit CLI GitHub Release version and SHALL declare the corresponding SHA-256 checksum.
 
-#### Scenario: npm global installation
+#### Scenario: Homebrew installation
 
-- **WHEN** a supported-platform user runs `npm install -g @shareslices/cli`
-- **THEN** npm installs a launcher that invokes the checksum-verified native CLI binary for that platform
+- **WHEN** a supported-platform user runs `brew install walnut1024/tap/shareslices`
+- **THEN** Homebrew installs the checksum-verified native CLI binary for that platform
 
 ### Requirement: Preserve the CLI distribution version contract
 
-The GitHub Release workflow SHALL reject a release when its tag version differs from either the Rust CLI package version or the npm package version. npm publication SHALL not be required for GitHub Release creation.
+The GitHub Release workflow SHALL reject a release when its tag version differs from the Rust CLI package version. Formula synchronization SHALL not be required for GitHub Release creation.
 
-#### Scenario: npm version mismatch
+#### Scenario: release version mismatch
 
-- **WHEN** a `cli-v<version>` tag matches `cli/Cargo.toml` but differs from `cli/npm/package.json`
+- **WHEN** a `cli-v<version>` tag differs from `cli/Cargo.toml`
 - **THEN** the workflow fails before building or publishing release assets

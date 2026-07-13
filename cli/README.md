@@ -39,7 +39,7 @@ curl -fsSL https://github.com/walnut1024/ShareSlices/releases/latest/download/in
 The installer supports macOS Apple Silicon, macOS Intel, and Linux x86-64. It installs to `~/.local/bin` by default; set `SHARESLICES_INSTALL_DIR` or pass `--install-dir` to select another directory. Re-run the same command to update. Install an exact version with `--version`, for example:
 
 ```sh
-curl -fsSL https://github.com/walnut1024/ShareSlices/releases/latest/download/install.sh | sh -s -- --version 0.1.2
+curl -fsSL https://github.com/walnut1024/ShareSlices/releases/latest/download/install.sh | sh -s -- --version <version>
 ```
 
 ### Windows PowerShell
@@ -48,15 +48,15 @@ curl -fsSL https://github.com/walnut1024/ShareSlices/releases/latest/download/in
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/walnut1024/ShareSlices/releases/latest/download/install.ps1 | iex"
 ```
 
-The installer supports Windows x86-64, installs under `%LOCALAPPDATA%\\ShareSlices\\bin`, and adds that directory to the user `PATH` when needed. Use `-Version 0.1.2` with a downloaded script to select an exact version.
+The installer supports Windows x86-64, installs under `%LOCALAPPDATA%\\ShareSlices\\bin`, and adds that directory to the user `PATH` when needed. Use `-Version <version>` with a downloaded script to select an exact version.
 
-### npm
+### Homebrew
 
 ```sh
-npm install -g @shareslices/cli
+brew install walnut1024/tap/shareslices
 ```
 
-The npm package is a thin launcher. Its install lifecycle downloads the matching versioned binary from GitHub Releases and verifies its SHA-256 checksum. npm publishing is enabled only after the `@shareslices` scope configures GitHub Trusted Publishing for this repository.
+The Formula downloads the same checksum-verified GitHub Release archive as the official installers. It supports macOS Apple Silicon, macOS Intel, and Linux x86-64.
 
 ## Design rules
 

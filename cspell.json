@@ -54,7 +54,6 @@
     "pytest",
     "pyyaml",
     "regnamespace",
-    "reimplementation",
     "readyz",
     "rsplit",
     "seccomp",
