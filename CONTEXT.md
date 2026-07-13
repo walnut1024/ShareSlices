@@ -28,17 +28,41 @@ _Avoid_: Slideshow, presentation file
 An immutable content snapshot created after ShareSlices validates and expands an uploaded artifact.
 _Avoid_: Upload, build, revision
 
+**Artifact thumbnail**:
+The owner-facing visual summary of an artifact's latest ready version. It does not represent the version selected by the current publication.
+_Avoid_: Publication thumbnail, share-link preview
+
+**Upload**:
+The user action that sends local Artifact content to ShareSlices, either as a new Artifact or as a new Version of an existing Artifact. Upload does not make content available to Viewers.
+_Avoid_: Create, Publish, deploy
+
+**Publish**:
+The Owner action that makes a selected ready Version available to Viewers for a chosen duration. The first Publish creates the Share link; a later Publish reuses that link unless the Owner explicitly replaces it.
+_Avoid_: Share, deploy, release
+
 **Publication**:
-The current pointer from an artifact to the version viewers should see.
+The time-bounded state that makes one Version of an Artifact available to Viewers. It owns when that external availability ends.
 _Avoid_: Deployment, release
+
+**Publication status**:
+The Owner-facing classification of an Artifact's external availability: Not published when it has never been published, Published while its current Publication is available, Expired after a scheduled end, and Unpublished after the Owner ends it early.
+_Avoid_: Artifact status, Share-link status
+
+**Unpublish**:
+The Owner action that ends an Artifact's current Publication before its scheduled end without replacing its Share link.
+_Avoid_: Delete, revoke link
 
 **Preview**:
 An owner-only rendering of one ready version before publication. It does not change publication state or make content available through the share link.
 _Avoid_: Private share, draft publication
 
 **Share link**:
-An address that resolves an artifact according to the link lifecycle and the artifact's publication state. A link can be active, expired, or retired.
+The stable address through which Viewers reach an Artifact's current Publication. The address remains identifiable when no Publication is active and changes only when the Owner explicitly replaces it.
 _Avoid_: Version link, upload link
+
+**Replace share link**:
+The Owner choice during Publish that permanently retires the previous Share link and creates a new one.
+_Avoid_: Add link, link alias
 
 **User**:
 The account holder who signs in to ShareSlices.

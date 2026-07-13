@@ -80,7 +80,9 @@ pub struct Artifact {
     pub name: String,
     pub updated_at: String,
     pub processing_state: String,
-    pub share_link: ArtifactShareLink,
+    pub share_link: Option<ArtifactShareLink>,
+    #[serde(default)]
+    pub publication_status: PublicationStatus,
     pub publication: Option<ArtifactPublication>,
 }
 
@@ -89,7 +91,6 @@ pub struct Artifact {
 pub struct ArtifactShareLink {
     pub url: String,
     pub state: String,
-    pub expires_at: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -100,6 +101,38 @@ pub struct ArtifactPublication {
     pub version_id: Option<String>,
     #[serde(default)]
     pub published_at: Option<String>,
+    #[serde(default)]
+    pub expiration_kind: Option<String>,
+    #[serde(default)]
+    pub duration_seconds: Option<u64>,
+    #[serde(default)]
+    pub expires_at: Option<String>,
+    #[serde(default)]
+    pub ended_at: Option<String>,
+    #[serde(default)]
+    pub end_reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PublicationStatus {
+    #[default]
+    NotPublished,
+    Published,
+    Expired,
+    Unpublished,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
+pub enum ExpirationPolicy {
+    Permanent,
+    Duration { duration_seconds: u64 },
+    Exact { expires_at: String },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -115,7 +148,9 @@ pub struct ReadyArtifactVersion {
 pub struct ArtifactDetail {
     pub id: String,
     pub name: String,
-    pub share_link: ArtifactShareLink,
+    pub share_link: Option<ArtifactShareLink>,
+    #[serde(default)]
+    pub publication_status: PublicationStatus,
     pub publication: Option<ArtifactPublication>,
 }
 
@@ -125,20 +160,7 @@ pub struct PublicationResult {
     pub id: String,
     pub version_id: String,
     pub published_at: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum PublicationAccessState {
-    Accessible,
-    NotAccessible,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct PublicationAccessResult {
-    pub url: String,
-    pub state: PublicationAccessState,
+    #[serde(default)]
     pub expires_at: Option<String>,
 }
 
@@ -146,7 +168,7 @@ pub struct PublicationAccessResult {
 #[serde(rename_all = "camelCase")]
 pub struct PublishedResult {
     pub publication: PublicationResult,
-    pub access: PublicationAccessResult,
+    pub share_link: ArtifactShareLink,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -238,6 +260,10 @@ pub enum ArtifactError {
     ShareEditSelectionUnavailable,
     #[error("--expires-at must be a future RFC 3339 timestamp or 'never'.")]
     InvalidShareExpiration,
+    #[error(
+        "Publication expiration must be permanent, a positive duration, or a future RFC 3339 timestamp."
+    )]
+    InvalidPublicationExpiration,
     #[error("No ready Version is available for this Artifact.")]
     NoReadyVersion,
     #[error("Delete requires an Artifact ID when interactive prompting is unavailable.")]

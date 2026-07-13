@@ -1,4 +1,4 @@
-import { CheckCircle2, Clipboard, Eye, Pencil, RefreshCw, Rocket, Upload, XCircle } from "lucide-react";
+import { CheckCircle2, Clipboard, Eye, Pencil, RefreshCw, Rocket, Settings2, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   type Artifact,
@@ -6,12 +6,11 @@ import {
   type ValidationNotice,
   getArtifact,
   getUploadPolicy,
-  publishArtifact,
   replaceArtifactFile,
   retryUploadSession,
-  unpublishArtifact,
   updateArtifactName
 } from "../api/artifacts";
+import { ArtifactShareDialog } from "./ArtifactShareDialog";
 import { preflightArtifactZip } from "../artifacts/archive-preflight-client";
 import { ArtifactStatus } from "../components/ArtifactStatus";
 import { ArtifactValidationReport } from "../components/ArtifactValidationReport";
@@ -40,6 +39,7 @@ export function ArtifactPage({
   const [saving, setSaving] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [actionFeedback, setActionFeedback] = useState<ActionFeedback | null>(null);
+  const [publicationDialog, setPublicationDialog] = useState<"publish" | "manage" | null>(null);
   const [preflightWarning, setPreflightWarning] = useState<string | null>(null);
   const [preflightIssue, setPreflightIssue] = useState<ValidationNotice | null>(null);
   const replacementInput = useRef<HTMLInputElement>(null);
@@ -168,22 +168,8 @@ export function ArtifactPage({
     }
   }
 
-  async function publish() {
-    if (!artifact?.readyVersion) return;
-    await runMutation("publish", "Artifact published.", async () => {
-      await publishArtifact(artifactId, artifact.readyVersion!.id, idempotencyKey("publish"));
-    });
-  }
-
-  async function unpublish() {
-    if (!artifact?.publication) return;
-    await runMutation("unpublish", "Artifact unpublished. The Share link is unchanged.", async () => {
-      await unpublishArtifact(artifactId, artifact.publication!.id);
-    });
-  }
-
   async function copyShareLink() {
-    if (!artifact) return;
+    if (!artifact?.shareLink || artifact.publicationStatus !== "published") return;
     setPendingAction("copy_share_link");
     setActionFeedback(null);
     try {
@@ -332,9 +318,9 @@ export function ArtifactPage({
         </div>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
           <dt className="text-neutral-500">Share link</dt>
-          <dd className="min-w-0 truncate text-right text-neutral-900">{artifact.shareLink.url}</dd>
-          <dt className="text-neutral-500">Link state</dt>
-          <dd className="text-right capitalize text-neutral-900">{artifact.shareLink.state}</dd>
+          <dd className="min-w-0 truncate text-right text-neutral-900">{artifact.publicationStatus === "not_published" ? "Created when published" : artifact.shareLink?.url ?? "Unavailable"}</dd>
+          <dt className="text-neutral-500">Publication</dt>
+          <dd className="text-right capitalize text-neutral-900">{artifact.publicationStatus.replace("_", " ")}</dd>
           <dt className="text-neutral-500">Version</dt>
           <dd className="truncate text-right font-mono text-xs text-neutral-900">{artifact.readyVersion?.id ?? "Not ready"}</dd>
         </dl>
@@ -392,19 +378,19 @@ export function ArtifactPage({
               label={pendingAction === "publish" ? "Publishing..." : "Publish"}
               pending={pendingAction === "publish"}
               disabled={actionPending}
-              onClick={publish}
+              onClick={() => setPublicationDialog("publish")}
             />
           ) : null}
-          {artifact.allowedActions.includes("unpublish") ? (
+          {artifact.allowedActions.includes("manage_publication") ? (
             <ActionButton
-              icon={XCircle}
-              label={pendingAction === "unpublish" ? "Removing publication..." : "Unpublish"}
-              pending={pendingAction === "unpublish"}
+              icon={Settings2}
+              label="Manage publication"
+              pending={false}
               disabled={actionPending}
-              onClick={unpublish}
+              onClick={() => setPublicationDialog("manage")}
             />
           ) : null}
-          {artifact.allowedActions.includes("copy_share_link") ? (
+          {artifact.allowedActions.includes("copy_share_link") && artifact.publicationStatus === "published" && artifact.shareLink ? (
             <ActionButton
               icon={Clipboard}
               label={pendingAction === "copy_share_link" ? "Copying..." : "Copy Share link"}
@@ -429,6 +415,7 @@ export function ArtifactPage({
           {preflightWarning ? <Alert><AlertDescription>{preflightWarning}</AlertDescription></Alert> : null}
         </div>
       </section>
+      <ArtifactShareDialog artifact={publicationDialog ? artifact : null} mode={publicationDialog ?? "publish"} onOpenChange={(open) => !open && setPublicationDialog(null)} onUpdated={(updated) => { setArtifact(updated); setName(updated.name); }} onSessionExpired={onSessionExpired} />
     </div>
   );
 }
@@ -461,7 +448,9 @@ function stateDescription(artifact: Artifact): string {
   if (artifact.processingState === "accepted") return "The upload was accepted and is waiting for processing.";
   if (artifact.processingState === "processing") return "The uploaded files are being validated and prepared.";
   if (artifact.processingState === "failed") return "Processing stopped. Use the available recovery action to continue.";
-  if (artifact.publication) return "This artifact is published at its active Share link.";
+  if (artifact.publicationStatus === "published") return "This artifact is published at its active Share link.";
+  if (artifact.publicationStatus === "expired") return "This publication expired. Publish again to restore access using the same link by default.";
+  if (artifact.publicationStatus === "unpublished") return "This publication was ended early. Publish again to restore access using the same link by default.";
   return "The artifact is ready and has not been published.";
 }
 

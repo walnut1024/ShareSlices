@@ -294,20 +294,11 @@ describe("Artifact routes", () => {
     expect(dependencies.management.rename).toHaveBeenCalledWith("owner-1", "artifact-1", "Renamed");
   });
 
-  it("updates Share link expiration and deletes an eligible Artifact", async () => {
+  it("deletes an eligible Artifact", async () => {
     const dependencies = managementDependencies();
     const app = buildApp({ artifact: dependencies } as never);
-    const expiresAt = "2026-08-08T23:59:59.999Z";
-
-    const expiration = await app.request("/api/artifacts/artifact-1/share-link", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ expiresAt })
-    });
     const deleted = await app.request("/api/artifacts/artifact-1", { method: "DELETE" });
 
-    expect(expiration.status).toBe(200);
-    expect(dependencies.management.setShareExpiration).toHaveBeenCalledWith("owner-1", "artifact-1", expiresAt);
     expect(deleted.status).toBe(204);
     expect(deleted.headers.get("x-request-id")).toBeTruthy();
     expect(dependencies.management.delete).toHaveBeenCalledWith("owner-1", "artifact-1");
@@ -340,44 +331,4 @@ describe("Artifact routes", () => {
     expect(dependencies.management.delete).not.toHaveBeenCalled();
   });
 
-  it("rejects invalid Share expiration input and enforces ownership", async () => {
-    const dependencies = managementDependencies();
-    const app = buildApp({ artifact: dependencies } as never);
-
-    for (const body of [{}, { expiresAt: "not-a-date" }, { expiresAt: 42 }]) {
-      const response = await app.request("/api/artifacts/artifact-1/share-link", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body)
-      });
-      expect(response.status).toBe(400);
-    }
-    expect(dependencies.management.setShareExpiration).not.toHaveBeenCalled();
-
-    const unauthorizedDependencies = managementDependencies();
-    unauthorizedDependencies.authApi.getSession.mockResolvedValue(null);
-    const unauthorized = buildApp({ artifact: unauthorizedDependencies } as never);
-    const response = await unauthorized.request("/api/artifacts/artifact-1/share-link", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ expiresAt: null })
-    });
-    expect(response.status).toBe(401);
-    expect(unauthorizedDependencies.management.setShareExpiration).not.toHaveBeenCalled();
-
-    const otherOwnerDependencies = managementDependencies();
-    otherOwnerDependencies.authApi.getSession.mockResolvedValue({ user: { id: "other-owner" } });
-    otherOwnerDependencies.management.get.mockRejectedValue(new ArtifactManagementError("artifact_not_found"));
-    otherOwnerDependencies.management.setShareExpiration.mockRejectedValue(
-      new ArtifactManagementError("artifact_not_found")
-    );
-    const otherOwner = buildApp({ artifact: otherOwnerDependencies } as never);
-    expect((await otherOwner.request("/api/artifacts/artifact-1")).status).toBe(404);
-    const edit = await otherOwner.request("/api/artifacts/artifact-1/share-link", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ expiresAt: null })
-    });
-    expect(edit.status).toBe(404);
-  });
 });

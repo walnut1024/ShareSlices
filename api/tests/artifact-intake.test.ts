@@ -95,8 +95,7 @@ function completedRecord(name: string, zip: string): IdempotencyRecord {
     responseBody: {
       artifactId: "artifact-existing",
       uploadSessionId: "upload-existing",
-      processingState: "accepted",
-      shareLink: { url: "http://127.0.0.1:7456/a/existing-share-slug/", state: "active" }
+      processingState: "accepted"
     }
   };
 }
@@ -114,7 +113,7 @@ describe("ArtifactIntakeService", () => {
     });
 
     expect(result.processingState).toBe("accepted");
-    expect(result.shareLink.url).toMatch(/\/a\/[A-Za-z0-9_-]{22}\/$/);
+    expect(result).not.toHaveProperty("shareLink");
     expect(commitAccepted).toHaveBeenCalledOnce();
     const committed = commitAccepted.mock.calls[0]?.[0];
     expect(committed).toBeDefined();
@@ -122,6 +121,8 @@ describe("ArtifactIntakeService", () => {
       throw new Error("Expected committed Artifact input.");
     }
     expect(committed.name).toBe("Report");
+    expect(committed).not.toHaveProperty("shareLinkId");
+    expect(committed).not.toHaveProperty("shareSlug");
     expect(await storage.readForTest(committed.rawObjectKey)).toEqual(Buffer.from("zip-content"));
   });
 

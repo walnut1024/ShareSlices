@@ -12,7 +12,6 @@ ARTIFACT_PATHS = {
     "/api/artifacts",
     "/api/artifacts/{artifactId}",
     "/api/artifacts/{artifactId}/versions",
-    "/api/artifacts/{artifactId}/share-link",
     "/api/artifacts/{artifactId}/upload-sessions",
     "/api/upload-sessions/{uploadSessionId}:retry",
     "/api/versions/{versionId}/content/",
@@ -30,7 +29,6 @@ ARTIFACT_OPERATIONS = {
     ("get", "/api/artifacts/{artifactId}"),
     ("get", "/api/artifacts/{artifactId}/versions"),
     ("patch", "/api/artifacts/{artifactId}"),
-    ("patch", "/api/artifacts/{artifactId}/share-link"),
     ("delete", "/api/artifacts/{artifactId}"),
     ("post", "/api/artifacts/{artifactId}/upload-sessions"),
     ("post", "/api/upload-sessions/{uploadSessionId}:retry"),
@@ -38,6 +36,7 @@ ARTIFACT_OPERATIONS = {
     ("get", "/api/versions/{versionId}/content/{assetPath}"),
     ("get", "/api/versions/{versionId}/export"),
     ("post", "/api/artifacts/{artifactId}/publications"),
+    ("patch", "/api/artifacts/{artifactId}/publications/{publicationId}"),
     ("delete", "/api/artifacts/{artifactId}/publications/{publicationId}"),
     ("get", "/a/{shareSlug}/"),
     ("get", "/a/{shareSlug}/{assetPath}"),
@@ -95,17 +94,38 @@ def test_openapi_artifact_contract_and_local_references() -> None:
         "enabledExtensions": [".html", ".css", ".js", ".png"],
     }
     assert schemas["ArtifactAcceptedResponse"]["example"]["uploadSessionId"]
+    assert "shareLink" not in schemas["ArtifactAcceptedResponse"]["properties"]
+    assert "shareLink" not in schemas["ArtifactAcceptedResponse"]["required"]
     assert schemas["Artifact"]["example"]["id"] == "artifact-example"
-    assert schemas["PublicationResponse"]["example"]["publication"]["versionId"] == "version-example"
-    assert schemas["PublicationResponse"]["required"] == ["publication", "access"]
-    assert schemas["PublicationAccess"]["properties"]["state"]["enum"] == [
-        "accessible",
-        "not_accessible",
+    assert schemas["Artifact"]["properties"]["publicationStatus"]["enum"] == [
+        "not_published",
+        "published",
+        "expired",
+        "unpublished",
     ]
-    assert schemas["UpdateShareLinkRequest"]["required"] == ["expiresAt"]
-    assert schemas["ShareLink"]["properties"]["state"]["enum"] == ["active", "expired", "retired"]
-    update_share = document["paths"]["/api/artifacts/{artifactId}/share-link"]["patch"]
-    assert set(update_share["responses"]) == {"200", "400", "401", "404", "500"}
+    assert schemas["Artifact"]["properties"]["shareLink"] == {
+        "oneOf": [
+            {"$ref": "#/components/schemas/ShareLink"},
+            {"type": "null"},
+        ]
+    }
+    assert schemas["PublicationResponse"]["example"]["publication"]["versionId"] == "version-example"
+    assert schemas["PublicationResponse"]["required"] == ["publication", "shareLink"]
+    assert schemas["CreatePublicationRequest"]["required"] == ["versionId", "expiration", "link"]
+    expiration_variants = schemas["PublicationExpirationPolicy"]["oneOf"]
+    assert [variant["properties"]["kind"]["const"] for variant in expiration_variants] == [
+        "permanent",
+        "duration",
+        "exact",
+    ]
+    link_variants = schemas["PublicationLinkChoice"]["oneOf"]
+    assert [variant["properties"]["mode"]["const"] for variant in link_variants] == ["reuse", "replace"]
+    assert link_variants[1]["properties"]["confirmRetire"]["const"] is True
+    assert schemas["UpdatePublicationRequest"]["required"] == ["expiration"]
+    assert schemas["ShareLink"]["properties"]["state"]["enum"] == ["active", "retired"]
+    manage_publication = document["paths"]["/api/artifacts/{artifactId}/publications/{publicationId}"]
+    assert set(manage_publication) - {"parameters"} == {"patch", "delete"}
+    assert set(manage_publication["patch"]["responses"]) == {"200", "400", "401", "404", "409", "500"}
     delete_artifact = document["paths"]["/api/artifacts/{artifactId}"]["delete"]
     assert set(delete_artifact["responses"]) == {"204", "401", "404", "409", "500"}
     assert "must not automatically retry" in delete_artifact["description"]

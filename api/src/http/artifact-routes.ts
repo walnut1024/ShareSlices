@@ -17,13 +17,12 @@ import { MultipartUploadError, parseArtifactMultipartUpload } from "./multipart-
 export type ArtifactRouteDependencies = {
   authApi: Pick<typeof auth.api, "getSession">;
   repositories: Pick<ArtifactRepositories, "uploadPolicies">;
-  management: Pick<ArtifactManagementService, "list" | "get" | "listReadyVersions" | "rename" | "setShareExpiration" | "delete">;
+  management: Pick<ArtifactManagementService, "list" | "get" | "listReadyVersions" | "rename" | "delete">;
   intake: Pick<ArtifactIntakeService, "create">;
   recovery: Pick<ArtifactRecoveryService, "retry" | "replace">;
 };
 
 const updateArtifactSchema = z.object({ name: z.string() }).strict();
-const updateShareLinkSchema = z.object({ expiresAt: z.string().datetime({ offset: true }).nullable() }).strict();
 const artifactListQuerySchema = z.object({
   publication: z.enum(["published", "unpublished"]).optional(),
   processing: z.enum(["accepted", "processing", "ready", "failed"]).optional(),
@@ -316,29 +315,6 @@ export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {
     }
     try {
       const artifact = await dependencies.management.rename(ownerId, c.req.param("artifactId"), parsed.data.name);
-      c.header("X-Request-Id", requestId(c));
-      return c.json({ artifact });
-    } catch (error) {
-      if (error instanceof ArtifactManagementError) {
-        return error.code === "artifact_not_found"
-          ? errorJson(c, 404, "artifact_not_found")
-          : errorJson(c, 400, "invalid_request");
-      }
-      throw error;
-    }
-  });
-
-  app.patch("/api/artifacts/:artifactId/share-link", async (c) => {
-    const ownerId = await ownerUserId(c.req.raw.headers);
-    if (!ownerId) return errorJson(c, 401, "unauthenticated");
-    const parsed = updateShareLinkSchema.safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success) return errorJson(c, 400, "invalid_request");
-    try {
-      const artifact = await dependencies.management.setShareExpiration(
-        ownerId,
-        c.req.param("artifactId"),
-        parsed.data.expiresAt
-      );
       c.header("X-Request-Id", requestId(c));
       return c.json({ artifact });
     } catch (error) {

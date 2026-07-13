@@ -1,7 +1,7 @@
 use crate::{
     Artifact, ArtifactAccepted, ArtifactDetail, ArtifactError, ArtifactState, AuthApi, AuthError,
-    Authorization, Exchange, ProcessingFilter, PublicationFilter, PublishedResult,
-    ReadyArtifactVersion, UploadPolicy, User,
+    Authorization, Exchange, ExpirationPolicy, ProcessingFilter, PublicationFilter,
+    PublishedResult, ReadyArtifactVersion, UploadPolicy, User,
 };
 use async_trait::async_trait;
 use reqwest::{Client, Response, StatusCode};
@@ -361,6 +361,9 @@ impl ApiClient {
         token: &str,
         artifact_id: &str,
         version_id: &str,
+        expiration_policy: &ExpirationPolicy,
+        replace_link: bool,
+        confirm_replace_link: bool,
     ) -> Result<PublishedResult, ArtifactError> {
         let response = self
             .request(
@@ -369,7 +372,15 @@ impl ApiClient {
             )
             .bearer_auth(token)
             .header("Idempotency-Key", format!("cli-{}", uuid::Uuid::new_v4()))
-            .json(&serde_json::json!({ "versionId": version_id }))
+            .json(&serde_json::json!({
+                "versionId": version_id,
+                "expiration": expiration_policy,
+                "link": if replace_link {
+                    serde_json::json!({ "mode": "replace", "confirmRetire": confirm_replace_link })
+                } else {
+                    serde_json::json!({ "mode": "reuse" })
+                }
+            }))
             .send()
             .await
             .map_err(|error| ArtifactError::Network(error.to_string()))?;
@@ -407,14 +418,15 @@ impl ApiClient {
         Ok(())
     }
 
-    /// Sets or clears the stable Share-link expiration without changing Publication.
+    /// Sets or clears the current Publication expiration without publishing again.
     ///
     /// # Errors
     /// Returns an Artifact error for authentication, transport, ownership, validation, or decoding failures.
-    pub async fn set_share_expiration(
+    pub async fn set_publication_expiration(
         &self,
         token: &str,
         artifact_id: &str,
+        publication_id: &str,
         expires_at: Option<&str>,
     ) -> Result<ArtifactDetail, ArtifactError> {
         #[derive(Deserialize)]
@@ -424,10 +436,15 @@ impl ApiClient {
         let response = self
             .request(
                 reqwest::Method::PATCH,
-                &format!("/api/artifacts/{artifact_id}/share-link"),
+                &format!("/api/artifacts/{artifact_id}/publications/{publication_id}"),
             )
             .bearer_auth(token)
-            .json(&serde_json::json!({ "expiresAt": expires_at }))
+            .json(&serde_json::json!({
+                "expiration": expires_at.map_or_else(
+                    || serde_json::json!({"kind":"permanent"}),
+                    |value| serde_json::json!({"kind":"exact","expiresAt":value})
+                )
+            }))
             .send()
             .await
             .map_err(|error| ArtifactError::Network(error.to_string()))?;

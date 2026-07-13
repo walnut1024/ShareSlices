@@ -11,7 +11,7 @@ import {
   Pencil,
   Play,
   Search,
-  Share2,
+  Rocket,
   Trash2
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -63,7 +63,7 @@ export function ArtifactsPage({ onAccepted }: { onAccepted: (artifactId: string)
   const [filter, setFilter] = useState<ArtifactFilter>("all");
   const [query, setQuery] = useState("");
   const [view, setView] = useState<ViewMode>("grid");
-  const [shareArtifact, setShareArtifact] = useState<Artifact | null>(null);
+  const [publicationDialog, setPublicationDialog] = useState<{ artifact: Artifact; mode: "publish" | "manage" } | null>(null);
   const [renameArtifact, setRenameArtifact] = useState<Artifact | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Artifact | null>(null);
   const [pending, setPending] = useState(false);
@@ -78,6 +78,31 @@ export function ArtifactsPage({ onAccepted }: { onAccepted: (artifactId: string)
     };
   }, []);
 
+  const hasPendingThumbnail = artifacts?.some(
+    (artifact) => artifact.readyVersion?.thumbnailState === "pending"
+  ) ?? false;
+
+  useEffect(() => {
+    if (!hasPendingThumbnail) return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      try {
+        const value = await listArtifacts();
+        if (active) setArtifacts(value);
+      } catch {
+        // Thumbnail refresh is best-effort and must not replace the loaded list.
+      } finally {
+        if (active) timer = setTimeout(refresh, 2_000);
+      }
+    };
+    timer = setTimeout(refresh, 2_000);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [hasPendingThumbnail]);
+
   const visibleArtifacts = useMemo(() => {
     if (!artifacts) return [];
     const normalizedQuery = query.trim().toLowerCase();
@@ -90,7 +115,7 @@ export function ArtifactsPage({ onAccepted }: { onAccepted: (artifactId: string)
 
   function updateOne(updated: Artifact) {
     setArtifacts((current) => current?.map((artifact) => artifact.id === updated.id ? updated : artifact) ?? current);
-    setShareArtifact((current) => current?.id === updated.id ? updated : current);
+    setPublicationDialog((current) => current?.artifact.id === updated.id ? { ...current, artifact: updated } : current);
   }
 
   async function rename(name: string) {
@@ -182,7 +207,7 @@ export function ArtifactsPage({ onAccepted }: { onAccepted: (artifactId: string)
               artifact={artifact}
               index={index}
               view={view}
-              onShare={() => setShareArtifact(artifact)}
+              onPublication={() => setPublicationDialog({ artifact, mode: artifact.publicationStatus === "published" ? "manage" : "publish" })}
               onRename={() => setRenameArtifact(artifact)}
               onDelete={() => setDeleteTarget(artifact)}
             />
@@ -190,7 +215,7 @@ export function ArtifactsPage({ onAccepted }: { onAccepted: (artifactId: string)
         </ul>
       ) : null}
 
-      <ArtifactShareDialog artifact={shareArtifact} onOpenChange={(open) => !open && setShareArtifact(null)} onUpdated={updateOne} />
+      <ArtifactShareDialog artifact={publicationDialog?.artifact ?? null} mode={publicationDialog?.mode ?? "publish"} onOpenChange={(open) => !open && setPublicationDialog(null)} onUpdated={updateOne} />
       <RenameDialog artifact={renameArtifact} pending={pending} onClose={() => setRenameArtifact(null)} onSubmit={(name) => void rename(name)} />
       <DeleteDialog artifact={deleteTarget} pending={pending} onClose={() => setDeleteTarget(null)} onConfirm={() => void remove()} />
     </div>
@@ -201,14 +226,14 @@ function ArtifactTile({
   artifact,
   index,
   view,
-  onShare,
+  onPublication,
   onRename,
   onDelete
 }: {
   artifact: Artifact;
   index: number;
   view: ViewMode;
-  onShare: () => void;
+  onPublication: () => void;
   onRename: () => void;
   onDelete: () => void;
 }) {
@@ -233,26 +258,49 @@ function ArtifactTile({
     <li className="relative">
       <Card className="relative gap-0 overflow-visible py-0 shadow-[0_1px_2px_rgba(9,9,11,0.05)] ring-border transition-[box-shadow,outline-color] hover:shadow-[0_6px_18px_-10px_rgba(9,9,11,0.22)] hover:ring-foreground/20">
         <a aria-label={artifact.name} className="absolute inset-0 z-0 rounded-xl" href={detailUrl} />
-        <CardContent className={`pointer-events-none relative flex h-[132px] items-center justify-center overflow-hidden rounded-t-xl p-0 ${previewClass(artifact, index)}`}>
+        <CardContent className={`pointer-events-none relative flex aspect-[8/5] items-center justify-center overflow-hidden rounded-t-xl p-0 ${previewClass(artifact, index)}`}>
           <FileText aria-hidden="true" className="size-9 text-muted-foreground/55" />
+          {artifact.readyVersion?.thumbnailState === "ready" ? (
+            <img
+              alt=""
+              className="absolute inset-0 size-full object-cover"
+              onError={(event) => { event.currentTarget.hidden = true; }}
+              src={`/api/versions/${encodeURIComponent(artifact.readyVersion.id)}/thumbnail`}
+            />
+          ) : null}
           <div className="absolute top-2 left-2"><StatusBadge artifact={artifact} overlay /></div>
           <div className="pointer-events-auto absolute right-2 bottom-2 z-10 flex gap-1.5">
             {previewUrl && artifact.allowedActions.includes("preview") ? (
               <Tooltip><TooltipTrigger render={<Button aria-label={`Start presentation for ${artifact.name}`} className="bg-background/95 shadow-none" size="icon-xs" variant="outline" onClick={() => window.open(previewUrl, "_blank")} />}><Play aria-hidden="true" /></TooltipTrigger><TooltipContent>Start presentation</TooltipContent></Tooltip>
             ) : null}
-            {ready && artifact.allowedActions.includes("copy_share_link") ? (
-              <Tooltip><TooltipTrigger render={<Button aria-label={`Share ${artifact.name}`} className="bg-background/95 shadow-none" size="icon-xs" variant="outline" onClick={onShare} />}><Share2 aria-hidden="true" /></TooltipTrigger><TooltipContent>{artifact.publication ? "Manage share" : "Share"}</TooltipContent></Tooltip>
+            {ready && (artifact.allowedActions.includes("publish") || artifact.allowedActions.includes("manage_publication")) ? (
+              <Tooltip><TooltipTrigger render={<Button aria-label={`${artifact.publicationStatus === "published" ? "Manage publication for" : "Publish"} ${artifact.name}`} className="bg-background/95 shadow-none" size="icon-xs" variant="outline" onClick={onPublication} />}><Rocket aria-hidden="true" /></TooltipTrigger><TooltipContent>{artifact.publicationStatus === "published" ? "Manage publication" : "Publish"}</TooltipContent></Tooltip>
             ) : null}
           </div>
         </CardContent>
         <CardFooter className="pointer-events-none flex-col items-start gap-0 border-t border-muted px-3 pt-[11px] pb-[13px]">
-          <span className="w-full truncate text-[13px] font-medium">{artifact.name}</span>
+          <ArtifactCardName name={artifact.name} />
           <span className="mt-0.5 truncate font-mono text-[10.5px] text-muted-foreground">{formatModified(artifact.updatedAt)}</span>
         </CardFooter>
       </Card>
       <div className="absolute top-2 right-2"><ArtifactMenu artifact={artifact} detailUrl={detailUrl} overlay onRename={onRename} onDelete={onDelete} /></div>
     </li>
   );
+}
+
+function ArtifactCardName({ name }: { name: string }) {
+  const parts = splitArtifactName(name);
+  return (
+    <span className="flex w-full min-w-0 items-baseline text-[13px] font-medium" title={name}>
+      <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">{parts.head}</span>
+      <span className="max-w-1/3 shrink-0 overflow-hidden whitespace-nowrap [direction:rtl] [text-align:left]">{parts.tail}</span>
+    </span>
+  );
+}
+
+function splitArtifactName(name: string): { head: string; tail: string } {
+  const tailLength = Math.ceil(name.length / 3);
+  return { head: name.slice(0, -tailLength), tail: name.slice(-tailLength) };
 }
 
 function ArtifactMenu({ artifact, detailUrl, overlay = false, onRename, onDelete }: { artifact: Artifact; detailUrl: string; overlay?: boolean; onRename: () => void; onDelete: () => void }) {
@@ -301,8 +349,9 @@ function DeleteDialog({ artifact, pending, onClose, onConfirm }: { artifact: Art
 }
 
 function StatusBadge({ artifact, overlay = false }: { artifact: Artifact; overlay?: boolean }) {
-  const label = artifact.processingState === "failed" ? "Needs attention" : artifact.processingState === "ready" ? artifact.publication ? "Shared" : "Ready" : artifact.processingState === "processing" ? "Processing" : "Accepted";
-  return <Badge className={overlay ? "bg-background/95 shadow-none" : "bg-white/95 shadow-sm"} variant="outline">{artifact.publication ? <span className="size-1.5 rounded-full bg-[var(--success)]" /> : null}{label}</Badge>;
+  const publicationLabels = { not_published: "Not published", published: "Published", expired: "Expired", unpublished: "Unpublished" } as const;
+  const label = artifact.processingState === "failed" ? "Needs attention" : artifact.processingState === "ready" ? publicationLabels[artifact.publicationStatus] : artifact.processingState === "processing" ? "Processing" : "Accepted";
+  return <Badge className={overlay ? "bg-background/95 shadow-none" : "bg-white/95 shadow-sm"} variant="outline">{artifact.publicationStatus === "published" ? <span className="size-1.5 rounded-full bg-[var(--success)]" /> : null}{label}</Badge>;
 }
 
 function EmptyState({ title, description }: { title: string; description: string }) {
@@ -316,7 +365,7 @@ function ArtifactGridSkeleton() {
 function artifactFilter(artifact: Artifact): Exclude<ArtifactFilter, "all"> {
   if (artifact.processingState === "failed") return "attention";
   if (artifact.processingState === "accepted" || artifact.processingState === "processing") return "processing";
-  if (artifact.publication) return "published";
+  if (artifact.publicationStatus === "published") return "published";
   return "ready";
 }
 

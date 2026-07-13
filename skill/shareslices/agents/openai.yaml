@@ -1,0 +1,4 @@
+interface:
+  display_name: "ShareSlices"
+  short_description: "Publish local artifacts through the ShareSlices CLI"
+  default_prompt: "Use $shareslices to publish this local artifact and return its Share link."

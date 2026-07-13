@@ -73,9 +73,9 @@ fn artifact(id: &str, publication: &serde_json::Value) -> serde_json::Value {
         "processingState": "ready",
         "shareLink": {
             "url": "https://viewer.example/a/stable/",
-            "state": "active",
-            "expiresAt": null
+            "state": "active"
         },
+        "publicationStatus": if publication.is_null() { "not_published" } else { "published" },
         "publication": publication
     })
 }
@@ -163,7 +163,12 @@ async fn injected_runner_process_exercises_publish_unpublish_share_and_delete() 
     let publication = serde_json::json!({
         "id": "publication-1",
         "versionId": "version-1",
-        "publishedAt": "2026-07-13T00:00:00Z"
+        "publishedAt": "2026-07-13T00:00:00Z",
+        "expirationKind": "permanent",
+        "durationSeconds": null,
+        "expiresAt": null,
+        "endedAt": null,
+        "endReason": null
     });
     Mock::given(method("GET"))
         .and(path("/api/artifacts/artifact-1"))
@@ -181,12 +186,16 @@ async fn injected_runner_process_exercises_publish_unpublish_share_and_delete() 
             "publication": {
                 "id": "publication-2",
                 "versionId": "version-2",
-                "publishedAt": "2026-07-13T01:00:00Z"
+                "publishedAt": "2026-07-13T01:00:00Z",
+                "expirationKind": "permanent",
+                "durationSeconds": null,
+                "expiresAt": null,
+                "endedAt": null,
+                "endReason": null
             },
-            "access": {
+            "shareLink": {
                 "url": "https://viewer.example/a/stable/",
-                "state": "accessible",
-                "expiresAt": null
+                "state": "active"
             }
         })))
         .expect(1)
@@ -200,7 +209,7 @@ async fn injected_runner_process_exercises_publish_unpublish_share_and_delete() 
         .mount(&server)
         .await;
     Mock::given(method("PATCH"))
-        .and(path("/api/artifacts/artifact-1/share-link"))
+        .and(path("/api/artifacts/artifact-1/publications/publication-1"))
         .and(header("authorization", format!("Bearer {TOKEN}")))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "artifact": artifact("artifact-1", &serde_json::Value::Null)
@@ -244,7 +253,7 @@ async fn injected_runner_process_exercises_publish_unpublish_share_and_delete() 
 
     let share_view = run_injected_process(
         &server,
-        &["artifact", "share", "view", "artifact-1"],
+        &["artifact", "publication", "view", "artifact-1"],
         directory.path(),
     )
     .await;
@@ -257,7 +266,7 @@ async fn injected_runner_process_exercises_publish_unpublish_share_and_delete() 
         &server,
         &[
             "artifact",
-            "share",
+            "publication",
             "edit",
             "artifact-1",
             "--expires-at",

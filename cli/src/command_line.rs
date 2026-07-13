@@ -19,6 +19,7 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    Publish(PublishArgs),
     Auth {
         #[command(subcommand)]
         command: AuthCommand,
@@ -43,9 +44,9 @@ pub enum ArtifactCommand {
     Publish(ArtifactPublishArgs),
     Unpublish(ArtifactUnpublishArgs),
     Delete(ArtifactDeleteArgs),
-    Share {
+    Publication {
         #[command(subcommand)]
-        command: ArtifactShareCommand,
+        command: ArtifactPublicationCommand,
     },
     Export(ArtifactExportArgs),
 }
@@ -79,13 +80,13 @@ pub struct ArtifactDeleteArgs {
 }
 
 #[derive(Debug, Subcommand)]
-pub enum ArtifactShareCommand {
-    View(ArtifactShareViewArgs),
-    Edit(ArtifactShareEditArgs),
+pub enum ArtifactPublicationCommand {
+    View(ArtifactPublicationViewArgs),
+    Edit(ArtifactPublicationEditArgs),
 }
 
 #[derive(Debug, Args)]
-pub struct ArtifactShareViewArgs {
+pub struct ArtifactPublicationViewArgs {
     #[arg(value_name = "ARTIFACT_ID")]
     pub artifact: Option<String>,
     #[arg(long, value_name = "FIELDS")]
@@ -97,7 +98,7 @@ pub struct ArtifactShareViewArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct ArtifactShareEditArgs {
+pub struct ArtifactPublicationEditArgs {
     #[arg(value_name = "ARTIFACT_ID")]
     pub artifact: Option<String>,
     #[arg(long, value_name = "RFC3339_OR_NEVER")]
@@ -116,12 +117,42 @@ pub struct ArtifactPublishArgs {
     pub artifact: Option<String>,
     #[arg(long)]
     pub version: Option<String>,
+    #[arg(long, value_name = "SECONDS", conflicts_with = "expires_at")]
+    pub duration: Option<u64>,
+    #[arg(long, value_name = "RFC3339", conflicts_with = "duration")]
+    pub expires_at: Option<String>,
+    #[arg(long, requires = "confirm_replace_link")]
+    pub replace_link: bool,
+    #[arg(long, requires = "replace_link")]
+    pub confirm_replace_link: bool,
     #[arg(long, value_name = "FIELDS")]
     pub json: Option<String>,
     #[arg(long, requires = "json", conflicts_with = "template")]
     pub jq: Option<String>,
     #[arg(long, requires = "json", conflicts_with = "jq")]
     pub template: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct PublishArgs {
+    #[arg(value_name = "PATHS", default_value = ".")]
+    pub paths: Vec<std::path::PathBuf>,
+    #[arg(long, value_name = "DIRECTORY")]
+    pub root: Option<std::path::PathBuf>,
+    #[arg(long)]
+    pub name: String,
+    #[arg(long)]
+    pub entry: Option<String>,
+    #[arg(long)]
+    pub no_progress: bool,
+    #[arg(long, value_name = "SECONDS", conflicts_with = "expires_at")]
+    pub duration: Option<u64>,
+    #[arg(long, value_name = "RFC3339", conflicts_with = "duration")]
+    pub expires_at: Option<String>,
+    #[arg(long, requires = "confirm_replace_link")]
+    pub replace_link: bool,
+    #[arg(long, requires = "replace_link")]
+    pub confirm_replace_link: bool,
 }
 
 #[derive(Debug, Args)]

@@ -1,10 +1,11 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createArtifactRepositories } from "../src/db/artifact-repositories.js";
+import { createArtifactThumbnailRepository } from "../src/db/artifact-thumbnail-repository.js";
 import * as schema from "../src/db/schema.js";
 
 const { Client, Pool } = pg;
@@ -17,6 +18,7 @@ describe("Artifact repository adapters", () => {
     options: `-c search_path=${schemaName}`
   });
   const repositories = createArtifactRepositories(drizzle(databasePool, { schema }));
+  const thumbnails = createArtifactThumbnailRepository(drizzle(databasePool, { schema }));
 
   beforeAll(async () => {
     await admin.connect();
@@ -81,6 +83,32 @@ describe("Artifact repository adapters", () => {
     );
   });
 
+  it("consumes capture grants once and keeps the resulting session Version-scoped", async () => {
+    const grant = "one-time-capture-grant";
+    const grantHash = createHash("sha256").update(grant).digest("hex");
+    await databasePool.query(
+      "insert into artifact_thumbnail_capture_grant (token_hash, version_id, expires_at) values ($1, 'version-1', now() + interval '1 minute')",
+      [grantHash]
+    );
+
+    await expect(thumbnails.consumeGrant(grant, "another-version")).resolves.toBeNull();
+    const session = await thumbnails.consumeGrant(grant, "version-1");
+    expect(session).toMatchObject({ versionId: "version-1" });
+    await expect(thumbnails.consumeGrant(grant, "version-1")).resolves.toBeNull();
+    await expect(thumbnails.resolveSession(session!.token, "version-1")).resolves.toBe(true);
+    await expect(thumbnails.resolveSession(session!.token, "another-version")).resolves.toBe(false);
+  });
+
+  it("rejects expired capture grants", async () => {
+    const grant = "expired-capture-grant";
+    await databasePool.query(
+      "insert into artifact_thumbnail_capture_grant (token_hash, version_id, expires_at, created_at) values ($1, 'version-1', now() - interval '1 second', now() - interval '1 minute')",
+      [createHash("sha256").update(grant).digest("hex")]
+    );
+
+    await expect(thumbnails.consumeGrant(grant, "version-1")).resolves.toBeNull();
+  });
+
   afterAll(async () => {
     await databasePool.end();
     await admin.query(`drop schema if exists "${schemaName}" cascade`);
@@ -134,7 +162,7 @@ describe("Artifact repository adapters", () => {
     await expect(repositories.shareLinks.findActiveByArtifacts(["artifact-1"])).resolves.toHaveLength(1);
     await expect(repositories.uploadSessions.findCurrentByArtifacts(["artifact-1"])).resolves.toHaveLength(1);
     await expect(repositories.versions.findReadyByArtifacts(["artifact-1"])).resolves.toHaveLength(1);
-    await expect(repositories.publications.findCurrentByArtifacts(["artifact-1"])).resolves.toHaveLength(1);
+    await expect(repositories.publications.findLatestByArtifacts(["artifact-1"])).resolves.toHaveLength(1);
   });
 
   it("resolves the resource records needed by the application modules", async () => {
@@ -176,7 +204,7 @@ describe("Artifact repository adapters", () => {
     await expect(repositories.versions.findReadyByArtifact("artifact-1")).resolves.toMatchObject({
       id: "version-1"
     });
-    await expect(repositories.publications.findCurrent("artifact-1")).resolves.toMatchObject({
+    await expect(repositories.publications.findLatest("artifact-1")).resolves.toMatchObject({
       id: "publication-1",
       versionId: "version-1"
     });
@@ -390,15 +418,12 @@ describe("Artifact repository adapters", () => {
     const responseBody = {
       artifactId: "artifact-created",
       uploadSessionId: "upload-created",
-      processingState: "accepted",
-      shareLink: { url: "http://127.0.0.1:7456/a/created-share-slug-0001/", state: "active" }
+      processingState: "accepted"
     };
     await repositories.intake.commitAccepted({
       artifactId: "artifact-created",
       ownerUserId: "owner-1",
       name: "Created",
-      shareLinkId: "link-created",
-      shareSlug: "created-share-slug-0001",
       uploadSessionId: "upload-created",
       policy: activePolicy,
       rawObjectKey: "raw/artifact-created/upload-created.zip",
@@ -463,6 +488,14 @@ describe("Artifact repository adapters", () => {
        values ('version-delete', 'index.html', 1, 12)`
     );
     await databasePool.query(
+      "insert into artifact_thumbnail_job (id, version_id, state) values ('thumbnail-job-delete', 'version-delete', 'completed')"
+    );
+    await databasePool.query(
+      `insert into artifact_thumbnail (version_id, object_key, content_type, size_bytes, width, height, sha256)
+       values ('version-delete', 'versions/version-delete/thumbnail.webp', 'image/webp', 100, 480, 300, $1)`,
+      ["a".repeat(64)]
+    );
+    await databasePool.query(
       "insert into artifact_publication (id, artifact_id, version_id, published_by_user_id) values ('publication-delete', 'artifact-delete', 'version-delete', 'owner-1')"
     );
     await databasePool.query(
@@ -484,7 +517,7 @@ describe("Artifact repository adapters", () => {
     const expectedCleanup = {
       kind: "cleanup",
       record: {
-        objectKeys: ["raw/artifact-delete/input.zip", "versions/artifact-delete/index.html"],
+        objectKeys: ["raw/artifact-delete/input.zip", "versions/artifact-delete/index.html", "versions/version-delete/thumbnail.webp"],
         stagingPrefixes: ["staging/artifact-delete/attempt-1/"]
       }
     };
@@ -499,6 +532,8 @@ describe("Artifact repository adapters", () => {
       (select count(*) from artifact_version where artifact_id = 'artifact-delete')::int as versions,
       (select count(*) from artifact_asset where version_id = 'version-delete')::int as assets,
       (select count(*) from artifact_manifest where version_id = 'version-delete')::int as manifests,
+      (select count(*) from artifact_thumbnail_job where version_id = 'version-delete')::int as thumbnail_jobs,
+      (select count(*) from artifact_thumbnail where version_id = 'version-delete')::int as thumbnails,
       (select count(*) from artifact_publication where artifact_id = 'artifact-delete')::int as publications,
       (select count(*) from artifact_idempotency_record where target_resource_id = 'artifact-delete')::int as idempotency,
       (select count(*) from artifact_deletion_cleanup where artifact_id = 'artifact-delete')::int as cleanup`);
@@ -511,6 +546,8 @@ describe("Artifact repository adapters", () => {
       versions: 0,
       assets: 0,
       manifests: 0,
+      thumbnail_jobs: 0,
+      thumbnails: 0,
       publications: 0,
       idempotency: 0,
       cleanup: 1

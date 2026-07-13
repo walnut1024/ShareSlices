@@ -60,15 +60,14 @@ Organization policy, private organization sharing, teams, and workspace administ
 
 ## How people use ShareSlices
 
-Share is the core user outcome. Upload and publish exist to make sharing reliable:
+Sharing is the core user outcome. Upload and Publish are the two product actions that make it reliable:
 
 - **Upload**: Send a local artifact to ShareSlices
-- **Publish**: Choose the version that the share link should show
-- **Share**: Copy the public link and send it to other people
+- **Publish**: Choose the Version, make it externally accessible for a chosen duration, and receive the Share link
 
-Upload creates history. Publish changes what viewers see. Share gives people the stable link.
+Upload creates Version history without making content externally accessible. Publish controls what Viewers can access and for how long. Copying and sending the resulting link is an ordinary user outcome, not a separate product action.
 
-The Skill and CLI handle collection and submission. The web app lets the signed-in user review their artifacts, preview and export ready versions, publish a version, manage Share link expiration, rename or delete an Artifact, and copy the Share link.
+The Skill and CLI can complete the common path by collecting local content, uploading it, waiting for a ready Version, publishing with explicit or default settings, and returning the Share link. Stepwise Upload and Publish remain available. The Web app lets the signed-in user review Artifacts, Preview and export ready Versions, Publish a Version, manage the current Publication, rename or delete an Artifact, and copy an accessible Share link.
 
 ## Core workflow
 
@@ -78,18 +77,18 @@ The main workflow starts inside an agent session:
 2. The agent creates a local static web artifact
 3. The agent calls the ShareSlices Skill
 4. The Skill finds or receives the entry file, then calls the CLI
-5. The CLI uploads the artifact to ShareSlices
-6. ShareSlices creates a new immutable version
-7. The user or agent publishes that version
-8. ShareSlices returns the artifact share link
+5. The CLI uploads the Artifact to ShareSlices
+6. ShareSlices creates a new immutable Version
+7. The user or agent publishes that Version with a duration
+8. ShareSlices makes the Version externally accessible and returns the Artifact's Share link
 
-Each artifact has one active share link. The link stays the same while the owner publishes, unpublishes, or republishes content:
+The first Publish creates an Artifact's Share link. Later Publish and Unpublish operations preserve that link unless the Owner explicitly replaces it during Publish:
 
 ```text
 https://view.example.com/a/{share_slug}/
 ```
 
-When the artifact is published, the viewer opens its current published version. When it is unpublished, the same link opens a status page instead of artifact content.
+When the Artifact has a current accessible Publication, the Viewer opens its selected Version. When that Publication expires or the Owner ends it early, the same link opens a non-content status page until the Owner publishes again.
 
 ## Artifact rules
 
@@ -99,9 +98,11 @@ An Artifact name is trimmed and contains 1 to 120 characters. Names are mutable 
 
 Every upload creates a new version. A version never changes after creation.
 
-Publishing preserves version content and updates the artifact so the share link opens the selected version.
+Publishing preserves Version content and atomically creates a time-bounded Publication for the selected ready Version. A Publication is permanent by default; the Owner can instead choose a relative duration or an exact future end time.
 
-Publishing an older version creates a new publication that points to that version. Product language calls this publishing a historical version.
+Publishing an older Version creates a new Publication for that Version. Product language calls this publishing a historical Version.
+
+Publishing while another Publication is accessible atomically replaces it. The new Publication reuses the previous duration policy by default: permanent stays permanent, a relative duration restarts from the new Publish time, and an exact end time is reused only while it remains in the future.
 
 ## Artifact limits
 
@@ -149,25 +150,31 @@ Version 0.0.1 renders accepted packaged HTML, JavaScript, CSS, images, fonts, an
 
 Signed-in users manage only artifacts they own.
 
-An owner can unpublish and republish an artifact without changing its active share link. Removing the current publication makes the active link show an unpublished status page.
+An Owner can Unpublish an Artifact before its scheduled end without changing its Share link or immutable Versions. Publishing again defaults to the previously published Version, duration policy, and Share link.
 
 An owner can permanently delete an Artifact. Deletion removes its management record, Versions, Publication, Share link, and stored raw, staging, and committed objects. Deletion is unavailable while the Artifact is accepted or processing. Version pruning without deleting the Artifact remains future work.
 
 ## Public sharing model
 
-Anyone with an active share link can view the artifact's current published version. Private links, access keys, restricted sharing, allowlists, organizations, teams, and workspaces are roadmap product work.
+Anyone with the Share link can view the Artifact while it has a current accessible Publication. Password protection, private links, access keys, restricted sharing, allowlists, organizations, teams, and workspaces are roadmap product work.
 
 Owner and Viewer are contextual roles, not separate account types. A person who follows a share link is treated as a Viewer even when the same browser is signed in as that artifact's owner. A share-link visit never implicitly reveals unpublished content; an owner starts Preview explicitly from the authenticated management surface.
 
 Preview uses the owner's current signed-in management session to render one ready Version without changing publication state. Version 0.0.1 does not create a separate Preview session, grant, expiry, or shareable Preview link.
 
-An artifact has at most one active Share link. The link is permanent by default. The owner can set or clear an expiration date; once that time passes, Viewer requests return the expired-link state. Link rotation and manual revocation remain future work.
+The Artifact grid card may show an Artifact thumbnail for its latest ready Version. Thumbnail generation is asynchronous and does not delay ready state, Preview, Publish, or external access; while a thumbnail is unavailable or after generation fails, the card shows a neutral placeholder. A thumbnail summarizes Version content for the Owner and does not indicate which Version is currently published. The first thumbnail UI is limited to grid cards; list and detail surfaces do not show thumbnails.
+
+An Artifact has no Share link before its first Publish. It then has at most one non-retired Share link. An Owner may explicitly replace that link only while publishing; replacement requires confirmation, creates a new link, and permanently retires the previous link. Existing links created before this policy remain reserved for their Artifact and are reused on its next Publish.
+
+The Web presents `Not published`, `Published`, `Expired`, and `Unpublished` as distinct Publication statuses. `Not published` means the Artifact has never been published, `Expired` means its last Publication reached its scheduled end, and `Unpublished` means the Owner ended it early. The first version does not expose Publication history, but the backend retains the records needed for consistency and audit.
+
+The Owner manages an accessible Publication through one management surface that shows its Share link, supports copying, and lets the Owner change its future end time or make it permanent without publishing again. Setting a past or current end time is invalid; Unpublish is the explicit way to stop access immediately. When no Publication is accessible, the management surface continues to show the stable link and its status but disables copying until the Owner publishes again.
 
 Viewer HTML routes represent known link state as follows:
 
-- An active, published link returns artifact content with `200`.
-- An active, unpublished link returns a `200` status page explaining that the artifact is not currently published and provides a generic route back to ShareSlices management.
-- A known expired or retired link returns a `410` status page explaining why the link is unavailable.
+- A link with an accessible Publication returns Artifact content with `200`.
+- A link whose last Publication expired or was Unpublished returns a `200` status page explaining that content is unavailable and provides a generic route back to ShareSlices management.
+- A retired link returns a `410` status page explaining that the link is no longer available.
 - An unknown link returns `404`.
 
 Non-content status pages do not expose the artifact name, owner, or historical content and are excluded from search indexing. Signed-in owners can preview ready versions without changing publication state.
@@ -184,6 +191,8 @@ Upload and publish requests should be idempotent when the caller repeats the sam
 
 Processing can be asynchronous and at-least-once. Repeated processing attempts must either produce the same ready version or stop in a recoverable failed state.
 
-Publishing is atomic: the share link should keep showing the previous published version until the selected version is ready and the publication pointer is updated successfully.
+Thumbnail generation is a separate non-blocking background lifecycle. It uses only committed Version content, never accesses external networks, retries transient failures a bounded number of times, and may end in a terminal failure without changing Version or Publication state.
+
+Publishing is atomic: the Share link keeps showing the previous published Version until the selected Version, Publication duration, and retained or replacement link are committed successfully.
 
 Partial uploads, expired sessions, abandoned staging files, and expired processing leases must be recoverable through reconciliation instead of leaving the artifact permanently stuck.

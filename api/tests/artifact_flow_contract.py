@@ -51,7 +51,9 @@ def response_json(response: requests.Response) -> Any:
 
 def assert_response(case: dict[str, Any], response: requests.Response) -> None:
     expected = case["expect"]
-    assert response.status_code == expected["status"], case["id"]
+    assert response.status_code == expected["status"], (
+        f"{case['id']}: expected {expected['status']}, got {response.status_code}: {response.text[:500]}"
+    )
 
     for name, value in expected.get("headers", {}).items():
         assert response.headers.get(name) == value, case["id"]
@@ -59,6 +61,12 @@ def assert_response(case: dict[str, Any], response: requests.Response) -> None:
     body = response_json(response)
     for path, value in expected.get("json_paths", {}).items():
         assert read_path(body, path) == value, case["id"]
+    for path in expected.get("json_absent_paths", []):
+        try:
+            read_path(body, path)
+        except (KeyError, IndexError, TypeError):
+            continue
+        raise AssertionError(f"{case['id']}: expected {path} to be absent")
 
     if "body_contains" in expected:
         assert expected["body_contains"] in response.text, case["id"]
@@ -83,6 +91,12 @@ def run_contract(spec_path: Path = SPEC_PATH) -> None:
             path = request["path"]
             url = path if path.startswith(("http://", "https://")) else f"{base_url}{path}"
             request_cookies = cookies.get(request.get("cookie_ref"))
+            isolated_session = None
+            requester = session
+            if request.get("omit_session_cookies"):
+                isolated_session = requests.Session()
+                isolated_session.trust_env = False
+                requester = isolated_session
             files = None
             data = None
 
@@ -93,7 +107,7 @@ def run_contract(spec_path: Path = SPEC_PATH) -> None:
 
             deadline = time.monotonic() + case.get("poll", {}).get("timeout_seconds", 0)
             while True:
-                response = session.request(
+                response = requester.request(
                     request["method"],
                     url,
                     json=request.get("json"),
@@ -113,6 +127,9 @@ def run_contract(spec_path: Path = SPEC_PATH) -> None:
                 if time.monotonic() >= deadline:
                     break
                 time.sleep(0.25)
+
+            if isolated_session is not None:
+                isolated_session.close()
 
             assert_response(case, response)
             body = response_json(response)

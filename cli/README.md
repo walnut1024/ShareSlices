@@ -7,7 +7,7 @@ The ShareSlices CLI authenticates a local machine and manages owned Artifacts fr
 | Command group | Status |
 | --- | --- |
 | `auth login`, `auth status`, `auth logout` | Implemented |
-| `artifact upload`, `delete`, `publish`, `unpublish`, `share`, `list`, `export` | Implemented |
+| `publish`; `artifact upload`, `delete`, `publish`, `unpublish`, `publication`, `list`, `export` | Implemented |
 
 The Artifact commands in this document define the implemented CLI contract.
 
@@ -26,6 +26,7 @@ The Artifact commands in this document define the implemented CLI contract.
 
 ```text
 shareslices
+├── publish
 ├── auth
 │   ├── login
 │   ├── status
@@ -35,7 +36,7 @@ shareslices
     ├── delete
     ├── publish
     ├── unpublish
-    ├── share
+    ├── publication
     │   ├── view
     │   └── edit
     ├── list
@@ -125,6 +126,16 @@ Parameters: none.
 On success, remove the local credential. Browser Sessions and other CLI Sessions remain active. On a network or Server failure, retain the credential so the user can retry.
 
 ## Artifact upload and deletion
+
+### `publish`
+
+Package local content, upload it, wait for a ready Version, Publish permanently, and print the resulting Share link:
+
+```sh
+shareslices publish ./dist --name "Quarterly report"
+```
+
+The command defaults to a permanent Publication and link reuse. It accepts the same `--duration`, `--expires-at`, and confirmed link-replacement options as `artifact publish`. Use the stepwise Artifact commands when an uploaded Version must be inspected before Publish.
 
 ### `artifact upload`
 
@@ -220,7 +231,9 @@ The command prompts for confirmation unless an explicit Artifact ID and `--yes` 
 Make one explicit ready Version accessible to people with the Share link.
 
 ```bash
-shareslices artifact publish [<ARTIFACT_ID>] [--version <VERSION_ID>]
+shareslices artifact publish [<ARTIFACT_ID>] [--version <VERSION_ID>] \
+  [--duration <SECONDS> | --expires-at <RFC3339>] \
+  [--replace-link --confirm-replace-link]
 ```
 
 | Argument or option | Value | Required | Description |
@@ -228,7 +241,7 @@ shareslices artifact publish [<ARTIFACT_ID>] [--version <VERSION_ID>]
 | `ARTIFACT_ID` | Artifact ID | Required non-interactively | Artifact whose Publication is updated. When omitted in a terminal, select an Artifact. |
 | `--version` | Version ID | Required non-interactively | Ready Version to publish. When omitted in a terminal, select a ready Version. |
 
-Publishing never infers the latest Version. It is atomic: the existing published Version remains accessible until the selected Version is ready and the Publication update succeeds. Publishing does not change Share-link expiration. Publishing the current Version again succeeds without creating a different business result.
+The first Publish defaults to permanent access and creates the Share link. Later Publish operations reuse the link by default. `--duration` starts a positive relative duration at Publish time; `--expires-at` selects an exact future instant. Replacing a distributed link is irreversible, so `--replace-link` requires `--confirm-replace-link`.
 
 ### `artifact unpublish`
 
@@ -242,11 +255,11 @@ shareslices artifact unpublish [<ARTIFACT_ID>]
 | --- | --- | --- | --- |
 | `ARTIFACT_ID` | Artifact ID | Required non-interactively | Artifact to unpublish. When omitted in a terminal, select an Artifact. |
 
-Unpublish removes the current Publication but preserves the Artifact, Versions, and stable Share link. Repeating the command has the same result. It does not require destructive-action confirmation because Publish can restore access. Owner Preview remains a separate authenticated operation.
+Unpublish ends the current Publication early but preserves the Artifact, Versions, and stable Share link. Repeating the command has the same result. Owner Preview remains a separate authenticated operation.
 
 ## Share link
 
-Share commands read the stable link or manage its expiration. They never Publish or Unpublish an Artifact.
+Publication commands read the effective state and manage the current Publication expiration. They never select another Version or replace the link.
 
 External access requires both conditions:
 
@@ -254,26 +267,26 @@ External access requires both conditions:
 Artifact is published AND Share link is not expired
 ```
 
-### `artifact share view`
+### `artifact publication view`
 
 Read the stable Share link and its current access state.
 
 ```bash
-shareslices artifact share view [<ARTIFACT_ID>]
+shareslices artifact publication view [<ARTIFACT_ID>]
 ```
 
 | Argument | Value | Required | Description |
 | --- | --- | --- | --- |
 | `ARTIFACT_ID` | Artifact ID | Required non-interactively | Artifact whose Share link is returned. When omitted in a terminal, select an Artifact. |
 
-Output includes the URL, Published or Unpublished state, and expiration. The command returns the link even when it is currently inaccessible.
+Output reports `not_published`, `published`, `expired`, or `unpublished`, a nullable URL, expiration, and Copy eligibility. Expired and Unpublished states preserve the URL but disable Copy.
 
-### `artifact share edit`
+### `artifact publication edit`
 
 Set an explicit expiration time on the stable Share link.
 
 ```bash
-shareslices artifact share edit [<ARTIFACT_ID>] \
+shareslices artifact publication edit [<ARTIFACT_ID>] \
   --expires-at <RFC3339_TIMESTAMP_OR_NEVER>
 ```
 
@@ -285,13 +298,13 @@ shareslices artifact share edit [<ARTIFACT_ID>] \
 Example:
 
 ```bash
-shareslices artifact share edit artifact_123 \
+shareslices artifact publication edit artifact_123 \
   --expires-at 2026-08-01T23:59:59+08:00
 
-shareslices artifact share edit artifact_123 --expires-at never
+shareslices artifact publication edit artifact_123 --expires-at never
 ```
 
-Expiration changes do not Publish or Unpublish an Artifact.
+Expiration changes do not Publish, Unpublish, select a Version, or replace the Share link.
 
 ## Artifact list
 

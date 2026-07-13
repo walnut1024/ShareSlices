@@ -13,6 +13,9 @@ import {
   artifactProcessingJob,
   artifactPublication,
   artifactShareLink,
+  artifactThumbnail,
+  artifactThumbnailCaptureGrant,
+  artifactThumbnailJob,
   artifactUploadPolicy,
   artifactUploadPolicyFormat,
   artifactUploadSession,
@@ -124,6 +127,28 @@ describe("artifact database foundation", () => {
 
     const breaker = await client.query("select id, state from authentication_email_circuit_breaker");
     expect(breaker.rows).toEqual([{ id: "global", state: "closed" }]);
+  });
+
+  it("defines independent Version thumbnail jobs, immutable output, and one-time capture grants", async () => {
+    expect(getTableConfig(artifactThumbnailJob).columns.map((column) => column.name)).toEqual(
+      expect.arrayContaining(["version_id", "state", "available_at", "lease_owner", "lease_expires_at", "attempt_count", "max_attempts", "failure_reason_code"])
+    );
+    expect(getTableConfig(artifactThumbnail).columns.map((column) => column.name)).toEqual(
+      expect.arrayContaining(["version_id", "object_key", "content_type", "size_bytes", "width", "height", "sha256"])
+    );
+    expect(getTableConfig(artifactThumbnailCaptureGrant).columns.map((column) => column.name)).toEqual(
+      expect.arrayContaining(["token_hash", "version_id", "expires_at", "consumed_at", "session_token_hash", "session_expires_at"])
+    );
+
+    const constraints = await client.query(
+      `select conname from pg_constraint where connamespace = $1::regnamespace`,
+      [schemaName]
+    );
+    expect(constraints.rows.map(({ conname }) => conname)).toEqual(expect.arrayContaining([
+      "artifact_thumbnail_job_lease_check",
+      "artifact_thumbnail_dimensions_check",
+      "artifact_thumbnail_capture_grant_session_check"
+    ]));
   });
 
   it("seeds the exact active upload policy defaults", async () => {

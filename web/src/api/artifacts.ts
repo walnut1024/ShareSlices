@@ -4,6 +4,7 @@ export type ArtifactAction =
   | "replace_file"
   | "preview"
   | "publish"
+  | "manage_publication"
   | "unpublish"
   | "copy_share_link"
   | "export"
@@ -15,9 +16,19 @@ export type Artifact = {
   updatedAt: string;
   uploadSessionId: string | null;
   processingState: "accepted" | "processing" | "ready" | "failed";
-  shareLink: { url: string; state: "active" | "expired" | "retired"; expiresAt: string | null };
-  readyVersion: { id: string; state: "ready" } | null;
-  publication: { id: string; versionId: string; publishedAt: string } | null;
+  shareLink: { url: string; state: "active" | "retired" } | null;
+  readyVersion: { id: string; state: "ready"; thumbnailState?: "pending" | "ready" | "failed" } | null;
+  publicationStatus: "not_published" | "published" | "expired" | "unpublished";
+  publication: {
+    id: string;
+    versionId: string;
+    publishedAt: string;
+    expirationKind: "permanent" | "duration" | "exact";
+    durationSeconds: number | null;
+    expiresAt: string | null;
+    endedAt: string | null;
+    endReason: "unpublished" | "superseded" | null;
+  } | null;
   failure: { code: string; message: string; recoverable: boolean } | null;
   validationReport: ValidationReport | null;
   allowedActions: ArtifactAction[];
@@ -134,11 +145,15 @@ export async function updateArtifactName(artifactId: string, name: string): Prom
   return response.artifact;
 }
 
-export async function updateShareLinkExpiration(artifactId: string, expiresAt: string | null): Promise<Artifact> {
-  const response = await request<{ artifact: Artifact }>(`/api/artifacts/${encodeURIComponent(artifactId)}/share-link`, {
+export async function updatePublicationExpiration(
+  artifactId: string,
+  publicationId: string,
+  expiration: { kind: "permanent" } | { kind: "exact"; expiresAt: string }
+): Promise<Artifact> {
+  const response = await request<{ artifact: Artifact }>(`/api/artifacts/${encodeURIComponent(artifactId)}/publications/${encodeURIComponent(publicationId)}`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ expiresAt })
+    body: JSON.stringify({ expiration })
   });
   return response.artifact;
 }
@@ -174,18 +189,23 @@ export async function replaceArtifactFile(
 
 export async function publishArtifact(
   artifactId: string,
-  versionId: string,
+  input: string | {
+    versionId?: string;
+    expiration: { kind: "permanent" } | { kind: "duration"; durationSeconds: number } | { kind: "exact"; expiresAt: string };
+    link: { mode: "reuse" } | { mode: "replace"; confirmRetire: true };
+  },
   idempotencyKey: string
-): Promise<Artifact["publication"]> {
-  const response = await request<{ publication: NonNullable<Artifact["publication"]> }>(
+): Promise<{ artifact: Artifact } | Artifact["publication"]> {
+  const body = typeof input === "string" ? { versionId: input } : input;
+  const response = await request<{ artifact: Artifact; publication: NonNullable<Artifact["publication"]>; shareLink: NonNullable<Artifact["shareLink"]> }>(
     `/api/artifacts/${encodeURIComponent(artifactId)}/publications`,
     {
       method: "POST",
       headers: { "content-type": "application/json", "Idempotency-Key": idempotencyKey },
-      body: JSON.stringify({ versionId })
+      body: JSON.stringify(body)
     }
   );
-  return response.publication;
+  return typeof input === "string" ? response.publication : response;
 }
 
 export async function unpublishArtifact(artifactId: string, publicationId: string): Promise<void> {

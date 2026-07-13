@@ -1,5 +1,6 @@
 use crate::{
-    ApiClient, AuthError, Cli, Command, CredentialStore, artifact_exit_code, run_artifact_command,
+    ApiClient, ArtifactCommand, ArtifactPublishArgs, ArtifactUploadArgs, AuthError, Cli, Command,
+    CredentialStore, artifact_exit_code, run_artifact_command, run_artifact_upload_for_publish,
     run_auth,
 };
 use clap::Parser as _;
@@ -44,6 +45,47 @@ where
         Err(error) => return write_auth_error(&error, diagnostics),
     };
     let result = match cli.command {
+        Command::Publish(args) => {
+            async {
+                let upload = ArtifactUploadArgs {
+                    paths: args.paths,
+                    root: args.root,
+                    name: Some(args.name.clone()),
+                    artifact: None,
+                    entry: args.entry,
+                    no_progress: args.no_progress,
+                    json: None,
+                    jq: None,
+                    template: None,
+                };
+                let upload_result =
+                    run_artifact_upload_for_publish(&upload, &api, &store, output, diagnostics)
+                        .await;
+                match upload_result {
+                    Err(error) => Err((error.to_string(), artifact_exit_code(&error))),
+                    Ok((artifact_id, version_id)) => run_artifact_command(
+                        ArtifactCommand::Publish(ArtifactPublishArgs {
+                            artifact: Some(artifact_id),
+                            version: Some(version_id),
+                            duration: args.duration,
+                            expires_at: args.expires_at,
+                            replace_link: args.replace_link,
+                            confirm_replace_link: args.confirm_replace_link,
+                            json: None,
+                            jq: None,
+                            template: None,
+                        }),
+                        &api,
+                        &store,
+                        output,
+                        diagnostics,
+                    )
+                    .await
+                    .map_err(|error| (error.to_string(), artifact_exit_code(&error))),
+                }
+            }
+            .await
+        }
         Command::Auth { command } => run_auth(command, &api, &store, output, |url| {
             webbrowser::open(url).map_err(|error| AuthError::Network(error.to_string()))?;
             Ok(())

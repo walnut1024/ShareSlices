@@ -14,6 +14,7 @@ export type ErrorDetails = {
 
 export type ErrorCode =
   | "invalid_request"
+  | "invalid_expiration"
   | "email_already_registered"
   | "invalid_login"
   | "verification_required"
@@ -26,6 +27,7 @@ export type ErrorCode =
   | "upload_session_not_found"
   | "version_not_found"
   | "asset_not_found"
+  | "thumbnail_not_found"
   | "version_not_ready"
   | "operation_in_progress"
   | "idempotency_conflict"
@@ -42,6 +44,7 @@ export type ErrorCode =
 
 const messages: Record<ErrorCode, string> = {
   invalid_request: "Invalid request.",
+  invalid_expiration: "Publication expiration is invalid.",
   email_already_registered: "An account already exists for this email.",
   invalid_login: "Email or password is incorrect.",
   verification_required: "Verify your email to continue.",
@@ -54,6 +57,7 @@ const messages: Record<ErrorCode, string> = {
   upload_session_not_found: "Upload session not found.",
   version_not_found: "Version not found.",
   asset_not_found: "Asset not found.",
+  thumbnail_not_found: "Thumbnail not found.",
   version_not_ready: "Version is not ready.",
   operation_in_progress: "Operation is still in progress.",
   idempotency_conflict: "Idempotency key was used with different input.",

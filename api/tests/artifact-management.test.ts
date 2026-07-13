@@ -10,8 +10,7 @@ function harness(options: {
   failureReasonCode?: string;
   failureSummary?: string;
   validationReport?: ValidationReport | null;
-  shareExpiresAt?: Date | null;
-  shareStatus?: "active" | "expired" | "retired";
+  publicationExpired?: boolean;
 } = {}) {
   const artifact = {
     id: "artifact-1",
@@ -39,31 +38,21 @@ function harness(options: {
       hasReadyVersion: vi.fn()
     },
     shareLinks: {
-      findActiveByArtifact: vi.fn().mockResolvedValue({
-        id: "link-1",
-        artifactId: "artifact-1",
-        slug: "share-slug-0000000001",
-        status: options.shareStatus ?? "active",
-        retiredAt: null,
-        expiresAt: options.shareExpiresAt ?? null
-      }),
-      findBySlug: vi.fn(),
-      findActiveByArtifacts: vi.fn().mockResolvedValue([{
-        id: "link-1",
-        artifactId: "artifact-1",
-        slug: "share-slug-0000000001",
-        status: options.shareStatus ?? "active",
-        retiredAt: null,
-        expiresAt: options.shareExpiresAt ?? null
-      }]),
-      updateExpirationOwned: vi.fn().mockResolvedValue({
+      findActiveByArtifact: vi.fn().mockResolvedValue(options.published ? {
         id: "link-1",
         artifactId: "artifact-1",
         slug: "share-slug-0000000001",
         status: "active",
-        retiredAt: null,
-        expiresAt: null
-      })
+        retiredAt: null
+      } : null),
+      findBySlug: vi.fn(),
+      findActiveByArtifacts: vi.fn().mockResolvedValue(options.published ? [{
+        id: "link-1",
+        artifactId: "artifact-1",
+        slug: "share-slug-0000000001",
+        status: "active",
+        retiredAt: null
+      }] : [])
     },
     uploadSessions: {
       findOwned: vi.fn(),
@@ -115,7 +104,7 @@ function harness(options: {
       )
     },
     publications: {
-      findCurrent: vi.fn().mockResolvedValue(
+      findLatest: vi.fn().mockResolvedValue(
         options.published
           ? {
               id: "publication-1",
@@ -123,11 +112,15 @@ function harness(options: {
               versionId: "version-1",
               publishedByUserId: "owner-1",
               createdAt: new Date("2026-07-10T01:00:00Z"),
-              endedAt: null
+              expirationKind: options.publicationExpired ? "exact" : "permanent",
+              durationSeconds: null,
+              expiresAt: options.publicationExpired ? new Date("2020-01-01T00:00:00Z") : null,
+              endedAt: null,
+              endReason: null
             }
           : null
       ),
-      findCurrentByArtifacts: vi.fn().mockResolvedValue(
+      findLatestByArtifacts: vi.fn().mockResolvedValue(
         options.published
           ? [{
               id: "publication-1",
@@ -135,7 +128,11 @@ function harness(options: {
               versionId: "version-1",
               publishedByUserId: "owner-1",
               createdAt: new Date("2026-07-10T01:00:00Z"),
-              endedAt: null
+              expirationKind: options.publicationExpired ? "exact" : "permanent",
+              durationSeconds: null,
+              expiresAt: options.publicationExpired ? new Date("2020-01-01T00:00:00Z") : null,
+              endedAt: null,
+              endReason: null
             }]
           : []
       )
@@ -194,81 +191,40 @@ describe("ArtifactManagementService", () => {
       updatedAt: "2026-07-10T00:00:00.000Z",
       uploadSessionId: "upload-1",
       processingState: "ready",
-      shareLink: { url: "http://10.0.0.25:8080/a/share-slug-0000000001/", state: "active", expiresAt: null },
-      readyVersion: { id: "version-1", state: "ready" },
+      shareLink: null,
+      publicationStatus: "not_published",
+      readyVersion: { id: "version-1", state: "ready", thumbnailState: "pending" },
       publication: null,
       failure: null,
       validationReport: null,
-      allowedActions: ["rename", "copy_share_link", "preview", "publish", "export", "delete"]
+      allowedActions: ["rename", "preview", "publish", "export", "delete"]
     });
   });
 
-  it("projects an elapsed active Share link as expired without rotating its URL", async () => {
+  it("projects an elapsed Publication as expired without rotating its URL", async () => {
     const { service } = harness({
       ready: true,
       published: true,
-      shareExpiresAt: new Date("2020-01-01T00:00:00Z")
+      publicationExpired: true
     });
 
     await expect(service.get("owner-1", "artifact-1")).resolves.toMatchObject({
       shareLink: {
         url: "http://10.0.0.25:8080/a/share-slug-0000000001/",
-        state: "expired",
-        expiresAt: "2020-01-01T00:00:00.000Z"
+        state: "active"
       },
-      publication: { id: "publication-1" }
+      publicationStatus: "expired",
+      publication: { id: "publication-1", expiresAt: "2020-01-01T00:00:00.000Z" }
     });
-  });
-
-  it("preserves retired state even when the former expiration has elapsed", async () => {
-    const { service } = harness({
-      ready: true,
-      published: true,
-      shareStatus: "retired",
-      shareExpiresAt: new Date("2020-01-01T00:00:00Z")
-    });
-
-    await expect(service.get("owner-1", "artifact-1")).resolves.toMatchObject({
-      shareLink: { state: "retired", expiresAt: "2020-01-01T00:00:00.000Z" }
-    });
-  });
-
-  it("edits only a future or permanent Share expiration for the owner", async () => {
-    const { service, repositories } = harness({ ready: true, published: true });
-    vi.mocked(repositories.shareLinks.updateExpirationOwned).mockImplementation(async (_owner, _artifact, expiration) => ({
-      id: "link-1",
-      artifactId: "artifact-1",
-      slug: "share-slug-0000000001",
-      status: "active",
-      retiredAt: null,
-      expiresAt: expiration
-    }));
-
-    await service.setShareExpiration("owner-1", "artifact-1", "2099-08-01T08:30:00+08:00");
-    expect(repositories.shareLinks.updateExpirationOwned).toHaveBeenCalledWith(
-      "owner-1",
-      "artifact-1",
-      new Date("2099-08-01T00:30:00Z")
-    );
-    await service.setShareExpiration("owner-1", "artifact-1", null);
-    expect(repositories.shareLinks.updateExpirationOwned).toHaveBeenLastCalledWith("owner-1", "artifact-1", null);
-
-    for (const invalid of ["not-a-date", "2020-01-01T00:00:00Z"]) {
-      await expect(service.setShareExpiration("owner-1", "artifact-1", invalid))
-        .rejects.toEqual(new ArtifactManagementError("invalid_expiration"));
-    }
   });
 
   it("conceals a Share link from a different signed-in owner", async () => {
     const { service, repositories } = harness({ ready: true, published: true });
     vi.mocked(repositories.artifacts.findOwned).mockResolvedValue(null);
-    vi.mocked(repositories.shareLinks.updateExpirationOwned).mockResolvedValue(null);
 
     await expect(service.get("other-owner", "artifact-1"))
       .rejects.toEqual(new ArtifactManagementError("artifact_not_found"));
-    await expect(service.setShareExpiration("other-owner", "artifact-1", null))
-      .rejects.toEqual(new ArtifactManagementError("artifact_not_found"));
-    expect(repositories.publications.findCurrent).not.toHaveBeenCalled();
+    expect(repositories.publications.findLatest).not.toHaveBeenCalled();
   });
 
   it("exposes a retryable failure summary and Retry action", async () => {
@@ -282,7 +238,7 @@ describe("ArtifactManagementService", () => {
         message: "Processing dependency failed.",
         recoverable: true
       },
-      allowedActions: ["rename", "copy_share_link", "retry", "delete"]
+      allowedActions: ["rename", "retry", "delete"]
     });
   });
 
@@ -331,18 +287,11 @@ describe("ArtifactManagementService", () => {
     });
   });
 
-  it("updates expiration and permanently deletes an eligible Artifact", async () => {
+  it("permanently deletes an eligible Artifact", async () => {
     const { service, repositories, storage } = harness({ ready: true });
 
-    const updated = await service.setShareExpiration("owner-1", "artifact-1", "2099-08-08T00:00:00.000Z");
     await service.delete("owner-1", "artifact-1");
 
-    expect(updated.id).toBe("artifact-1");
-    expect(repositories.shareLinks.updateExpirationOwned).toHaveBeenCalledWith(
-      "owner-1",
-      "artifact-1",
-      new Date("2099-08-08T00:00:00.000Z")
-    );
     expect(repositories.artifacts.deleteOwned).toHaveBeenCalledWith("owner-1", "artifact-1");
     expect(repositories.artifacts.completeDeletion).toHaveBeenCalledWith("owner-1", "artifact-1");
     expect(storage.deleteObject).toHaveBeenCalledTimes(2);

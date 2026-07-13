@@ -1,6 +1,6 @@
 use clap::Parser;
 use shareslices_cli::{
-    ArtifactCommand, ArtifactShareCommand, AuthCommand, Cli, Command, ProcessingFilter,
+    ArtifactCommand, ArtifactPublicationCommand, AuthCommand, Cli, Command, ProcessingFilter,
     PublicationFilter,
 };
 
@@ -21,33 +21,33 @@ fn parses_auth_commands_without_artifact_commands() {
 }
 
 #[test]
-fn parses_share_view_and_edit_options() {
+fn parses_publication_view_and_edit_options_and_rejects_share() {
     let view = Cli::try_parse_from([
         "shareslices",
         "artifact",
-        "share",
+        "publication",
         "view",
         "artifact-1",
         "--json",
-        "url,accessState",
+        "url,copyEligible",
     ])
     .expect("share view");
     let Command::Artifact {
         command:
-            ArtifactCommand::Share {
-                command: ArtifactShareCommand::View(args),
+            ArtifactCommand::Publication {
+                command: ArtifactPublicationCommand::View(args),
             },
     } = view.command
     else {
         panic!("share view command")
     };
     assert_eq!(args.artifact.as_deref(), Some("artifact-1"));
-    assert_eq!(args.json.as_deref(), Some("url,accessState"));
+    assert_eq!(args.json.as_deref(), Some("url,copyEligible"));
 
     let edit = Cli::try_parse_from([
         "shareslices",
         "artifact",
-        "share",
+        "publication",
         "edit",
         "artifact-1",
         "--expires-at",
@@ -56,8 +56,8 @@ fn parses_share_view_and_edit_options() {
     .expect("share edit");
     let Command::Artifact {
         command:
-            ArtifactCommand::Share {
-                command: ArtifactShareCommand::Edit(args),
+            ArtifactCommand::Publication {
+                command: ArtifactPublicationCommand::Edit(args),
             },
     } = edit.command
     else {
@@ -65,6 +65,9 @@ fn parses_share_view_and_edit_options() {
     };
     assert_eq!(args.artifact.as_deref(), Some("artifact-1"));
     assert_eq!(args.expires_at.as_deref(), Some("never"));
+    assert!(
+        Cli::try_parse_from(["shareslices", "artifact", "share", "view", "artifact-1"]).is_err()
+    );
 }
 
 #[test]

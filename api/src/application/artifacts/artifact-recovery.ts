@@ -10,7 +10,7 @@ import {
 
 type RecoveryRepositories = Pick<
   ArtifactRepositories,
-  "artifacts" | "shareLinks" | "uploadSessions" | "idempotency" | "recovery"
+  "artifacts" | "uploadSessions" | "idempotency" | "recovery"
 >;
 
 type ArtifactRecoveryOptions = {
@@ -97,13 +97,11 @@ function acceptedResponse(value: Record<string, unknown> | null): ArtifactAccept
 export class ArtifactRecoveryService {
   readonly #repositories: RecoveryRepositories;
   readonly #storage: ObjectStorage;
-  readonly #viewerOrigin: string;
   readonly #maxProcessingAttempts: number;
 
   constructor(options: ArtifactRecoveryOptions) {
     this.#repositories = options.repositories;
     this.#storage = options.storage;
-    this.#viewerOrigin = options.viewerOrigin;
     this.#maxProcessingAttempts = options.maxProcessingAttempts;
   }
 
@@ -124,11 +122,6 @@ export class ArtifactRecoveryService {
     ) {
       throw new ArtifactRecoveryError("invalid_artifact_state");
     }
-    const shareLink = await this.#repositories.shareLinks.findActiveByArtifact(session.artifactId);
-    if (!shareLink) {
-      throw new Error("Artifact has no active Share link.");
-    }
-
     const requestHash = hash(`retry:${input.uploadSessionId}`);
     const claim = await this.#repositories.idempotency.claimPending({
       id: `idem_${randomUUID().replaceAll("-", "")}`,
@@ -148,7 +141,7 @@ export class ArtifactRecoveryService {
       return acceptedResponse(claim.record.responseBody);
     }
 
-    const response = this.#response(session.artifactId, session.id, shareLink.slug);
+    const response = this.#response(session.artifactId, session.id);
     try {
       await this.#repositories.recovery.queueManualRetry({
         uploadSessionId: session.id,
@@ -180,11 +173,6 @@ export class ArtifactRecoveryService {
     if (!current || (!replacesFailedInput && !createsVersion)) {
       throw new ArtifactRecoveryError("invalid_artifact_state");
     }
-    const shareLink = await this.#repositories.shareLinks.findActiveByArtifact(input.artifactId);
-    if (!shareLink) {
-      throw new Error("Artifact has no active Share link.");
-    }
-
     const requestPrefix = `${createsVersion ? "version" : "replace"}:${input.artifactId}`;
     const requestedEntry = Promise.resolve(input.requestedEntry ?? null).then(recoveryRequestedEntry);
     const claim = await this.#repositories.idempotency.claimPending({
@@ -244,7 +232,7 @@ export class ArtifactRecoveryService {
       throw new ArtifactRecoveryError("archive_too_large");
     }
 
-    const response = this.#response(input.artifactId, uploadSessionId, shareLink.slug);
+    const response = this.#response(input.artifactId, uploadSessionId);
     try {
       const commit = {
         artifactId: input.artifactId,
@@ -274,15 +262,11 @@ export class ArtifactRecoveryService {
     }
   }
 
-  #response(artifactId: string, uploadSessionId: string, shareSlug: string): ArtifactAccepted {
+  #response(artifactId: string, uploadSessionId: string): ArtifactAccepted {
     return {
       artifactId,
       uploadSessionId,
-      processingState: "accepted",
-      shareLink: {
-        url: new URL(`/a/${shareSlug}/`, this.#viewerOrigin).toString(),
-        state: "active"
-      }
+      processingState: "accepted"
     };
   }
 }

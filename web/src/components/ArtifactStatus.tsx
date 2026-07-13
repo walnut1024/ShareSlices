@@ -11,10 +11,12 @@ export function artifactStatus(artifact: Artifact): { label: string; className: 
   if (artifact.processingState === "processing") {
     return { label: "Processing", className: "border-[var(--warning)]/20 bg-[var(--warning)]/10 text-[var(--warning)]" };
   }
-  if (artifact.publication) {
+  if (artifact.publicationStatus === "published") {
     return { label: "Published", className: "border-[var(--success)]/20 bg-[var(--success)]/10 text-[var(--success)]" };
   }
-  return { label: "Ready to publish", className: "border-neutral-200 bg-neutral-100 text-neutral-700" };
+  if (artifact.publicationStatus === "expired") return { label: "Expired", className: "border-[var(--warning)]/20 bg-[var(--warning)]/10 text-[var(--warning)]" };
+  if (artifact.publicationStatus === "unpublished") return { label: "Unpublished", className: "border-neutral-200 bg-neutral-100 text-neutral-700" };
+  return { label: "Not published", className: "border-neutral-200 bg-neutral-100 text-neutral-700" };
 }
 
 export function ArtifactStatus({ artifact }: { artifact: Artifact }) {

@@ -91,12 +91,11 @@ describe("Publication content repository", () => {
       artifactId: "artifact-1",
       versionId: "version-1",
       idempotencyKey: "publish-key",
-      requestHash: "b".repeat(64)
+      requestHash: "b".repeat(64),
+      expiration: { kind: "permanent" } as const,
+      link: { mode: "reuse", confirmRetire: false } as const
     };
     const first = await repository.publish(input);
-    await pool.query(
-      "update artifact_share_link set expires_at = '2020-01-01T00:00:00Z' where id = 'link-1'"
-    );
     const replay = await repository.publish({ ...input, id: "publication-ignored" });
 
     await expect(
@@ -111,12 +110,12 @@ describe("Publication content repository", () => {
     expect(first).toMatchObject({
       kind: "published",
       publication: { id: "publication-1" },
-      access: { shareSlug: "stable-share-slug", state: "accessible", expiresAt: null }
+      shareLink: { shareSlug: "stable-share-slug", state: "active" }
     });
     expect(replay).toMatchObject({
       kind: "published",
       publication: { id: "publication-1" },
-      access: { shareSlug: "stable-share-slug", state: "accessible", expiresAt: null }
+      shareLink: { shareSlug: "stable-share-slug", state: "active" }
     });
     await expect(
       repository.publish({
@@ -131,9 +130,9 @@ describe("Publication content repository", () => {
     );
     expect(current.rows).toEqual([{ id: "publication-1" }]);
     await expect(repository.resolveShareSlug("stable-share-slug")).resolves.toEqual({
-      kind: "expired"
+      kind: "published",
+      versionId: "version-1"
     });
-    await pool.query("update artifact_share_link set expires_at = null where id = 'link-1'");
   });
 
   it("supports idempotent Unpublish without changing the Share link and permits republish", async () => {
@@ -149,7 +148,9 @@ describe("Publication content repository", () => {
         artifactId: "artifact-1",
         versionId: "version-1",
         idempotencyKey: "republish-key",
-        requestHash: "d".repeat(64)
+        requestHash: "d".repeat(64),
+        expiration: { kind: "permanent" },
+        link: { mode: "reuse", confirmRetire: false }
       })
     ).resolves.toMatchObject({ kind: "published", publication: { id: "publication-2" } });
     const link = await pool.query("select id, slug from artifact_share_link where artifact_id = 'artifact-1'");
@@ -158,7 +159,7 @@ describe("Publication content repository", () => {
 
   it("distinguishes expired, retired, and unknown links", async () => {
     await pool.query(
-      "update artifact_share_link set status = 'expired', expires_at = now() where id = 'link-1'"
+      "update artifact_publication set expiration_kind = 'exact', expires_at = now() - interval '1 second' where id = 'publication-2'"
     );
     await expect(repository.resolveShareSlug("stable-share-slug")).resolves.toEqual({ kind: "expired" });
     await pool.query(

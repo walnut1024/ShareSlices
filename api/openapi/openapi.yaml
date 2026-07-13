@@ -808,41 +808,6 @@ paths:
           $ref: "#/components/responses/ArtifactNotFound"
         "500":
           $ref: "#/components/responses/InternalError"
-  /api/artifacts/{artifactId}/share-link:
-    parameters:
-      - $ref: "#/components/parameters/ArtifactId"
-    patch:
-      tags:
-        - artifacts
-      operationId: updateArtifactShareLink
-      summary: Set or clear the stable Share link expiration.
-      security:
-        - sessionCookie: []
-        - sessionBearer: []
-      parameters:
-        - $ref: "#/components/parameters/CliVersionWhenBearer"
-        - $ref: "#/components/parameters/CliOperatingSystemWhenBearer"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/UpdateShareLinkRequest"
-      responses:
-        "200":
-          description: Share link expiration updated without changing its slug or Publication.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ArtifactResponse"
-        "400":
-          $ref: "#/components/responses/InvalidRequest"
-        "401":
-          $ref: "#/components/responses/Unauthenticated"
-        "404":
-          $ref: "#/components/responses/ArtifactNotFound"
-        "500":
-          $ref: "#/components/responses/InternalError"
   /api/artifacts/{artifactId}/upload-sessions:
     parameters:
       - $ref: "#/components/parameters/ArtifactId"
@@ -993,6 +958,38 @@ paths:
           $ref: "#/components/responses/VersionNotFound"
         "500":
           $ref: "#/components/responses/InternalError"
+  /api/versions/{versionId}/thumbnail:
+    parameters:
+      - $ref: "#/components/parameters/VersionId"
+    get:
+      tags:
+        - artifacts
+      operationId: getArtifactVersionThumbnail
+      summary: Read the immutable thumbnail for an owned ready Version.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Private immutable WebP thumbnail.
+          headers:
+            Cache-Control:
+              description: Private immutable browser cache policy.
+              schema:
+                type: string
+                const: private, max-age=31536000, immutable
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/ThumbnailNotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /api/versions/{versionId}/content/{assetPath}:
     parameters:
       - $ref: "#/components/parameters/VersionId"
@@ -1070,6 +1067,40 @@ paths:
     parameters:
       - $ref: "#/components/parameters/ArtifactId"
       - $ref: "#/components/parameters/PublicationId"
+    patch:
+      tags:
+        - publications
+      operationId: updatePublication
+      summary: Change the accessible Publication expiration without publishing again.
+      security:
+        - sessionCookie: []
+        - sessionBearer: []
+      parameters:
+        - $ref: "#/components/parameters/CliVersionWhenBearer"
+        - $ref: "#/components/parameters/CliOperatingSystemWhenBearer"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePublicationRequest"
+      responses:
+        "200":
+          description: Publication expiration updated; Version and Share link are unchanged.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicationResponse"
+        "400":
+          $ref: "#/components/responses/InvalidRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "404":
+          $ref: "#/components/responses/ArtifactNotFound"
+        "409":
+          $ref: "#/components/responses/OperationConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
     delete:
       tags:
         - publications
@@ -1545,6 +1576,22 @@ components:
                   code: asset_not_found
                   message: Asset not found.
                   requestId: req_000000000000000000000000
+    ThumbnailNotFound:
+      description: Thumbnail is pending, absent, failed, or not owned by the current user.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            notFound:
+              value:
+                error:
+                  code: thumbnail_not_found
+                  message: Thumbnail not found.
+                  requestId: req_000000000000000000000000
     VersionNotReady:
       description: Version exists but has not reached the ready state.
       headers:
@@ -1982,17 +2029,6 @@ components:
           type: string
           minLength: 1
           maxLength: 120
-    UpdateShareLinkRequest:
-      type: object
-      additionalProperties: false
-      required:
-        - expiresAt
-      properties:
-        expiresAt:
-          oneOf:
-            - type: string
-              format: date-time
-            - type: "null"
     ArtifactAcceptedResponse:
       type: object
       additionalProperties: false
@@ -2000,14 +2036,10 @@ components:
         artifactId: artifact-example
         uploadSessionId: upload-example
         processingState: accepted
-        shareLink:
-          url: https://view.example.com/a/W7e4jPFm3p8r7YEh2xQn2g/
-          state: active
       required:
         - artifactId
         - uploadSessionId
         - processingState
-        - shareLink
       properties:
         artifactId:
           type: string
@@ -2017,8 +2049,6 @@ components:
           minLength: 1
         processingState:
           $ref: "#/components/schemas/ProcessingState"
-        shareLink:
-          $ref: "#/components/schemas/ShareLink"
     ArtifactListResponse:
       type: object
       additionalProperties: false
@@ -2051,16 +2081,23 @@ components:
         name: Quarterly report
         uploadSessionId: upload-example
         processingState: ready
+        publicationStatus: published
         shareLink:
           url: https://view.example.com/a/W7e4jPFm3p8r7YEh2xQn2g/
           state: active
         readyVersion:
           id: version-example
           state: ready
+          thumbnailState: ready
         publication:
           id: publication-example
           versionId: version-example
           publishedAt: "2026-07-10T08:00:00Z"
+          expirationKind: permanent
+          durationSeconds: null
+          expiresAt: null
+          endedAt: null
+          endReason: null
         failure: null
         validationReport: null
         allowedActions: [rename, copy_share_link, preview, unpublish]
@@ -2070,7 +2107,9 @@ components:
         - updatedAt
         - uploadSessionId
         - processingState
+        - publicationStatus
         - shareLink
+        - publication
         - allowedActions
       properties:
         id:
@@ -2093,13 +2132,19 @@ components:
             - type: "null"
         processingState:
           $ref: "#/components/schemas/ProcessingState"
+        publicationStatus:
+          type: string
+          enum: [not_published, published, expired, unpublished]
         shareLink:
-          $ref: "#/components/schemas/ShareLink"
+          oneOf:
+            - $ref: "#/components/schemas/ShareLink"
+            - type: "null"
         readyVersion:
           oneOf:
             - $ref: "#/components/schemas/VersionSummary"
             - type: "null"
         publication:
+          description: Latest Publication, including an Expired or Unpublished one, or null before first Publish.
           oneOf:
             - $ref: "#/components/schemas/Publication"
             - type: "null"
@@ -2145,22 +2190,16 @@ components:
           format: uri
         state:
           type: string
-          description: Effective state; an active stored link is reported as expired after its expiration instant.
           enum:
             - active
-            - expired
             - retired
-        expiresAt:
-          oneOf:
-            - type: string
-              format: date-time
-            - type: "null"
     VersionSummary:
       type: object
       additionalProperties: false
       required:
         - id
         - state
+        - thumbnailState
       properties:
         id:
           type: string
@@ -2169,6 +2208,12 @@ components:
           type: string
           enum:
             - ready
+        thumbnailState:
+          type: string
+          enum:
+            - pending
+            - ready
+            - failed
     ReadyVersionListResponse:
       type: object
       additionalProperties: false
@@ -2325,11 +2370,90 @@ components:
       additionalProperties: false
       required:
         - versionId
+        - expiration
+        - link
       properties:
         versionId:
           type: string
           minLength: 1
           maxLength: 128
+        expiration:
+          $ref: "#/components/schemas/PublicationExpirationPolicy"
+        link:
+          $ref: "#/components/schemas/PublicationLinkChoice"
+    PublicationExpirationPolicy:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [kind]
+          properties:
+            kind:
+              type: string
+              const: permanent
+        - type: object
+          additionalProperties: false
+          required: [kind, durationSeconds]
+          properties:
+            kind:
+              type: string
+              const: duration
+            durationSeconds:
+              type: integer
+              minimum: 1
+        - type: object
+          additionalProperties: false
+          required: [kind, expiresAt]
+          properties:
+            kind:
+              type: string
+              const: exact
+            expiresAt:
+              type: string
+              format: date-time
+    PublicationLinkChoice:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [mode]
+          properties:
+            mode:
+              type: string
+              const: reuse
+        - type: object
+          additionalProperties: false
+          required: [mode, confirmRetire]
+          properties:
+            mode:
+              type: string
+              const: replace
+            confirmRetire:
+              type: boolean
+              const: true
+    UpdatePublicationRequest:
+      type: object
+      additionalProperties: false
+      required: [expiration]
+      properties:
+        expiration:
+          description: Permanent or an exact future expiration; changing it does not Publish again.
+          oneOf:
+            - type: object
+              additionalProperties: false
+              required: [kind]
+              properties:
+                kind:
+                  type: string
+                  const: permanent
+            - type: object
+              additionalProperties: false
+              required: [kind, expiresAt]
+              properties:
+                kind:
+                  type: string
+                  const: exact
+                expiresAt:
+                  type: string
+                  format: date-time
     PublicationResponse:
       type: object
       additionalProperties: false
@@ -2338,37 +2462,22 @@ components:
           id: publication-example
           versionId: version-example
           publishedAt: "2026-07-10T08:00:00Z"
-        access:
-          url: https://viewer.example/a/stable-share-slug/
-          state: accessible
+          expirationKind: permanent
+          durationSeconds: null
           expiresAt: null
+          endedAt: null
+          endReason: null
+        shareLink:
+          url: https://viewer.example/a/stable-share-slug/
+          state: active
       required:
         - publication
-        - access
+        - shareLink
       properties:
         publication:
           $ref: "#/components/schemas/Publication"
-        access:
-          $ref: "#/components/schemas/PublicationAccess"
-    PublicationAccess:
-      type: object
-      additionalProperties: false
-      required:
-        - url
-        - state
-        - expiresAt
-      properties:
-        url:
-          type: string
-          format: uri
-        state:
-          type: string
-          enum: [accessible, not_accessible]
-        expiresAt:
-          oneOf:
-            - type: string
-              format: date-time
-            - type: "null"
+        shareLink:
+          $ref: "#/components/schemas/ShareLink"
     Publication:
       type: object
       additionalProperties: false
@@ -2376,6 +2485,11 @@ components:
         - id
         - versionId
         - publishedAt
+        - expirationKind
+        - durationSeconds
+        - expiresAt
+        - endedAt
+        - endReason
       properties:
         id:
           type: string
@@ -2386,6 +2500,29 @@ components:
         publishedAt:
           type: string
           format: date-time
+        expirationKind:
+          type: string
+          enum: [permanent, duration, exact]
+        durationSeconds:
+          oneOf:
+            - type: integer
+              minimum: 1
+            - type: "null"
+        expiresAt:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        endedAt:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: "null"
+        endReason:
+          oneOf:
+            - type: string
+              enum: [expired, unpublished, superseded]
+            - type: "null"
     ErrorResponse:
       type: object
       additionalProperties: false

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../App";
@@ -43,9 +43,42 @@ describe("Artifact management", () => {
     expect(document.querySelector('[data-slot="avatar"]')).toBeInTheDocument();
     expect(document.querySelector('[data-slot="toggle-group"]')).toBeInTheDocument();
     expect(artifactCard).toHaveClass("shadow-[0_1px_2px_rgba(9,9,11,0.05)]");
-    expect(artifactCard?.querySelector('[data-slot="card-content"]')).toHaveClass("h-[132px]");
+    expect(artifactCard?.querySelector('[data-slot="card-content"]')).toHaveClass("aspect-[8/5]");
     expect(screen.getByText("Accepted").closest(".group\\/badge")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "More actions for Report" })).toHaveClass("group/button");
+  });
+
+  it("preserves the head and tail of a long grid card name", async () => {
+    const longName = "腾讯文档盘点分析报告-123456789012345678901234567890-2026最终版";
+    window.history.replaceState(null, "", "/artifacts");
+    stubFetch([json({ user }), json({ artifacts: [artifact({ name: longName })] })]);
+
+    render(<App />);
+
+    const card = (await screen.findByRole("link", { name: longName })).closest<HTMLElement>('[data-slot="card"]')!;
+    const displayedName = within(card).getByTitle(longName);
+    expect(displayedName.textContent).toBe(longName);
+    expect(displayedName.firstElementChild).toHaveClass("text-ellipsis");
+    expect(displayedName.lastElementChild).toHaveTextContent("234567890-2026最终版");
+    expect(displayedName).toHaveAttribute("title", longName);
+  });
+
+  it("shows only a completed latest-ready thumbnail in grid view", async () => {
+    window.history.replaceState(null, "", "/artifacts");
+    stubFetch([
+      json({ user }),
+      json({ artifacts: [artifact({
+        processingState: "ready",
+        readyVersion: { id: "version/1", state: "ready", thumbnailState: "ready" }
+      })] })
+    ]);
+
+    render(<App />);
+
+    const card = (await screen.findByRole("link", { name: "Report" })).closest<HTMLElement>('[data-slot="card"]')!;
+    const thumbnail = card.querySelector("img");
+    expect(thumbnail).toHaveAttribute("src", "/api/versions/version%2F1/thumbnail");
+    expect(thumbnail).toHaveClass("object-cover");
   });
 
   it("hides grid card actions that the server does not allow", async () => {
@@ -210,7 +243,7 @@ describe("Artifact management", () => {
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Report" })).toBeInTheDocument();
-    expect(screen.getByText("Ready to publish")).toHaveAttribute("data-slot", "badge");
+    expect(screen.getByText("Not published")).toHaveAttribute("data-slot", "badge");
     expect(screen.getByRole("button", { name: "Preview" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Publish" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Unpublish" })).not.toBeInTheDocument();
@@ -497,8 +530,8 @@ describe("Artifact management", () => {
         artifact: artifact({
           processingState: "ready",
           readyVersion: { id: "version-1", state: "ready" },
-          publication: { id: "publication-1", versionId: "version-1", publishedAt: "2026-07-10T00:00:00.000Z" },
-          allowedActions: ["rename", "preview", "unpublish", "copy_share_link"]
+          publication: publication(),
+          allowedActions: ["rename", "preview", "manage_publication", "unpublish", "copy_share_link"]
         })
       })
     ]);
@@ -506,7 +539,7 @@ describe("Artifact management", () => {
     render(<App />);
 
     expect(await screen.findByText("Published")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Unpublish" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Manage publication" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Publish" })).not.toBeInTheDocument();
   });
 
@@ -581,7 +614,7 @@ describe("Artifact management", () => {
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "Refresh status" }));
 
-    expect(await screen.findByText("Ready to publish")).toBeInTheDocument();
+    expect(await screen.findByText("Not published")).toBeInTheDocument();
     expect(screen.getByText("Status refreshed.").closest('[data-slot="alert"]')).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Publish" })).toBeEnabled();
   });
@@ -732,7 +765,6 @@ describe("Artifact management", () => {
     expect(screen.getByText("report.html")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Preview" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Publish" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Copy Share link" })).toBeEnabled();
   });
 
   it("blocks replacement before upload when ZIP preflight finds a primary issue", async () => {
@@ -787,42 +819,6 @@ describe("Artifact management", () => {
     expect(previewWindow.opener).toBeNull();
   });
 
-  it("publishes, unpublishes, and republishes without changing the Share link", async () => {
-    const interaction = userEvent.setup();
-    const ready = artifact({
-      uploadSessionId: null,
-      processingState: "ready",
-      readyVersion: { id: "version-1", state: "ready" },
-      allowedActions: ["rename", "preview", "publish", "copy_share_link"]
-    });
-    const published = artifact({
-      ...ready,
-      publication: { id: "publication-1", versionId: "version-1", publishedAt: "2026-07-10T00:00:00.000Z" },
-      allowedActions: ["rename", "preview", "unpublish", "copy_share_link"]
-    });
-    window.history.replaceState(null, "", "/artifacts/artifact-1");
-    stubFetch([
-      json({ user }),
-      json({ artifact: ready }),
-      json({ publication: published.publication }, 201),
-      json({ artifact: published }),
-      new Response(null, { status: 204 }),
-      json({ artifact: ready }),
-      json({ publication: published.publication }, 201),
-      json({ artifact: published })
-    ]);
-
-    render(<App />);
-    await interaction.click(await screen.findByRole("button", { name: "Publish" }));
-    expect(await screen.findByText("Artifact published.")).toBeInTheDocument();
-    await interaction.click(screen.getByRole("button", { name: "Unpublish" }));
-    expect(await screen.findByText("Artifact unpublished. The Share link is unchanged.")).toBeInTheDocument();
-    await interaction.click(screen.getByRole("button", { name: "Publish" }));
-
-    expect(await screen.findByText("Artifact published.")).toBeInTheDocument();
-    expect(screen.getByText("https://view.example.test/a/share-1/")).toBeInTheDocument();
-  });
-
   it("shows publication pending and failure states without losing the allowed action", async () => {
     const interaction = userEvent.setup();
     let resolvePublication!: (response: Response) => void;
@@ -853,7 +849,8 @@ describe("Artifact management", () => {
 
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "Publish" }));
-    expect(screen.getByRole("button", { name: "Publishing..." })).toBeDisabled();
+    await interaction.click(screen.getByRole("button", { name: "Publish" }));
+    expect(screen.getByRole("button", { name: "LoadingPublish" })).toBeDisabled();
     resolvePublication(json({ error: { code: "version_not_ready", message: "Version is not ready." } }, 409));
 
     expect(await screen.findByText("Version is not ready.")).toBeInTheDocument();
@@ -865,7 +862,7 @@ describe("Artifact management", () => {
     const writeText = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("denied"));
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     window.history.replaceState(null, "", "/artifacts/artifact-1");
-    stubFetch([json({ user }), json({ artifact: artifact() })]);
+    stubFetch([json({ user }), json({ artifact: artifact({ publication: publication(), publicationStatus: "published", allowedActions: ["copy_share_link"] }) })]);
 
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "Copy Share link" }));
@@ -894,6 +891,7 @@ describe("Artifact management", () => {
 
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "Publish" }));
+    await interaction.click(screen.getByRole("button", { name: "Publish" }));
 
     expect(await screen.findByRole("heading", { name: "Log in" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/");
@@ -911,10 +909,73 @@ describe("Artifact management", () => {
     expect(await screen.findByText("Artifact not found.")).toBeInTheDocument();
     expect(screen.queryByText("Report")).not.toBeInTheDocument();
   });
+
+  it("publishes a never-published Artifact permanently without exposing a link first", async () => {
+    const interaction = userEvent.setup();
+    const ready = artifact({
+      processingState: "ready",
+      shareLink: null,
+      readyVersion: { id: "version-1", state: "ready" },
+      allowedActions: ["publish"]
+    });
+    const published = artifact({
+      ...ready,
+      shareLink: { url: "https://view.example.test/a/new-link/", state: "active" },
+      publicationStatus: "published",
+      publication: publication(),
+      allowedActions: ["publish", "manage_publication", "copy_share_link", "unpublish"]
+    });
+    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    const fetchMock = stubFetch([json({ user }), json({ artifact: ready }), json({ publication: published.publication, shareLink: published.shareLink }, 201), json({ artifact: published })]);
+
+    render(<App />);
+    expect(await screen.findByText("Created when published")).toBeInTheDocument();
+    await interaction.click(screen.getByRole("button", { name: "Publish" }));
+    expect(await screen.findByRole("heading", { name: "Publish artifact" })).toBeInTheDocument();
+    await interaction.click(screen.getByRole("button", { name: "Publish" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/artifacts/artifact-1/publications", expect.objectContaining({ method: "POST", body: JSON.stringify({ versionId: "version-1", expiration: { kind: "permanent" }, link: { mode: "reuse" } }) })));
+    expect(await screen.findByText("https://view.example.test/a/new-link/")).toBeInTheDocument();
+  });
+
+  it("requires explicit irreversible confirmation before replacing a Share link", async () => {
+    const interaction = userEvent.setup();
+    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    const fetchMock = stubFetch([json({ user }), json({ artifact: artifact({ processingState: "ready", readyVersion: { id: "version-1", state: "ready" }, publicationStatus: "expired", publication: publication(), allowedActions: ["publish"] }) })]);
+
+    render(<App />);
+    await interaction.click(await screen.findByRole("button", { name: "Publish" }));
+    await interaction.click(screen.getByRole("checkbox", { name: "Generate a new Share link" }));
+    await interaction.click(screen.getByRole("button", { name: "Publish" }));
+
+    expect(await screen.findByText("Confirm that the previous link will permanently stop working.")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("manages only an active Publication and can end it early", async () => {
+    const interaction = userEvent.setup();
+    const published = artifact({ processingState: "ready", readyVersion: { id: "version-1", state: "ready" }, publicationStatus: "published", publication: publication(), allowedActions: ["manage_publication", "copy_share_link", "unpublish"] });
+    const unpublished = artifact({ ...published, publicationStatus: "unpublished", allowedActions: ["publish"] });
+    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    const fetchMock = stubFetch([json({ user }), json({ artifact: published }), new Response(null, { status: 204 }), json({ artifact: unpublished })]);
+
+    render(<App />);
+    await interaction.click(await screen.findByRole("button", { name: "Manage publication" }));
+    expect(screen.getByRole("button", { name: "Copy" })).toBeEnabled();
+    await interaction.click(screen.getByRole("button", { name: "Unpublish" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/artifacts/artifact-1/publications/publication-1", expect.objectContaining({ method: "DELETE" })));
+    expect(await screen.findByText("Unpublished")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy Share link" })).not.toBeInTheDocument();
+  });
 });
 
+function publication() {
+  return { id: "publication-1", versionId: "version-1", publishedAt: "2026-07-10T00:00:00.000Z", expirationKind: "permanent", durationSeconds: null, expiresAt: null, endedAt: null, endReason: null };
+}
+
 function artifact(overrides: Record<string, unknown> = {}) {
-  return {
+  const value = {
     id: "artifact-1",
     name: "Report",
     updatedAt: "2026-07-10T00:00:00.000Z",
@@ -923,11 +984,14 @@ function artifact(overrides: Record<string, unknown> = {}) {
     shareLink: { url: "https://view.example.test/a/share-1/", state: "active", expiresAt: null },
     readyVersion: null,
     publication: null,
+    publicationStatus: "not_published",
     failure: null,
     validationReport: null,
     allowedActions: ["rename", "copy_share_link"],
     ...overrides
   };
+  if (!("publicationStatus" in overrides) && value.publication) value.publicationStatus = "published";
+  return value;
 }
 
 function json(body: unknown, status = 200) {

@@ -13,7 +13,7 @@ test("normalize a macOS named-entry ZIP, Preview, Publish, and open the stable V
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Sign up" }).click();
-  await expect(page.getByText("You’re signed up as Smoke Tester. Log in to continue.")).toBeVisible();
+  await verifyEmailFromMailpit(page, email);
 
   await page.getByRole("link", { name: "Log in" }).click();
   await page.getByLabel("Email").fill(email);
@@ -41,12 +41,13 @@ test("normalize a macOS named-entry ZIP, Preview, Publish, and open the stable V
   await expect(page.getByRole("heading", { name: "First share flow" })).toBeVisible();
 
   for (let attempt = 0; attempt < 80; attempt += 1) {
-    if (await page.getByText("Ready to publish").isVisible()) break;
+    if (await page.getByText("System metadata files were ignored.").isVisible()) break;
     const refresh = page.getByRole("button", { name: "Refresh status" });
     if (await refresh.isVisible()) await refresh.click();
     await page.waitForTimeout(250);
   }
-  await expect(page.getByText("Ready to publish")).toBeVisible();
+  await expect(page.getByText("Not published", { exact: true })).toBeVisible();
+  await expect(page.getByText("Created when published")).toBeVisible();
   await expect(page.getByText("System metadata files were ignored.")).toBeVisible();
   await expect(page.getByText("The only root HTML file was selected as the entry file.")).toBeVisible();
   await expect(page.getByText("report.html", { exact: true })).toBeVisible();
@@ -63,12 +64,62 @@ test("normalize a macOS named-entry ZIP, Preview, Publish, and open the stable V
   await expect(preview.locator("body")).toHaveAttribute("data-ready", "true");
   await preview.close();
 
+  await page.getByRole("button", { name: "Publish" }).click();
+  await expect(page.getByRole("heading", { name: "Publish artifact" })).toBeVisible();
+  await expect(page.getByLabel("Publication expiration")).toHaveValue("permanent");
+  await page.getByRole("button", { name: "Publish", exact: true }).click();
+  await expect(page.getByText("Published", { exact: true })).toBeVisible();
+
   const shareLink = await page.locator("dt", { hasText: "Share link" }).locator("+ dd").textContent();
   expect(shareLink).toBeTruthy();
-  await page.getByRole("button", { name: "Publish" }).click();
-  await expect(page.getByText("Artifact published.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Manage publication" }).click();
+  await expect(page.getByRole("heading", { name: "Manage publication" })).toBeVisible();
+  await page.getByLabel("Publication expiration").selectOption("7d");
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Published", { exact: true })).toBeVisible();
+
+  const expiration = new Date(Date.now() + 1500).toISOString();
+  const artifactId = new URL(page.url()).pathname.split("/").pop()!;
+  const artifactResponse = await page.request.get(`/api/artifacts/${artifactId}`);
+  const artifactBody = await artifactResponse.json();
+  const publicationId = artifactBody.artifact.publication.id as string;
+  await page.request.patch(`/api/artifacts/${artifactId}/publications/${publicationId}`, {
+    data: { expiration: { kind: "exact", expiresAt: expiration } }
+  });
+  await page.waitForTimeout(1800);
 
   await page.goto(shareLink!);
+  await expect(page.getByRole("heading", { name: "This publication has expired" })).toBeVisible();
+  expect((await page.request.get(shareLink!)).status()).toBe(200);
+
+  await page.goto(`/artifacts/${artifactId}`);
+  await expect(page.getByText("Expired", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Publish" }).click();
+  await expect(page.getByRole("heading", { name: "Publish again" })).toBeVisible();
+  await page.getByLabel("Publication expiration").selectOption("7d");
+  await page.getByRole("button", { name: "Publish", exact: true }).click();
+  await expect(page.getByText("Published", { exact: true })).toBeVisible();
+  await expect(page.locator("dt", { hasText: "Share link" }).locator("+ dd")).toHaveText(shareLink!);
+
+  await page.getByRole("button", { name: "Manage publication" }).click();
+  await page.getByRole("button", { name: "Unpublish" }).click();
+  await expect(page.getByText("Unpublished", { exact: true })).toBeVisible();
+  expect((await page.request.get(shareLink!)).status()).toBe(200);
+
+  await page.getByRole("button", { name: "Publish" }).click();
+  await page.getByLabel("Generate a new Share link").check();
+  await page.getByRole("button", { name: "Publish", exact: true }).click();
+  await expect(page.getByText("Confirm that the previous link will permanently stop working.")).toBeVisible();
+  await page.getByLabel("I understand the previous link will permanently stop working.").check();
+  await page.getByRole("button", { name: "Publish", exact: true }).click();
+  await expect(page.getByText("Published", { exact: true })).toBeVisible();
+  const replacementLink = await page.locator("dt", { hasText: "Share link" }).locator("+ dd").textContent();
+  expect(replacementLink).toBeTruthy();
+  expect(replacementLink).not.toBe(shareLink);
+  expect((await page.request.get(shareLink!)).status()).toBe(410);
+
+  await page.goto(replacementLink!);
   await expect(page.getByRole("heading", { name: "Published artifact" })).toBeVisible();
   await expect(page.locator("body")).toHaveAttribute("data-ready", "true");
   await assertNoHorizontalOverflow(page);
@@ -172,6 +223,21 @@ async function assertNoHorizontalOverflow(page: import("@playwright/test").Page)
     content: document.documentElement.scrollWidth
   }));
   expect(widths.content).toBeLessThanOrEqual(widths.viewport);
+}
+
+async function verifyEmailFromMailpit(page: import("@playwright/test").Page, email: string): Promise<void> {
+  await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
+  await expect.poll(async () => {
+    const response = await page.request.get("http://127.0.0.1:8025/api/v1/messages");
+    const body = await response.json() as { messages: Array<{ To: Array<{ Address: string }>; Snippet: string }> };
+    return body.messages.find((message) => message.To.some((recipient) => recipient.Address === email))?.Snippet.match(/\b\d{6}\b/)?.[0];
+  }).toMatch(/^\d{6}$/);
+  const response = await page.request.get("http://127.0.0.1:8025/api/v1/messages");
+  const body = await response.json() as { messages: Array<{ To: Array<{ Address: string }>; Snippet: string }> };
+  const code = body.messages.find((message) => message.To.some((recipient) => recipient.Address === email))!.Snippet.match(/\b\d{6}\b/)![0];
+  await page.getByLabel("Verification code").fill(code);
+  await page.getByRole("button", { name: "Verify email" }).click();
+  await expect(page.getByText("Your email is verified. Log in to continue.")).toBeVisible();
 }
 
 function observePageDiagnostics(page: import("@playwright/test").Page): string[] {

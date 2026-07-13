@@ -15,6 +15,16 @@ function repository(): PublicationContentRepository {
       objectKey: "committed/version-1/腾讯文档盘点分析报告.html", sizeBytes: 14,
       contentType: "text/html", sha256: "a".repeat(64)
     }),
+    updateExpiration: vi.fn().mockResolvedValue({
+      id: "publication-1",
+      versionId: "version-1",
+      publishedAt: new Date("2026-07-10T00:00:00Z"),
+      expirationKind: "permanent",
+      durationSeconds: null,
+      expiresAt: null,
+      endedAt: null,
+      endReason: null
+    }),
     findAsset: vi.fn().mockResolvedValue({
       versionId: "version-1",
       path: "index.html",
@@ -28,12 +38,16 @@ function repository(): PublicationContentRepository {
       publication: {
         id: "publication-1",
         versionId: "version-1",
-        publishedAt: new Date("2026-07-10T00:00:00Z")
+        publishedAt: new Date("2026-07-10T00:00:00Z"),
+        expirationKind: "permanent",
+        durationSeconds: null,
+        expiresAt: null,
+        endedAt: null,
+        endReason: null
       },
-      access: {
+      shareLink: {
         shareSlug: "stable-slug",
-        state: "accessible",
-        expiresAt: new Date("2026-08-01T00:00:00Z")
+        state: "active"
       }
     }),
     unpublish: vi.fn().mockResolvedValue(true),
@@ -98,17 +112,23 @@ describe("PublicationViewerService", () => {
       ownerUserId: "owner-1",
       artifactId: "artifact-1",
       versionId: "version-1",
-      idempotencyKey: "publish-key"
+      idempotencyKey: "publish-key",
+      expiration: { kind: "permanent" },
+      link: { mode: "reuse", confirmRetire: false }
     })).resolves.toEqual({
       publication: {
         id: "publication-1",
         versionId: "version-1",
-        publishedAt: new Date("2026-07-10T00:00:00Z")
+        publishedAt: new Date("2026-07-10T00:00:00Z"),
+        expirationKind: "permanent",
+        durationSeconds: null,
+        expiresAt: null,
+        endedAt: null,
+        endReason: null
       },
-      access: {
+      shareLink: {
         url: "https://viewer.example/a/stable-slug/",
-        state: "accessible",
-        expiresAt: new Date("2026-08-01T00:00:00Z")
+        state: "active"
       }
     });
     expect(store.publish).toHaveBeenCalledWith(
@@ -127,7 +147,9 @@ describe("PublicationViewerService", () => {
         ownerUserId: "owner-1",
         artifactId: "artifact-1",
         versionId: "version-2",
-        idempotencyKey: "publish-key"
+        idempotencyKey: "publish-key",
+        expiration: { kind: "permanent" },
+        link: { mode: "reuse", confirmRetire: false }
       })
     ).rejects.toEqual(new PublicationViewerError("idempotency_conflict"));
   });

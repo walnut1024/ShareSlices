@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { getCookie, setCookie } from "hono/cookie";
 import { Readable } from "node:stream";
 import { ZipArchive } from "archiver";
 import { z } from "zod";
@@ -7,9 +8,13 @@ import {
   PublicationViewerError,
   PublicationViewerService,
   type ContentAsset,
-  type ShareResolution
+  type ShareResolution,
+  normalizeContentPath
 } from "../application/artifacts/publication-viewer.js";
+import { ArtifactManagementService } from "../application/artifacts/artifact-management.js";
+import { createArtifactRepositories } from "../db/artifact-repositories.js";
 import { createPublicationContentRepository } from "../db/publication-content-repository.js";
+import { createArtifactThumbnailRepository, type ArtifactThumbnailRepository } from "../db/artifact-thumbnail-repository.js";
 import { env } from "../env.js";
 import { createConfiguredObjectStorage } from "../storage/index.js";
 import type { ObjectBody, ObjectStorage } from "../storage/object-storage.js";
@@ -17,12 +22,32 @@ import { errorJson, requestId } from "./http-error.js";
 
 export type PublicationViewerRouteDependencies = {
   authApi: Pick<typeof auth.api, "getSession">;
-  service: Pick<PublicationViewerService, "preview" | "exportVersion" | "publish" | "unpublish" | "resolveViewer">;
+  service: Pick<PublicationViewerService, "preview" | "exportVersion" | "publish" | "updateExpiration" | "unpublish" | "resolveViewer">;
+  management: Pick<ArtifactManagementService, "get">;
   storage: Pick<ObjectStorage, "readCommittedObject">;
+  thumbnailRepository: Pick<ArtifactThumbnailRepository, "findOwned" | "consumeGrant" | "resolveSession" | "findVersionAsset">;
   managementOrigin: string;
 };
 
-const publishSchema = z.object({ versionId: z.string().min(1).max(128) }).strict();
+const expirationSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("permanent") }).strict(),
+  z.object({ kind: z.literal("duration"), durationSeconds: z.number().int().positive() }).strict(),
+  z.object({ kind: z.literal("exact"), expiresAt: z.string().datetime({ offset: true }) }).strict()
+]);
+const publishSchema = z.object({
+  versionId: z.string().min(1).max(128),
+  expiration: expirationSchema,
+  link: z.discriminatedUnion("mode", [
+    z.object({ mode: z.literal("reuse") }).strict(),
+    z.object({ mode: z.literal("replace"), confirmRetire: z.literal(true) }).strict()
+  ])
+}).strict();
+const updatePublicationSchema = z.object({
+  expiration: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("permanent") }).strict(),
+    z.object({ kind: z.literal("exact"), expiresAt: z.string().datetime({ offset: true }) }).strict()
+  ])
+}).strict();
 
 function stream(body: ObjectBody): ReadableStream<Uint8Array> {
   const iterator = body[Symbol.asyncIterator]();
@@ -77,7 +102,7 @@ function escapeHtml(value: string): string {
 function statePage(kind: Exclude<ShareResolution["kind"], "published">, managementOrigin: string): Response {
   const state = {
     unpublished: { status: 200, title: "This artifact is not currently published", detail: "The owner is not sharing it right now." },
-    expired: { status: 410, title: "This share link has expired", detail: "Ask the owner for a new share link." },
+    expired: { status: 200, title: "This publication has expired", detail: "The owner may publish it again at this link." },
     retired: { status: 410, title: "This share link is no longer available", detail: "Ask the owner for a new share link." },
     unknown: { status: 404, title: "Share link not found", detail: "Check the link and try again." }
   }[kind];
@@ -99,7 +124,13 @@ export function publicationViewerRoutes(
   const dependencies: PublicationViewerRouteDependencies = {
     authApi: auth.api,
     service: new PublicationViewerService(repository, env.VIEWER_ORIGIN),
+    management: new ArtifactManagementService({
+      repositories: createArtifactRepositories(),
+      viewerOrigin: env.VIEWER_ORIGIN,
+      storage: createConfiguredObjectStorage()
+    }),
     storage: createConfiguredObjectStorage(),
+    thumbnailRepository: createArtifactThumbnailRepository(),
     managementOrigin: env.WEB_ORIGIN,
     ...overrides
   };
@@ -135,6 +166,52 @@ export function publicationViewerRoutes(
 
   app.get("/api/versions/:versionId/content/", (c) => preview(c, ""));
   app.get("/api/versions/:versionId/content/*", (c) => preview(c, wildcardPath(c, "/content/")));
+
+  app.get("/api/versions/:versionId/thumbnail", async (c) => {
+    const ownerId = await ownerUserId(c.req.raw.headers);
+    if (!ownerId) return errorJson(c, 401, "unauthenticated");
+    const asset = await dependencies.thumbnailRepository.findOwned(ownerId, c.req.param("versionId"));
+    if (!asset) return errorJson(c, 404, "thumbnail_not_found");
+    const object = await dependencies.storage.readCommittedObject(asset.objectKey);
+    const headers = new Headers({
+      "Cache-Control": "private, max-age=31536000, immutable",
+      "Content-Type": asset.contentType,
+      "X-Request-Id": requestId(c)
+    });
+    return new Response(stream(object.body), { status: 200, headers });
+  });
+
+  async function capture(c: Context, rawPath: string) {
+    const versionId = c.req.param("versionId") ?? "";
+    const path = rawPath === "" ? "" : normalizeContentPath(rawPath);
+    if (path === null) return errorJson(c, 404, "asset_not_found");
+    let sessionToken = getCookie(c, "shareslices_capture");
+    if (rawPath === "") {
+      const grant = c.req.query("grant");
+      if (!grant) return errorJson(c, 404, "asset_not_found");
+      const session = await dependencies.thumbnailRepository.consumeGrant(grant, versionId);
+      if (!session) return errorJson(c, 404, "asset_not_found");
+      sessionToken = session.token;
+      setCookie(c, "shareslices_capture", session.token, {
+        httpOnly: true,
+        sameSite: "Strict",
+        path: `/internal/thumbnail-captures/${encodeURIComponent(versionId)}/content/`,
+        maxAge: 30
+      });
+    } else if (!sessionToken || !(await dependencies.thumbnailRepository.resolveSession(sessionToken, versionId))) {
+      return errorJson(c, 404, "asset_not_found");
+    }
+    const asset = await dependencies.thumbnailRepository.findVersionAsset(versionId, path);
+    if (!asset) return errorJson(c, 404, "asset_not_found");
+    const object = await dependencies.storage.readCommittedObject(asset.objectKey);
+    return c.body(stream(object.body), 200, {
+      "Cache-Control": "no-store",
+      "Content-Type": asset.contentType
+    });
+  }
+
+  app.get("/internal/thumbnail-captures/:versionId/content/", (c) => capture(c, ""));
+  app.get("/internal/thumbnail-captures/:versionId/content/*", (c) => capture(c, wildcardPath(c, "/content/")));
 
   app.get("/api/versions/:versionId/export", async (c) => {
     const ownerId = await ownerUserId(c.req.raw.headers);
@@ -185,7 +262,13 @@ export function publicationViewerRoutes(
         ownerUserId: ownerId,
         artifactId: c.req.param("artifactId"),
         versionId: parsed.data.versionId,
-        idempotencyKey
+        idempotencyKey,
+        expiration: parsed.data.expiration.kind === "exact"
+          ? { kind: "exact", expiresAt: new Date(parsed.data.expiration.expiresAt) }
+          : parsed.data.expiration,
+        link: parsed.data.link.mode === "replace"
+          ? { mode: "replace", confirmRetire: parsed.data.link.confirmRetire }
+          : { mode: "reuse", confirmRetire: false }
       });
       c.header("X-Request-Id", requestId(c));
       return c.json(
@@ -193,13 +276,14 @@ export function publicationViewerRoutes(
           publication: {
             id: result.publication.id,
             versionId: result.publication.versionId,
-            publishedAt: result.publication.publishedAt.toISOString()
+            publishedAt: result.publication.publishedAt.toISOString(),
+            expirationKind: result.publication.expirationKind,
+            durationSeconds: result.publication.durationSeconds,
+            expiresAt: result.publication.expiresAt?.toISOString() ?? null,
+            endedAt: null,
+            endReason: null
           },
-          access: {
-            url: result.access.url,
-            state: result.access.state,
-            expiresAt: result.access.expiresAt?.toISOString() ?? null
-          }
+          shareLink: result.shareLink
         },
         201
       );
@@ -211,7 +295,34 @@ export function publicationViewerRoutes(
         if (error.code === "operation_in_progress" || error.code === "idempotency_conflict") {
           return errorJson(c, 409, error.code);
         }
+        if (error.code === "invalid_request" || error.code === "invalid_expiration") return errorJson(c, 400, error.code);
         return errorJson(c, 409, "version_not_ready");
+      }
+      throw error;
+    }
+  });
+
+  app.patch("/api/artifacts/:artifactId/publications/:publicationId", async (c) => {
+    const ownerId = await ownerUserId(c.req.raw.headers);
+    if (!ownerId) return errorJson(c, 401, "unauthenticated");
+    const parsed = updatePublicationSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return errorJson(c, 400, "invalid_request");
+    try {
+      await dependencies.service.updateExpiration(
+        ownerId,
+        c.req.param("artifactId"),
+        c.req.param("publicationId"),
+        parsed.data.expiration.kind === "exact"
+          ? { kind: "exact", expiresAt: new Date(parsed.data.expiration.expiresAt) }
+          : { kind: "permanent" }
+      );
+      const artifact = await dependencies.management.get(ownerId, c.req.param("artifactId"));
+      c.header("X-Request-Id", requestId(c));
+      return c.json({ artifact });
+    } catch (error) {
+      if (error instanceof PublicationViewerError) {
+        if (error.code === "invalid_expiration") return errorJson(c, 400, "invalid_expiration");
+        return errorJson(c, 404, "artifact_not_found");
       }
       throw error;
     }

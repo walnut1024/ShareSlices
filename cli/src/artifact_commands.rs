@@ -2,9 +2,9 @@
 use crate::packaging::prepare_upload_with_progress;
 use crate::{
     ApiClient, Artifact, ArtifactCommand, ArtifactDeleteArgs, ArtifactError, ArtifactExportArgs,
-    ArtifactListArgs, ArtifactPublishArgs, ArtifactShareCommand, ArtifactShareEditArgs,
-    ArtifactShareViewArgs, ArtifactUnpublishArgs, ArtifactUploadArgs, CredentialStore,
-    ReadyArtifactVersion,
+    ArtifactListArgs, ArtifactPublicationCommand, ArtifactPublicationEditArgs,
+    ArtifactPublicationViewArgs, ArtifactPublishArgs, ArtifactUnpublishArgs, ArtifactUploadArgs,
+    CredentialStore, ExpirationPolicy, PublicationStatus, ReadyArtifactVersion,
 };
 use serde_json::{Map, Value};
 use std::collections::HashMap;
@@ -70,17 +70,16 @@ pub async fn run_artifact_command_with_interaction(
 ) -> Result<(), ArtifactError> {
     match command {
         ArtifactCommand::List(args) => run_artifact_list(&args, api, store, output).await,
-        ArtifactCommand::Upload(args) => {
-            run_artifact_upload_with_interaction(
-                &args,
-                api,
-                store,
-                interaction,
-                output,
-                diagnostics,
-            )
-            .await
-        }
+        ArtifactCommand::Upload(args) => run_artifact_upload_with_interaction(
+            &args,
+            api,
+            store,
+            interaction,
+            output,
+            diagnostics,
+        )
+        .await
+        .map(|_| ()),
         ArtifactCommand::Publish(args) => {
             run_artifact_publish(
                 &args,
@@ -108,9 +107,9 @@ pub async fn run_artifact_command_with_interaction(
         ArtifactCommand::Delete(args) => {
             run_artifact_delete(&args, api, store, interaction, output, diagnostics).await
         }
-        ArtifactCommand::Share { command } => match command {
-            ArtifactShareCommand::View(args) => {
-                run_artifact_share_view(
+        ArtifactCommand::Publication { command } => match command {
+            ArtifactPublicationCommand::View(args) => {
+                run_artifact_publication_view(
                     &args,
                     api,
                     store,
@@ -121,8 +120,8 @@ pub async fn run_artifact_command_with_interaction(
                 )
                 .await
             }
-            ArtifactShareCommand::Edit(args) => {
-                run_artifact_share_edit(
+            ArtifactPublicationCommand::Edit(args) => {
+                run_artifact_publication_edit(
                     &args,
                     api,
                     store,
@@ -414,7 +413,7 @@ const SHARE_FIELDS: &[&str] = &[
     "url",
     "publicationState",
     "expiresAt",
-    "accessState",
+    "copyEligible",
 ];
 
 struct SharePresentation<'a> {
@@ -423,11 +422,12 @@ struct SharePresentation<'a> {
     template: Option<&'a str>,
 }
 
-fn share_access_state(artifact: &crate::ArtifactDetail) -> &'static str {
-    if owner_external_accessible(&artifact.share_link, artifact.publication.is_some()) {
-        "accessible"
-    } else {
-        "not accessible"
+fn publication_status(status: &PublicationStatus) -> &'static str {
+    match status {
+        PublicationStatus::NotPublished => "not_published",
+        PublicationStatus::Published => "published",
+        PublicationStatus::Expired => "expired",
+        PublicationStatus::Unpublished => "unpublished",
     }
 }
 
@@ -438,10 +438,10 @@ fn write_share_result(
 ) -> Result<(), ArtifactError> {
     let value = serde_json::json!({
         "artifactId": artifact.id,
-        "url": artifact.share_link.url,
-        "publicationState": if artifact.publication.is_some() { "published" } else { "unpublished" },
-        "expiresAt": artifact.share_link.expires_at,
-        "accessState": share_access_state(artifact),
+        "url": artifact.share_link.as_ref().map(|link| &link.url),
+        "publicationState": publication_status(&artifact.publication_status),
+        "expiresAt": artifact.publication.as_ref().and_then(|value| value.expires_at.as_deref()),
+        "copyEligible": matches!(artifact.publication_status, PublicationStatus::Published),
     });
     if let Some(fields) = presentation.json {
         let fields = parse_fields_from(fields, SHARE_FIELDS)?;
@@ -464,22 +464,35 @@ fn write_share_result(
             .map_err(|_| ArtifactError::Server)
         }
     } else {
-        let expires = artifact.share_link.expires_at.as_deref().unwrap_or("never");
-        writeln!(output, "Share link: {}", artifact.share_link.url)
-            .and_then(|()| {
-                writeln!(
-                    output,
-                    "Publication: {}",
-                    if artifact.publication.is_some() {
-                        "published"
-                    } else {
-                        "unpublished"
-                    }
-                )
-            })
-            .and_then(|()| writeln!(output, "Expires: {expires}"))
-            .and_then(|()| writeln!(output, "Access: {}", share_access_state(artifact)))
-            .map_err(|_| ArtifactError::Server)
+        let expires = artifact
+            .publication
+            .as_ref()
+            .and_then(|value| value.expires_at.as_deref())
+            .unwrap_or("never");
+        writeln!(
+            output,
+            "Share link: {}",
+            artifact
+                .share_link
+                .as_ref()
+                .map_or("none", |link| link.url.as_str())
+        )
+        .and_then(|()| {
+            writeln!(
+                output,
+                "Publication: {}",
+                publication_status(&artifact.publication_status)
+            )
+        })
+        .and_then(|()| writeln!(output, "Expires: {expires}"))
+        .and_then(|()| {
+            writeln!(
+                output,
+                "Copy eligible: {}",
+                matches!(artifact.publication_status, PublicationStatus::Published)
+            )
+        })
+        .map_err(|_| ArtifactError::Server)
     }
 }
 
@@ -487,8 +500,8 @@ fn write_share_result(
 ///
 /// # Errors
 /// Returns an Artifact error for unavailable selection, authentication, formatting, or Server failures.
-pub async fn run_artifact_share_view(
-    args: &ArtifactShareViewArgs,
+pub async fn run_artifact_publication_view(
+    args: &ArtifactPublicationViewArgs,
     api: &ApiClient,
     store: &dyn CredentialStore,
     is_terminal: bool,
@@ -535,8 +548,8 @@ fn parse_share_expiration(value: &str) -> Result<Option<String>, ArtifactError> 
 /// # Errors
 /// Returns an Artifact error for unavailable selection, invalid expiration, authentication,
 /// formatting, or Server failures.
-pub async fn run_artifact_share_edit(
-    args: &ArtifactShareEditArgs,
+pub async fn run_artifact_publication_edit(
+    args: &ArtifactPublicationEditArgs,
     api: &ApiClient,
     store: &dyn CredentialStore,
     is_terminal: bool,
@@ -578,8 +591,18 @@ pub async fn run_artifact_share_edit(
         }
         parse_share_expiration(value)?
     };
+    let publication_id = artifact
+        .publication
+        .as_ref()
+        .map(|publication| publication.id.as_str())
+        .ok_or(ArtifactError::InvalidArtifactState)?;
     let updated = api
-        .set_share_expiration(&token, &artifact.id, requested_expiration.as_deref())
+        .set_publication_expiration(
+            &token,
+            &artifact.id,
+            publication_id,
+            requested_expiration.as_deref(),
+        )
         .await?;
     write_share_result(
         output,
@@ -621,7 +644,14 @@ pub async fn run_artifact_command_with_input(
     .await
 }
 
-const PUBLICATION_FIELDS: &[&str] = &["artifactId", "versionId", "accessState", "expiresAt"];
+const PUBLICATION_FIELDS: &[&str] = &[
+    "artifactId",
+    "versionId",
+    "publicationState",
+    "expiresAt",
+    "url",
+    "copyEligible",
+];
 
 struct PublicationPresentation<'a> {
     json: Option<&'a str>,
@@ -634,10 +664,7 @@ struct PublicationOutcome<'a> {
     version_id: Option<&'a str>,
     access_state: &'a str,
     expires_at: Option<&'a str>,
-}
-
-fn owner_external_accessible(share_link: &crate::ArtifactShareLink, published: bool) -> bool {
-    published && share_link.state == "active"
+    url: Option<&'a str>,
 }
 
 async fn resolve_owned_artifact(
@@ -712,8 +739,10 @@ fn write_publication_result(
     let value = serde_json::json!({
         "artifactId": outcome.artifact_id,
         "versionId": outcome.version_id,
-        "accessState": outcome.access_state,
+        "publicationState": outcome.access_state,
         "expiresAt": outcome.expires_at,
+        "url": outcome.url,
+        "copyEligible": outcome.access_state == "published",
     });
     if let Some(fields) = presentation.json {
         let fields = parse_fields_from(fields, PUBLICATION_FIELDS)?;
@@ -741,9 +770,16 @@ fn write_publication_result(
             .map_or_else(String::new, |id| format!(" Version {id}"));
         writeln!(
             output,
-            "Artifact {}{version} is {} to people with its Share link",
+            "Artifact {}{version} is {}",
             outcome.artifact_id, outcome.access_state
         )
+        .and_then(|()| {
+            if let Some(url) = outcome.url {
+                writeln!(output, "Share link: {url}")
+            } else {
+                Ok(())
+            }
+        })
         .map_err(|_| ArtifactError::Server)
     }
 }
@@ -780,11 +816,17 @@ pub async fn run_artifact_publish(
         let versions = api.list_ready_versions(&token, &artifact.id).await?;
         select_ready_version(&versions, is_terminal, input, diagnostics)?.id
     };
-    let publication = api.publish(&token, &artifact.id, &version_id).await?;
-    let access_state = match publication.access.state {
-        crate::PublicationAccessState::Accessible => "accessible",
-        crate::PublicationAccessState::NotAccessible => "not accessible",
-    };
+    let expiration_policy = publish_expiration(args, artifact.publication.as_ref())?;
+    let publication = api
+        .publish(
+            &token,
+            &artifact.id,
+            &version_id,
+            &expiration_policy,
+            args.replace_link,
+            args.confirm_replace_link,
+        )
+        .await?;
     write_publication_result(
         output,
         &PublicationPresentation {
@@ -795,8 +837,9 @@ pub async fn run_artifact_publish(
         &PublicationOutcome {
             artifact_id: &artifact.id,
             version_id: Some(&publication.publication.version_id),
-            access_state,
-            expires_at: publication.access.expires_at.as_deref(),
+            access_state: "published",
+            expires_at: publication.publication.expires_at.as_deref(),
+            url: Some(&publication.share_link.url),
         },
     )
 }
@@ -841,9 +884,49 @@ pub async fn run_artifact_unpublish(
             artifact_id: &artifact.id,
             version_id: None,
             access_state: "not accessible",
-            expires_at: artifact.share_link.expires_at.as_deref(),
+            expires_at: artifact
+                .publication
+                .as_ref()
+                .and_then(|value| value.expires_at.as_deref()),
+            url: artifact.share_link.as_ref().map(|link| link.url.as_str()),
         },
     )
+}
+
+fn publish_expiration(
+    args: &ArtifactPublishArgs,
+    previous: Option<&crate::ArtifactPublication>,
+) -> Result<ExpirationPolicy, ArtifactError> {
+    if let Some(seconds) = args.duration {
+        if seconds == 0 {
+            return Err(ArtifactError::InvalidPublicationExpiration);
+        }
+        return Ok(ExpirationPolicy::Duration {
+            duration_seconds: seconds,
+        });
+    }
+    if let Some(value) = &args.expires_at {
+        let expires_at =
+            parse_share_expiration(value)?.ok_or(ArtifactError::InvalidPublicationExpiration)?;
+        return Ok(ExpirationPolicy::Exact { expires_at });
+    }
+    match previous {
+        Some(publication) if publication.expiration_kind.as_deref() == Some("duration") => {
+            publication
+                .duration_seconds
+                .map_or(Ok(ExpirationPolicy::Permanent), |duration_seconds| {
+                    Ok(ExpirationPolicy::Duration { duration_seconds })
+                })
+        }
+        Some(publication) if publication.expiration_kind.as_deref() == Some("exact") => publication
+            .expires_at
+            .as_deref()
+            .and_then(|value| parse_share_expiration(value).ok().flatten())
+            .map_or(Ok(ExpirationPolicy::Permanent), |expires_at| {
+                Ok(ExpirationPolicy::Exact { expires_at })
+            }),
+        _ => Ok(ExpirationPolicy::Permanent),
+    }
 }
 
 #[must_use]
@@ -909,6 +992,28 @@ pub async fn run_artifact_upload(
     };
     run_artifact_upload_with_interaction(args, api, store, &mut interaction, output, diagnostics)
         .await
+        .map(|_| ())
+}
+
+/// Uploads an Artifact for the high-level Publish command and returns the exact committed IDs.
+///
+/// # Errors
+/// Returns an Artifact error for invalid input, authentication, transfer, or processing failure.
+pub async fn run_artifact_upload_for_publish(
+    args: &ArtifactUploadArgs,
+    api: &ApiClient,
+    store: &dyn CredentialStore,
+    output: &mut dyn Write,
+    diagnostics: &mut dyn Write,
+) -> Result<(String, String), ArtifactError> {
+    let stdin = std::io::stdin();
+    let mut interaction = ArtifactInteraction {
+        prompts_enabled: std::env::var_os("SHARESLICES_PROMPT_DISABLED").is_none(),
+        is_terminal: stdin.is_terminal(),
+        input: &mut stdin.lock(),
+    };
+    run_artifact_upload_with_interaction(args, api, store, &mut interaction, output, diagnostics)
+        .await
 }
 
 async fn run_artifact_upload_with_interaction(
@@ -918,7 +1023,7 @@ async fn run_artifact_upload_with_interaction(
     interaction: &mut ArtifactInteraction<'_>,
     output: &mut dyn Write,
     diagnostics: &mut dyn Write,
-) -> Result<(), ArtifactError> {
+) -> Result<(String, String), ArtifactError> {
     if args.artifact.is_none()
         && args.name.is_none()
         && (!interaction.prompts_enabled || !interaction.is_terminal)
@@ -1162,7 +1267,7 @@ async fn wait_for_ready(
     accepted: &crate::ArtifactAccepted,
     output: &mut dyn Write,
     diagnostics: &mut dyn Write,
-) -> Result<(), ArtifactError> {
+) -> Result<(String, String), ArtifactError> {
     let mut activity = 0_usize;
     loop {
         if !args.no_progress {
@@ -1208,14 +1313,15 @@ async fn wait_for_ready(
             if !args.no_progress {
                 writeln!(diagnostics, "\rProcessing ready").map_err(|_| ArtifactError::Server)?;
             }
-            return write_upload_result(
+            write_upload_result(
                 args,
                 output,
                 &accepted.artifact_id,
                 &state.name,
                 &version.id,
                 state.publication.as_ref(),
-            );
+            )?;
+            return Ok((accepted.artifact_id.clone(), version.id));
         }
         if state.processing_state == "failed" {
             let failure = state.failure.map_or_else(
@@ -1328,7 +1434,11 @@ pub async fn run_artifact_list(
             artifact.name,
             artifact.processing_state,
             publication_state(&artifact),
-            artifact.share_link.expires_at.as_deref().unwrap_or("never"),
+            artifact
+                .publication
+                .as_ref()
+                .and_then(|value| value.expires_at.as_deref())
+                .unwrap_or("never"),
             artifact.updated_at
         )
         .map_err(|_| ArtifactError::Server)?;
@@ -1409,11 +1519,7 @@ fn parse_fields_from<'a>(value: &'a str, allowed: &[&str]) -> Result<Vec<&'a str
 }
 
 fn publication_state(artifact: &Artifact) -> &'static str {
-    if artifact.publication.is_some() {
-        "published"
-    } else {
-        "unpublished"
-    }
+    publication_status(&artifact.publication_status)
 }
 
 fn field(artifact: &Artifact, name: &str) -> Value {
@@ -1423,8 +1529,9 @@ fn field(artifact: &Artifact, name: &str) -> Value {
         "processingState" => artifact.processing_state.clone().into(),
         "publicationState" => publication_state(artifact).into(),
         "expiresAt" => artifact
-            .share_link
-            .expires_at
+            .publication
+            .as_ref()
+            .and_then(|value| value.expires_at.clone())
             .clone()
             .map_or(Value::Null, Value::String),
         "updatedAt" => artifact.updated_at.clone().into(),
