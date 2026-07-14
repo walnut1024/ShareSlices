@@ -1,5 +1,6 @@
 pub mod archive_validation;
 pub mod format_rules;
+pub mod health;
 pub mod job_store;
 pub mod logging;
 pub mod manifest;

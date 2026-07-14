@@ -173,7 +173,7 @@ Migration readiness:
 
 Deployment profiles for version 0.0.1:
 
-- Local development uses containerized PostgreSQL and object storage with the Web, API, and Worker running as local processes through `mise run dev` for fast feedback.
+- Local development uses containerized PostgreSQL, object storage, Mailpit, and Worker with Chromium while Web and API run as local processes through `mise run dev` for fast feedback. Rebuild and replace the Worker container after Worker or Worker-image changes with `mise run dev-worker-build`.
 - Local production simulation and end-to-end validation use the full Docker Compose stack through `mise run dev-compose`.
 - Unit tests, static checks, and other local quality gates run directly through `mise run check`.
 - Shared testing and intranet production use Kubernetes without requiring domain names.

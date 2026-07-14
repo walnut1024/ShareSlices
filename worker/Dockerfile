@@ -25,11 +25,14 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 10001 shareslices \
     && useradd --system --uid 10001 --gid shareslices --home-dir /nonexistent --shell /bin/false shareslices \
-    && install --directory --owner=shareslices --group=shareslices /tmp/shareslices
+    && install --directory --owner=shareslices --group=shareslices /tmp/shareslices \
+    && chromium --version
 
 COPY --from=build --chown=shareslices:shareslices /workspace/target/release/shareslices-worker /usr/local/bin/shareslices-worker
 
 ENV HOME=/tmp/shareslices
 USER shareslices
+
+HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 CMD ["shareslices-worker", "healthcheck"]
 
 ENTRYPOINT ["shareslices-worker"]

@@ -36,31 +36,36 @@ const defaults = {
 };
 
 const env = { ...defaults, ...process.env };
+const compose = ["compose", "-f", "compose.yaml", "-f", "compose.dev.yaml"];
 
 function run(command, args) {
   const result = spawnSync(command, args, { env, stdio: "inherit" });
   if (result.status !== 0) {
-    process.exit(result.status ?? 1);
+    throw new Error(`${command} exited with status ${result.status ?? 1}.`);
   }
 }
 
-run("docker", ["compose", "stop", "web", "api", "worker"]);
-run("docker", [
-  "compose",
-  "up",
-  "-d",
-  "--wait",
-  "postgres",
-  "object-storage",
-  "mailpit"
-]);
-run("docker", ["compose", "run", "--rm", "object-storage-init"]);
-run("pnpm", ["--dir", "api", "db:migrate"]);
+try {
+  run("docker", [...compose, "stop", "web", "api", "worker"]);
+  run("docker", [
+    ...compose,
+    "up",
+    "-d",
+    "--wait",
+    "postgres",
+    "object-storage",
+    "mailpit"
+  ]);
+  run("docker", [...compose, "run", "--rm", "object-storage-init"]);
+  run("docker", [...compose, "run", "--rm", "--build", "migrate"]);
+} catch (error) {
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(1);
+}
 
 const services = [
   ["Web", "pnpm", ["--dir", "web", "dev"]],
-  ["API", "pnpm", ["--dir", "api", "dev"]],
-  ["Worker", "cargo", ["run", "-p", "shareslices-worker"]]
+  ["API", "pnpm", ["--dir", "api", "dev"]]
 ];
 
 const children = new Set();
@@ -74,6 +79,7 @@ function stop(exitCode) {
   for (const child of children) {
     child.kill("SIGTERM");
   }
+  spawnSync("docker", [...compose, "stop", "worker"], { env, stdio: "inherit" });
   process.exitCode = exitCode;
 }
 
@@ -93,5 +99,30 @@ for (const [name, command, args] of services) {
   });
 }
 
+async function waitForApi() {
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    try {
+      const response = await fetch("http://127.0.0.1:7456/health");
+      if (response.ok) {
+        return;
+      }
+    } catch {
+      // The local API is still starting.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error("Local API did not become healthy within 15 seconds.");
+}
+
 process.on("SIGINT", () => stop(0));
 process.on("SIGTERM", () => stop(0));
+
+try {
+  await waitForApi();
+  if (!stopping) {
+    run("docker", [...compose, "up", "-d", "--no-deps", "--wait", "worker"]);
+  }
+} catch (error) {
+  console.error(error instanceof Error ? error.message : error);
+  stop(1);
+}

@@ -158,10 +158,11 @@ services:
       object-storage-init:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD-SHELL", "kill -0 1"]
-      interval: 5s
-      timeout: 2s
-      retries: 5
+      test: ["CMD", "shareslices-worker", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
     restart: unless-stopped
 
   web:

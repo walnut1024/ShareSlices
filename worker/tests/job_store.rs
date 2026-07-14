@@ -8,6 +8,7 @@ use shareslices_worker::{
         ReadyVersionStore,
     },
     manifest::{ManifestAsset, ReadyManifest},
+    thumbnail::requeue_failed_browser_jobs,
     validation_report::{ValidationDetails, ValidationNotice, ValidationReport},
 };
 use sqlx::{PgPool, postgres::PgPoolOptions};
@@ -180,6 +181,67 @@ async fn ready_version_commit_is_atomic_and_concurrent_replay_is_effectively_onc
     .expect("validation report");
     assert!(report["primaryIssue"].is_null());
     assert_eq!(report["warnings"][0]["code"], "entry_file_inferred");
+
+    database.drop().await;
+}
+
+#[tokio::test]
+async fn requeue_only_resets_terminal_browser_failures_without_a_thumbnail() {
+    let Some(database) = TestDatabase::create().await else {
+        return;
+    };
+    database.seed_job("job-1", 3).await;
+    let store = PostgresJobStore::new(database.pool.clone());
+    store
+        .claim_next("worker-a", Duration::from_secs(30))
+        .await
+        .expect("claim query");
+    store
+        .commit_ready_version(&ready_version_commit())
+        .await
+        .expect("ready version");
+    sqlx::query(
+        "update artifact_thumbnail_job set state = 'failed', attempt_count = 3, failure_reason_code = 'thumbnail_image_invalid', lease_owner = 'old-worker', lease_expires_at = now(), heartbeat_at = now() where version_id = 'version-1'",
+    )
+    .execute(&database.pool)
+    .await
+    .expect("failed thumbnail job");
+
+    assert_eq!(
+        requeue_failed_browser_jobs(&database.pool)
+            .await
+            .expect("leave deterministic failure terminal"),
+        0
+    );
+    sqlx::raw_sql(
+        "update artifact_thumbnail_job set failure_reason_code = 'thumbnail_browser_failed' where version_id = 'version-1'; insert into artifact_thumbnail (version_id, object_key, content_type, size_bytes, width, height, sha256) values ('version-1', 'versions/version-1/thumbnail.webp', 'image/webp', 1, 480, 300, repeat('a', 64))",
+    )
+    .execute(&database.pool)
+    .await
+    .expect("stored thumbnail");
+    assert_eq!(
+        requeue_failed_browser_jobs(&database.pool)
+            .await
+            .expect("leave completed thumbnail terminal"),
+        0
+    );
+    sqlx::query("delete from artifact_thumbnail where version_id = 'version-1'")
+        .execute(&database.pool)
+        .await
+        .expect("remove stored thumbnail");
+    assert_eq!(
+        requeue_failed_browser_jobs(&database.pool)
+            .await
+            .expect("requeue browser failures"),
+        1
+    );
+    let state: (String, i32, Option<String>, Option<String>) = sqlx::query_as(
+        "select state, attempt_count, failure_reason_code, lease_owner from artifact_thumbnail_job where version_id = 'version-1'",
+    )
+    .fetch_one(&database.pool)
+    .await
+    .expect("thumbnail job state");
+    assert_eq!(state, ("queued".to_owned(), 0, None, None));
 
     database.drop().await;
 }

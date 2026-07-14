@@ -1,4 +1,4 @@
-// cspell:ignore subsec
+// cspell:ignore oneshot subsec
 mod config;
 mod runtime;
 
@@ -10,17 +10,42 @@ use runtime::{
     PostgresInputSource, ProductionRuntime, RuntimeConfig, StorageAttemptProcessor, WorkerRuntime,
 };
 use shareslices_worker::{
+    health::{DEFAULT_READY_FILE, ReadyFile},
     job_store::PostgresJobStore,
     logging::{LogConfig, SanitizedException, Severity, WorkerEvent},
     object_storage::AwsS3ObjectStorage,
     retry_policy::RetryPolicy,
-    thumbnail::{ThumbnailConfig, run_thumbnail_loop},
+    thumbnail::{
+        ThumbnailConfig, preflight_chromium, requeue_failed_browser_jobs, run_thumbnail_loop,
+    },
 };
 use sqlx::postgres::PgPoolOptions;
 use uuid::Uuid;
 
 #[tokio::main]
 async fn main() {
+    let command = std::env::args().nth(1);
+    if command.as_deref() == Some("healthcheck") {
+        let chromium_path = std::env::var_os("CHROMIUM_PATH").map_or_else(
+            || std::path::PathBuf::from("chromium"),
+            std::path::PathBuf::from,
+        );
+        let ready_file = std::env::var_os("WORKER_READY_FILE").map_or_else(
+            || std::path::PathBuf::from(DEFAULT_READY_FILE),
+            std::path::PathBuf::from,
+        );
+        if let Err(error) = ReadyFile::new(ready_file).check(&chromium_path) {
+            eprintln!("worker is not healthy: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    if let Some(command) = command.as_deref()
+        && command != "requeue-failed-thumbnails"
+    {
+        eprintln!("unknown worker command: {command}");
+        std::process::exit(2);
+    }
     let config = match WorkerConfig::from_env() {
         Ok(config) => config,
         Err(error) => {
@@ -36,7 +61,12 @@ async fn main() {
         std::process::exit(2);
     }
 
-    if let Err(error) = run(config).await {
+    let result = if command.as_deref() == Some("requeue-failed-thumbnails") {
+        requeue_failed_thumbnails(&config).await
+    } else {
+        run(config).await
+    };
+    if let Err(error) = result {
         WorkerEvent::new(
             Severity::Fatal,
             "shareslices.worker.startup_failed",
@@ -53,7 +83,32 @@ async fn main() {
     }
 }
 
-async fn run(config: WorkerConfig) -> Result<(), sqlx::Error> {
+async fn requeue_failed_thumbnails(
+    config: &WorkerConfig,
+) -> Result<(), Box<dyn std::error::Error>> {
+    preflight_chromium(&config.chromium_path)?;
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&config.database_url)
+        .await?;
+    let count = requeue_failed_browser_jobs(&pool).await?;
+    tracing::info!(
+        event_name = "shareslices.artifact.thumbnail.failed_jobs_requeued",
+        shareslices.thumbnail.requeued_count = count,
+        "failed thumbnail jobs requeued"
+    );
+    pool.close().await;
+    Ok(())
+}
+
+async fn run(config: WorkerConfig) -> Result<(), Box<dyn std::error::Error>> {
+    let ready_file = std::env::var_os("WORKER_READY_FILE").map_or_else(
+        || std::path::PathBuf::from(DEFAULT_READY_FILE),
+        std::path::PathBuf::from,
+    );
+    let readiness = ReadyFile::new(ready_file);
+    readiness.clear()?;
+    preflight_chromium(&config.chromium_path)?;
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&config.database_url)
@@ -89,6 +144,7 @@ async fn run(config: WorkerConfig) -> Result<(), sqlx::Error> {
             configured_max_attempts: config.job_max_attempts,
         },
     );
+    let _ready_guard = readiness.mark_ready()?;
 
     WorkerEvent::new(
         Severity::Info,
@@ -97,25 +153,42 @@ async fn run(config: WorkerConfig) -> Result<(), sqlx::Error> {
     )
     .emit();
     let (shutdown_sender, shutdown_receiver) = tokio::sync::watch::channel(false);
-    let thumbnail_task = tokio::spawn(run_thumbnail_loop(
-        pool.clone(),
-        storage,
-        ThumbnailConfig {
-            worker_id: format!("thumbnail-worker-{}", Uuid::new_v4()),
-            internal_api_origin: config.thumbnail_internal_api_origin,
-            chromium_path: config.chromium_path,
-            lease_duration: config.lease_duration,
-            poll_interval: config.poll_interval,
-        },
-        shutdown_receiver.clone(),
-    ));
+    let (thumbnail_exit_sender, thumbnail_exit_receiver) = tokio::sync::oneshot::channel();
+    let thumbnail_pool = pool.clone();
+    let thumbnail_task = tokio::spawn(async move {
+        run_thumbnail_loop(
+            thumbnail_pool,
+            storage,
+            ThumbnailConfig {
+                worker_id: format!("thumbnail-worker-{}", Uuid::new_v4()),
+                internal_api_origin: config.thumbnail_internal_api_origin,
+                chromium_path: config.chromium_path,
+                lease_duration: config.lease_duration,
+                poll_interval: config.poll_interval,
+            },
+            shutdown_receiver.clone(),
+        )
+        .await;
+        let _ = thumbnail_exit_sender.send(());
+    });
+    let thumbnail_stopped_unexpectedly = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let shutdown_reason = Arc::clone(&thumbnail_stopped_unexpectedly);
     runtime
         .run_until(async move {
-            shutdown_signal().await;
+            tokio::select! {
+                biased;
+                () = shutdown_signal() => {}
+                _ = thumbnail_exit_receiver => {
+                    shutdown_reason.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+            }
             shutdown_sender.send_replace(true);
         })
         .await;
-    let _ = thumbnail_task.await;
+    thumbnail_task.await?;
+    if thumbnail_stopped_unexpectedly.load(std::sync::atomic::Ordering::Relaxed) {
+        return Err("thumbnail loop stopped unexpectedly".into());
+    }
     pool.close().await;
     Ok(())
 }

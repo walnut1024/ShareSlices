@@ -12,8 +12,16 @@ description = "Start local PostgreSQL and object storage"
 run = "docker compose up -d --wait postgres object-storage mailpit && docker compose run --rm object-storage-init"
 
 [tasks.dev]
-description = "Run Web, API, and Worker locally with containerized infrastructure"
+description = "Run Web and API locally with infrastructure and Worker in containers"
 run = "node tools/dev.mjs"
+
+[tasks.dev-worker-build]
+description = "Rebuild and replace the local Worker container"
+run = "docker compose -f compose.yaml -f compose.dev.yaml build worker && docker compose -f compose.yaml -f compose.dev.yaml up -d --no-deps --force-recreate --wait worker"
+
+[tasks.dev-thumbnail-requeue]
+description = "Requeue terminal local thumbnail jobs after Chromium recovery"
+run = "docker compose -f compose.yaml -f compose.dev.yaml run --rm --no-deps worker requeue-failed-thumbnails"
 
 [tasks.dev-compose]
 description = "Build and run the full stack in containers"

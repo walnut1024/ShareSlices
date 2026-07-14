@@ -29,3 +29,21 @@ spec:
                 name: shareslices-config
             - secretRef:
                 name: shareslices-secret
+          startupProbe:
+            exec:
+              command: ["shareslices-worker", "healthcheck"]
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            exec:
+              command: ["shareslices-worker", "healthcheck"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["shareslices-worker", "healthcheck"]
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3

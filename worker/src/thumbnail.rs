@@ -1,7 +1,12 @@
 use std::{
     io::Cursor,
+    net::TcpListener,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread,
     time::Duration,
 };
 
@@ -99,6 +104,37 @@ pub async fn run_thumbnail_loop(
             }
         }
     }
+}
+
+/// Requeues terminal thumbnail jobs that failed because Chromium was
+/// unavailable and still have no stored thumbnail.
+///
+/// # Errors
+///
+/// Returns an error when the database update fails.
+pub async fn requeue_failed_browser_jobs(pool: &PgPool) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        r"
+        update artifact_thumbnail_job as job
+        set state = 'queued',
+            available_at = now(),
+            attempt_count = 0,
+            lease_owner = null,
+            lease_expires_at = null,
+            heartbeat_at = null,
+            failure_reason_code = null,
+            updated_at = now()
+        where job.state = 'failed'
+          and job.failure_reason_code = 'thumbnail_browser_failed'
+          and not exists (
+            select 1 from artifact_thumbnail as thumbnail
+            where thumbnail.version_id = job.version_id
+          )
+        ",
+    )
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
 }
 
 async fn claim_next(
@@ -305,6 +341,51 @@ pub fn render_thumbnail(chromium_path: &Path, target_url: &str) -> Result<Vec<u8
     Ok(output.into_inner())
 }
 
+/// Verifies that Chromium can launch, render HTML, capture a screenshot, and
+/// complete the image conversion used by thumbnail jobs.
+///
+/// # Errors
+///
+/// Returns an error when the local preflight page cannot be served or Chromium
+/// cannot complete the production thumbnail pipeline.
+pub fn preflight_chromium(chromium_path: &Path) -> Result<(), ThumbnailError> {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .map_err(|error| ThumbnailError::Browser(error.to_string()))?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|error| ThumbnailError::Browser(error.to_string()))?;
+    let address = listener
+        .local_addr()
+        .map_err(|error| ThumbnailError::Browser(error.to_string()))?;
+    let stopped = Arc::new(AtomicBool::new(false));
+    let server_stopped = Arc::clone(&stopped);
+    let server = thread::spawn(move || {
+        while !server_stopped.load(Ordering::Relaxed) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let body = "<!doctype html><title>Worker preflight</title><main>ready</main>";
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = std::io::Write::write_all(&mut stream, response.as_bytes());
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(_) => return,
+            }
+        }
+    });
+
+    let result = render_thumbnail(chromium_path, &format!("http://{address}/preflight/"));
+    stopped.store(true, Ordering::Relaxed);
+    server
+        .join()
+        .map_err(|_| ThumbnailError::Browser("Chromium preflight server panicked".to_owned()))?;
+    result.map(|_| ())
+}
+
 async fn fail_claim(
     pool: &PgPool,
     worker_id: &str,
@@ -345,7 +426,9 @@ const fn should_retry(transient: bool, attempt_count: i32, max_attempts: i32) ->
 
 #[cfg(test)]
 mod tests {
-    use super::should_retry;
+    use std::path::Path;
+
+    use super::{ThumbnailError, preflight_chromium, should_retry};
 
     #[test]
     fn retries_only_transient_failures_before_the_third_attempt() {
@@ -353,5 +436,13 @@ mod tests {
         assert!(should_retry(true, 2, 3));
         assert!(!should_retry(true, 3, 3));
         assert!(!should_retry(false, 1, 3));
+    }
+
+    #[test]
+    fn preflight_rejects_a_missing_chromium_binary() {
+        assert!(matches!(
+            preflight_chromium(Path::new("/missing/shareslices-chromium")),
+            Err(ThumbnailError::Browser(_))
+        ));
     }
 }

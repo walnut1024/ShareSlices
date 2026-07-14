@@ -1,0 +1,6 @@
+services:
+  worker:
+    environment:
+      THUMBNAIL_INTERNAL_API_ORIGIN: http://host.docker.internal:7456
+    extra_hosts:
+      - host.docker.internal:host-gateway
