@@ -310,22 +310,22 @@ export function ArtifactsPage({ onAccepted }: { onAccepted: (artifactId: string)
 
       {error ? <Alert className="mb-4" variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
       {!error && selectionMode ? (
-        <div className="mb-[18px] flex min-h-12 items-center justify-between gap-4 rounded-xl bg-foreground px-3.5 py-2 text-background">
+        <div className="mb-[18px] flex min-h-12 items-center justify-between gap-4 border-b pb-3.5">
           <div className="flex items-center gap-3">
-            <span className="flex size-[18px] items-center justify-center rounded-[5px] bg-background text-foreground"><Check aria-hidden="true" className="size-3" /></span>
+            <span className="flex size-[18px] items-center justify-center rounded-[5px] bg-foreground text-background"><Check aria-hidden="true" className="size-3" /></span>
             <span className="text-[13.5px] font-semibold">{selectedIds.size} selected</span>
-            <span aria-hidden="true" className="h-[18px] w-px bg-background/20" />
-            <Button className="text-background/70 hover:bg-background/10 hover:text-background" size="sm" variant="ghost" onClick={toggleAllVisible}>
+            <span aria-hidden="true" className="h-[18px] w-px bg-border" />
+            <Button size="sm" variant="ghost" onClick={toggleAllVisible}>
               {visibleArtifacts.every((artifact) => selectedIds.has(artifact.id)) ? `Deselect all ${visibleArtifacts.length}` : `Select all ${visibleArtifacts.length}`}
             </Button>
           </div>
           <div className="flex items-center gap-2">
-            <InputGroup className="w-[200px] border-background/20 bg-background text-foreground"><InputGroupAddon><Search aria-hidden="true" /></InputGroupAddon><InputGroupInput aria-label="Search artifacts" placeholder="Search artifacts…" value={query} onChange={(event) => setQuery(event.target.value)} /></InputGroup>
-            <ToggleGroup aria-label="Artifact view" className="rounded-lg bg-background p-0.5 text-foreground" value={[view]} onValueChange={(value) => { const next = value[0] as ViewMode | undefined; if (next) setView(next); }}><ToggleGroupItem aria-label="Grid view" value="grid"><Grid2X2 /></ToggleGroupItem><ToggleGroupItem aria-label="List view" value="list"><List /></ToggleGroupItem></ToggleGroup>
-            <Button size="sm" variant="secondary" onClick={openBatchPublish}><Rocket data-icon="inline-start" />Publish</Button>
-            <Button className="border-destructive/40 bg-destructive/15 text-red-300 hover:bg-destructive/25 hover:text-red-200" size="sm" variant="outline" onClick={openBatchDelete}><Trash2 data-icon="inline-start" />Delete</Button>
-            <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-background/20" />
-            <Button aria-label="Exit selection mode" className="text-background/70 hover:bg-background/10 hover:text-background" size="icon-sm" variant="ghost" onClick={exitSelectionMode}><X /></Button>
+            <InputGroup className="w-[200px]"><InputGroupAddon><Search aria-hidden="true" /></InputGroupAddon><InputGroupInput aria-label="Search artifacts" placeholder="Search artifacts…" value={query} onChange={(event) => setQuery(event.target.value)} /></InputGroup>
+            <ToggleGroup aria-label="Artifact view" value={[view]} onValueChange={(value) => { const next = value[0] as ViewMode | undefined; if (next) setView(next); }}><ToggleGroupItem aria-label="Grid view" value="grid"><Grid2X2 /></ToggleGroupItem><ToggleGroupItem aria-label="List view" value="list"><List /></ToggleGroupItem></ToggleGroup>
+            <Button size="sm" onClick={openBatchPublish}><Rocket data-icon="inline-start" />Publish</Button>
+            <Button size="sm" variant="destructive" onClick={openBatchDelete}><Trash2 data-icon="inline-start" />Delete</Button>
+            <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-border" />
+            <Button aria-label="Exit selection mode" size="icon-sm" variant="ghost" onClick={exitSelectionMode}><X /></Button>
           </div>
         </div>
       ) : !error ? (

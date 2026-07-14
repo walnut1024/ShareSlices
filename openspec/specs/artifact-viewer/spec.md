@@ -29,16 +29,16 @@ The Viewer route group MUST NOT expose management operations.
 
 ### Requirement: Serve the current published Version
 
-The Viewer SHALL resolve an active Share link to the Artifact's current Publication and SHALL serve only files committed for that immutable Version. A successful entry-page or asset response SHALL use the content type recorded in the committed manifest.
+The Viewer SHALL resolve a non-retired Share link to the Artifact's Published Publication and SHALL serve only files committed for that immutable Version. A successful entry-page or asset response SHALL use the content type recorded in the committed manifest. Expired and Unpublished Publications MUST NOT serve Version content.
 
-#### Scenario: Viewer opens a published Share link
+#### Scenario: Viewer opens a Published Share link
 
-- **WHEN** a Viewer requests an active Share link whose Artifact has a current Publication
-- **THEN** the Viewer returns the published Version's root `index.html` content with status `200`
+- **WHEN** a Viewer requests a non-retired Share link whose Artifact status is Published
+- **THEN** the Viewer returns the Publication Version's root `index.html` content with status `200`
 
-#### Scenario: Viewer requests a published asset
+#### Scenario: Viewer requests a Published asset
 
-- **WHEN** a Viewer requests a normalized asset path present in the published Version manifest
+- **WHEN** a Viewer requests a normalized asset path present in the Published Version manifest
 - **THEN** the Viewer streams the committed private object with its recorded content type
 
 ### Requirement: Resolve relative Artifact references
@@ -62,27 +62,27 @@ Preview and Viewer entry URLs SHALL end with `/` so browser-relative HTML, CSS, 
 
 ### Requirement: Represent known Share-link state
 
-The Viewer SHALL return a non-content state page for a known Share link that is not currently serving content. Status pages MUST NOT expose the Artifact name, owner, historical content, or ready but unpublished Version metadata, and MUST be excluded from search indexing.
+The Viewer SHALL return a non-content state page for a known Share link that is not currently serving content. Status pages MUST NOT expose the Artifact name, Owner, historical content, or ready but unpublished Version metadata, and MUST be excluded from search indexing.
 
-#### Scenario: Active link is unpublished
+#### Scenario: Known link has an Expired Publication
 
-- **WHEN** a Viewer requests an active Share link whose Artifact has no current Publication
-- **THEN** the Viewer returns status `200` with an unpublished state page and a generic route to ShareSlices management
+- **WHEN** a Viewer requests a non-retired Share link whose latest Publication is Expired
+- **THEN** the Viewer returns status `200` with a generic expired Publication state page
 
-#### Scenario: Known link is expired
+#### Scenario: Known link has an Unpublished Publication
 
-- **WHEN** a Viewer requests a known expired Share link
-- **THEN** the Viewer returns status `410` with an expired-link state page
+- **WHEN** a Viewer requests a non-retired Share link whose latest Publication is Unpublished
+- **THEN** the Viewer returns status `200` with a generic Unpublished state page and a generic route to ShareSlices management
 
 #### Scenario: Known link is retired
 
-- **WHEN** a Viewer requests a known retired Share link
+- **WHEN** a Viewer requests a Share link retired by explicit replacement
 - **THEN** the Viewer returns status `410` with a retired-link state page
 
 #### Scenario: Share link is unknown
 
 - **WHEN** a Viewer requests a Share slug the system does not know
-- **THEN** the Viewer returns status `404`
+- **THEN** the Viewer returns `404`
 
 ### Requirement: Restrict Viewer asset resolution
 
@@ -107,10 +107,15 @@ The Viewer MUST normalize and validate requested asset paths and MUST resolve fi
 
 Version 0.0.1 SHALL send `Cache-Control: no-store` on Preview entry, Preview asset, Viewer entry, Viewer asset, and known-link state responses.
 
-#### Scenario: Artifact is unpublished after viewing
+#### Scenario: Artifact is Unpublished after viewing
 
-- **WHEN** a Viewer requests the stable Share link after the owner has unpublished it
-- **THEN** the browser revalidates through the server and receives the unpublished state instead of using cached Artifact content
+- **WHEN** a Viewer requests the stable Share link after the Owner has Unpublished it
+- **THEN** the browser revalidates through the server and receives the Unpublished state instead of cached Artifact content
+
+#### Scenario: Publication expires after viewing
+
+- **WHEN** a Viewer requests the stable Share link after the Publication's scheduled end
+- **THEN** the browser revalidates through the server and receives the Expired state instead of cached Artifact content
 
 #### Scenario: Publication changes between asset requests
 

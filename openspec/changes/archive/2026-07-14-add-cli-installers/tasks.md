@@ -15,4 +15,4 @@
 
 - [x] 3.1 Document Shell, PowerShell, and Homebrew installation commands and supported targets.
 - [x] 3.2 Publish and verify installer assets in a GitHub Release.
-- [ ] 3.3 Configure a cross-repository token and enable automatic Formula synchronization.
+- [x] 3.3 Configure a cross-repository token and enable automatic Formula synchronization.

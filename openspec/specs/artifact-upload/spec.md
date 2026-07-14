@@ -43,12 +43,12 @@ The system SHALL store the policy revision and immutable validation values used 
 
 The system SHALL let a signed-in user submit an Artifact name and one ZIP for a new Artifact. The API MUST stream the ZIP to private object storage and enforce the snapshotted archive-size limit without loading the full body into memory.
 
-The system SHALL create the Artifact, its active Share link, its Upload session, and its processing job only after the complete raw ZIP is durably stored. A rejected, interrupted, or incomplete transfer MUST NOT create an Artifact.
+The system SHALL create the Artifact, its Upload session, and its processing job only after the complete raw ZIP is durably stored. It MUST NOT create or return a Share link before the Artifact's first Publish. A rejected, interrupted, or incomplete transfer MUST NOT create an Artifact.
 
 #### Scenario: Initial upload is accepted
 
 - **WHEN** a signed-in user submits an Artifact name and a complete ZIP within the archive-size limit
-- **THEN** the system durably stores the raw ZIP, creates the Artifact and active Share link, creates the Upload session and processing job, and returns an accepted processing result
+- **THEN** the system durably stores the raw ZIP, creates the Artifact, Upload session, and processing job without a Share link, and returns an accepted processing result
 
 #### Scenario: Transfer is interrupted
 
@@ -67,22 +67,12 @@ The system SHALL use the signed-in user, initial Artifact creation operation, an
 #### Scenario: Caller repeats an accepted creation
 
 - **WHEN** the same user repeats initial Artifact creation with the same idempotency key
-- **THEN** the system returns the original operation result without creating another Artifact, Share link, Upload session, or processing job
+- **THEN** the system returns the original operation result without creating another Artifact, Upload session, processing job, or Share link
 
 #### Scenario: Idempotency key is reused for different input
 
 - **WHEN** the same user reuses an initial Artifact creation idempotency key with a different Artifact name or ZIP identity
 - **THEN** the system rejects the conflicting reuse without changing the original result
-
-#### Scenario: Original creation is still in progress
-
-- **WHEN** the same user repeats initial Artifact creation with the same idempotency key while the original request is still accepting or committing input
-- **THEN** the system returns `operation_in_progress` and starts no second transfer, Upload session, or processing job
-
-#### Scenario: Original transfer is interrupted
-
-- **WHEN** an initial transfer ends before creating an Artifact or Upload session
-- **THEN** the system releases the pending idempotency key so the caller can retry the same operation
 
 ### Requirement: Validate and expand accepted archives
 

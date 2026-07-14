@@ -20,9 +20,9 @@ test("normalize a macOS named-entry ZIP, Preview, Publish, and open the stable V
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page.getByRole("heading", { name: "Artifacts" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Artifacts", exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "New artifact", exact: true }).click();
+  await page.locator('[data-slot="empty"]').getByRole("button", { name: "New artifact", exact: true }).click();
   await page.getByLabel("ZIP file").setInputFiles({
     name: "First share flow.zip",
     mimeType: "application/zip",
@@ -66,7 +66,7 @@ test("normalize a macOS named-entry ZIP, Preview, Publish, and open the stable V
   await preview.close();
 
   await page.goto("/artifacts");
-  await expect(page.getByRole("heading", { name: "Artifacts" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Artifacts", exact: true })).toBeVisible();
   const cardPreviewPromise = page.waitForEvent("popup");
   await page.getByRole("link", { name: "Preview First share flow" }).click();
   const cardPreview = await cardPreviewPromise;
@@ -182,9 +182,9 @@ test("explain ambiguous root HTML candidates after processing fails", async ({ p
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page.getByRole("heading", { name: "Artifacts" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Artifacts", exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "New artifact", exact: true }).click();
+  await page.locator('[data-slot="empty"]').getByRole("button", { name: "New artifact", exact: true }).click();
   await page.getByLabel("ZIP file").setInputFiles({
     name: "Ambiguous entry.zip",
     mimeType: "application/zip",
