@@ -8,6 +8,13 @@ archives:
     assets/app.css: 'body { background-image: url("../images/pixel.png"); }'
     images/pixel.png:
       base64: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=
+  relative_wrapped:
+    exported-site/index.html: '<!doctype html><script type="module" src="assets/app.js"></script><link rel="stylesheet" href="assets/app.css">'
+    exported-site/assets/app.js: 'import "./chunk.js"; document.body.dataset.ready = "true";'
+    exported-site/assets/chunk.js: 'export const ready = true;'
+    exported-site/assets/app.css: 'body { background-image: url("../images/pixel.png"); }'
+    exported-site/images/pixel.png:
+      base64: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=
   replacement:
     index.html: '<!doctype html><title>Replacement</title>'
   invalid_missing_entry:
@@ -39,7 +46,22 @@ cases:
         email: "artifact-{run_id}@example.com"
         password: correct horse battery staple
     expect:
-      status: 201
+      status: 202
+    save:
+      owner_verification_id: verification.id
+
+  - id: verify_owner
+    request:
+      method: POST
+      path: "/api/email-verifications/{owner_verification_id}/verify"
+      mailpit_code_for: "artifact-{run_id}@example.com"
+      mailpit_subject: Verify your ShareSlices email
+      json:
+        code: ""
+    expect:
+      status: 200
+      json_paths:
+        verified: true
 
   - id: login_owner
     request:
@@ -352,11 +374,11 @@ cases:
     expect:
       status: 200
       json_paths:
-        shareLink.url: "{share_url}"
-        shareLink.state: active
-        publication.id: "{publication_id}"
-        publication.expirationKind: exact
-        publication.expiresAt: "2099-08-01T00:30:00.000Z"
+        artifact.shareLink.url: "{share_url}"
+        artifact.shareLink.state: active
+        artifact.publication.id: "{publication_id}"
+        artifact.publication.expirationKind: exact
+        artifact.publication.expiresAt: "2099-08-01T00:30:00.000Z"
 
   - id: reject_past_share_expiration
     request:
@@ -393,11 +415,11 @@ cases:
     expect:
       status: 200
       json_paths:
-        shareLink.url: "{share_url}"
-        shareLink.state: active
-        publication.id: "{publication_id}"
-        publication.expirationKind: permanent
-        publication.expiresAt: null
+        artifact.shareLink.url: "{share_url}"
+        artifact.shareLink.state: active
+        artifact.publication.id: "{publication_id}"
+        artifact.publication.expirationKind: permanent
+        artifact.publication.expiresAt: null
 
   - id: list_ready_versions
     request:
@@ -462,6 +484,120 @@ cases:
       headers:
         Cache-Control: no-store
       body_contains: not currently published
+
+  - id: upload_equivalent_new_version
+    request:
+      method: POST
+      path: "/api/artifacts/{artifact_id}/upload-sessions"
+      cookie_ref: owner
+      headers:
+        Idempotency-Key: "equivalent-version-{run_id}"
+      multipart:
+        archive: relative
+    expect:
+      status: 202
+      json_paths:
+        artifactId: "{artifact_id}"
+
+  - id: wait_for_equivalent_new_version_and_preserve_publication
+    request:
+      method: GET
+      path: "/api/artifacts/{artifact_id}"
+      cookie_ref: owner
+    poll:
+      json_path: artifact.processingState
+      equals: ready
+      json_path_not_equal: artifact.readyVersion.id
+      not_equals: "{version_id}"
+      timeout_seconds: 60
+    expect:
+      status: 200
+      json_paths:
+        artifact.processingState: ready
+        artifact.publicationStatus: unpublished
+        artifact.publication.versionId: "{version_id}"
+        artifact.shareLink.url: "{share_url}"
+      json_paths_not_equal:
+        artifact.readyVersion.id: "{version_id}"
+    save:
+      equivalent_version_id: artifact.readyVersion.id
+
+  - id: preview_equivalent_new_version
+    request:
+      method: GET
+      path: "/api/versions/{equivalent_version_id}/content/"
+      cookie_ref: owner
+    expect:
+      status: 200
+      headers:
+        Cache-Control: no-store
+      body_contains: assets/app.js
+
+  - id: export_equivalent_new_version
+    request:
+      method: GET
+      path: "/api/versions/{equivalent_version_id}/export?artifactId={artifact_id}"
+      cookie_ref: owner
+    expect:
+      status: 200
+      headers:
+        Cache-Control: no-store
+        Content-Type: application/zip
+
+  - id: list_multiple_ready_versions
+    request:
+      method: GET
+      path: "/api/artifacts/{artifact_id}/versions"
+      cookie_ref: owner
+    expect:
+      status: 200
+      json_paths:
+        versions.0.id: "{equivalent_version_id}"
+        versions.0.versionNumber: 2
+        versions.1.id: "{version_id}"
+        versions.1.versionNumber: 1
+
+  - id: create_same_user_normalized_equivalent_artifact
+    request:
+      method: POST
+      path: /api/artifacts
+      cookie_ref: owner
+      headers:
+        Idempotency-Key: "normalized-equivalent-{run_id}"
+      multipart:
+        name: Wrapped Equivalent Artifact
+        archive: relative_wrapped
+    expect:
+      status: 202
+    save:
+      shared_artifact_id: artifactId
+
+  - id: wait_for_same_user_normalized_equivalent_ready
+    request:
+      method: GET
+      path: "/api/artifacts/{shared_artifact_id}"
+      cookie_ref: owner
+    poll:
+      json_path: artifact.processingState
+      equals: ready
+      timeout_seconds: 60
+    expect:
+      status: 200
+      json_paths:
+        artifact.processingState: ready
+    save:
+      shared_version_id: artifact.readyVersion.id
+
+  - id: preview_same_user_normalized_equivalent
+    request:
+      method: GET
+      path: "/api/versions/{shared_version_id}/content/"
+      cookie_ref: owner
+    expect:
+      status: 200
+      headers:
+        Cache-Control: no-store
+      body_contains: assets/app.js
 
   - id: unknown_share_link
     request:
@@ -625,6 +761,10 @@ cases:
         Idempotency-Key: "publish-explicit-entry-{run_id}"
       json:
         versionId: "{explicit_entry_version_id}"
+        expiration:
+          kind: permanent
+        link:
+          mode: reuse
     expect:
       status: 201
       json_paths:
@@ -682,6 +822,7 @@ cases:
     request:
       method: POST
       path: "/api/artifacts/{explicit_entry_artifact_id}/upload-sessions"
+      omit_session_cookies: true
       headers:
         Idempotency-Key: "unauthenticated-version-{run_id}"
       multipart:
@@ -689,7 +830,7 @@ cases:
     expect:
       status: 401
       json_paths:
-        error.code: authentication_required
+        error.code: unauthenticated
 
   - id: wait_for_new_version_ready_and_preserve_publication
     request:
@@ -729,7 +870,22 @@ cases:
         email: "artifact-outsider-{run_id}@example.com"
         password: correct horse battery staple
     expect:
-      status: 201
+      status: 202
+    save:
+      outsider_verification_id: verification.id
+
+  - id: verify_delete_outsider
+    request:
+      method: POST
+      path: "/api/email-verifications/{outsider_verification_id}/verify"
+      mailpit_code_for: "artifact-outsider-{run_id}@example.com"
+      mailpit_subject: Verify your ShareSlices email
+      json:
+        code: ""
+    expect:
+      status: 200
+      json_paths:
+        verified: true
 
   - id: login_delete_outsider
     request:
@@ -741,6 +897,69 @@ cases:
     expect:
       status: 201
     save_cookie: outsider
+
+  - id: create_cross_user_equivalent_artifact
+    request:
+      method: POST
+      path: /api/artifacts
+      cookie_ref: outsider
+      headers:
+        Idempotency-Key: "cross-user-equivalent-{run_id}"
+      multipart:
+        name: Cross User Equivalent Artifact
+        archive: relative
+    expect:
+      status: 202
+    save:
+      outsider_artifact_id: artifactId
+
+  - id: wait_for_cross_user_equivalent_ready
+    request:
+      method: GET
+      path: "/api/artifacts/{outsider_artifact_id}"
+      cookie_ref: outsider
+    poll:
+      json_path: artifact.processingState
+      equals: ready
+      timeout_seconds: 60
+    expect:
+      status: 200
+      json_paths:
+        artifact.processingState: ready
+    save:
+      outsider_version_id: artifact.readyVersion.id
+
+  - id: cross_user_reads_owned_equivalent_content
+    request:
+      method: GET
+      path: "/api/versions/{outsider_version_id}/content/"
+      cookie_ref: outsider
+    expect:
+      status: 200
+      headers:
+        Cache-Control: no-store
+      body_contains: assets/app.js
+
+  - id: owner_cannot_read_cross_user_equivalent_content
+    request:
+      method: GET
+      path: "/api/versions/{outsider_version_id}/content/"
+      cookie_ref: owner
+    expect:
+      status: 404
+      json_paths:
+        error.code: version_not_found
+
+  - id: cross_user_exports_owned_equivalent_content
+    request:
+      method: GET
+      path: "/api/versions/{outsider_version_id}/export?artifactId={outsider_artifact_id}"
+      cookie_ref: outsider
+    expect:
+      status: 200
+      headers:
+        Cache-Control: no-store
+        Content-Type: application/zip
 
   - id: hide_artifact_from_delete_outsider
     request:
@@ -756,6 +975,7 @@ cases:
     request:
       method: DELETE
       path: "/api/artifacts/{artifact_id}"
+      omit_session_cookies: true
     expect:
       status: 401
       json_paths:
@@ -795,3 +1015,44 @@ cases:
       path: "{share_url}"
     expect:
       status: 404
+
+  - id: surviving_shared_reference_can_preview_after_delete
+    request:
+      method: GET
+      path: "/api/versions/{shared_version_id}/content/"
+      cookie_ref: owner
+    expect:
+      status: 200
+      headers:
+        Cache-Control: no-store
+      body_contains: assets/app.js
+
+  - id: surviving_shared_reference_can_export_after_delete
+    request:
+      method: GET
+      path: "/api/versions/{shared_version_id}/export?artifactId={shared_artifact_id}"
+      cookie_ref: owner
+    expect:
+      status: 200
+      headers:
+        Cache-Control: no-store
+        Content-Type: application/zip
+
+  - id: delete_final_same_user_reference
+    request:
+      method: DELETE
+      path: "/api/artifacts/{shared_artifact_id}"
+      cookie_ref: owner
+    expect:
+      status: 204
+
+  - id: cross_user_content_survives_other_owner_deletion
+    request:
+      method: GET
+      path: "/api/versions/{outsider_version_id}/content/"
+      cookie_ref: outsider
+    expect:
+      status: 200
+      headers:
+        Cache-Control: no-store
+      body_contains: assets/app.js

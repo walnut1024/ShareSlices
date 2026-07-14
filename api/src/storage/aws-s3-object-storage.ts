@@ -45,9 +45,9 @@ export type MultipartUploadFactory = (input: {
   params: PutObjectCommandInput;
 }) => { done(): Promise<unknown> };
 
-function assertCleanupPrefix(prefix: string): void {
-  if (!prefix.endsWith("/")) {
-    throw new Error("A staging cleanup prefix must end with '/'.");
+function assertCleanupPrefix(prefix: string, root: "staging" | "content-bundles"): void {
+  if (!prefix.startsWith(`${root}/`) || !prefix.endsWith("/") || prefix === `${root}/`) {
+    throw new Error(`A ${root} cleanup prefix must stay below '${root}/' and end with '/'.`);
   }
 }
 
@@ -180,7 +180,16 @@ export class AwsS3ObjectStorage implements ObjectStorage {
   }
 
   async removeStagingPrefix(prefix: string): Promise<PrefixRemovalResult> {
-    assertCleanupPrefix(prefix);
+    assertCleanupPrefix(prefix, "staging");
+    return this.#removePrefix(prefix);
+  }
+
+  async removeContentBundlePrefix(prefix: string): Promise<PrefixRemovalResult> {
+    assertCleanupPrefix(prefix, "content-bundles");
+    return this.#removePrefix(prefix);
+  }
+
+  async #removePrefix(prefix: string): Promise<PrefixRemovalResult> {
     let continuationToken: string | undefined;
     let deletedCount = 0;
 
@@ -202,7 +211,7 @@ export class AwsS3ObjectStorage implements ObjectStorage {
           })
         )) as DeleteObjectsCommandOutput;
         if (deleted.Errors && deleted.Errors.length > 0) {
-          throw new Error("S3 failed to remove one or more staging objects.");
+          throw new Error("S3 failed to remove one or more objects under the cleanup prefix.");
         }
         deletedCount += objects.length;
       }

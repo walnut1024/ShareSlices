@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { ArtifactRecoveryError, ArtifactRecoveryService } from "../src/application/artifacts/artifact-recovery.js";
 import type {
@@ -73,7 +72,6 @@ function harness(
         state: options.currentState ?? (options.ready ? "committed" : "failed"),
         retryable: options.retryable ?? true,
         rawObjectKey: "raw/artifact-1/upload-1.zip",
-        rawSha256: "a".repeat(64),
         failureReasonCode: "object_store_timeout",
         failureSummary: "Processing failed.",
         supersededAt: null
@@ -84,7 +82,6 @@ function harness(
         state: options.currentState ?? (options.ready ? "committed" : "failed"),
         retryable: options.retryable ?? false,
         rawObjectKey: "raw/artifact-1/upload-1.zip",
-        rawSha256: "a".repeat(64),
         failureReasonCode: "invalid_zip",
         failureSummary: "Replace the file.",
         supersededAt: null
@@ -195,8 +192,13 @@ describe("ArtifactRecoveryService", () => {
     expect(committed).toMatchObject({
       artifactId: "artifact-1",
       previousUploadSessionId: "upload-1",
-      rawSha256: createHash("sha256").update("replacement-zip").digest("hex")
+      rawFingerprintCandidates: [
+        { keyRevision: "key-v1", fingerprint: expect.stringMatching(/^[0-9a-f]{64}$/) }
+      ],
+      processingRevision: "processing-v1",
+      contentIdentityRevision: "content-v1"
     });
+    expect(committed).not.toHaveProperty("rawSha256");
     expect(await storage.readForTest(committed.rawObjectKey)).toEqual(Buffer.from("replacement-zip"));
   });
 

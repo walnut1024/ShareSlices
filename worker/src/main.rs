@@ -10,6 +10,7 @@ use runtime::{
     PostgresInputSource, ProductionRuntime, RuntimeConfig, StorageAttemptProcessor, WorkerRuntime,
 };
 use shareslices_worker::{
+    content_fingerprint::{FingerprintError, FingerprintKey},
     health::{DEFAULT_READY_FILE, ReadyFile},
     job_store::PostgresJobStore,
     logging::{LogConfig, SanitizedException, Severity, WorkerEvent},
@@ -19,7 +20,7 @@ use shareslices_worker::{
         ThumbnailConfig, preflight_chromium, requeue_failed_browser_jobs, run_thumbnail_loop,
     },
 };
-use sqlx::postgres::PgPoolOptions;
+use sqlx::{PgPool, postgres::PgPoolOptions};
 use uuid::Uuid;
 
 #[tokio::main]
@@ -131,7 +132,7 @@ async fn run(config: WorkerConfig) -> Result<(), Box<dyn std::error::Error>> {
     let store = Arc::new(PostgresJobStore::new(pool.clone()));
     let runtime: ProductionRuntime = WorkerRuntime::new(
         store,
-        PostgresInputSource::new(pool.clone()),
+        processing_input_source(pool.clone(), &config)?,
         StorageAttemptProcessor::new(storage.clone()),
         RetryPolicy::new(jitter),
         RuntimeConfig {
@@ -191,6 +192,31 @@ async fn run(config: WorkerConfig) -> Result<(), Box<dyn std::error::Error>> {
     }
     pool.close().await;
     Ok(())
+}
+
+fn processing_input_source(
+    pool: PgPool,
+    config: &WorkerConfig,
+) -> Result<PostgresInputSource, FingerprintError> {
+    let current = FingerprintKey::new(
+        config.content_fingerprint_key_current_revision.clone(),
+        config.content_fingerprint_key_current.as_bytes().to_vec(),
+    )?;
+    let previous = config
+        .content_fingerprint_key_previous_revision
+        .as_ref()
+        .zip(config.content_fingerprint_key_previous.as_ref())
+        .map(|(revision, key)| FingerprintKey::new(revision.clone(), key.as_bytes().to_vec()))
+        .transpose()?;
+    Ok(PostgresInputSource::new(
+        pool,
+        config.lease_duration,
+        config.content_identity_revision.clone(),
+        current,
+        previous,
+        config.renderer_revision.clone(),
+        config.processing_revision.clone(),
+    ))
 }
 
 fn jitter(base: Duration) -> Duration {

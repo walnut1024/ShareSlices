@@ -1,0 +1,3 @@
+# Reuse content bundles within User ownership
+
+ShareSlices reuses a complete Content bundle only among Versions owned by the same User; Version behavior remains defined by [`PRODUCT.md`](../../PRODUCT.md). Cross-User reuse was rejected because it creates a content-existence side channel and shared deletion boundary, while file-level reuse was rejected because its extra authorization and cleanup surface is not justified by measured savings. This decision partially supersedes the earlier Version-owned thumbnail identity only by moving thumbnail job and output identity to Content bundle plus renderer revision; isolated background rendering and Version-authorized capture remain unchanged.

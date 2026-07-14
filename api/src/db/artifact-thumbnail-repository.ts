@@ -24,11 +24,20 @@ export function createArtifactThumbnailRepository(database = db) {
   return {
     async findOwned(ownerUserId: string, versionId: string): Promise<ThumbnailAssetRecord | null> {
       const rows = await database
-        .select({ objectKey: schema.artifactThumbnail.objectKey, contentType: schema.artifactThumbnail.contentType })
-        .from(schema.artifactThumbnail)
-        .innerJoin(schema.artifactVersion, eq(schema.artifactVersion.id, schema.artifactThumbnail.versionId))
+        .select({
+          objectKey: schema.contentBundleThumbnail.objectKey,
+          contentType: schema.contentBundleThumbnail.contentType
+        })
+        .from(schema.artifactVersion)
+        .innerJoin(
+          schema.contentBundleThumbnail,
+          and(
+            eq(schema.contentBundleThumbnail.bundleId, schema.artifactVersion.contentBundleId),
+            eq(schema.contentBundleThumbnail.rendererRevision, schema.artifactVersion.rendererRevision)
+          )
+        )
         .innerJoin(schema.artifact, eq(schema.artifact.id, schema.artifactVersion.artifactId))
-        .where(and(eq(schema.artifactThumbnail.versionId, versionId), eq(schema.artifact.ownerUserId, ownerUserId)))
+        .where(and(eq(schema.artifactVersion.id, versionId), eq(schema.artifact.ownerUserId, ownerUserId)))
         .limit(1);
       return rows[0] ?? null;
     },
@@ -63,14 +72,34 @@ export function createArtifactThumbnailRepository(database = db) {
 
     async findVersionAsset(versionId: string, requestedPath: string): Promise<ThumbnailAssetRecord | null> {
       const path = requestedPath === ""
-        ? database.select({ path: schema.artifactManifest.entryPath }).from(schema.artifactManifest).where(eq(schema.artifactManifest.versionId, versionId))
+        ? database
+            .select({ path: schema.contentBundleManifest.entryPath })
+            .from(schema.artifactVersion)
+            .innerJoin(
+              schema.contentBundleManifest,
+              eq(schema.contentBundleManifest.bundleId, schema.artifactVersion.contentBundleId)
+            )
+            .where(eq(schema.artifactVersion.id, versionId))
         : Promise.resolve([{ path: requestedPath }]);
       const resolved = (await path)[0]?.path;
       if (!resolved) return null;
-      const row = await database.query.artifactAsset.findFirst({
-        columns: { objectKey: true, contentType: true },
-        where: and(eq(schema.artifactAsset.versionId, versionId), eq(schema.artifactAsset.path, resolved))
-      });
+      const [row] = await database
+        .select({
+          objectKey: schema.contentBundleAsset.objectKey,
+          contentType: schema.contentBundleAsset.contentType
+        })
+        .from(schema.artifactVersion)
+        .innerJoin(
+          schema.contentBundleAsset,
+          eq(schema.contentBundleAsset.bundleId, schema.artifactVersion.contentBundleId)
+        )
+        .where(
+          and(
+            eq(schema.artifactVersion.id, versionId),
+            eq(schema.contentBundleAsset.path, resolved)
+          )
+        )
+        .limit(1);
       return row ?? null;
     }
   };

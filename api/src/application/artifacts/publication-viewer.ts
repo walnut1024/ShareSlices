@@ -6,7 +6,6 @@ export type ContentAsset = {
   objectKey: string;
   sizeBytes: number;
   contentType: string;
-  sha256: string;
 };
 
 export type ReadyVersionAccess = {

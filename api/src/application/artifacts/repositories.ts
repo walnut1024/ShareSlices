@@ -81,11 +81,15 @@ export type UploadSessionRecord = {
   state: string;
   retryable: boolean;
   rawObjectKey: string;
-  rawSha256: string;
   failureReasonCode: string | null;
   failureSummary: string | null;
   validationReport: ValidationReport | null;
   supersededAt: Date | null;
+};
+
+export type UploadRawFingerprintCandidate = {
+  keyRevision: string;
+  fingerprint: string;
 };
 
 export type ProcessingJobRecord = {
@@ -124,7 +128,7 @@ export type IdempotencyRecord = {
   operation: string;
   targetResourceId: string | null;
   key: string;
-  requestHash: string;
+  requestHash: string | null;
   state: string;
   responseStatus: number | null;
   responseBody: Record<string, unknown> | null;
@@ -137,7 +141,9 @@ export type CommitAcceptedArtifactInput = {
   uploadSessionId: string;
   policy: UploadPolicySnapshot;
   rawObjectKey: string;
-  rawSha256: string;
+  rawFingerprintCandidates: UploadRawFingerprintCandidate[];
+  processingRevision: string;
+  contentIdentityRevision: string;
   rawSizeBytes: number;
   requestedEntry?: string | null;
   processingJobId: string;
@@ -172,11 +178,14 @@ export type QueueManualRetryInput = CompleteIdempotencyInput & {
 
 export type CommitReplacementInput = CompleteIdempotencyInput & {
   artifactId: string;
+  ownerUserId: string;
   previousUploadSessionId: string;
   uploadSessionId: string;
   policy: UploadPolicySnapshot;
   rawObjectKey: string;
-  rawSha256: string;
+  rawFingerprintCandidates: UploadRawFingerprintCandidate[];
+  processingRevision: string;
+  contentIdentityRevision: string;
   rawSizeBytes: number;
   requestedEntry?: string | null;
   processingJobId: string;
@@ -239,6 +248,7 @@ export interface IdempotencyRepository {
     | { kind: "existing"; record: IdempotencyRecord }
   >;
   releasePending(id: string): Promise<void>;
+  reencryptPrevious(limit: number): Promise<number>;
 }
 
 export interface ArtifactIntakeRepository {

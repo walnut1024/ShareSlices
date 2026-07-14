@@ -6,6 +6,7 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createArtifactRepositories } from "../src/db/artifact-repositories.js";
 import { createArtifactThumbnailRepository } from "../src/db/artifact-thumbnail-repository.js";
+import { IdempotencyEvidenceCipher } from "../src/db/idempotency-evidence.js";
 import * as schema from "../src/db/schema.js";
 
 const { Client, Pool } = pg;
@@ -17,7 +18,10 @@ describe("Artifact repository adapters", () => {
     connectionString: process.env.DATABASE_URL,
     options: `-c search_path=${schemaName}`
   });
-  const repositories = createArtifactRepositories(drizzle(databasePool, { schema }));
+  const evidenceCipher = new IdempotencyEvidenceCipher({
+    current: { revision: "key-v1", secret: "repository-test-secret-with-at-least-thirty-two-bytes" }
+  });
+  const repositories = createArtifactRepositories(drizzle(databasePool, { schema }), evidenceCipher);
   const thumbnails = createArtifactThumbnailRepository(drizzle(databasePool, { schema }));
 
   beforeAll(async () => {
@@ -46,15 +50,14 @@ describe("Artifact repository adapters", () => {
     );
     await databasePool.query(
       `insert into artifact_upload_session (
-        id, artifact_id, policy_revision, archive_size_bytes, expanded_size_bytes,
-        file_count, single_file_size_bytes, formats, raw_object_key, raw_sha256,
+        id, artifact_id, owner_user_id, policy_revision, archive_size_bytes, expanded_size_bytes,
+        file_count, single_file_size_bytes, formats, raw_object_key,
         raw_size_bytes, state
       ) values (
-        'upload-1', 'artifact-1', 'v0.0.1-default', 52428800, 209715200,
+        'upload-1', 'artifact-1', 'owner-1', 'v0.0.1-default', 52428800, 209715200,
         1000, 52428800, '[]'::jsonb, 'raw/artifact-1/upload-1.zip',
-        $1, 100, 'committed'
-      )`,
-      ["a".repeat(64)]
+        100, 'committed'
+      )`
     );
     await databasePool.query(
       `insert into artifact_processing_job (
@@ -67,19 +70,90 @@ describe("Artifact repository adapters", () => {
       ) values ('version-1', 'artifact-1', 'upload-1', 1, 'ready')`
     );
     await databasePool.query(
+      `insert into artifact_processing_attempt (
+         id, owner_user_id, job_id, attempt_number, state, staging_prefix, object_prefix,
+         lease_expires_at, write_deadline_at, cleanup_state, cleanup_eligible_at,
+         cleaned_at, finished_at
+       ) values (
+         'bundle-attempt-1', 'owner-1', 'job-1', 1, 'succeeded',
+         'staging/upload-1/bundle-attempt-1/',
+         'content-bundles/bundle-1/attempts/bundle-attempt-1/',
+         now(), now(), 'cleaned', now(), now(), now()
+       )`
+    );
+    await databasePool.query(
+      `insert into content_bundle (
+         id, owner_user_id, content_identity_revision, lifecycle_state,
+         integrity_state, creator_attempt_id, winning_attempt_id, ready_at
+       ) values (
+         'bundle-1', 'owner-1', 'identity-v1', 'ready', 'healthy',
+         'bundle-attempt-1', 'bundle-attempt-1', now()
+       )`
+    );
+    await databasePool.query(
+      `update artifact_version
+       set owner_user_id = 'owner-1', content_bundle_id = 'bundle-1', renderer_revision = 'renderer-v1'
+       where id = 'version-1'`
+    );
+    await databasePool.query(
+      `insert into content_bundle_asset (
+         bundle_id, owner_user_id, path, object_key, size_bytes, content_type
+       ) values
+         ('bundle-1', 'owner-1', 'index.html', 'content-bundles/bundle-1/index.html', 12, 'text/html'),
+         ('bundle-1', 'owner-1', 'assets/app.js', 'content-bundles/bundle-1/assets/app.js', 8, 'text/javascript')`
+    );
+    await databasePool.query(
+      `insert into content_bundle_manifest (
+         bundle_id, owner_user_id, entry_path, object_key, file_count, total_size_bytes
+       ) values (
+         'bundle-1', 'owner-1', 'index.html', 'content-bundles/bundle-1/manifest.json', 2, 20
+       )`
+    );
+    await databasePool.query(
+      `insert into content_bundle_thumbnail_job (
+         id, bundle_id, owner_user_id, renderer_revision, state, attempt_count
+       ) values (
+         'bundle-thumbnail-job-1', 'bundle-1', 'owner-1', 'renderer-v1', 'completed', 1
+       )`
+    );
+    await databasePool.query(
+      `insert into content_bundle_thumbnail_attempt (
+         id, job_id, attempt_number, capture_version_id, object_key, state,
+         lease_expires_at, write_deadline_at, finished_at
+       ) values (
+         'bundle-thumbnail-attempt-1', 'bundle-thumbnail-job-1', 1, 'version-1',
+         'content-bundles/bundle-1/thumbnails/renderer-v1/attempt-1.webp',
+         'succeeded', now(), now(), now()
+       )`
+    );
+    await databasePool.query(
+      `insert into content_bundle_thumbnail (
+         bundle_id, owner_user_id, renderer_revision, winning_attempt_id,
+         object_key, content_type, size_bytes, width, height, sha256
+       ) values (
+         'bundle-1', 'owner-1', 'renderer-v1', 'bundle-thumbnail-attempt-1',
+         'content-bundles/bundle-1/thumbnails/renderer-v1/attempt-1.webp',
+         'image/webp', 100, 480, 300, repeat('a', 64)
+       )`
+    );
+    await databasePool.query(
       `insert into artifact_publication (
         id, artifact_id, version_id, published_by_user_id
       ) values ('publication-1', 'artifact-1', 'version-1', 'owner-1')`
     );
     await databasePool.query(
       `insert into artifact_idempotency_record (
-        id, owner_user_id, operation, target_resource_id, key, request_hash,
+        id, owner_user_id, operation, target_resource_id, key,
+        request_evidence, request_evidence_key_revision,
         state, response_status, response_body, completed_at
       ) values (
-        'idempotency-1', 'owner-1', 'publish', 'artifact-1', 'publish-key', $1,
+        'idempotency-1', 'owner-1', 'publish', 'artifact-1', 'publish-key', $1, $2,
         'completed', 201, '{"publicationId":"publication-1"}'::jsonb, now()
       )`,
-      ["b".repeat(64)]
+      (() => {
+        const encrypted = evidenceCipher.encrypt("b".repeat(64));
+        return [encrypted.ciphertext, encrypted.keyRevision];
+      })()
     );
   });
 
@@ -97,6 +171,49 @@ describe("Artifact repository adapters", () => {
     await expect(thumbnails.consumeGrant(grant, "version-1")).resolves.toBeNull();
     await expect(thumbnails.resolveSession(session!.token, "version-1")).resolves.toBe(true);
     await expect(thumbnails.resolveSession(session!.token, "another-version")).resolves.toBe(false);
+  });
+
+  it("authorizes a Version and resolves its pinned Content bundle thumbnail", async () => {
+    await expect(thumbnails.findOwned("owner-1", "version-1")).resolves.toEqual({
+      objectKey: "content-bundles/bundle-1/thumbnails/renderer-v1/attempt-1.webp",
+      contentType: "image/webp"
+    });
+    await expect(thumbnails.findOwned("owner-2", "version-1")).resolves.toBeNull();
+  });
+
+  it("resolves internal capture assets through the Version Content bundle", async () => {
+    await expect(thumbnails.findVersionAsset("version-1", "")).resolves.toEqual({
+      objectKey: "content-bundles/bundle-1/index.html",
+      contentType: "text/html"
+    });
+    await expect(thumbnails.findVersionAsset("version-1", "assets/app.js")).resolves.toEqual({
+      objectKey: "content-bundles/bundle-1/assets/app.js",
+      contentType: "text/javascript"
+    });
+    await expect(thumbnails.findVersionAsset("version-1", "missing.js")).resolves.toBeNull();
+  });
+
+  it("rejects a Content bundle whose winning attempt belongs to another User", async () => {
+    await databasePool.query(
+      `insert into artifact_processing_attempt (
+         id, owner_user_id, job_id, attempt_number, state, staging_prefix, finished_at
+       ) values (
+         'cross-owner-attempt', 'owner-1', 'job-1', 2, 'succeeded',
+         'staging/upload-1/cross-owner-attempt/', now()
+       )`
+    );
+
+    await expect(
+      databasePool.query(
+        `insert into content_bundle (
+           id, owner_user_id, content_identity_revision, lifecycle_state,
+           integrity_state, creator_attempt_id, winning_attempt_id, ready_at
+         ) values (
+           'cross-owner-bundle', 'owner-2', 'identity-v1', 'ready', 'healthy',
+           'cross-owner-attempt', 'cross-owner-attempt', now()
+         )`
+      )
+    ).rejects.toMatchObject({ code: "23503" });
   });
 
   it("rejects expired capture grants", async () => {
@@ -262,9 +379,8 @@ describe("Artifact repository adapters", () => {
     );
     await databasePool.query(
       `insert into artifact_idempotency_record
-       (id, owner_user_id, operation, target_resource_id, key, request_hash, state)
-       values ('retry-idempotency', 'owner-1', 'retry_upload', 'artifact-1', 'retry-key', $1, 'pending')`,
-      ["c".repeat(64)]
+       (id, owner_user_id, operation, target_resource_id, key, state)
+       values ('retry-idempotency', 'owner-1', 'retry_upload', 'artifact-1', 'retry-key', 'pending')`
     );
 
     await repositories.recovery.queueManualRetry({
@@ -288,32 +404,33 @@ describe("Artifact repository adapters", () => {
     if (!activePolicy) throw new Error("Expected seeded upload policy.");
     await databasePool.query(
       `insert into artifact_upload_session (
-         id, artifact_id, policy_revision, archive_size_bytes, expanded_size_bytes,
-         file_count, single_file_size_bytes, formats, raw_object_key, raw_sha256,
+         id, artifact_id, owner_user_id, policy_revision, archive_size_bytes, expanded_size_bytes,
+         file_count, single_file_size_bytes, formats, raw_object_key,
          raw_size_bytes, state, retryable, failure_reason_code, failure_summary,
          validation_report
        ) values (
-         'upload-old', 'artifact-2', 'v0.0.1-default', 52428800, 209715200,
-         1000, 52428800, '[]'::jsonb, 'raw/artifact-2/upload-old.zip', $1,
+         'upload-old', 'artifact-2', 'owner-2', 'v0.0.1-default', 52428800, 209715200,
+         1000, 52428800, '[]'::jsonb, 'raw/artifact-2/upload-old.zip',
          100, 'failed', false, 'invalid_zip', 'Replace the file.',
          '{"primaryIssue":{"code":"invalid_zip","message":"The uploaded file is not a valid ZIP.","action":"Create a new ZIP and upload it again.","details":{}},"issues":[],"warnings":[]}'::jsonb
-       )`,
-      ["e".repeat(64)]
+       )`
     );
     await databasePool.query(
       `insert into artifact_idempotency_record
-       (id, owner_user_id, operation, target_resource_id, key, request_hash, state)
-       values ('replace-idempotency', 'owner-2', 'replace_upload', 'artifact-2', 'replace-key', $1, 'pending')`,
-      ["f".repeat(64)]
+       (id, owner_user_id, operation, target_resource_id, key, state)
+       values ('replace-idempotency', 'owner-2', 'replace_upload', 'artifact-2', 'replace-key', 'pending')`
     );
 
     await repositories.recovery.commitReplacement({
       artifactId: "artifact-2",
+      ownerUserId: "owner-2",
       previousUploadSessionId: "upload-old",
       uploadSessionId: "upload-new",
       policy: activePolicy,
       rawObjectKey: "raw/artifact-2/upload-new.zip",
-      rawSha256: "1".repeat(64),
+      rawFingerprintCandidates: [{ keyRevision: "key-v1", fingerprint: "1".repeat(64) }],
+      processingRevision: "processing-v1",
+      contentIdentityRevision: "identity-v1",
       rawSizeBytes: 120,
       processingJobId: "job-new",
       maxAttempts: 3,
@@ -339,12 +456,11 @@ describe("Artifact repository adapters", () => {
     await databasePool.query("insert into artifact (id, owner_user_id, name) values ('artifact-3', 'owner-1', 'Versioned')");
     await databasePool.query(
       `insert into artifact_upload_session (
-         id, artifact_id, policy_revision, archive_size_bytes, expanded_size_bytes,
-         file_count, single_file_size_bytes, formats, raw_object_key, raw_sha256,
+         id, artifact_id, owner_user_id, policy_revision, archive_size_bytes, expanded_size_bytes,
+         file_count, single_file_size_bytes, formats, raw_object_key,
          raw_size_bytes, state
-       ) values ('upload-v1', 'artifact-3', 'v0.0.1-default', 52428800, 209715200,
-         1000, 52428800, '[]'::jsonb, 'raw/artifact-3/upload-v1.zip', $1, 100, 'committed')`,
-      ["3".repeat(64)]
+       ) values ('upload-v1', 'artifact-3', 'owner-1', 'v0.0.1-default', 52428800, 209715200,
+         1000, 52428800, '[]'::jsonb, 'raw/artifact-3/upload-v1.zip', 100, 'committed')`
     );
     await databasePool.query(
       "insert into artifact_version (id, artifact_id, upload_session_id, version_number, state) values ('version-v1', 'artifact-3', 'upload-v1', 1, 'ready')"
@@ -357,17 +473,19 @@ describe("Artifact repository adapters", () => {
     );
     await databasePool.query(
       `insert into artifact_idempotency_record
-       (id, owner_user_id, operation, target_resource_id, key, request_hash, state)
-       values ('version-idempotency', 'owner-1', 'upload_version', 'artifact-3', 'version-key', $1, 'pending')`,
-      ["4".repeat(64)]
+       (id, owner_user_id, operation, target_resource_id, key, state)
+       values ('version-idempotency', 'owner-1', 'upload_version', 'artifact-3', 'version-key', 'pending')`
     );
 
     await repositories.recovery.commitVersionUpload({
       artifactId: "artifact-3",
+      ownerUserId: "owner-1",
       uploadSessionId: "upload-v2",
       policy: activePolicy,
       rawObjectKey: "raw/artifact-3/upload-v2.zip",
-      rawSha256: "5".repeat(64),
+      rawFingerprintCandidates: [{ keyRevision: "key-v1", fingerprint: "5".repeat(64) }],
+      processingRevision: "processing-v1",
+      contentIdentityRevision: "identity-v1",
       rawSizeBytes: 140,
       requestedEntry: "report.html",
       processingJobId: "job-v2",
@@ -410,6 +528,13 @@ describe("Artifact repository adapters", () => {
         provisionalRequestHash: "d".repeat(64)
       })
     ).resolves.toMatchObject({ kind: "existing", record: { id: "idempotency-create", state: "pending" } });
+    const pendingEvidence = await databasePool.query(
+      `select request_evidence, request_evidence_key_revision
+       from artifact_idempotency_record where id = 'idempotency-create'`
+    );
+    expect(pendingEvidence.rows).toEqual([
+      { request_evidence: null, request_evidence_key_revision: null }
+    ]);
 
     const activePolicy = await repositories.uploadPolicies.getActive();
     if (!activePolicy) {
@@ -427,7 +552,12 @@ describe("Artifact repository adapters", () => {
       uploadSessionId: "upload-created",
       policy: activePolicy,
       rawObjectKey: "raw/artifact-created/upload-created.zip",
-      rawSha256: "e".repeat(64),
+      rawFingerprintCandidates: [
+        { keyRevision: "key-v2", fingerprint: "e".repeat(64) },
+        { keyRevision: "key-v1", fingerprint: "d".repeat(64) }
+      ],
+      processingRevision: "processing-v1",
+      contentIdentityRevision: "identity-v1",
       rawSizeBytes: 100,
       processingJobId: "job-created",
       maxAttempts: 3,
@@ -441,16 +571,89 @@ describe("Artifact repository adapters", () => {
       name: "Created"
     });
     await expect(repositories.uploadSessions.findCurrent("artifact-created")).resolves.toMatchObject({
-      id: "upload-created",
-      rawSha256: "e".repeat(64)
+      id: "upload-created"
     });
     await expect(repositories.processingJobs.findByUploadSession("upload-created")).resolves.toMatchObject({
       id: "job-created",
       maxAttempts: 3
     });
+    const candidates = await databasePool.query(
+      `select owner_user_id, fingerprint_key_revision, reuse_fingerprint,
+              requested_entry_key, policy_revision, processing_revision,
+              content_identity_revision
+       from artifact_upload_raw_fingerprint_candidate
+       where upload_session_id = 'upload-created'
+       order by fingerprint_key_revision desc`
+    );
+    expect(candidates.rows).toEqual([
+      {
+        owner_user_id: "owner-1",
+        fingerprint_key_revision: "key-v2",
+        reuse_fingerprint: "e".repeat(64),
+        requested_entry_key: "",
+        policy_revision: activePolicy.revision,
+        processing_revision: "processing-v1",
+        content_identity_revision: "identity-v1"
+      },
+      {
+        owner_user_id: "owner-1",
+        fingerprint_key_revision: "key-v1",
+        reuse_fingerprint: "d".repeat(64),
+        requested_entry_key: "",
+        policy_revision: activePolicy.revision,
+        processing_revision: "processing-v1",
+        content_identity_revision: "identity-v1"
+      }
+    ]);
     await expect(
       repositories.idempotency.find("owner-1", "create_artifact", null, "create-key")
-    ).resolves.toMatchObject({ state: "completed", responseStatus: 202, responseBody });
+    ).resolves.toMatchObject({
+      state: "completed",
+      requestHash: "f".repeat(64),
+      responseStatus: 202,
+      responseBody
+    });
+    const completedEvidence = await databasePool.query(
+      `select request_evidence, request_evidence_key_revision
+       from artifact_idempotency_record where id = 'idempotency-create'`
+    );
+    expect(completedEvidence.rows[0]).toMatchObject({ request_evidence_key_revision: "key-v1" });
+    expect(completedEvidence.rows[0].request_evidence).not.toContain("f".repeat(64));
+  });
+
+  it("re-encrypts previous idempotency evidence with the current key", async () => {
+    const previousCipher = new IdempotencyEvidenceCipher({
+      current: { revision: "key-v0", secret: "previous-test-secret-with-at-least-thirty-two-bytes" }
+    });
+    const old = previousCipher.encrypt("previous-canonical-evidence");
+    await databasePool.query(
+      `insert into artifact_idempotency_record (
+         id, owner_user_id, operation, target_resource_id, key,
+         request_evidence, request_evidence_key_revision,
+         state, response_status, response_body, completed_at
+       ) values (
+         'idempotency-previous', 'owner-1', 'publish', 'artifact-1', 'previous-key',
+         $1, $2, 'completed', 201, '{}'::jsonb, now()
+       )`,
+      [old.ciphertext, old.keyRevision]
+    );
+    const rotatingCipher = new IdempotencyEvidenceCipher({
+      current: { revision: "key-v1", secret: "repository-test-secret-with-at-least-thirty-two-bytes" },
+      previous: { revision: "key-v0", secret: "previous-test-secret-with-at-least-thirty-two-bytes" }
+    });
+    const rotatingRepositories = createArtifactRepositories(
+      drizzle(databasePool, { schema }),
+      rotatingCipher
+    );
+
+    await expect(rotatingRepositories.idempotency.reencryptPrevious(10)).resolves.toBe(1);
+    await expect(
+      rotatingRepositories.idempotency.find("owner-1", "publish", "artifact-1", "previous-key")
+    ).resolves.toMatchObject({ requestHash: "previous-canonical-evidence" });
+    const row = await databasePool.query(
+      "select request_evidence_key_revision from artifact_idempotency_record where id = 'idempotency-previous'"
+    );
+    expect(row.rows).toEqual([{ request_evidence_key_revision: "key-v1" }]);
   });
 
   it("atomically removes the complete owned Artifact graph and returns every object cleanup target", async () => {
@@ -460,49 +663,30 @@ describe("Artifact repository adapters", () => {
     );
     await databasePool.query(
       `insert into artifact_upload_session (
-         id, artifact_id, policy_revision, archive_size_bytes, expanded_size_bytes,
-         file_count, single_file_size_bytes, formats, raw_object_key, raw_sha256,
+         id, artifact_id, owner_user_id, policy_revision, archive_size_bytes, expanded_size_bytes,
+         file_count, single_file_size_bytes, formats, raw_object_key,
          raw_size_bytes, state
-       ) values ('upload-delete', 'artifact-delete', 'v0.0.1-default', 52428800, 209715200,
-         1000, 52428800, '[]'::jsonb, 'raw/artifact-delete/input.zip', $1, 100, 'committed')`,
-      ["7".repeat(64)]
+       ) values ('upload-delete', 'artifact-delete', 'owner-1', 'v0.0.1-default', 52428800, 209715200,
+         1000, 52428800, '[]'::jsonb, 'raw/artifact-delete/input.zip', 100, 'committed')`
     );
     await databasePool.query(
       "insert into artifact_processing_job (id, upload_session_id, state, attempt_count, max_attempts) values ('job-delete', 'upload-delete', 'completed', 1, 3)"
     );
     await databasePool.query(
       `insert into artifact_processing_attempt
-       (id, job_id, attempt_number, state, staging_prefix, finished_at)
-       values ('attempt-delete', 'job-delete', 1, 'succeeded', 'staging/artifact-delete/attempt-1/', now())`
+       (id, owner_user_id, job_id, attempt_number, state, staging_prefix, finished_at)
+       values ('attempt-delete', 'owner-1', 'job-delete', 1, 'succeeded', 'staging/artifact-delete/attempt-1/', now())`
     );
     await databasePool.query(
       "insert into artifact_version (id, artifact_id, upload_session_id, version_number, state) values ('version-delete', 'artifact-delete', 'upload-delete', 1, 'ready')"
-    );
-    await databasePool.query(
-      `insert into artifact_asset (version_id, path, object_key, size_bytes, content_type, sha256)
-       values ('version-delete', 'index.html', 'versions/artifact-delete/index.html', 12, 'text/html', $1)`,
-      ["8".repeat(64)]
-    );
-    await databasePool.query(
-      `insert into artifact_manifest (version_id, entry_path, file_count, total_size_bytes)
-       values ('version-delete', 'index.html', 1, 12)`
-    );
-    await databasePool.query(
-      "insert into artifact_thumbnail_job (id, version_id, state) values ('thumbnail-job-delete', 'version-delete', 'completed')"
-    );
-    await databasePool.query(
-      `insert into artifact_thumbnail (version_id, object_key, content_type, size_bytes, width, height, sha256)
-       values ('version-delete', 'versions/version-delete/thumbnail.webp', 'image/webp', 100, 480, 300, $1)`,
-      ["a".repeat(64)]
     );
     await databasePool.query(
       "insert into artifact_publication (id, artifact_id, version_id, published_by_user_id) values ('publication-delete', 'artifact-delete', 'version-delete', 'owner-1')"
     );
     await databasePool.query(
       `insert into artifact_idempotency_record
-       (id, owner_user_id, operation, target_resource_id, key, request_hash, state)
-       values ('idempotency-delete', 'owner-1', 'publish', 'artifact-delete', 'delete-key', $1, 'pending')`,
-      ["9".repeat(64)]
+       (id, owner_user_id, operation, target_resource_id, key, state)
+       values ('idempotency-delete', 'owner-1', 'publish', 'artifact-delete', 'delete-key', 'pending')`
     );
 
     await expect(repositories.artifacts.deleteOwned("owner-2", "artifact-delete")).resolves.toEqual({
@@ -517,7 +701,7 @@ describe("Artifact repository adapters", () => {
     const expectedCleanup = {
       kind: "cleanup",
       record: {
-        objectKeys: ["raw/artifact-delete/input.zip", "versions/artifact-delete/index.html", "versions/version-delete/thumbnail.webp"],
+        objectKeys: ["raw/artifact-delete/input.zip"],
         stagingPrefixes: ["staging/artifact-delete/attempt-1/"]
       }
     };
@@ -530,10 +714,6 @@ describe("Artifact repository adapters", () => {
       (select count(*) from artifact_processing_job where upload_session_id = 'upload-delete')::int as jobs,
       (select count(*) from artifact_processing_attempt where job_id = 'job-delete')::int as attempts,
       (select count(*) from artifact_version where artifact_id = 'artifact-delete')::int as versions,
-      (select count(*) from artifact_asset where version_id = 'version-delete')::int as assets,
-      (select count(*) from artifact_manifest where version_id = 'version-delete')::int as manifests,
-      (select count(*) from artifact_thumbnail_job where version_id = 'version-delete')::int as thumbnail_jobs,
-      (select count(*) from artifact_thumbnail where version_id = 'version-delete')::int as thumbnails,
       (select count(*) from artifact_publication where artifact_id = 'artifact-delete')::int as publications,
       (select count(*) from artifact_idempotency_record where target_resource_id = 'artifact-delete')::int as idempotency,
       (select count(*) from artifact_deletion_cleanup where artifact_id = 'artifact-delete')::int as cleanup`);
@@ -544,10 +724,6 @@ describe("Artifact repository adapters", () => {
       jobs: 0,
       attempts: 0,
       versions: 0,
-      assets: 0,
-      manifests: 0,
-      thumbnail_jobs: 0,
-      thumbnails: 0,
       publications: 0,
       idempotency: 0,
       cleanup: 1
@@ -560,5 +736,78 @@ describe("Artifact repository adapters", () => {
     await expect(repositories.artifacts.deleteOwned("owner-1", "artifact-delete")).resolves.toEqual({
       kind: "not_found"
     });
+  });
+
+  it("keeps a shared bundle ready until its final Version reference is deleted", async () => {
+    await databasePool.query(`insert into artifact (id, owner_user_id, name) values
+      ('artifact-shared-a', 'owner-1', 'Shared A'), ('artifact-shared-b', 'owner-1', 'Shared B')`);
+    await databasePool.query(`insert into artifact_upload_session (
+      id, artifact_id, owner_user_id, policy_revision, archive_size_bytes, expanded_size_bytes,
+      file_count, single_file_size_bytes, formats, raw_object_key, raw_size_bytes, state
+    ) values
+      ('upload-shared-a', 'artifact-shared-a', 'owner-1', 'v0.0.1-default', 100, 200, 10, 100, '[]', 'raw/shared-a.zip', 10, 'committed'),
+      ('upload-shared-b', 'artifact-shared-b', 'owner-1', 'v0.0.1-default', 100, 200, 10, 100, '[]', 'raw/shared-b.zip', 10, 'committed')`);
+    await databasePool.query(`insert into artifact_processing_job
+      (id, upload_session_id, state, attempt_count, max_attempts)
+      values ('job-shared-a', 'upload-shared-a', 'completed', 1, 3)`);
+    await databasePool.query(`insert into artifact_processing_attempt (
+      id, owner_user_id, job_id, attempt_number, state, staging_prefix, object_prefix,
+      write_deadline_at, finished_at
+    ) values (
+      'attempt-shared-a', 'owner-1', 'job-shared-a', 1, 'succeeded', 'staging/shared-a/',
+      'content-bundles/bundle-shared/attempts/attempt-shared-a/', now() + interval '10 seconds', now()
+    )`);
+    await databasePool.query(`insert into content_bundle (
+      id, owner_user_id, content_identity_revision, lifecycle_state, integrity_state,
+      creator_attempt_id, winning_attempt_id, ready_at
+    ) values (
+      'bundle-shared', 'owner-1', 'identity-v1', 'ready', 'healthy',
+      'attempt-shared-a', 'attempt-shared-a', now()
+    )`);
+    await databasePool.query(`insert into content_bundle_asset
+      (bundle_id, owner_user_id, path, object_key, size_bytes, content_type)
+      values ('bundle-shared', 'owner-1', 'index.html',
+        'content-bundles/bundle-shared/attempts/attempt-shared-a/files/index.html', 10, 'text/html')`);
+    await databasePool.query(`insert into content_bundle_manifest
+      (bundle_id, owner_user_id, entry_path, object_key, file_count, total_size_bytes)
+      values ('bundle-shared', 'owner-1', 'index.html',
+        'content-bundles/bundle-shared/attempts/attempt-shared-a/manifest.json', 1, 10)`);
+    await databasePool.query(`insert into artifact_version (
+      id, artifact_id, owner_user_id, content_bundle_id, renderer_revision,
+      upload_session_id, version_number, state
+    ) values
+      ('version-shared-a', 'artifact-shared-a', 'owner-1', 'bundle-shared', 'renderer-v1', 'upload-shared-a', 1, 'ready'),
+      ('version-shared-b', 'artifact-shared-b', 'owner-1', 'bundle-shared', 'renderer-v1', 'upload-shared-b', 1, 'ready')`);
+    await databasePool.query(`insert into content_bundle_thumbnail_job
+      (id, bundle_id, owner_user_id, renderer_revision)
+      values ('thumbnail-shared', 'bundle-shared', 'owner-1', 'renderer-v1')`);
+
+    await repositories.artifacts.deleteOwned("owner-1", "artifact-shared-b");
+    const nonFinal = await databasePool.query(
+      "select lifecycle_state, winning_attempt_id from content_bundle where id = 'bundle-shared'"
+    );
+    expect(nonFinal.rows).toEqual([{ lifecycle_state: "ready", winning_attempt_id: "attempt-shared-a" }]);
+    const noCleanup = await databasePool.query(
+      "select count(*)::int as count from content_bundle_cleanup where bundle_id = 'bundle-shared'"
+    );
+    expect(noCleanup.rows).toEqual([{ count: 0 }]);
+
+    await repositories.artifacts.deleteOwned("owner-1", "artifact-shared-a");
+    const finalBundle = await databasePool.query(
+      `select lifecycle_state, creator_attempt_id, winning_attempt_id
+       from content_bundle where id = 'bundle-shared'`
+    );
+    expect(finalBundle.rows).toEqual([
+      { lifecycle_state: "deleting", creator_attempt_id: null, winning_attempt_id: null }
+    ]);
+    const cleanup = await databasePool.query(
+      "select object_prefixes, quiesce_after from content_bundle_cleanup where bundle_id = 'bundle-shared'"
+    );
+    expect(cleanup.rows[0].object_prefixes).toContain("content-bundles/bundle-shared/");
+    expect(cleanup.rows[0].quiesce_after).toBeInstanceOf(Date);
+    const job = await databasePool.query(
+      "select state from content_bundle_thumbnail_job where id = 'thumbnail-shared'"
+    );
+    expect(job.rows).toEqual([{ state: "cancelled" }]);
   });
 });

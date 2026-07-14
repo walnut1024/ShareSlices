@@ -50,4 +50,5 @@ export interface ObjectStorage {
   listObjects(input: ObjectListInput): Promise<ObjectListResult>;
   deleteObject(key: string): Promise<void>;
   removeStagingPrefix(prefix: string): Promise<PrefixRemovalResult>;
+  removeContentBundlePrefix(prefix: string): Promise<PrefixRemovalResult>;
 }

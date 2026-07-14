@@ -6,9 +6,11 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use shareslices_worker::{
     archive_validation::ArchiveError,
+    content_fingerprint::FingerprintKey,
     format_rules::{FormatError, PolicySnapshot, default_format_rules},
     job_store::{
-        ClaimedJob, JobFailure, JobStore, JobStoreError, PostgresJobStore, ReadyVersionStore,
+        ClaimedJob, ContentBundleStore, JobFailure, JobStore, JobStoreError, PostgresJobStore,
+        RawFingerprintCandidate, RawReuseContext,
     },
     logging::{EventContext, SanitizedException, Severity, WorkerEvent},
     object_storage::AwsS3ObjectStorage,
@@ -60,7 +62,7 @@ pub trait ProcessingInputSource: Send + Sync {
 pub trait AttemptProcessor: Send + Sync {
     async fn process(
         &self,
-        ready_versions: &dyn ReadyVersionStore,
+        content_bundles: &dyn ContentBundleStore,
         input: ProcessingAttemptInput,
     ) -> Result<AttemptCompletion, AttemptError>;
 }
@@ -68,6 +70,12 @@ pub trait AttemptProcessor: Send + Sync {
 #[derive(Clone)]
 pub struct PostgresInputSource {
     pool: PgPool,
+    lease_duration: Duration,
+    content_identity_revision: String,
+    content_fingerprint_key: FingerprintKey,
+    previous_content_fingerprint_key: Option<FingerprintKey>,
+    renderer_revision: String,
+    processing_revision: String,
 }
 
 #[derive(Deserialize)]
@@ -79,8 +87,24 @@ struct FormatSnapshot {
 }
 
 impl PostgresInputSource {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(
+        pool: PgPool,
+        lease_duration: Duration,
+        content_identity_revision: String,
+        content_fingerprint_key: FingerprintKey,
+        previous_content_fingerprint_key: Option<FingerprintKey>,
+        renderer_revision: String,
+        processing_revision: String,
+    ) -> Self {
+        Self {
+            pool,
+            lease_duration,
+            content_identity_revision,
+            content_fingerprint_key,
+            previous_content_fingerprint_key,
+            renderer_revision,
+            processing_revision,
+        }
     }
 }
 
@@ -94,7 +118,7 @@ impl ProcessingInputSource for PostgresInputSource {
     ) -> Result<ProcessingAttemptInput, InputError> {
         let row = sqlx::query(
             r"
-            select raw_object_key, requested_entry, archive_size_bytes, expanded_size_bytes,
+            select raw_object_key, requested_entry, policy_revision, archive_size_bytes, expanded_size_bytes,
                    file_count, single_file_size_bytes, formats
             from artifact_upload_session
             where id = $1
@@ -130,17 +154,67 @@ impl ProcessingInputSource for PostgresInputSource {
                 claim.upload_session_id
             ))
         })?;
+        let requested_entry: Option<String> = row.try_get("requested_entry")?;
+        let requested_entry_key = requested_entry.clone().unwrap_or_default();
+        let policy_revision: String = row.try_get("policy_revision")?;
+        let accepted_key_revisions = std::iter::once(&self.content_fingerprint_key.revision)
+            .chain(
+                self.previous_content_fingerprint_key
+                    .as_ref()
+                    .map(|key| &key.revision),
+            )
+            .cloned()
+            .collect::<Vec<_>>();
+        let candidate_rows = sqlx::query(
+            r"
+            select fingerprint_key_revision, reuse_fingerprint
+            from artifact_upload_raw_fingerprint_candidate
+            where upload_session_id = $1 and requested_entry_key = $2
+              and policy_revision = $3 and processing_revision = $4
+              and content_identity_revision = $5
+              and fingerprint_key_revision = any($6)
+            order by fingerprint_key_revision
+            ",
+        )
+        .bind(&claim.upload_session_id)
+        .bind(&requested_entry_key)
+        .bind(&policy_revision)
+        .bind(&self.processing_revision)
+        .bind(&self.content_identity_revision)
+        .bind(&accepted_key_revisions)
+        .fetch_all(&self.pool)
+        .await?;
+        let raw_reuse = RawReuseContext {
+            requested_entry_key,
+            policy_revision,
+            processing_revision: self.processing_revision.clone(),
+            content_identity_revision: self.content_identity_revision.clone(),
+            candidates: candidate_rows
+                .into_iter()
+                .map(|candidate| RawFingerprintCandidate {
+                    key_revision: candidate.get("fingerprint_key_revision"),
+                    fingerprint: candidate.get("reuse_fingerprint"),
+                })
+                .collect(),
+        };
 
         Ok(ProcessingAttemptInput {
             job_id: claim.job_id.clone(),
             worker_id: worker_id.to_owned(),
             upload_session_id: claim.upload_session_id.clone(),
+            attempt_id: claim.attempt_id.clone(),
             version_id: Uuid::new_v4().to_string(),
             raw_object_key: row.try_get("raw_object_key")?,
-            requested_entry: row.try_get("requested_entry")?,
+            requested_entry,
             staging_prefix: claim.staging_prefix.clone(),
             policy,
             write_concurrency,
+            lease_duration: self.lease_duration,
+            content_identity_revision: self.content_identity_revision.clone(),
+            content_fingerprint_key: self.content_fingerprint_key.clone(),
+            previous_content_fingerprint_key: self.previous_content_fingerprint_key.clone(),
+            renderer_revision: self.renderer_revision.clone(),
+            raw_reuse,
         })
     }
 }
@@ -202,10 +276,10 @@ impl StorageAttemptProcessor {
 impl AttemptProcessor for StorageAttemptProcessor {
     async fn process(
         &self,
-        ready_versions: &dyn ReadyVersionStore,
+        content_bundles: &dyn ContentBundleStore,
         input: ProcessingAttemptInput,
     ) -> Result<AttemptCompletion, AttemptError> {
-        process_attempt(&self.storage, ready_versions, input).await
+        process_attempt(&self.storage, content_bundles, input).await
     }
 }
 
@@ -219,7 +293,7 @@ pub struct WorkerRuntime<S, I, P, J> {
 
 impl<S, I, P, J> WorkerRuntime<S, I, P, J>
 where
-    S: JobStore + ReadyVersionStore + 'static,
+    S: JobStore + ContentBundleStore + 'static,
     I: ProcessingInputSource,
     P: AttemptProcessor,
     J: Fn(Duration) -> Duration,
@@ -349,13 +423,7 @@ where
 
         let result = self.process_with_heartbeat(&claim, input).await;
         match result {
-            Ok(_completion) => WorkerEvent::new(
-                Severity::Info,
-                "shareslices.artifact.processing.completed",
-                "processing attempt completed",
-            )
-            .with_context(claim_context(&claim))
-            .emit(),
+            Ok(completion) => emit_reuse_outcome(completion.reuse_telemetry),
             Err(error) => {
                 let (operation, classified, validation_report) = classify_attempt_error(&error);
                 self.record_failure(
@@ -511,6 +579,24 @@ fn emit_stopped() {
     .emit();
 }
 
+fn emit_reuse_outcome(telemetry: shareslices_worker::processing::ReuseTelemetry) {
+    tracing::event!(
+        tracing::Level::INFO,
+        severity_text = "INFO",
+        severity_number = 9_u64,
+        event_name = "shareslices.artifact.processing.reuse_outcome",
+        body = "processing reuse outcome recorded",
+        "shareslices.reuse.outcome" = telemetry.outcome.as_str(),
+        "shareslices.reuse.fallback_reason" = telemetry.fallback_reason.map_or(
+            "none",
+            shareslices_worker::processing::ReuseFallbackReason::as_str
+        ),
+        "shareslices.reuse.avoided_stage_count" = telemetry.avoided_stage_count,
+        "shareslices.reuse.avoided_write_count" = telemetry.avoided_write_count,
+        "shareslices.reuse.avoided_write_bytes" = telemetry.avoided_write_bytes,
+    );
+}
+
 pub type ProductionRuntime = WorkerRuntime<
     PostgresJobStore,
     PostgresInputSource,
@@ -584,7 +670,14 @@ fn classify_attempt_error(
             ProcessingError::LeaseLost,
             None,
         ),
-        AttemptError::TemporaryArchive(_)
+        AttemptError::BundleCreating => (
+            ProcessingOperation::CommitReadyVersion,
+            ProcessingError::Unclassified,
+            None,
+        ),
+        AttemptError::ContentIdentity(_)
+        | AttemptError::ManifestSerialization(_)
+        | AttemptError::TemporaryArchive(_)
         | AttemptError::ExtractionTask(_)
         | AttemptError::InvalidConcurrency
         | AttemptError::InvalidStagingPrefix
@@ -659,7 +752,10 @@ mod tests {
     use std::{collections::VecDeque, env, fs, path::Path, sync::Mutex};
 
     use shareslices_worker::{
-        job_store::{CommitOutcome, ReadyVersionCommit},
+        job_store::{
+            CommitOutcome, ContentBundleReservation, ContentBundleReservationOutcome,
+            ReadyContentBundleVersionCommit,
+        },
         manifest::ReadyManifest,
     };
     use sqlx::postgres::PgPoolOptions;
@@ -830,6 +926,7 @@ mod tests {
             "db/migrations/0001_account_entry.sql",
             "db/migrations/0002_artifact_foundation.sql",
             "db/migrations/0006_artifact_requested_entry.sql",
+            "db/migrations/0012_content_bundle_foundation.sql",
         ] {
             let sql = fs::read_to_string(repository_root.join(migration)).expect("read migration");
             sqlx::raw_sql(&sql)
@@ -842,12 +939,12 @@ mod tests {
             insert into "user" (id, name, email) values ('user-1', 'Owner', 'owner@example.com');
             insert into artifact (id, owner_user_id, name) values ('artifact-1', 'user-1', 'Artifact');
             insert into artifact_upload_session (
-              id, artifact_id, policy_revision, archive_size_bytes, expanded_size_bytes,
-              file_count, single_file_size_bytes, formats, raw_object_key, raw_sha256,
+              id, artifact_id, owner_user_id, policy_revision, archive_size_bytes, expanded_size_bytes,
+              file_count, single_file_size_bytes, formats, raw_object_key,
               raw_size_bytes
             )
             select
-              'upload-1', 'artifact-1', policy.revision, policy.archive_size_bytes,
+              'upload-1', 'artifact-1', 'user-1', policy.revision, policy.archive_size_bytes,
               policy.expanded_size_bytes, policy.file_count, policy.single_file_size_bytes,
               jsonb_agg(
                 jsonb_build_object(
@@ -856,7 +953,7 @@ mod tests {
                   'validationKind', format.validation_kind
                 ) order by format.extension
               ),
-              'raw/artifact-1/upload-1.zip', repeat('a', 64), 1024
+              'raw/artifact-1/upload-1.zip', 1024
             from artifact_upload_policy policy
             join artifact_upload_policy_format format on format.policy_id = policy.id
             where policy.active
@@ -867,10 +964,18 @@ mod tests {
         .await
         .expect("seed upload snapshot from migrated policy");
 
-        let loaded = PostgresInputSource::new(pool.clone())
-            .load(&claim(1, 3), "worker-test", 4)
-            .await
-            .expect("load processing input");
+        let loaded = PostgresInputSource::new(
+            pool.clone(),
+            Duration::from_secs(30),
+            "content-identity-v1".to_owned(),
+            FingerprintKey::new("fingerprint-v1", vec![b'k'; 32]).expect("test key"),
+            None,
+            "renderer-v1".to_owned(),
+            "processing-v1".to_owned(),
+        )
+        .load(&claim(1, 3), "worker-test", 4)
+        .await
+        .expect("load processing input");
 
         assert_eq!(loaded.raw_object_key, "raw/artifact-1/upload-1.zip");
         assert_eq!(loaded.requested_entry, None);
@@ -935,12 +1040,26 @@ mod tests {
             job_id: claim.job_id.clone(),
             worker_id: worker_id.to_owned(),
             upload_session_id: claim.upload_session_id.clone(),
+            attempt_id: claim.attempt_id.clone(),
             version_id: "version-1".to_owned(),
             raw_object_key: "raw/upload.zip".to_owned(),
             requested_entry: None,
             staging_prefix: claim.staging_prefix.clone(),
             policy: PolicySnapshot::product_defaults(),
             write_concurrency,
+            lease_duration: Duration::from_secs(30),
+            content_identity_revision: "content-identity-v1".to_owned(),
+            content_fingerprint_key: FingerprintKey::new("fingerprint-v1", vec![b'k'; 32])
+                .expect("test key"),
+            previous_content_fingerprint_key: None,
+            renderer_revision: "renderer-v1".to_owned(),
+            raw_reuse: RawReuseContext {
+                requested_entry_key: String::new(),
+                policy_revision: "v0.0.1-default".to_owned(),
+                processing_revision: "processing-v1".to_owned(),
+                content_identity_revision: "content-identity-v1".to_owned(),
+                candidates: Vec::new(),
+            },
         }
     }
 
@@ -949,6 +1068,15 @@ mod tests {
             commit_outcome: CommitOutcome::Committed,
             manifest: ReadyManifest::new("index.html".to_owned(), Vec::new()),
             removed_staging_objects: 0,
+            reuse_telemetry: shareslices_worker::processing::ReuseTelemetry {
+                outcome: shareslices_worker::processing::ReuseOutcome::FullProcess,
+                fallback_reason: Some(
+                    shareslices_worker::processing::ReuseFallbackReason::NoCompatibleCanonicalMatch,
+                ),
+                avoided_stage_count: 0,
+                avoided_write_count: 0,
+                avoided_write_bytes: 0,
+            },
         }
     }
 
@@ -1023,10 +1151,19 @@ mod tests {
     }
 
     #[async_trait]
-    impl ReadyVersionStore for FakeStore {
-        async fn commit_ready_version(
+    impl ContentBundleStore for FakeStore {
+        async fn reserve_content_bundle(
             &self,
-            _commit: &ReadyVersionCommit,
+            reservation: &ContentBundleReservation,
+        ) -> Result<ContentBundleReservationOutcome, JobStoreError> {
+            Ok(ContentBundleReservationOutcome::Reserved {
+                bundle_id: reservation.bundle_id.clone(),
+            })
+        }
+
+        async fn commit_content_bundle_version(
+            &self,
+            _commit: &ReadyContentBundleVersionCommit,
         ) -> Result<CommitOutcome, JobStoreError> {
             Ok(CommitOutcome::Committed)
         }
@@ -1072,7 +1209,7 @@ mod tests {
     impl AttemptProcessor for FakeProcessor {
         async fn process(
             &self,
-            _ready_versions: &dyn ReadyVersionStore,
+            _content_bundles: &dyn ContentBundleStore,
             _input: ProcessingAttemptInput,
         ) -> Result<AttemptCompletion, AttemptError> {
             tokio::time::sleep(self.delay).await;

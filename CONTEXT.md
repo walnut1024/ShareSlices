@@ -25,8 +25,12 @@ A keynote-style static web artifact whose content is organized as sequential sli
 _Avoid_: Slideshow, presentation file
 
 **Version**:
-An immutable content snapshot created after ShareSlices validates and expands an uploaded artifact.
+An immutable Artifact history record that identifies one validated and normalized content snapshot.
 _Avoid_: Upload, build, revision
+
+**Content bundle**:
+An internal immutable set of validated and normalized Artifact files that one or more Versions owned by the same User may reference.
+_Avoid_: Version, ZIP, shared Artifact
 
 **Artifact thumbnail**:
 The owner-facing visual summary of an artifact's latest ready version. It does not represent the version selected by the current publication.

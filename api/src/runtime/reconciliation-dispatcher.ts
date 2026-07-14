@@ -21,11 +21,16 @@ export function startReconciliationDispatcher(): () => void {
         olderThan: new Date(),
         limit: batchSize
       });
+      await module.run({
+        workType: "content_bundle_deletions",
+        olderThan: new Date(),
+        limit: batchSize
+      });
     } catch (error) {
       apiLogger.emit({
         severity: "ERROR",
-        body: "Artifact deletion cleanup failed.",
-        eventName: "shareslices.artifact.deletion.cleanup_failed",
+        body: "Artifact and content bundle deletion cleanup failed.",
+        eventName: "shareslices.reconciliation.deletion.cleanup_failed",
         attributes: exceptionAttributes(error)
       });
     } finally {

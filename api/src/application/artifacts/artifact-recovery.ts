@@ -2,11 +2,16 @@ import { createHash, randomUUID } from "node:crypto";
 import type { ArtifactAccepted } from "./artifact-intake.js";
 import type { ArtifactRepositories, UploadPolicySnapshot } from "./repositories.js";
 import type { ObjectBody, ObjectStorage } from "../../storage/index.js";
+import { env } from "../../env.js";
 import {
   discardUncommittedRawObject,
   normalizeRequestedEntry,
   RequestedEntryValidationError
 } from "./artifact-upload-input.js";
+import {
+  createConfiguredRawFingerprintCandidates,
+  type RawFingerprintCandidates
+} from "./raw-fingerprint.js";
 
 type RecoveryRepositories = Pick<
   ArtifactRepositories,
@@ -18,6 +23,7 @@ type ArtifactRecoveryOptions = {
   storage: ObjectStorage;
   viewerOrigin: string;
   maxProcessingAttempts: number;
+  rawFingerprints?: RawFingerprintCandidates;
 };
 
 export type ArtifactRecoveryErrorCode =
@@ -98,11 +104,13 @@ export class ArtifactRecoveryService {
   readonly #repositories: RecoveryRepositories;
   readonly #storage: ObjectStorage;
   readonly #maxProcessingAttempts: number;
+  readonly #rawFingerprints: RawFingerprintCandidates;
 
   constructor(options: ArtifactRecoveryOptions) {
     this.#repositories = options.repositories;
     this.#storage = options.storage;
     this.#maxProcessingAttempts = options.maxProcessingAttempts;
+    this.#rawFingerprints = options.rawFingerprints ?? createConfiguredRawFingerprintCandidates();
   }
 
   async retry(input: RetryInput): Promise<ArtifactAccepted> {
@@ -169,10 +177,8 @@ export class ArtifactRecoveryService {
     const hasReadyVersion = await this.#repositories.artifacts.hasReadyVersion(input.artifactId);
     const replacesFailedInput =
       current?.state === "failed" && !current.retryable && !current.supersededAt;
-    const createsVersion = hasReadyVersion && current?.state === "committed";
-    if (!current || (!replacesFailedInput && !createsVersion)) {
-      throw new ArtifactRecoveryError("invalid_artifact_state");
-    }
+    const createsVersion = hasReadyVersion && !replacesFailedInput;
+    const acceptsNewUpload = current && (replacesFailedInput || (createsVersion && current.state === "committed"));
     const requestPrefix = `${createsVersion ? "version" : "replace"}:${input.artifactId}`;
     const requestedEntry = Promise.resolve(input.requestedEntry ?? null).then(recoveryRequestedEntry);
     const claim = await this.#repositories.idempotency.claimPending({
@@ -199,6 +205,10 @@ export class ArtifactRecoveryService {
         throw new ArtifactRecoveryError("idempotency_conflict");
       }
       return acceptedResponse(claim.record.responseBody);
+    }
+    if (!acceptsNewUpload) {
+      await this.#repositories.idempotency.releasePending(claim.record.id);
+      throw new ArtifactRecoveryError("invalid_artifact_state");
     }
 
     const uploadSessionId = `upload_${randomUUID().replaceAll("-", "")}`;
@@ -236,10 +246,13 @@ export class ArtifactRecoveryService {
     try {
       const commit = {
         artifactId: input.artifactId,
+        ownerUserId: input.ownerUserId,
         uploadSessionId,
         policy: input.policy,
         rawObjectKey,
-        rawSha256: rawResult.value.sha256,
+        rawFingerprintCandidates: this.#rawFingerprints.create(input.ownerUserId, rawResult.value.sha256),
+        processingRevision: env.ARTIFACT_PROCESSING_REVISION,
+        contentIdentityRevision: env.CONTENT_IDENTITY_REVISION,
         rawSizeBytes: rawResult.value.sizeBytes,
         requestedEntry: entryResult.value,
         processingJobId: `job_${randomUUID().replaceAll("-", "")}`,

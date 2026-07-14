@@ -60,6 +60,48 @@ def walk(value: Any) -> list[str]:
     return []
 
 
+def response_schemas(document: dict[str, Any]) -> list[dict[str, Any]]:
+    schemas: list[dict[str, Any]] = []
+    for path_item in document["paths"].values():
+        for method, operation in path_item.items():
+            if method == "parameters":
+                continue
+            for response in operation["responses"].values():
+                if "$ref" in response:
+                    response = resolve_local_ref(document, response["$ref"])
+                for media_type in response.get("content", {}).values():
+                    if schema := media_type.get("schema"):
+                        schemas.append(schema)
+    return schemas
+
+
+def schema_property_names(
+    document: dict[str, Any],
+    schema: Any,
+    visited_references: set[str] | None = None,
+) -> set[str]:
+    if not isinstance(schema, dict):
+        return set()
+    visited_references = visited_references or set()
+    if reference := schema.get("$ref"):
+        if reference in visited_references:
+            return set()
+        return schema_property_names(
+            document,
+            resolve_local_ref(document, reference),
+            visited_references | {reference},
+        )
+
+    names = set(schema.get("properties", {}))
+    for child in schema.get("properties", {}).values():
+        names.update(schema_property_names(document, child, visited_references))
+    names.update(schema_property_names(document, schema.get("items"), visited_references))
+    for keyword in ("allOf", "anyOf", "oneOf"):
+        for child in schema.get(keyword, []):
+            names.update(schema_property_names(document, child, visited_references))
+    return names
+
+
 def test_openapi_artifact_contract_and_local_references() -> None:
     document = yaml.safe_load(OPENAPI_PATH.read_text(encoding="utf-8"))
 
@@ -175,3 +217,35 @@ def test_openapi_artifact_contract_and_local_references() -> None:
     assert upload_too_large["action"] == "Reduce the ZIP below the upload limit and try again."
     assert upload_too_large["details"] == {"limitBytes": 52_428_800}
     assert "actualBytes" not in upload_too_large["details"]
+
+
+def test_public_responses_do_not_expose_content_reuse_internals() -> None:
+    document = yaml.safe_load(OPENAPI_PATH.read_text(encoding="utf-8"))
+    property_names = {
+        "".join(character for character in name.lower() if character.isalnum())
+        for schema in response_schemas(document)
+        for name in schema_property_names(document, schema)
+    }
+
+    assert property_names.isdisjoint(
+        {
+            "contentbundle",
+            "contentbundleid",
+            "contentdigest",
+            "contentsha256",
+            "dedupoutcome",
+            "fingerprint",
+            "fingerprintkeyrevision",
+            "fingerprints",
+            "objectkey",
+            "objectkeys",
+            "rawfingerprint",
+            "rawsha256",
+            "reusefingerprint",
+            "reuseoutcome",
+            "reusehit",
+            "deduphit",
+            "deduplicationhit",
+            "sha256",
+        }
+    )

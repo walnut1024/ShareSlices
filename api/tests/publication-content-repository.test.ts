@@ -36,12 +36,12 @@ describe("Publication content repository", () => {
     for (const number of [1, 2]) {
       await pool.query(
         `insert into artifact_upload_session (
-          id, artifact_id, policy_revision, archive_size_bytes, expanded_size_bytes,
-          file_count, single_file_size_bytes, formats, raw_object_key, raw_sha256,
+          id, artifact_id, owner_user_id, policy_revision, archive_size_bytes, expanded_size_bytes,
+          file_count, single_file_size_bytes, formats, raw_object_key,
           raw_size_bytes, state
-        ) values ($1, 'artifact-1', 'v0.0.1-default', 52428800, 209715200,
-          1000, 52428800, '[]'::jsonb, $2, $3, 10, 'committed')`,
-        [`upload-${number}`, `raw/artifact-1/upload-${number}.zip`, String(number).repeat(64)]
+        ) values ($1, 'artifact-1', 'owner-1', 'v0.0.1-default', 52428800, 209715200,
+          1000, 52428800, '[]'::jsonb, $2, 10, 'committed')`,
+        [`upload-${number}`, `raw/artifact-1/upload-${number}.zip`]
       );
       await pool.query(
         `insert into artifact_version (id, artifact_id, upload_session_id, version_number, state)
@@ -50,14 +50,47 @@ describe("Publication content repository", () => {
       );
     }
     await pool.query(
-      `insert into artifact_asset (version_id, path, object_key, size_bytes, content_type, sha256)
-       values ('version-1', '腾讯文档盘点分析报告.html', 'committed/version-1/腾讯文档盘点分析报告.html', 14, 'text/html', $1),
-              ('version-1', 'assets/app.js', 'committed/version-1/assets/app.js', 10, 'text/javascript', $2)`,
-      ["a".repeat(64), "b".repeat(64)]
+      `insert into artifact_processing_job (id, upload_session_id, state, attempt_count, max_attempts)
+       values ('bundle-job-1', 'upload-1', 'completed', 1, 3)`
     );
     await pool.query(
-      `insert into artifact_manifest (version_id, entry_path, file_count, total_size_bytes)
-       values ('version-1', '腾讯文档盘点分析报告.html', 2, 24)`
+      `insert into artifact_processing_attempt (
+         id, owner_user_id, job_id, attempt_number, state, staging_prefix, object_prefix,
+         lease_expires_at, write_deadline_at, cleanup_state, cleanup_eligible_at,
+         cleaned_at, finished_at
+       ) values (
+         'bundle-attempt-1', 'owner-1', 'bundle-job-1', 1, 'succeeded',
+         'staging/upload-1/bundle-attempt-1/',
+         'content-bundles/bundle-1/attempts/bundle-attempt-1/',
+         now(), now(), 'cleaned', now(), now(), now()
+       )`
+    );
+    await pool.query(
+      `insert into content_bundle (
+         id, owner_user_id, content_identity_revision, lifecycle_state,
+         integrity_state, creator_attempt_id, winning_attempt_id, ready_at
+       ) values (
+         'bundle-1', 'owner-1', 'identity-v1', 'ready', 'healthy',
+         'bundle-attempt-1', 'bundle-attempt-1', now()
+       )`
+    );
+    await pool.query(
+      `update artifact_version
+       set owner_user_id = 'owner-1', content_bundle_id = 'bundle-1', renderer_revision = 'renderer-v1'
+       where id = 'version-1'`
+    );
+    await pool.query(
+      `insert into content_bundle_asset (bundle_id, owner_user_id, path, object_key, size_bytes, content_type)
+       values ('bundle-1', 'owner-1', '腾讯文档盘点分析报告.html', 'content-bundles/bundle-1/index.html', 14, 'text/html'),
+              ('bundle-1', 'owner-1', 'assets/app.js', 'content-bundles/bundle-1/assets/app.js', 10, 'text/javascript')`
+    );
+    await pool.query(
+      `insert into content_bundle_manifest (
+         bundle_id, owner_user_id, entry_path, object_key, file_count, total_size_bytes
+       ) values (
+         'bundle-1', 'owner-1', '腾讯文档盘点分析报告.html',
+         'content-bundles/bundle-1/manifest.json', 2, 24
+       )`
     );
   });
 
@@ -75,13 +108,21 @@ describe("Publication content repository", () => {
     await expect(repository.findOwnedReadyVersion("other-1", "version-1")).resolves.toBeNull();
     await expect(repository.findEntryAsset("version-1")).resolves.toMatchObject({
       path: "腾讯文档盘点分析报告.html",
-      objectKey: "committed/version-1/腾讯文档盘点分析报告.html",
+      objectKey: "content-bundles/bundle-1/index.html",
       contentType: "text/html"
     });
     await expect(repository.findAsset("version-1", "assets/app.js")).resolves.toMatchObject({
-      objectKey: "committed/version-1/assets/app.js"
+      versionId: "version-1",
+      objectKey: "content-bundles/bundle-1/assets/app.js"
     });
     await expect(repository.findAsset("version-1", "missing.js")).resolves.toBeNull();
+    await expect(repository.findOwnedVersionExport("owner-1", "version-1")).resolves.toMatchObject({
+      artifactId: "artifact-1",
+      assets: [
+        { versionId: "version-1", objectKey: "content-bundles/bundle-1/assets/app.js" },
+        { versionId: "version-1", objectKey: "content-bundles/bundle-1/index.html" }
+      ]
+    });
   });
 
   it("publishes atomically and replays the original Publication and access for the same key", async () => {

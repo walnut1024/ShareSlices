@@ -1,4 +1,4 @@
-import { and, desc, eq, exists, inArray, isNull, lt, not, or } from "drizzle-orm";
+import { and, desc, eq, exists, inArray, isNotNull, isNull, lt, not, or, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { z } from "zod";
 import type {
@@ -15,19 +15,46 @@ import type {
   VersionRecord
 } from "../application/artifacts/repositories.js";
 import { db } from "./client.js";
+import {
+  createConfiguredIdempotencyEvidenceCipher,
+  type IdempotencyEvidenceCipher
+} from "./idempotency-evidence.js";
 import * as schema from "./schema.js";
 
 type Database = NodePgDatabase<typeof schema>;
 type Transaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
+async function insertRawFingerprintCandidates(
+  transaction: Transaction,
+  input: CommitVersionUploadInput & { ownerUserId: string }
+): Promise<void> {
+  if (input.rawFingerprintCandidates.length === 0) {
+    throw new Error("Accepted Upload must include a raw fingerprint candidate.");
+  }
+  await transaction.insert(schema.artifactUploadRawFingerprintCandidate).values(
+    input.rawFingerprintCandidates.map((candidate) => ({
+      uploadSessionId: input.uploadSessionId,
+      ownerUserId: input.ownerUserId,
+      fingerprintKeyRevision: candidate.keyRevision,
+      reuseFingerprint: candidate.fingerprint,
+      requestedEntryKey: input.requestedEntry ?? "",
+      policyRevision: input.policy.revision,
+      processingRevision: input.processingRevision,
+      contentIdentityRevision: input.contentIdentityRevision
+    }))
+  );
+}
+
 async function commitAcceptedUpload(
   transaction: Transaction,
   input: CommitVersionUploadInput,
-  pendingError: string
+  pendingError: string,
+  evidenceCipher: IdempotencyEvidenceCipher
 ): Promise<void> {
   await transaction.insert(schema.artifactUploadSession).values({
     id: input.uploadSessionId,
     artifactId: input.artifactId,
+    ownerUserId: input.ownerUserId,
     policyRevision: input.policy.revision,
     archiveSizeBytes: input.policy.archiveSizeBytes,
     expandedSizeBytes: input.policy.expandedSizeBytes,
@@ -35,19 +62,21 @@ async function commitAcceptedUpload(
     singleFileSizeBytes: input.policy.singleFileSizeBytes,
     formats: input.policy.formats,
     rawObjectKey: input.rawObjectKey,
-    rawSha256: input.rawSha256,
     rawSizeBytes: input.rawSizeBytes,
     requestedEntry: input.requestedEntry ?? null
   });
+  await insertRawFingerprintCandidates(transaction, input);
   await transaction.insert(schema.artifactProcessingJob).values({
     id: input.processingJobId,
     uploadSessionId: input.uploadSessionId,
     maxAttempts: input.maxAttempts
   });
+  const encryptedEvidence = evidenceCipher.encrypt(input.requestHash);
   const completed = await transaction
     .update(schema.artifactIdempotencyRecord)
     .set({
-      requestHash: input.requestHash,
+      requestEvidence: encryptedEvidence.ciphertext,
+      requestEvidenceKeyRevision: encryptedEvidence.keyRevision,
       state: "completed",
       responseStatus: input.responseStatus,
       responseBody: input.responseBody,
@@ -126,7 +155,6 @@ function uploadSessionRecord(row: typeof schema.artifactUploadSession.$inferSele
     state: row.state,
     retryable: row.retryable,
     rawObjectKey: row.rawObjectKey,
-    rawSha256: row.rawSha256,
     failureReasonCode: row.failureReasonCode,
     failureSummary: row.failureSummary,
     validationReport: parseValidationReport(row.validationReport),
@@ -172,11 +200,26 @@ function publicationRecord(row: typeof schema.artifactPublication.$inferSelect):
   };
 }
 
-function idempotencyRecord(row: typeof schema.artifactIdempotencyRecord.$inferSelect): IdempotencyRecord {
-  return row;
+function idempotencyRecord(
+  row: typeof schema.artifactIdempotencyRecord.$inferSelect,
+  evidenceCipher: IdempotencyEvidenceCipher
+): IdempotencyRecord {
+  return {
+    ...row,
+    requestHash:
+      row.requestEvidence && row.requestEvidenceKeyRevision
+        ? evidenceCipher.decrypt({
+            ciphertext: row.requestEvidence,
+            keyRevision: row.requestEvidenceKeyRevision
+          })
+        : null
+  };
 }
 
-export function createArtifactRepositories(database: Database = db): ArtifactRepositories {
+export function createArtifactRepositories(
+  database: Database = db,
+  evidenceCipher: IdempotencyEvidenceCipher = createConfiguredIdempotencyEvidenceCipher()
+): ArtifactRepositories {
   return {
     uploadPolicies: {
       async getActive(): Promise<UploadPolicySnapshot | null> {
@@ -326,28 +369,60 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
             )
             .for("update");
           if (activeUploads.length > 0) return { kind: "invalid_state" } as const;
+          const referencedBundles = await transaction
+            .selectDistinct({ id: schema.artifactVersion.contentBundleId })
+            .from(schema.artifactVersion)
+            .where(
+              and(
+                eq(schema.artifactVersion.artifactId, artifactId),
+                isNotNull(schema.artifactVersion.contentBundleId)
+              )
+            );
+          const bundleIds = referencedBundles
+            .map(({ id }) => id)
+            .filter((id): id is string => id !== null)
+            .sort();
+          const bundleRows = bundleIds.length === 0
+            ? []
+            : await transaction
+                .select({ id: schema.contentBundle.id, ownerUserId: schema.contentBundle.ownerUserId })
+                .from(schema.contentBundle)
+                .where(inArray(schema.contentBundle.id, bundleIds))
+                .orderBy(schema.contentBundle.id)
+                .for("update");
           const rawObjects = await transaction
             .select({ key: schema.artifactUploadSession.rawObjectKey })
             .from(schema.artifactUploadSession)
             .where(eq(schema.artifactUploadSession.artifactId, artifactId));
-          const committedObjects = await transaction
-            .select({ key: schema.artifactAsset.objectKey })
-            .from(schema.artifactAsset)
-            .innerJoin(schema.artifactVersion, eq(schema.artifactVersion.id, schema.artifactAsset.versionId))
-            .where(eq(schema.artifactVersion.artifactId, artifactId));
-          const thumbnailObjects = await transaction
-            .select({ key: schema.artifactThumbnail.objectKey })
-            .from(schema.artifactThumbnail)
-            .innerJoin(schema.artifactVersion, eq(schema.artifactVersion.id, schema.artifactThumbnail.versionId))
-            .where(eq(schema.artifactVersion.artifactId, artifactId));
           const attempts = await transaction
             .select({ prefix: schema.artifactProcessingAttempt.stagingPrefix })
             .from(schema.artifactProcessingAttempt)
             .innerJoin(schema.artifactProcessingJob, eq(schema.artifactProcessingJob.id, schema.artifactProcessingAttempt.jobId))
             .innerJoin(schema.artifactUploadSession, eq(schema.artifactUploadSession.id, schema.artifactProcessingJob.uploadSessionId))
             .where(eq(schema.artifactUploadSession.artifactId, artifactId));
+          await transaction.execute(sql`
+            with artifact_attempt as (
+              select attempt.id
+              from artifact_processing_attempt attempt
+              join artifact_processing_job job on job.id = attempt.job_id
+              join artifact_upload_session upload on upload.id = job.upload_session_id
+              where upload.artifact_id = ${artifactId}
+            )
+            update content_bundle bundle
+            set creator_attempt_id = case
+                  when bundle.creator_attempt_id in (select id from artifact_attempt) then null
+                  else bundle.creator_attempt_id
+                end,
+                winning_attempt_id = case
+                  when bundle.winning_attempt_id in (select id from artifact_attempt) then null
+                  else bundle.winning_attempt_id
+                end,
+                updated_at = now()
+            where bundle.creator_attempt_id in (select id from artifact_attempt)
+               or bundle.winning_attempt_id in (select id from artifact_attempt)
+          `);
           const record = {
-            objectKeys: [...new Set([...rawObjects, ...committedObjects, ...thumbnailObjects].map(({ key }) => key))],
+            objectKeys: [...new Set(rawObjects.map(({ key }) => key))],
             stagingPrefixes: [...new Set(attempts.map(({ prefix }) => prefix))]
           };
           await transaction.insert(schema.artifactDeletionCleanup).values({
@@ -355,6 +430,89 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
             ownerUserId,
             ...record
           });
+          for (const bundle of bundleRows) {
+            const [otherReference] = await transaction
+              .select({ id: schema.artifactVersion.id })
+              .from(schema.artifactVersion)
+              .where(
+                and(
+                  eq(schema.artifactVersion.contentBundleId, bundle.id),
+                  not(eq(schema.artifactVersion.artifactId, artifactId))
+                )
+              )
+              .limit(1);
+
+            if (otherReference) {
+              continue;
+            }
+
+            const prefixes = await transaction.execute<{ key: string }>(sql`
+              select attempt.object_prefix as key
+                from artifact_processing_attempt attempt
+                where attempt.id in (
+                  select creator_attempt_id from content_bundle where id = ${bundle.id}
+                  union select winning_attempt_id from content_bundle where id = ${bundle.id}
+                ) and attempt.object_prefix is not null
+            `);
+            const objectPrefixes = [
+              `content-bundles/${bundle.id}/`,
+              ...new Set(prefixes.rows.map(({ key }) => key))
+            ];
+            const quiescence = await transaction.execute<{ quiesceAfter: Date }>(sql`
+              select greatest(
+                now() + interval '1 minute',
+                coalesce(max(attempt.write_deadline_at), now()) + interval '1 minute'
+              ) as "quiesceAfter"
+              from artifact_processing_attempt attempt
+              where attempt.id in (
+                select creator_attempt_id from content_bundle where id = ${bundle.id}
+                union select winning_attempt_id from content_bundle where id = ${bundle.id}
+              )
+            `);
+            await transaction
+              .update(schema.contentBundleFingerprintAlias)
+              .set({ retiredAt: new Date() })
+              .where(
+                and(
+                  eq(schema.contentBundleFingerprintAlias.bundleId, bundle.id),
+                  isNull(schema.contentBundleFingerprintAlias.retiredAt)
+                )
+              );
+            await transaction
+              .update(schema.rawInputFingerprintAlias)
+              .set({ retiredAt: new Date() })
+              .where(
+                and(
+                  eq(schema.rawInputFingerprintAlias.bundleId, bundle.id),
+                  isNull(schema.rawInputFingerprintAlias.retiredAt)
+                )
+              );
+            await transaction.execute(sql`
+              update content_bundle_thumbnail_job
+              set state = 'cancelled', lease_owner = null, lease_expires_at = null,
+                  heartbeat_at = null, updated_at = now()
+              where bundle_id = ${bundle.id} and state in ('queued', 'running')
+            `);
+            await transaction
+              .insert(schema.contentBundleCleanup)
+              .values({
+                bundleId: bundle.id,
+                ownerUserId: bundle.ownerUserId,
+                objectPrefixes,
+                quiesceAfter: new Date(quiescence.rows[0]!.quiesceAfter)
+              })
+              .onConflictDoNothing();
+            await transaction
+              .update(schema.contentBundle)
+              .set({
+                lifecycleState: "deleting",
+                creatorAttemptId: null,
+                winningAttemptId: null,
+                deletingAt: new Date(),
+                updatedAt: new Date()
+              })
+              .where(eq(schema.contentBundle.id, bundle.id));
+          }
           await transaction.delete(schema.artifactPublication).where(eq(schema.artifactPublication.artifactId, artifactId));
           await transaction.delete(schema.artifactVersion).where(eq(schema.artifactVersion.artifactId, artifactId));
           await transaction.delete(schema.artifactIdempotencyRecord).where(eq(schema.artifactIdempotencyRecord.targetResourceId, artifactId));
@@ -488,9 +646,15 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
       },
       async findReadyByArtifact(artifactId) {
         const rows = await database
-          .select({ version: schema.artifactVersion, thumbnailJobState: schema.artifactThumbnailJob.state })
+          .select({ version: schema.artifactVersion, thumbnailJobState: schema.contentBundleThumbnailJob.state })
           .from(schema.artifactVersion)
-          .leftJoin(schema.artifactThumbnailJob, eq(schema.artifactThumbnailJob.versionId, schema.artifactVersion.id))
+          .leftJoin(
+            schema.contentBundleThumbnailJob,
+            and(
+              eq(schema.contentBundleThumbnailJob.bundleId, schema.artifactVersion.contentBundleId),
+              eq(schema.contentBundleThumbnailJob.rendererRevision, schema.artifactVersion.rendererRevision)
+            )
+          )
           .where(and(eq(schema.artifactVersion.artifactId, artifactId), eq(schema.artifactVersion.state, "ready")))
           .orderBy(desc(schema.artifactVersion.versionNumber))
           .limit(1);
@@ -500,9 +664,15 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
       async findReadyByArtifacts(artifactIds) {
         if (artifactIds.length === 0) return [];
         const rows = await database
-          .select({ version: schema.artifactVersion, thumbnailJobState: schema.artifactThumbnailJob.state })
+          .select({ version: schema.artifactVersion, thumbnailJobState: schema.contentBundleThumbnailJob.state })
           .from(schema.artifactVersion)
-          .leftJoin(schema.artifactThumbnailJob, eq(schema.artifactThumbnailJob.versionId, schema.artifactVersion.id))
+          .leftJoin(
+            schema.contentBundleThumbnailJob,
+            and(
+              eq(schema.contentBundleThumbnailJob.bundleId, schema.artifactVersion.contentBundleId),
+              eq(schema.contentBundleThumbnailJob.rendererRevision, schema.artifactVersion.rendererRevision)
+            )
+          )
           .where(and(inArray(schema.artifactVersion.artifactId, artifactIds), eq(schema.artifactVersion.state, "ready")))
           .orderBy(desc(schema.artifactVersion.versionNumber));
         const ready = new Map<string, VersionRecord>();
@@ -547,7 +717,7 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
             eq(schema.artifactIdempotencyRecord.key, key)
           )
         });
-        return row ? idempotencyRecord(row) : null;
+        return row ? idempotencyRecord(row, evidenceCipher) : null;
       },
       async claimPending(input) {
         const [inserted] = await database
@@ -558,13 +728,12 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
             operation: input.operation,
             targetResourceId: input.targetResourceId,
             key: input.key,
-            requestHash: input.provisionalRequestHash,
             state: "pending"
           })
           .onConflictDoNothing()
           .returning();
         if (inserted) {
-          return { kind: "acquired", record: idempotencyRecord(inserted) };
+          return { kind: "acquired", record: idempotencyRecord(inserted, evidenceCipher) };
         }
 
         const existing = await this.find(
@@ -587,6 +756,41 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
               eq(schema.artifactIdempotencyRecord.state, "pending")
             )
           );
+      },
+      async reencryptPrevious(limit) {
+        if (!Number.isSafeInteger(limit) || limit <= 0) {
+          throw new Error("Idempotency evidence re-encryption limit must be positive.");
+        }
+        return database.transaction(async (transaction) => {
+          const rows = await transaction
+            .select()
+            .from(schema.artifactIdempotencyRecord)
+            .where(
+              and(
+                eq(schema.artifactIdempotencyRecord.state, "completed"),
+                not(eq(schema.artifactIdempotencyRecord.requestEvidenceKeyRevision, evidenceCipher.currentRevision))
+              )
+            )
+            .for("update", { skipLocked: true })
+            .limit(limit);
+          for (const row of rows) {
+            if (!row.requestEvidence || !row.requestEvidenceKeyRevision) {
+              throw new Error("Completed idempotency record has no encrypted evidence.");
+            }
+            const encrypted = evidenceCipher.reencrypt({
+              ciphertext: row.requestEvidence,
+              keyRevision: row.requestEvidenceKeyRevision
+            });
+            await transaction
+              .update(schema.artifactIdempotencyRecord)
+              .set({
+                requestEvidence: encrypted.ciphertext,
+                requestEvidenceKeyRevision: encrypted.keyRevision
+              })
+              .where(eq(schema.artifactIdempotencyRecord.id, row.id));
+          }
+          return rows.length;
+        });
       }
     },
     intake: {
@@ -600,6 +804,7 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
           await transaction.insert(schema.artifactUploadSession).values({
             id: input.uploadSessionId,
             artifactId: input.artifactId,
+            ownerUserId: input.ownerUserId,
             policyRevision: input.policy.revision,
             archiveSizeBytes: input.policy.archiveSizeBytes,
             expandedSizeBytes: input.policy.expandedSizeBytes,
@@ -607,19 +812,21 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
             singleFileSizeBytes: input.policy.singleFileSizeBytes,
             formats: input.policy.formats,
             rawObjectKey: input.rawObjectKey,
-            rawSha256: input.rawSha256,
             rawSizeBytes: input.rawSizeBytes,
             requestedEntry: input.requestedEntry ?? null
           });
+          await insertRawFingerprintCandidates(transaction, input);
           await transaction.insert(schema.artifactProcessingJob).values({
             id: input.processingJobId,
             uploadSessionId: input.uploadSessionId,
             maxAttempts: input.maxAttempts
           });
+          const encryptedEvidence = evidenceCipher.encrypt(input.requestHash);
           const completed = await transaction
             .update(schema.artifactIdempotencyRecord)
             .set({
-              requestHash: input.requestHash,
+              requestEvidence: encryptedEvidence.ciphertext,
+              requestEvidenceKeyRevision: encryptedEvidence.keyRevision,
               state: "completed",
               responseStatus: input.responseStatus,
               responseBody: input.responseBody,
@@ -668,10 +875,12 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
             uploadSessionId: input.uploadSessionId,
             maxAttempts: input.maxAttempts
           });
+          const encryptedEvidence = evidenceCipher.encrypt(input.requestHash);
           const completed = await transaction
             .update(schema.artifactIdempotencyRecord)
             .set({
-              requestHash: input.requestHash,
+              requestEvidence: encryptedEvidence.ciphertext,
+              requestEvidenceKeyRevision: encryptedEvidence.keyRevision,
               state: "completed",
               responseStatus: input.responseStatus,
               responseBody: input.responseBody,
@@ -710,7 +919,8 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
           await commitAcceptedUpload(
             transaction,
             input,
-            "Pending Replace idempotency record was not completed."
+            "Pending Replace idempotency record was not completed.",
+            evidenceCipher
           );
         });
       },
@@ -719,7 +929,8 @@ export function createArtifactRepositories(database: Database = db): ArtifactRep
           await commitAcceptedUpload(
             transaction,
             input,
-            "Pending Version Upload idempotency record was not completed."
+            "Pending Version Upload idempotency record was not completed.",
+            evidenceCipher
           );
         });
       }

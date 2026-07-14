@@ -21,6 +21,13 @@ const validEnv = {
   WORKER_JOB_LEASE_SECONDS: "30",
   WORKER_JOB_HEARTBEAT_SECONDS: "10",
   WORKER_JOB_MAX_ATTEMPTS: "3",
+  CONTENT_FINGERPRINT_KEY_CURRENT: "test-content-fingerprint-key-at-least-32-bytes",
+  CONTENT_FINGERPRINT_KEY_CURRENT_REVISION: "key-v1",
+  IDEMPOTENCY_ENCRYPTION_KEY_CURRENT: "test-idempotency-encryption-key-at-least-32-bytes",
+  IDEMPOTENCY_ENCRYPTION_KEY_CURRENT_REVISION: "key-v1",
+  CONTENT_IDENTITY_REVISION: "content-v1",
+  ARTIFACT_PROCESSING_REVISION: "processing-v1",
+  ARTIFACT_RENDERER_REVISION: "renderer-v1",
   MINIMUM_CLI_VERSION: "0.1.0",
   AUTH_EMAIL_SMTP_URL: "smtp://127.0.0.1:1025",
   AUTH_EMAIL_FROM: "ShareSlices <no-reply@shareslices.local>",
@@ -50,6 +57,26 @@ describe("API environment", () => {
 
   it("requires a semantic minimum CLI version", () => {
     expect(() => readEnv({ ...validEnv, MINIMUM_CLI_VERSION: "latest" })).toThrow();
+  });
+
+  it("requires current private keys and complete previous-key pairs", () => {
+    expect(() => readEnv({ ...validEnv, CONTENT_FINGERPRINT_KEY_CURRENT: "short" })).toThrow();
+    expect(() =>
+      readEnv({ ...validEnv, CONTENT_FINGERPRINT_KEY_PREVIOUS: "previous-content-fingerprint-key-at-least-32-bytes" })
+    ).toThrow();
+    expect(() =>
+      readEnv({ ...validEnv, IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS_REVISION: "key-v0" })
+    ).toThrow();
+    expect(readEnv({
+      ...validEnv,
+      CONTENT_FINGERPRINT_KEY_PREVIOUS: "previous-content-fingerprint-key-at-least-32-bytes",
+      CONTENT_FINGERPRINT_KEY_PREVIOUS_REVISION: "key-v0"
+    })).toMatchObject({ CONTENT_FINGERPRINT_KEY_PREVIOUS_REVISION: "key-v0" });
+  });
+
+  it("rejects revisions that are unsafe in object keys", () => {
+    expect(() => readEnv({ ...validEnv, ARTIFACT_RENDERER_REVISION: "../renderer" })).toThrow();
+    expect(() => readEnv({ ...validEnv, CONTENT_IDENTITY_REVISION: "Content V1" })).toThrow();
   });
 
   it("rejects an invalid Viewer address", () => {

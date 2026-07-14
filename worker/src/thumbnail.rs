@@ -23,7 +23,7 @@ use headless_chrome::{
 };
 use image::{ImageFormat, imageops::FilterType};
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Postgres, Row, Transaction};
 use tempfile::NamedTempFile;
 use thiserror::Error;
 use url::Url;
@@ -90,6 +90,10 @@ pub struct ThumbnailConfig {
 #[derive(Clone, Debug)]
 struct ClaimedThumbnail {
     job_id: String,
+    attempt_id: String,
+    bundle_id: String,
+    owner_user_id: String,
+    renderer_revision: String,
     version_id: String,
     attempt_count: i32,
     max_attempts: i32,
@@ -163,7 +167,7 @@ pub async fn run_thumbnail_loop(
 pub async fn requeue_failed_browser_jobs(pool: &PgPool) -> Result<u64, sqlx::Error> {
     let result = sqlx::query(
         r"
-        update artifact_thumbnail_job as job
+        update content_bundle_thumbnail_job as job
         set state = 'queued',
             available_at = now(),
             attempt_count = 0,
@@ -175,8 +179,9 @@ pub async fn requeue_failed_browser_jobs(pool: &PgPool) -> Result<u64, sqlx::Err
         where job.state = 'failed'
           and job.failure_reason_code = 'thumbnail_browser_failed'
           and not exists (
-            select 1 from artifact_thumbnail as thumbnail
-            where thumbnail.version_id = job.version_id
+            select 1 from content_bundle_thumbnail as thumbnail
+            where thumbnail.bundle_id = job.bundle_id
+              and thumbnail.renderer_revision = job.renderer_revision
           )
         ",
     )
@@ -192,8 +197,8 @@ async fn claim_next(
     let mut transaction = pool.begin().await?;
     let row = sqlx::query(
         r"
-        select id, version_id, attempt_count, max_attempts
-        from artifact_thumbnail_job
+        select id, bundle_id, owner_user_id, renderer_revision, attempt_count, max_attempts
+        from content_bundle_thumbnail_job
         where state = 'queued' and available_at <= now()
         order by available_at, created_at, id
         for update skip locked
@@ -207,13 +212,61 @@ async fn claim_next(
         return Ok(None);
     };
     let job_id: String = row.try_get("id")?;
-    let version_id: String = row.try_get("version_id")?;
+    let bundle_id: String = row.try_get("bundle_id")?;
+    let owner_user_id: String = row.try_get("owner_user_id")?;
+    let renderer_revision: String = row.try_get("renderer_revision")?;
+    let version_id = find_capture_version(
+        &mut transaction,
+        &bundle_id,
+        &owner_user_id,
+        &renderer_revision,
+    )
+    .await?;
+    let Some(version_id) = version_id else {
+        sqlx::query(
+            "update content_bundle_thumbnail_job set state = 'cancelled', failure_reason_code = 'thumbnail_no_live_version', updated_at = now() where id = $1 and state = 'queued'",
+        )
+        .bind(&job_id)
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        return Ok(None);
+    };
     let attempt_count: i32 = row.try_get::<i32, _>("attempt_count")? + 1;
     let max_attempts: i32 = row.try_get("max_attempts")?;
     let lease_seconds = i64::try_from(config.lease_duration.as_secs()).unwrap_or(i64::MAX);
     sqlx::query(
-        "update artifact_thumbnail_job set state = 'running', lease_owner = $2, lease_expires_at = now() + make_interval(secs => $3), heartbeat_at = now(), attempt_count = $4, updated_at = now() where id = $1"
+        "update content_bundle_thumbnail_job set state = 'running', lease_owner = $2, lease_expires_at = now() + make_interval(secs => $3), heartbeat_at = now(), attempt_count = $4, updated_at = now() where id = $1"
     ).bind(&job_id).bind(&config.worker_id).bind(lease_seconds).bind(attempt_count).execute(&mut *transaction).await?;
+    let attempt_id = Uuid::new_v4().to_string();
+    let attempt_number: i32 = sqlx::query_scalar(
+        "select coalesce(max(attempt_number), 0) + 1 from content_bundle_thumbnail_attempt where job_id = $1",
+    )
+    .bind(&job_id)
+    .fetch_one(&mut *transaction)
+    .await?;
+    let object_key =
+        format!("content-bundles/{bundle_id}/thumbnails/{renderer_revision}/{attempt_id}.webp");
+    sqlx::query(
+        r"
+        insert into content_bundle_thumbnail_attempt (
+          id, job_id, attempt_number, capture_version_id, object_key,
+          lease_expires_at, write_deadline_at
+        ) values (
+          $1, $2, $3, $4, $5,
+          now() + make_interval(secs => $6),
+          now() + make_interval(secs => $6)
+        )
+        ",
+    )
+    .bind(&attempt_id)
+    .bind(&job_id)
+    .bind(attempt_number)
+    .bind(&version_id)
+    .bind(&object_key)
+    .bind(lease_seconds)
+    .execute(&mut *transaction)
+    .await?;
     let grant = Uuid::new_v4().to_string();
     let token_hash = hex_sha256(grant.as_bytes());
     sqlx::query(
@@ -222,11 +275,38 @@ async fn claim_next(
     transaction.commit().await?;
     Ok(Some(ClaimedThumbnail {
         job_id,
+        attempt_id,
+        bundle_id,
+        owner_user_id,
+        renderer_revision,
         version_id,
         attempt_count,
         max_attempts,
         grant,
     }))
+}
+
+async fn find_capture_version(
+    transaction: &mut Transaction<'_, Postgres>,
+    bundle_id: &str,
+    owner_user_id: &str,
+    renderer_revision: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        r"
+        select id
+        from artifact_version
+        where content_bundle_id = $1 and owner_user_id = $2
+          and renderer_revision = $3 and state = 'ready'
+        order by ready_at, id
+        limit 1
+        ",
+    )
+    .bind(bundle_id)
+    .bind(owner_user_id)
+    .bind(renderer_revision)
+    .fetch_optional(&mut **transaction)
+    .await
 }
 
 async fn process_claim(
@@ -245,7 +325,11 @@ async fn process_claim(
     let webp = tokio::task::spawn_blocking(move || render_thumbnail(&chromium_path, &url))
         .await
         .map_err(|error| ThumbnailError::Browser(error.to_string()))??;
-    let object_key = format!("versions/{}/thumbnail.webp", claim.version_id);
+    ensure_active_claim(pool, config, claim).await?;
+    let object_key = format!(
+        "content-bundles/{}/thumbnails/{}/{}.webp",
+        claim.bundle_id, claim.renderer_revision, claim.attempt_id
+    );
     let mut temporary =
         NamedTempFile::new().map_err(|error| ThumbnailError::Image(error.to_string()))?;
     std::io::Write::write_all(&mut temporary, &webp)
@@ -256,19 +340,122 @@ async fn process_claim(
     storage
         .write_staging_object(&object_key, webp.len() as u64, "image/webp", Box::pin(file))
         .await?;
+    complete_claim(
+        pool,
+        config,
+        claim,
+        i64::try_from(webp.len()).unwrap_or(i64::MAX),
+        &hex_sha256(&webp),
+    )
+    .await
+}
+
+async fn ensure_active_claim(
+    pool: &PgPool,
+    config: &ThumbnailConfig,
+    claim: &ClaimedThumbnail,
+) -> Result<(), ThumbnailError> {
+    let active: bool = sqlx::query_scalar(
+        r"
+        select exists (
+          select 1
+          from content_bundle_thumbnail_job job
+          join content_bundle_thumbnail_attempt attempt on attempt.job_id = job.id
+          where job.id = $1 and job.lease_owner = $2 and job.state = 'running'
+            and job.lease_expires_at > now()
+            and attempt.id = $3 and attempt.state = 'running'
+            and attempt.lease_expires_at > now() and attempt.write_deadline_at > now()
+        )
+        ",
+    )
+    .bind(&claim.job_id)
+    .bind(&config.worker_id)
+    .bind(&claim.attempt_id)
+    .fetch_one(pool)
+    .await?;
+    if active {
+        Ok(())
+    } else {
+        Err(ThumbnailError::LeaseLost)
+    }
+}
+
+async fn complete_claim(
+    pool: &PgPool,
+    config: &ThumbnailConfig,
+    claim: &ClaimedThumbnail,
+    size_bytes: i64,
+    sha256: &str,
+) -> Result<(), ThumbnailError> {
     let mut transaction = pool.begin().await?;
+    let attempt = sqlx::query(
+        r"
+        update content_bundle_thumbnail_attempt
+        set state = 'succeeded', finished_at = now()
+        where id = $1 and job_id = $2 and state = 'running'
+          and lease_expires_at > now() and write_deadline_at > now()
+        returning id
+        ",
+    )
+    .bind(&claim.attempt_id)
+    .bind(&claim.job_id)
+    .fetch_optional(&mut *transaction)
+    .await?;
     let completed = sqlx::query(
-        "update artifact_thumbnail_job set state = 'completed', lease_owner = null, lease_expires_at = null, heartbeat_at = null, failure_reason_code = null, updated_at = now() where id = $1 and lease_owner = $2 and state = 'running' returning id"
-    ).bind(&claim.job_id).bind(&config.worker_id).fetch_optional(&mut *transaction).await?;
-    if completed.is_none() {
+        r"
+        update content_bundle_thumbnail_job
+        set state = 'completed', lease_owner = null, lease_expires_at = null,
+            heartbeat_at = null, failure_reason_code = null, updated_at = now()
+        where id = $1 and lease_owner = $2 and state = 'running'
+          and lease_expires_at > now()
+        returning id
+        ",
+    )
+    .bind(&claim.job_id)
+    .bind(&config.worker_id)
+    .fetch_optional(&mut *transaction)
+    .await?;
+    if attempt.is_none() || completed.is_none() {
         transaction.rollback().await?;
+        mark_attempt_for_cleanup(pool, &claim.attempt_id).await?;
         return Err(ThumbnailError::LeaseLost);
     }
     sqlx::query(
-        "insert into artifact_thumbnail (version_id, object_key, content_type, size_bytes, width, height, sha256) values ($1, $2, 'image/webp', $3, 480, 300, $4) on conflict (version_id) do nothing"
-    ).bind(&claim.version_id).bind(&object_key).bind(i64::try_from(webp.len()).unwrap_or(i64::MAX))
-      .bind(hex_sha256(&webp)).execute(&mut *transaction).await?;
+        r"
+        insert into content_bundle_thumbnail (
+          bundle_id, owner_user_id, renderer_revision, winning_attempt_id,
+          object_key, content_type, size_bytes, width, height, sha256
+        ) values ($1, $2, $3, $4, $5, 'image/webp', $6, 480, 300, $7)
+        ",
+    )
+    .bind(&claim.bundle_id)
+    .bind(&claim.owner_user_id)
+    .bind(&claim.renderer_revision)
+    .bind(&claim.attempt_id)
+    .bind(format!(
+        "content-bundles/{}/thumbnails/{}/{}.webp",
+        claim.bundle_id, claim.renderer_revision, claim.attempt_id
+    ))
+    .bind(size_bytes)
+    .bind(sha256)
+    .execute(&mut *transaction)
+    .await?;
     transaction.commit().await?;
+    Ok(())
+}
+
+async fn mark_attempt_for_cleanup(pool: &PgPool, attempt_id: &str) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r"
+        update content_bundle_thumbnail_attempt
+        set state = 'cancelled', finished_at = now(), cleanup_state = 'eligible',
+            cleanup_eligible_at = now()
+        where id = $1 and state = 'running'
+        ",
+    )
+    .bind(attempt_id)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
@@ -290,10 +477,19 @@ async fn process_with_heartbeat(
             result = &mut processing => return result,
             _ = heartbeat.tick() => {
                 let lease_seconds = i64::try_from(config.lease_duration.as_secs()).unwrap_or(i64::MAX);
+                let mut transaction = pool.begin().await?;
                 let renewed = sqlx::query(
-                    "update artifact_thumbnail_job set lease_expires_at = now() + make_interval(secs => $3), heartbeat_at = now(), updated_at = now() where id = $1 and lease_owner = $2 and state = 'running' returning id"
-                ).bind(&claim.job_id).bind(&config.worker_id).bind(lease_seconds).fetch_optional(pool).await?;
-                if renewed.is_none() { return Err(ThumbnailError::LeaseLost); }
+                    "update content_bundle_thumbnail_job set lease_expires_at = now() + make_interval(secs => $3), heartbeat_at = now(), updated_at = now() where id = $1 and lease_owner = $2 and state = 'running' and lease_expires_at > now() returning id"
+                ).bind(&claim.job_id).bind(&config.worker_id).bind(lease_seconds).fetch_optional(&mut *transaction).await?;
+                let attempt_renewed = sqlx::query(
+                    "update content_bundle_thumbnail_attempt set lease_expires_at = now() + make_interval(secs => $2) where id = $1 and state = 'running' and lease_expires_at > now() returning id"
+                ).bind(&claim.attempt_id).bind(lease_seconds).fetch_optional(&mut *transaction).await?;
+                if renewed.is_none() || attempt_renewed.is_none() {
+                    transaction.rollback().await?;
+                    mark_attempt_for_cleanup(pool, &claim.attempt_id).await?;
+                    return Err(ThumbnailError::LeaseLost);
+                }
+                transaction.commit().await?;
             }
         }
     }
@@ -509,16 +705,35 @@ async fn fail_claim(
         ThumbnailError::Image(_) => "thumbnail_image_invalid",
         ThumbnailError::LeaseLost => "thumbnail_lease_lost",
     };
+    let mut transaction = pool.begin().await?;
     sqlx::query(
-        "update artifact_thumbnail_job set state = $3, available_at = case when $4 then now() + make_interval(secs => 5 * attempt_count) else available_at end, lease_owner = null, lease_expires_at = null, heartbeat_at = null, failure_reason_code = $5, updated_at = now() where id = $1 and lease_owner = $2 and state = 'running'"
-    ).bind(&claim.job_id).bind(worker_id).bind(state).bind(retry).bind(reason).execute(pool).await?;
+        "update content_bundle_thumbnail_attempt set state = 'failed', finished_at = now(), cleanup_state = 'eligible', cleanup_eligible_at = now() where id = $1 and state = 'running'"
+    ).bind(&claim.attempt_id).execute(&mut *transaction).await?;
+    sqlx::query(
+        "update content_bundle_thumbnail_job set state = $3, available_at = case when $4 then now() + make_interval(secs => 5 * attempt_count) else available_at end, lease_owner = null, lease_expires_at = null, heartbeat_at = null, failure_reason_code = $5, updated_at = now() where id = $1 and lease_owner = $2 and state = 'running'"
+    ).bind(&claim.job_id).bind(worker_id).bind(state).bind(retry).bind(reason).execute(&mut *transaction).await?;
+    transaction.commit().await?;
     Ok(())
 }
 
 async fn recover_expired(pool: &PgPool) -> Result<(), sqlx::Error> {
+    let mut transaction = pool.begin().await?;
     sqlx::query(
-        "update artifact_thumbnail_job set state = case when attempt_count < max_attempts then 'queued' else 'failed' end, available_at = now(), lease_owner = null, lease_expires_at = null, heartbeat_at = null, failure_reason_code = 'thumbnail_lease_expired', updated_at = now() where state = 'running' and lease_expires_at <= now()"
-    ).execute(pool).await?;
+        r"
+        update content_bundle_thumbnail_attempt attempt
+        set state = 'failed', finished_at = now(), cleanup_state = 'eligible',
+            cleanup_eligible_at = now()
+        from content_bundle_thumbnail_job job
+        where attempt.job_id = job.id and attempt.state = 'running'
+          and job.state = 'running' and job.lease_expires_at <= now()
+        ",
+    )
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        "update content_bundle_thumbnail_job set state = case when attempt_count < max_attempts then 'queued' else 'failed' end, available_at = now(), lease_owner = null, lease_expires_at = null, heartbeat_at = null, failure_reason_code = 'thumbnail_lease_expired', updated_at = now() where state = 'running' and lease_expires_at <= now()"
+    ).execute(&mut *transaction).await?;
+    transaction.commit().await?;
     Ok(())
 }
 
@@ -532,9 +747,15 @@ const fn should_retry(transient: bool, attempt_count: i32, max_attempts: i32) ->
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::{env, fs, path::Path, time::Duration};
 
-    use super::{ThumbnailError, preflight_chromium, should_retry};
+    use sqlx::{PgPool, postgres::PgPoolOptions};
+    use uuid::Uuid;
+
+    use super::{
+        ThumbnailConfig, ThumbnailError, claim_next, complete_claim, fail_claim,
+        preflight_chromium, should_retry,
+    };
 
     #[test]
     fn retries_only_transient_failures_before_the_third_attempt() {
@@ -550,5 +771,283 @@ mod tests {
             preflight_chromium(Path::new("/missing/shareslices-chromium")),
             Err(ThumbnailError::Browser(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn bundle_claim_selects_a_live_version_and_publishes_attempt_unique_metadata() {
+        let Some(database) = TestDatabase::create().await else {
+            return;
+        };
+        database.seed_bundle_job().await;
+        sqlx::query("delete from artifact_version where id = 'version-a'")
+            .execute(&database.pool)
+            .await
+            .expect("delete first capture Version");
+
+        let config = config("thumbnail-worker");
+        let claim = claim_next(&database.pool, &config)
+            .await
+            .expect("claim query")
+            .expect("claim");
+        assert_eq!(claim.version_id, "version-b");
+        assert_eq!(claim.bundle_id, "bundle-1");
+        let attempt: (String, String) = sqlx::query_as(
+            "select capture_version_id, object_key from content_bundle_thumbnail_attempt where id = $1",
+        )
+        .bind(&claim.attempt_id)
+        .fetch_one(&database.pool)
+        .await
+        .expect("attempt");
+        assert_eq!(attempt.0, "version-b");
+        assert!(attempt.1.ends_with(&format!("/{}.webp", claim.attempt_id)));
+
+        complete_claim(&database.pool, &config, &claim, 123, &"a".repeat(64))
+            .await
+            .expect("publish thumbnail metadata");
+        let winner: (String, String) = sqlx::query_as(
+            "select winning_attempt_id, object_key from content_bundle_thumbnail where bundle_id = 'bundle-1' and renderer_revision = 'renderer-v1'",
+        )
+        .fetch_one(&database.pool)
+        .await
+        .expect("winner metadata");
+        assert_eq!(winner.0, claim.attempt_id);
+        assert_eq!(winner.1, attempt.1);
+
+        database.drop().await;
+    }
+
+    #[tokio::test]
+    async fn stale_thumbnail_attempt_cannot_publish_winner_metadata() {
+        let Some(database) = TestDatabase::create().await else {
+            return;
+        };
+        database.seed_bundle_job().await;
+        let config = config("thumbnail-worker");
+        let claim = claim_next(&database.pool, &config)
+            .await
+            .expect("claim query")
+            .expect("claim");
+        sqlx::query(
+            "update content_bundle_thumbnail_job set lease_expires_at = now() - interval '1 second' where id = $1",
+        )
+        .bind(&claim.job_id)
+        .execute(&database.pool)
+        .await
+        .expect("expire lease");
+
+        assert!(matches!(
+            complete_claim(&database.pool, &config, &claim, 123, &"a".repeat(64)).await,
+            Err(ThumbnailError::LeaseLost)
+        ));
+        let attempt: (String, String) = sqlx::query_as(
+            "select state, cleanup_state from content_bundle_thumbnail_attempt where id = $1",
+        )
+        .bind(&claim.attempt_id)
+        .fetch_one(&database.pool)
+        .await
+        .expect("stale attempt");
+        assert_eq!(attempt, ("cancelled".to_owned(), "eligible".to_owned()));
+        let thumbnail_count: i64 =
+            sqlx::query_scalar("select count(*) from content_bundle_thumbnail")
+                .fetch_one(&database.pool)
+                .await
+                .expect("thumbnail count");
+        assert_eq!(thumbnail_count, 0);
+
+        database.drop().await;
+    }
+
+    #[tokio::test]
+    async fn retry_selects_another_live_version_after_capture_version_deletion() {
+        let Some(database) = TestDatabase::create().await else {
+            return;
+        };
+        database.seed_bundle_job().await;
+        let config = config("thumbnail-worker");
+        let first = claim_next(&database.pool, &config)
+            .await
+            .expect("first claim query")
+            .expect("first claim");
+        assert_eq!(first.version_id, "version-a");
+        sqlx::query("delete from artifact_version where id = 'version-a'")
+            .execute(&database.pool)
+            .await
+            .expect("delete capture Version");
+        fail_claim(
+            &database.pool,
+            &config.worker_id,
+            &first,
+            &ThumbnailError::Browser("capture Version disappeared".to_owned()),
+            true,
+        )
+        .await
+        .expect("retry first claim");
+        sqlx::query(
+            "update content_bundle_thumbnail_job set available_at = now() where id = 'thumbnail-job'",
+        )
+        .execute(&database.pool)
+        .await
+        .expect("make retry available");
+
+        let second = claim_next(&database.pool, &config)
+            .await
+            .expect("second claim query")
+            .expect("second claim");
+        assert_eq!(second.version_id, "version-b");
+        assert_ne!(second.attempt_id, first.attempt_id);
+        let object_keys: Vec<String> = sqlx::query_scalar(
+            "select object_key from content_bundle_thumbnail_attempt order by attempt_number",
+        )
+        .fetch_all(&database.pool)
+        .await
+        .expect("attempt object keys");
+        assert_eq!(object_keys.len(), 2);
+        assert_ne!(object_keys[0], object_keys[1]);
+
+        database.drop().await;
+    }
+
+    #[tokio::test]
+    async fn invalid_thumbnail_digest_cannot_publish_metadata() {
+        let Some(database) = TestDatabase::create().await else {
+            return;
+        };
+        database.seed_bundle_job().await;
+        let config = config("thumbnail-worker");
+        let claim = claim_next(&database.pool, &config)
+            .await
+            .expect("claim query")
+            .expect("claim");
+
+        assert!(matches!(
+            complete_claim(&database.pool, &config, &claim, 123, "invalid").await,
+            Err(ThumbnailError::Database(_))
+        ));
+        let thumbnail_count: i64 =
+            sqlx::query_scalar("select count(*) from content_bundle_thumbnail")
+                .fetch_one(&database.pool)
+                .await
+                .expect("thumbnail count");
+        assert_eq!(thumbnail_count, 0);
+
+        database.drop().await;
+    }
+
+    fn config(worker_id: &str) -> ThumbnailConfig {
+        ThumbnailConfig {
+            worker_id: worker_id.to_owned(),
+            internal_api_origin: "http://127.0.0.1:7456".to_owned(),
+            chromium_path: "/missing/chromium".into(),
+            lease_duration: Duration::from_secs(30),
+            poll_interval: Duration::from_millis(10),
+        }
+    }
+
+    struct TestDatabase {
+        admin: PgPool,
+        pool: PgPool,
+        schema: String,
+    }
+
+    impl TestDatabase {
+        async fn create() -> Option<Self> {
+            let Ok(database_url) = env::var("DATABASE_URL") else {
+                eprintln!("skipping PostgreSQL integration test: DATABASE_URL is not set");
+                return None;
+            };
+            let admin = PgPoolOptions::new()
+                .max_connections(2)
+                .connect(&database_url)
+                .await
+                .expect("connect to PostgreSQL");
+            let schema = format!("thumbnail_test_{}", Uuid::new_v4().simple());
+            sqlx::query(&format!("create schema \"{schema}\""))
+                .execute(&admin)
+                .await
+                .expect("create schema");
+            let search_path = schema.clone();
+            let pool = PgPoolOptions::new()
+                .max_connections(4)
+                .after_connect(move |connection, _| {
+                    let statement = format!("set search_path to \"{search_path}\"");
+                    Box::pin(async move {
+                        sqlx::query(&statement).execute(connection).await?;
+                        Ok(())
+                    })
+                })
+                .connect(&database_url)
+                .await
+                .expect("connect to schema");
+            let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .expect("repository root");
+            for migration in [
+                "db/migrations/0001_account_entry.sql",
+                "db/migrations/0002_artifact_foundation.sql",
+                "db/migrations/0003_artifact_validation_report.sql",
+                "db/migrations/0010_artifact_thumbnail.sql",
+                "db/migrations/0012_content_bundle_foundation.sql",
+            ] {
+                let sql = fs::read_to_string(root.join(migration)).expect("read migration");
+                sqlx::raw_sql(&sql)
+                    .execute(&pool)
+                    .await
+                    .expect("apply migration");
+            }
+            Some(Self {
+                admin,
+                pool,
+                schema,
+            })
+        }
+
+        async fn seed_bundle_job(&self) {
+            sqlx::raw_sql(
+                r#"
+                insert into "user" (id, name, email) values ('owner-1', 'Owner', 'owner@example.com');
+                insert into artifact (id, owner_user_id, name) values
+                  ('artifact-a', 'owner-1', 'Artifact A'),
+                  ('artifact-b', 'owner-1', 'Artifact B');
+                insert into artifact_upload_session (
+                  id, artifact_id, owner_user_id, policy_revision, archive_size_bytes,
+                  expanded_size_bytes, file_count, single_file_size_bytes, formats,
+                  raw_object_key, raw_size_bytes, state
+                ) values
+                  ('upload-a', 'artifact-a', 'owner-1', 'policy-v1', 100, 100, 10, 100, '[]', 'raw/a.zip', 10, 'committed'),
+                  ('upload-b', 'artifact-b', 'owner-1', 'policy-v1', 100, 100, 10, 100, '[]', 'raw/b.zip', 10, 'committed');
+                insert into artifact_processing_job (id, upload_session_id, state, max_attempts)
+                  values ('processing-job', 'upload-a', 'completed', 3);
+                insert into artifact_processing_attempt (
+                  id, owner_user_id, job_id, attempt_number, state, staging_prefix, finished_at
+                ) values ('processing-attempt', 'owner-1', 'processing-job', 1, 'succeeded', 'staging/a/', now());
+                insert into content_bundle (
+                  id, owner_user_id, content_identity_revision, lifecycle_state, integrity_state,
+                  creator_attempt_id, winning_attempt_id, ready_at
+                ) values ('bundle-1', 'owner-1', 'content-v1', 'ready', 'healthy',
+                  'processing-attempt', 'processing-attempt', now());
+                insert into artifact_version (
+                  id, artifact_id, upload_session_id, version_number, state, owner_user_id,
+                  content_bundle_id, renderer_revision
+                ) values
+                  ('version-a', 'artifact-a', 'upload-a', 1, 'ready', 'owner-1', 'bundle-1', 'renderer-v1'),
+                  ('version-b', 'artifact-b', 'upload-b', 1, 'ready', 'owner-1', 'bundle-1', 'renderer-v1');
+                insert into content_bundle_thumbnail_job (
+                  id, bundle_id, owner_user_id, renderer_revision
+                ) values ('thumbnail-job', 'bundle-1', 'owner-1', 'renderer-v1');
+                "#,
+            )
+            .execute(&self.pool)
+            .await
+            .expect("seed thumbnail job");
+        }
+
+        async fn drop(self) {
+            self.pool.close().await;
+            sqlx::query(&format!("drop schema \"{}\" cascade", self.schema))
+                .execute(&self.admin)
+                .await
+                .expect("drop schema");
+            self.admin.close().await;
+        }
     }
 }

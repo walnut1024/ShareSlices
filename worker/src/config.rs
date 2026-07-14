@@ -23,6 +23,13 @@ pub struct WorkerConfig {
     pub recovery_limit: i64,
     pub thumbnail_internal_api_origin: String,
     pub chromium_path: std::path::PathBuf,
+    pub content_fingerprint_key_current: String,
+    pub content_fingerprint_key_current_revision: String,
+    pub content_fingerprint_key_previous: Option<String>,
+    pub content_fingerprint_key_previous_revision: Option<String>,
+    pub content_identity_revision: String,
+    pub processing_revision: String,
+    pub renderer_revision: String,
     pub deployment_environment: String,
 }
 
@@ -82,6 +89,19 @@ impl WorkerConfig {
             &thumbnail_internal_api_origin,
         )?;
         let chromium_path = std::path::PathBuf::from(required(&values, "CHROMIUM_PATH")?);
+        let content_fingerprint_key_current =
+            required_minimum(&values, "CONTENT_FINGERPRINT_KEY_CURRENT", 32)?;
+        let content_fingerprint_key_current_revision =
+            required_revision(&values, "CONTENT_FINGERPRINT_KEY_CURRENT_REVISION")?;
+        let content_fingerprint_key_previous = optional_pair(
+            &values,
+            "CONTENT_FINGERPRINT_KEY_PREVIOUS",
+            "CONTENT_FINGERPRINT_KEY_PREVIOUS_REVISION",
+        )?;
+        let content_fingerprint_key_previous_revision = content_fingerprint_key_previous
+            .as_ref()
+            .map(|(_, revision)| revision.clone());
+        let content_fingerprint_key_previous = content_fingerprint_key_previous.map(|(key, _)| key);
 
         Ok(Self {
             database_url,
@@ -99,6 +119,13 @@ impl WorkerConfig {
             recovery_limit: DEFAULT_RECOVERY_LIMIT,
             thumbnail_internal_api_origin,
             chromium_path,
+            content_fingerprint_key_current,
+            content_fingerprint_key_current_revision,
+            content_fingerprint_key_previous,
+            content_fingerprint_key_previous_revision,
+            content_identity_revision: required_revision(&values, "CONTENT_IDENTITY_REVISION")?,
+            processing_revision: required_revision(&values, "ARTIFACT_PROCESSING_REVISION")?,
+            renderer_revision: required_revision(&values, "ARTIFACT_RENDERER_REVISION")?,
             deployment_environment: values
                 .get("NODE_ENV")
                 .cloned()
@@ -114,6 +141,55 @@ fn required(values: &HashMap<String, String>, name: &'static str) -> Result<Stri
         .filter(|value| !value.is_empty())
         .cloned()
         .ok_or(ConfigError::Missing(name))
+}
+
+fn required_minimum(
+    values: &HashMap<String, String>,
+    name: &'static str,
+    minimum: usize,
+) -> Result<String, ConfigError> {
+    let value = required(values, name)?;
+    if value.len() < minimum {
+        return Err(invalid(name, "must contain at least 32 bytes"));
+    }
+    Ok(value)
+}
+
+fn required_revision(
+    values: &HashMap<String, String>,
+    name: &'static str,
+) -> Result<String, ConfigError> {
+    let value = required(values, name)?;
+    let valid = value.len() <= 64
+        && value.bytes().enumerate().all(|(index, byte)| {
+            byte.is_ascii_lowercase()
+                || byte.is_ascii_digit()
+                || (index > 0 && matches!(byte, b'.' | b'_' | b'-'))
+        });
+    if !valid {
+        return Err(invalid(name, "must be a safe lowercase revision token"));
+    }
+    Ok(value)
+}
+
+fn optional_pair(
+    values: &HashMap<String, String>,
+    key_name: &'static str,
+    revision_name: &'static str,
+) -> Result<Option<(String, String)>, ConfigError> {
+    match (
+        values.get(key_name).filter(|value| !value.is_empty()),
+        values.get(revision_name).filter(|value| !value.is_empty()),
+    ) {
+        (None, None) => Ok(None),
+        (Some(key), Some(_)) if key.len() >= 32 => Ok(Some((
+            key.clone(),
+            required_revision(values, revision_name)?,
+        ))),
+        (Some(_), Some(_)) => Err(invalid(key_name, "must contain at least 32 bytes")),
+        (Some(_), None) => Err(ConfigError::Missing(revision_name)),
+        (None, Some(_)) => Err(ConfigError::Missing(key_name)),
+    }
 }
 
 fn validate_url(name: &'static str, value: &str) -> Result<(), ConfigError> {
@@ -183,6 +259,8 @@ mod tests {
         assert_eq!(config.heartbeat_interval.as_secs(), 10);
         assert!(config.s3_force_path_style);
         assert_eq!(config.deployment_environment, "test");
+        assert_eq!(config.content_identity_revision, "content-v1");
+        assert_eq!(config.renderer_revision, "renderer-v1");
     }
 
     #[test]
@@ -200,6 +278,43 @@ mod tests {
             WorkerConfig::from_values(malformed),
             Err(ConfigError::Invalid {
                 name: "S3_FORCE_PATH_STYLE",
+                ..
+            })
+        ));
+
+        let mut missing_fingerprint_key = valid_values();
+        missing_fingerprint_key.retain(|(name, _)| *name != "CONTENT_FINGERPRINT_KEY_CURRENT");
+        assert_eq!(
+            WorkerConfig::from_values(missing_fingerprint_key),
+            Err(ConfigError::Missing("CONTENT_FINGERPRINT_KEY_CURRENT"))
+        );
+    }
+
+    #[test]
+    fn requires_previous_fingerprint_key_and_revision_together() {
+        let mut values = valid_values();
+        values.push((
+            "CONTENT_FINGERPRINT_KEY_PREVIOUS",
+            "previous-content-fingerprint-key-32",
+        ));
+
+        assert_eq!(
+            WorkerConfig::from_values(values),
+            Err(ConfigError::Missing(
+                "CONTENT_FINGERPRINT_KEY_PREVIOUS_REVISION"
+            ))
+        );
+    }
+
+    #[test]
+    fn rejects_revisions_that_are_unsafe_in_object_keys() {
+        let mut values = valid_values();
+        replace(&mut values, "ARTIFACT_RENDERER_REVISION", "../renderer");
+
+        assert!(matches!(
+            WorkerConfig::from_values(values),
+            Err(ConfigError::Invalid {
+                name: "ARTIFACT_RENDERER_REVISION",
                 ..
             })
         ));
@@ -231,6 +346,14 @@ mod tests {
             ("WORKER_JOB_MAX_ATTEMPTS", "3"),
             ("THUMBNAIL_INTERNAL_API_ORIGIN", "http://127.0.0.1:7456"),
             ("CHROMIUM_PATH", "chromium"),
+            (
+                "CONTENT_FINGERPRINT_KEY_CURRENT",
+                "development-content-fingerprint-key-32",
+            ),
+            ("CONTENT_FINGERPRINT_KEY_CURRENT_REVISION", "key-v1"),
+            ("CONTENT_IDENTITY_REVISION", "content-v1"),
+            ("ARTIFACT_PROCESSING_REVISION", "processing-v1"),
+            ("ARTIFACT_RENDERER_REVISION", "renderer-v1"),
             ("NODE_ENV", "test"),
         ]
     }

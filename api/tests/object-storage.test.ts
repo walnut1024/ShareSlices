@@ -70,6 +70,20 @@ describe("InMemoryObjectStorage", () => {
     expect(await storage.readForTest("staging/attempt-10/keep.js")).toEqual(Buffer.from("keep"));
   });
 
+  it("allows only scoped content bundle cleanup prefixes", async () => {
+    const storage = new InMemoryObjectStorage();
+    await storage.writeStagingObject({ key: "content-bundles/bundle-1/a", body: chunks("a") });
+    await storage.writeStagingObject({ key: "content-bundles/bundle-10/keep", body: chunks("keep") });
+
+    await expect(storage.removeContentBundlePrefix("content-bundles/bundle-1/"))
+      .resolves.toEqual({ deletedCount: 1 });
+    await expect(storage.removeContentBundlePrefix("content-bundles/"))
+      .rejects.toThrow("stay below");
+    await expect(storage.removeContentBundlePrefix("staging/bundle-1/"))
+      .rejects.toThrow("stay below");
+    expect(await storage.readForTest("content-bundles/bundle-10/keep")).toEqual(Buffer.from("keep"));
+  });
+
   it("lists bounded object pages and safely repeats key deletion", async () => {
     const lastModified = new Date("2026-07-10T00:00:00Z");
     const storage = new InMemoryObjectStorage(() => lastModified);

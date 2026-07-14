@@ -4,6 +4,11 @@ import parseAddressList from "nodemailer/lib/addressparser/index.js";
 import { z } from "zod";
 
 const booleanString = z.enum(["true", "false"]).transform((value) => value === "true");
+const optionalSecret = (minimum: number) => z.preprocess(
+  (value) => value === "" ? undefined : value,
+  z.string().min(minimum).optional()
+);
+const revision = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
 const mailbox = z.string().trim().refine((value) => {
   if (/[\r\n]/.test(value)) return false;
   const addresses = parseAddressList(value, { flatten: true });
@@ -28,6 +33,17 @@ const envSchema = z
     WORKER_JOB_LEASE_SECONDS: z.coerce.number().int().positive(),
     WORKER_JOB_HEARTBEAT_SECONDS: z.coerce.number().int().positive(),
     WORKER_JOB_MAX_ATTEMPTS: z.coerce.number().int().positive(),
+    CONTENT_FINGERPRINT_KEY_CURRENT: z.string().min(32),
+    CONTENT_FINGERPRINT_KEY_CURRENT_REVISION: revision,
+    CONTENT_FINGERPRINT_KEY_PREVIOUS: optionalSecret(32),
+    CONTENT_FINGERPRINT_KEY_PREVIOUS_REVISION: z.preprocess((value) => value === "" ? undefined : value, revision.optional()),
+    IDEMPOTENCY_ENCRYPTION_KEY_CURRENT: z.string().min(32),
+    IDEMPOTENCY_ENCRYPTION_KEY_CURRENT_REVISION: revision,
+    IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS: optionalSecret(32),
+    IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS_REVISION: z.preprocess((value) => value === "" ? undefined : value, revision.optional()),
+    CONTENT_IDENTITY_REVISION: revision,
+    ARTIFACT_PROCESSING_REVISION: revision,
+    ARTIFACT_RENDERER_REVISION: revision,
     MINIMUM_CLI_VERSION: z.string().regex(/^\d+\.\d+\.\d+$/),
     REQUIRE_EMAIL_VERIFICATION: booleanString.default(false),
     AUTH_EMAIL_ENCRYPTION_KEY: z.string().min(32).default("development-email-encryption-key-32"),
@@ -52,6 +68,18 @@ const envSchema = z
     NODE_ENV: z.enum(["development", "test", "production"]).default("development")
   })
   .superRefine((value, context) => {
+    for (const [keyField, revisionField] of [
+      ["CONTENT_FINGERPRINT_KEY_PREVIOUS", "CONTENT_FINGERPRINT_KEY_PREVIOUS_REVISION"],
+      ["IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS", "IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS_REVISION"]
+    ] as const) {
+      if (Boolean(value[keyField]) !== Boolean(value[revisionField])) {
+        context.addIssue({
+          code: "custom",
+          path: [keyField],
+          message: `${keyField} and ${revisionField} must be configured together.`
+        });
+      }
+    }
     if (value.WORKER_JOB_HEARTBEAT_SECONDS >= value.WORKER_JOB_LEASE_SECONDS) {
       context.addIssue({
         code: "custom",

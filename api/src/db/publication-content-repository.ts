@@ -10,6 +10,10 @@ import type {
   ShareResolution
 } from "../application/artifacts/publication-viewer.js";
 import { db } from "./client.js";
+import {
+  createConfiguredIdempotencyEvidenceCipher,
+  type IdempotencyEvidenceCipher
+} from "./idempotency-evidence.js";
 import * as schema from "./schema.js";
 
 type Database = NodePgDatabase<typeof schema>;
@@ -42,7 +46,8 @@ function expirationValues(expiration: PublicationExpiration, now: Date) {
 }
 
 export function createPublicationContentRepository(
-  database: Database = db
+  database: Database = db,
+  evidenceCipher: IdempotencyEvidenceCipher = createConfiguredIdempotencyEvidenceCipher()
 ): PublicationContentRepository {
   return {
     async findOwnedReadyVersion(ownerUserId, versionId) {
@@ -62,31 +67,52 @@ export function createPublicationContentRepository(
     },
 
     async findAsset(versionId, path) {
-      const row = await database.query.artifactAsset.findFirst({
-        where: and(eq(schema.artifactAsset.versionId, versionId), eq(schema.artifactAsset.path, path))
-      });
+      const [row] = await database
+        .select({
+          versionId: schema.artifactVersion.id,
+          path: schema.contentBundleAsset.path,
+          objectKey: schema.contentBundleAsset.objectKey,
+          sizeBytes: schema.contentBundleAsset.sizeBytes,
+          contentType: schema.contentBundleAsset.contentType
+        })
+        .from(schema.artifactVersion)
+        .innerJoin(
+          schema.contentBundleAsset,
+          eq(schema.contentBundleAsset.bundleId, schema.artifactVersion.contentBundleId)
+        )
+        .where(
+          and(
+            eq(schema.artifactVersion.id, versionId),
+            eq(schema.artifactVersion.state, "ready"),
+            eq(schema.contentBundleAsset.path, path)
+          )
+        )
+        .limit(1);
       return row ?? null;
     },
 
     async findEntryAsset(versionId) {
       const [row] = await database
         .select({
-          versionId: schema.artifactAsset.versionId,
-          path: schema.artifactAsset.path,
-          objectKey: schema.artifactAsset.objectKey,
-          sizeBytes: schema.artifactAsset.sizeBytes,
-          contentType: schema.artifactAsset.contentType,
-          sha256: schema.artifactAsset.sha256
+          versionId: schema.artifactVersion.id,
+          path: schema.contentBundleAsset.path,
+          objectKey: schema.contentBundleAsset.objectKey,
+          sizeBytes: schema.contentBundleAsset.sizeBytes,
+          contentType: schema.contentBundleAsset.contentType
         })
-        .from(schema.artifactManifest)
+        .from(schema.artifactVersion)
         .innerJoin(
-          schema.artifactAsset,
+          schema.contentBundleManifest,
+          eq(schema.contentBundleManifest.bundleId, schema.artifactVersion.contentBundleId)
+        )
+        .innerJoin(
+          schema.contentBundleAsset,
           and(
-            eq(schema.artifactAsset.versionId, schema.artifactManifest.versionId),
-            eq(schema.artifactAsset.path, schema.artifactManifest.entryPath)
+            eq(schema.contentBundleAsset.bundleId, schema.artifactVersion.contentBundleId),
+            eq(schema.contentBundleAsset.path, schema.contentBundleManifest.entryPath)
           )
         )
-        .where(eq(schema.artifactManifest.versionId, versionId))
+        .where(and(eq(schema.artifactVersion.id, versionId), eq(schema.artifactVersion.state, "ready")))
         .limit(1);
       return row ?? null;
     },
@@ -105,10 +131,21 @@ export function createPublicationContentRepository(
         )
         .limit(1);
       if (!version) return null;
-      const assets = await database.query.artifactAsset.findMany({
-        where: eq(schema.artifactAsset.versionId, versionId),
-        orderBy: [schema.artifactAsset.path]
-      });
+      const assets = await database
+        .select({
+          versionId: schema.artifactVersion.id,
+          path: schema.contentBundleAsset.path,
+          objectKey: schema.contentBundleAsset.objectKey,
+          sizeBytes: schema.contentBundleAsset.sizeBytes,
+          contentType: schema.contentBundleAsset.contentType
+        })
+        .from(schema.artifactVersion)
+        .innerJoin(
+          schema.contentBundleAsset,
+          eq(schema.contentBundleAsset.bundleId, schema.artifactVersion.contentBundleId)
+        )
+        .where(eq(schema.artifactVersion.id, versionId))
+        .orderBy(schema.contentBundleAsset.path);
       return { artifactId: version.artifactId, artifactName: version.artifactName, assets };
     },
 
@@ -131,8 +168,15 @@ export function createPublicationContentRepository(
           )
         });
         if (existing) {
-          if (existing.requestHash !== input.requestHash) return { kind: "idempotency_conflict" };
           if (existing.state !== "completed" || !existing.responseBody) return { kind: "operation_in_progress" };
+          if (!existing.requestEvidence || !existing.requestEvidenceKeyRevision) {
+            throw new Error("Completed Publish idempotency record has no encrypted evidence.");
+          }
+          const requestEvidence = evidenceCipher.decrypt({
+            ciphertext: existing.requestEvidence,
+            keyRevision: existing.requestEvidenceKeyRevision
+          });
+          if (requestEvidence !== input.requestHash) return { kind: "idempotency_conflict" };
           const storedPublication = existing.responseBody.publication as Record<string, unknown>;
           const storedLink = existing.responseBody.shareLink as Record<string, unknown>;
           if (
@@ -178,8 +222,7 @@ export function createPublicationContentRepository(
           ownerUserId: input.ownerUserId,
           operation: "publish",
           targetResourceId: input.artifactId,
-          key: input.idempotencyKey,
-          requestHash: input.requestHash
+          key: input.idempotencyKey
         });
 
         const current = await transaction.query.artifactPublication.findFirst({
@@ -233,8 +276,16 @@ export function createPublicationContentRepository(
           },
           shareLink
         };
+        const encryptedEvidence = evidenceCipher.encrypt(input.requestHash);
         await transaction.update(schema.artifactIdempotencyRecord)
-          .set({ state: "completed", responseStatus: 201, responseBody, completedAt: now })
+          .set({
+            requestEvidence: encryptedEvidence.ciphertext,
+            requestEvidenceKeyRevision: encryptedEvidence.keyRevision,
+            state: "completed",
+            responseStatus: 201,
+            responseBody,
+            completedAt: now
+          })
           .where(and(
             eq(schema.artifactIdempotencyRecord.ownerUserId, input.ownerUserId),
             eq(schema.artifactIdempotencyRecord.operation, "publish"),

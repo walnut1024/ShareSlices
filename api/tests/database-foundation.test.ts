@@ -6,25 +6,30 @@ import pg from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   artifact,
-  artifactAsset,
   artifactIdempotencyRecord,
-  artifactManifest,
   artifactProcessingAttempt,
   artifactProcessingJob,
   artifactPublication,
   artifactShareLink,
-  artifactThumbnail,
   artifactThumbnailCaptureGrant,
-  artifactThumbnailJob,
   artifactUploadPolicy,
   artifactUploadPolicyFormat,
   artifactUploadSession,
   artifactVersion,
   authenticationEmailCircuitBreaker,
   authenticationEmailDelivery,
+  contentBundle,
+  contentBundleAsset,
+  contentBundleCleanup,
+  contentBundleFingerprintAlias,
+  contentBundleManifest,
+  contentBundleThumbnail,
+  contentBundleThumbnailAttempt,
+  contentBundleThumbnailJob,
   deviceCode,
   emailVerificationAttempt,
-  passwordResetGrant
+  passwordResetGrant,
+  rawInputFingerprintAlias
 } from "../src/db/schema.js";
 
 const { Client } = pg;
@@ -129,13 +134,7 @@ describe("artifact database foundation", () => {
     expect(breaker.rows).toEqual([{ id: "global", state: "closed" }]);
   });
 
-  it("defines independent Version thumbnail jobs, immutable output, and one-time capture grants", async () => {
-    expect(getTableConfig(artifactThumbnailJob).columns.map((column) => column.name)).toEqual(
-      expect.arrayContaining(["version_id", "state", "available_at", "lease_owner", "lease_expires_at", "attempt_count", "max_attempts", "failure_reason_code"])
-    );
-    expect(getTableConfig(artifactThumbnail).columns.map((column) => column.name)).toEqual(
-      expect.arrayContaining(["version_id", "object_key", "content_type", "size_bytes", "width", "height", "sha256"])
-    );
+  it("keeps one-time Version capture grants", async () => {
     expect(getTableConfig(artifactThumbnailCaptureGrant).columns.map((column) => column.name)).toEqual(
       expect.arrayContaining(["token_hash", "version_id", "expires_at", "consumed_at", "session_token_hash", "session_expires_at"])
     );
@@ -145,10 +144,176 @@ describe("artifact database foundation", () => {
       [schemaName]
     );
     expect(constraints.rows.map(({ conname }) => conname)).toEqual(expect.arrayContaining([
-      "artifact_thumbnail_job_lease_check",
-      "artifact_thumbnail_dimensions_check",
       "artifact_thumbnail_capture_grant_session_check"
     ]));
+  });
+
+  it("defines same-User Content bundle ownership, attempts, thumbnails, and cleanup", async () => {
+    const tables = await client.query(
+      `select table_name from information_schema.tables
+       where table_schema = $1 and table_type = 'BASE TABLE'`,
+      [schemaName]
+    );
+    expect(tables.rows.map(({ table_name }) => table_name)).toEqual(
+      expect.arrayContaining([
+        "content_bundle",
+        "content_bundle_asset",
+        "content_bundle_manifest",
+        "content_bundle_fingerprint_alias",
+        "raw_input_fingerprint_alias",
+        "content_bundle_thumbnail_job",
+        "content_bundle_thumbnail_attempt",
+        "content_bundle_thumbnail",
+        "content_bundle_cleanup"
+      ])
+    );
+
+    const constraints = await client.query(
+      `select conname from pg_constraint where connamespace = $1::regnamespace`,
+      [schemaName]
+    );
+    expect(constraints.rows.map(({ conname }) => conname)).toEqual(
+      expect.arrayContaining([
+        "artifact_id_owner_user_unique",
+        "content_bundle_id_owner_user_unique",
+        "content_bundle_lifecycle_check",
+        "content_bundle_integrity_check",
+        "artifact_version_artifact_owner_fk",
+        "artifact_version_content_bundle_owner_fk",
+        "content_bundle_manifest_entry_asset_fk",
+        "content_bundle_thumbnail_job_lease_check",
+        "content_bundle_thumbnail_attempt_cleanup_check",
+        "content_bundle_thumbnail_sha256_check",
+        "content_bundle_cleanup_lease_check"
+      ])
+    );
+
+    expect(getTableConfig(contentBundleThumbnail).columns.map((column) => column.name)).toEqual(
+      expect.arrayContaining(["bundle_id", "renderer_revision", "object_key", "sha256"])
+    );
+
+    const indexes = await client.query(
+      `select indexname from pg_indexes where schemaname = $1`,
+      [schemaName]
+    );
+    expect(indexes.rows.map(({ indexname }) => indexname)).toEqual(
+      expect.arrayContaining([
+        "content_bundle_fingerprint_alias_active_idx",
+        "raw_input_fingerprint_alias_active_idx",
+        "content_bundle_thumbnail_job_identity_idx"
+      ])
+    );
+
+    const versionColumns = await client.query(
+      `select column_name from information_schema.columns
+       where table_schema = $1 and table_name = 'artifact_version'`,
+      [schemaName]
+    );
+    expect(versionColumns.rows.map(({ column_name }) => column_name)).toEqual(
+      expect.arrayContaining(["owner_user_id", "content_bundle_id", "renderer_revision"])
+    );
+
+    const attemptColumns = await client.query(
+      `select column_name from information_schema.columns
+       where table_schema = $1 and table_name = 'artifact_processing_attempt'`,
+      [schemaName]
+    );
+    expect(attemptColumns.rows.map(({ column_name }) => column_name)).toEqual(
+      expect.arrayContaining([
+        "object_prefix",
+        "lease_expires_at",
+        "write_deadline_at",
+        "cleanup_state",
+        "cleanup_eligible_at",
+        "cleaned_at"
+      ])
+    );
+  });
+
+  it("rejects cross-User bundle references and invalid bundle lifecycle state", async () => {
+    await seedCreatingBundle("one");
+    await seedCreatingBundle("two");
+
+    await expect(
+      client.query(
+        `insert into artifact_version (
+          id, artifact_id, owner_user_id, content_bundle_id, renderer_revision,
+          upload_session_id, version_number, state
+        ) values ('version-cross-user', 'artifact-one', 'user-one', 'bundle-two',
+          'renderer-v1', 'upload-one', 1, 'ready')`
+      )
+    ).rejects.toMatchObject({ code: "23503" });
+
+    await expect(
+      client.query(
+        `insert into content_bundle (
+          id, owner_user_id, content_identity_revision, lifecycle_state, integrity_state
+        ) values ('bundle-invalid', 'user-one', 'content-v1', 'ready', 'healthy')`
+      )
+    ).rejects.toMatchObject({ code: "23514" });
+
+    await expect(
+      client.query("update content_bundle set integrity_state = 'unknown' where id = 'bundle-one'")
+    ).rejects.toMatchObject({ code: "23514" });
+
+    await expect(
+      client.query(
+        `insert into artifact_version (
+          id, artifact_id, owner_user_id, content_bundle_id, renderer_revision,
+          upload_session_id, version_number, state
+        ) values ('version-no-renderer', 'artifact-one', 'user-one', 'bundle-one',
+          '', 'upload-one', 1, 'ready')`
+      )
+    ).rejects.toMatchObject({ code: "23514" });
+  });
+
+  it("allows a retired fingerprint alias but only one active alias per User identity", async () => {
+    await seedCreatingBundle("one");
+    const fingerprint = "a".repeat(64);
+    await client.query(
+      `insert into content_bundle_fingerprint_alias (
+        id, owner_user_id, bundle_id, content_identity_revision,
+        fingerprint_key_revision, reuse_fingerprint
+      ) values ('alias-one', 'user-one', 'bundle-one', 'content-v1', 'key-v1', $1)`,
+      [fingerprint]
+    );
+
+    await expect(
+      client.query(
+        `insert into content_bundle_fingerprint_alias (
+          id, owner_user_id, bundle_id, content_identity_revision,
+          fingerprint_key_revision, reuse_fingerprint
+        ) values ('alias-conflict', 'user-one', 'bundle-one', 'content-v1', 'key-v1', $1)`,
+        [fingerprint]
+      )
+    ).rejects.toMatchObject({ code: "23505" });
+
+    await client.query("update content_bundle_fingerprint_alias set retired_at = now() where id = 'alias-one'");
+    await expect(
+      client.query(
+        `insert into content_bundle_fingerprint_alias (
+          id, owner_user_id, bundle_id, content_identity_revision,
+          fingerprint_key_revision, reuse_fingerprint
+        ) values ('alias-replacement', 'user-one', 'bundle-one', 'content-v1', 'key-v1', $1)`,
+        [fingerprint]
+      )
+    ).resolves.toBeDefined();
+  });
+
+  it("rejects incomplete processing-attempt cleanup transitions", async () => {
+    await seedCreatingBundle("one");
+
+    await expect(
+      client.query("update artifact_processing_attempt set cleanup_state = 'eligible' where id = 'attempt-one'")
+    ).rejects.toMatchObject({ code: "23514" });
+
+    await expect(
+      client.query(
+        `update artifact_processing_attempt
+         set cleanup_state = 'eligible', cleanup_eligible_at = now()
+         where id = 'attempt-one'`
+      )
+    ).resolves.toBeDefined();
   });
 
   it("seeds the exact active upload policy defaults", async () => {
@@ -176,9 +341,9 @@ describe("artifact database foundation", () => {
     await seedUserAndArtifact();
     await client.query(
       `insert into artifact_upload_session (
-        id, artifact_id, policy_revision, archive_size_bytes, expanded_size_bytes,
-        file_count, single_file_size_bytes, formats, raw_object_key, raw_sha256, raw_size_bytes
-      ) values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11)`,
+        id, artifact_id, owner_user_id, policy_revision, archive_size_bytes, expanded_size_bytes,
+        file_count, single_file_size_bytes, formats, raw_object_key, raw_size_bytes
+      ) values ($1, $2, 'user-1', $3, $4, $5, $6, $7, $8::jsonb, $9, $10)`,
       [
         "upload-1",
         "artifact-1",
@@ -189,7 +354,6 @@ describe("artifact database foundation", () => {
         52_428_800,
         JSON.stringify(defaultFormatSnapshots),
         "raw/artifact-1/upload-1.zip",
-        "a".repeat(64),
         1024
       ]
     );
@@ -217,7 +381,7 @@ describe("artifact database foundation", () => {
     expect(snapshot.rows[0].formats).toEqual(defaultFormatSnapshots);
   });
 
-  it("stores validation reports and keeps manifest entries tied to committed assets", async () => {
+  it("stores validation reports", async () => {
     const columns = await client.query(
       `select table_name, column_name, data_type, is_nullable
        from information_schema.columns
@@ -241,18 +405,8 @@ describe("artifact database foundation", () => {
     );
     expect(constraints.rows.map((constraint) => constraint.conname)).toEqual(
       expect.arrayContaining([
-        "artifact_upload_session_validation_report_check",
-        "artifact_manifest_entry_path_check",
-        "artifact_manifest_entry_asset_fk"
+        "artifact_upload_session_validation_report_check"
       ])
-    );
-    expect(constraints.rows).toContainEqual(
-      expect.objectContaining({
-        conname: "artifact_manifest_entry_asset_fk",
-        confdeltype: "a",
-        condeferrable: true,
-        condeferred: true
-      })
     );
   });
 
@@ -263,70 +417,13 @@ describe("artifact database foundation", () => {
       await expect(
         client.query(
           `insert into artifact_upload_session (
-            id, artifact_id, policy_revision, archive_size_bytes, expanded_size_bytes,
-            file_count, single_file_size_bytes, formats, raw_object_key, raw_sha256,
+            id, artifact_id, owner_user_id, policy_revision, archive_size_bytes, expanded_size_bytes,
+            file_count, single_file_size_bytes, formats, raw_object_key,
             raw_size_bytes, validation_report
-          ) values ('upload-invalid-report', 'artifact-1', 'v0.0.1-default', 52428800, 209715200,
-            1000, 52428800, '[]'::jsonb, 'raw/invalid-report.zip', $1, 10, '[]'::jsonb)`,
-          ["a".repeat(64)]
+          ) values ('upload-invalid-report', 'artifact-1', 'user-1', 'v0.0.1-default', 52428800, 209715200,
+            1000, 52428800, '[]'::jsonb, 'raw/invalid-report.zip', 10, '[]'::jsonb)`
         )
       ).rejects.toMatchObject({ code: "23514" });
-    } finally {
-      await client.query("rollback");
-    }
-  });
-
-  it("accepts a safe non-index manifest entry backed by a Version asset", async () => {
-    await seedReadyVersion("safe-entry");
-    await client.query("begin");
-    try {
-      await client.query(
-        `insert into artifact_asset (version_id, path, object_key, size_bytes, content_type, sha256)
-         values ('version-safe-entry', 'report.html', 'committed/safe-entry/report.html', 14, 'text/html', $1)`,
-        ["b".repeat(64)]
-      );
-      await client.query(
-        `insert into artifact_manifest (version_id, entry_path, file_count, total_size_bytes)
-         values ('version-safe-entry', 'report.html', 1, 14)`
-      );
-      await expect(
-        client.query("set constraints artifact_manifest_entry_asset_fk immediate")
-      ).resolves.toMatchObject({ command: "SET" });
-    } finally {
-      await client.query("rollback");
-    }
-  });
-
-  it.each(["", "/index.html", "../index.html", "assets/../../index.html"])(
-    "rejects unsafe manifest entry path %j",
-    async (entryPath) => {
-      await seedReadyVersion(`unsafe-${Buffer.from(entryPath).toString("hex") || "empty"}`);
-      await client.query("begin");
-      try {
-        await expect(
-          client.query(
-            `insert into artifact_manifest (version_id, entry_path, file_count, total_size_bytes)
-             values ($1, $2, 1, 14)`,
-            [`version-unsafe-${Buffer.from(entryPath).toString("hex") || "empty"}`, entryPath]
-          )
-        ).rejects.toMatchObject({ code: "23514" });
-      } finally {
-        await client.query("rollback");
-      }
-    }
-  );
-
-  it("defers the manifest entry asset foreign key until commit", async () => {
-    await seedReadyVersion("missing-entry-asset");
-    await client.query("begin");
-    try {
-      await expect(
-        client.query(
-          `insert into artifact_manifest (version_id, entry_path, file_count, total_size_bytes)
-           values ('version-missing-entry-asset', 'report.html', 1, 14)`
-        )
-      ).resolves.toMatchObject({ rowCount: 1 });
-      await expect(client.query("commit")).rejects.toMatchObject({ code: "23503" });
     } finally {
       await client.query("rollback");
     }
@@ -390,12 +487,12 @@ describe("artifact database foundation", () => {
   async function seedCommittedUploadSession(id: string, rawObjectKey: string): Promise<void> {
     await client.query(
       `insert into artifact_upload_session (
-        id, artifact_id, policy_revision, archive_size_bytes, expanded_size_bytes,
-        file_count, single_file_size_bytes, formats, raw_object_key, raw_sha256,
+        id, artifact_id, owner_user_id, policy_revision, archive_size_bytes, expanded_size_bytes,
+        file_count, single_file_size_bytes, formats, raw_object_key,
         raw_size_bytes, state
-      ) values ($1, 'artifact-1', 'v0.0.1-default', 52428800, 209715200,
-        1000, 52428800, $2::jsonb, $3, $4, 1024, 'committed')`,
-      [id, JSON.stringify(defaultFormatSnapshots), rawObjectKey, "c".repeat(64)]
+      ) values ($1, 'artifact-1', 'user-1', 'v0.0.1-default', 52428800, 209715200,
+        1000, 52428800, $2::jsonb, $3, 1024, 'committed')`,
+      [id, JSON.stringify(defaultFormatSnapshots), rawObjectKey]
     );
   }
 
@@ -407,6 +504,58 @@ describe("artifact database foundation", () => {
       `insert into artifact_version (id, artifact_id, upload_session_id, version_number, state)
        values ($1, 'artifact-1', $2, 1, 'ready')`,
       [`version-${suffix}`, uploadSessionId]
+    );
+  }
+
+  async function seedCreatingBundle(suffix: string): Promise<void> {
+    await client.query(
+      `insert into "user" (id, name, email)
+       values ($1, $2, $3)`,
+      [`user-${suffix}`, `Owner ${suffix}`, `owner-${suffix}@example.com`]
+    );
+    await client.query(
+      `insert into artifact (id, owner_user_id, name)
+       values ($1, $2, $3)`,
+      [`artifact-${suffix}`, `user-${suffix}`, `Artifact ${suffix}`]
+    );
+    await client.query(
+      `insert into artifact_upload_session (
+        id, artifact_id, owner_user_id, policy_revision, archive_size_bytes, expanded_size_bytes,
+        file_count, single_file_size_bytes, formats, raw_object_key,
+        raw_size_bytes, state
+      ) values ($1, $2, $3, 'v0.0.1-default', 52428800, 209715200,
+        1000, 52428800, $4::jsonb, $5, 1024, 'committed')`,
+      [
+        `upload-${suffix}`,
+        `artifact-${suffix}`,
+        `user-${suffix}`,
+        JSON.stringify(defaultFormatSnapshots),
+        `raw/artifact-${suffix}/upload-${suffix}.zip`
+      ]
+    );
+    await client.query(
+      `insert into artifact_processing_job (id, upload_session_id, max_attempts)
+       values ($1, $2, 3)`,
+      [`job-${suffix}`, `upload-${suffix}`]
+    );
+    await client.query(
+      `insert into artifact_processing_attempt (
+        id, owner_user_id, job_id, attempt_number, staging_prefix, object_prefix,
+        lease_expires_at, write_deadline_at
+      ) values ($1, $2, $3, 1, $4, $5, now() + interval '1 minute', now() + interval '2 minutes')`,
+      [
+        `attempt-${suffix}`,
+        `user-${suffix}`,
+        `job-${suffix}`,
+        `staging/artifact-${suffix}/attempt-${suffix}/`,
+        `bundles/user-${suffix}/attempt-${suffix}/`
+      ]
+    );
+    await client.query(
+      `insert into content_bundle (
+        id, owner_user_id, content_identity_revision, creator_attempt_id, creator_lease_expires_at
+      ) values ($1, $2, 'content-v1', $3, now() + interval '1 minute')`,
+      [`bundle-${suffix}`, `user-${suffix}`, `attempt-${suffix}`]
     );
   }
 });
@@ -422,9 +571,16 @@ describe("Drizzle artifact schema", () => {
         artifactUploadSession,
         artifactProcessingJob,
         artifactProcessingAttempt,
+        contentBundle,
+        contentBundleAsset,
+        contentBundleManifest,
+        contentBundleFingerprintAlias,
+        rawInputFingerprintAlias,
         artifactVersion,
-        artifactManifest,
-        artifactAsset,
+        contentBundleThumbnailJob,
+        contentBundleThumbnailAttempt,
+        contentBundleThumbnail,
+        contentBundleCleanup,
         artifactPublication,
         artifactIdempotencyRecord
       ].map((table) => getTableConfig(table).name)
@@ -436,9 +592,16 @@ describe("Drizzle artifact schema", () => {
       "artifact_upload_session",
       "artifact_processing_job",
       "artifact_processing_attempt",
+      "content_bundle",
+      "content_bundle_asset",
+      "content_bundle_manifest",
+      "content_bundle_fingerprint_alias",
+      "raw_input_fingerprint_alias",
       "artifact_version",
-      "artifact_manifest",
-      "artifact_asset",
+      "content_bundle_thumbnail_job",
+      "content_bundle_thumbnail_attempt",
+      "content_bundle_thumbnail",
+      "content_bundle_cleanup",
       "artifact_publication",
       "artifact_idempotency_record"
     ]);
@@ -457,20 +620,8 @@ describe("Drizzle artifact schema", () => {
     );
   });
 
-  it("models validation reports and the manifest entry asset constraint", () => {
+  it("models validation reports", () => {
     expect(Object.keys(artifactUploadSession)).toContain("validationReport");
-
-    const manifest = getTableConfig(artifactManifest);
-    expect(manifest.checks.map((constraint) => constraint.name)).toContain(
-      "artifact_manifest_entry_path_check"
-    );
-    const entryAssetForeignKey = manifest.foreignKeys.find(
-      (constraint) => constraint.getName() === "artifact_manifest_entry_asset_fk"
-    );
-    expect(entryAssetForeignKey?.onDelete ?? "no action").toBe("no action");
-    const entryAssetReference = entryAssetForeignKey?.reference();
-    expect(entryAssetReference?.columns.map((column) => column.name)).toEqual(["version_id", "entry_path"]);
-    expect(entryAssetReference?.foreignColumns.map((column) => column.name)).toEqual(["version_id", "path"]);
   });
 
   it("does not model a one-ready-Version uniqueness constraint", () => {

@@ -1,4 +1,5 @@
 pub mod archive_validation;
+pub mod content_fingerprint;
 pub mod format_rules;
 pub mod health;
 pub mod job_store;

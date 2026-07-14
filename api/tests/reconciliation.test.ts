@@ -15,6 +15,17 @@ function repository(overrides: Partial<ReconciliationRepository> = {}): Reconcil
     claimArtifactDeletionCleanups: vi.fn(async () => []),
     completeArtifactDeletionCleanup: vi.fn(async () => undefined),
     failArtifactDeletionCleanup: vi.fn(async () => undefined),
+    recoverExpiredCreatingBundles: vi.fn(async () => 0),
+    claimContentBundleCleanups: vi.fn(async () => []),
+    completeContentBundleCleanup: vi.fn(async () => true),
+    failContentBundleCleanup: vi.fn(async () => undefined),
+    recordLateContentBundlePrefix: vi.fn(async () => false),
+    claimEligibleAttemptPrefixes: vi.fn(async () => []),
+    completeAttemptPrefixCleanup: vi.fn(async () => undefined),
+    failAttemptPrefixCleanup: vi.fn(async () => undefined),
+    claimEligibleThumbnailObjects: vi.fn(async () => []),
+    completeThumbnailObjectCleanup: vi.fn(async () => undefined),
+    failThumbnailObjectCleanup: vi.fn(async () => undefined),
     ...overrides
   };
 }
@@ -188,6 +199,67 @@ describe("ReconciliationModule", () => {
       expect.any(Date),
       "object_cleanup_failed"
     );
+  });
+
+  it("executes durable content bundle cleanup and completes only the processed prefix snapshot", async () => {
+    const storage = new InMemoryObjectStorage();
+    await storage.writeStagingObject({
+      key: "content-bundles/bundle-1/attempts/attempt-1/index.html",
+      body: body("content")
+    });
+    const completeContentBundleCleanup = vi.fn(async () => true);
+    const recoverExpiredCreatingBundles = vi.fn(async () => 1);
+    const now = new Date("2026-07-12T00:00:00Z");
+    const emit = vi.fn();
+    const module = new ReconciliationModule({
+      repository: repository({
+        recoverExpiredCreatingBundles,
+        claimContentBundleCleanups: vi.fn(async () => [{
+          bundleId: "bundle-1",
+          ownerUserId: "owner-1",
+          objectPrefixes: ["content-bundles/bundle-1/"],
+          attemptCount: 1,
+          leaseToken: "bundle-lease"
+        }]),
+        completeContentBundleCleanup
+      }),
+      storage,
+      now: () => now,
+      logger: { emit }
+    });
+
+    await expect(module.run({ workType: "content_bundle_deletions", olderThan: now, limit: 10 }))
+      .resolves.toEqual({
+        workType: "content_bundle_deletions",
+        scannedCount: 1,
+        deletedCount: 1,
+        recoveredLeaseCount: 0
+      });
+    expect(recoverExpiredCreatingBundles).toHaveBeenCalledWith(now, now, 10);
+    expect(await storage.readForTest("content-bundles/bundle-1/attempts/attempt-1/index.html"))
+      .toBeUndefined();
+    expect(completeContentBundleCleanup).toHaveBeenCalledWith(
+      "bundle-1",
+      "bundle-lease",
+      ["content-bundles/bundle-1/"]
+    );
+    expect(emit).toHaveBeenCalledWith({
+      severity: "INFO",
+      body: "Content bundle cleanup reconciliation completed.",
+      eventName: "shareslices.reconciliation.content_bundle_cleanup.outcome",
+      attributes: {
+        "shareslices.cleanup.bundle.claimed_count": 1,
+        "shareslices.cleanup.bundle.completed_count": 1,
+        "shareslices.cleanup.bundle.failed_count": 0,
+        "shareslices.cleanup.attempt.claimed_count": 0,
+        "shareslices.cleanup.attempt.completed_count": 0,
+        "shareslices.cleanup.attempt.failed_count": 0
+      }
+    });
+    const serializedEvent = JSON.stringify(emit.mock.calls[0]?.[0]);
+    expect(serializedEvent).not.toContain("bundle-1");
+    expect(serializedEvent).not.toContain("owner-1");
+    expect(serializedEvent).not.toContain("bundle-lease");
   });
 
   it("rejects unbounded or invalid passes before accessing dependencies", async () => {

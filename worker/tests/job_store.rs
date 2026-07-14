@@ -4,8 +4,9 @@ use std::{env, fs, path::Path, time::Duration};
 use serde_json::json;
 use shareslices_worker::{
     job_store::{
-        CommitOutcome, JobFailure, JobStore, PostgresJobStore, ReadyVersionCommit,
-        ReadyVersionStore,
+        CommitOutcome, ContentBundleReservation, ContentBundleReservationOutcome,
+        ContentBundleStore, JobFailure, JobStore, PostgresJobStore, RawFingerprintCandidate,
+        RawReuseContext, ReadyContentBundleVersionCommit, ReadyVersionCommit,
     },
     manifest::{ManifestAsset, ReadyManifest},
     thumbnail::requeue_failed_browser_jobs,
@@ -109,79 +110,281 @@ async fn heartbeat_and_completion_require_the_active_lease() {
 }
 
 #[tokio::test]
-async fn ready_version_commit_is_atomic_and_concurrent_replay_is_effectively_once() {
+async fn equivalent_same_user_reservations_create_one_ready_bundle_and_two_versions() {
     let Some(database) = TestDatabase::create().await else {
         return;
     };
-    database.seed_job("job-1", 3).await;
-    let store = PostgresJobStore::new(database.pool.clone());
-    store
+    database.seed_two_jobs_same_user().await;
+    let first_store = PostgresJobStore::new(database.pool.clone());
+    let second_store = first_store.clone();
+    let first_claim = first_store
         .claim_next("worker-a", Duration::from_secs(30))
         .await
-        .expect("claim query")
-        .expect("claim");
-    let commit = ready_version_commit();
+        .expect("first claim")
+        .expect("first job");
+    let second_claim = second_store
+        .claim_next("worker-b", Duration::from_secs(30))
+        .await
+        .expect("second claim")
+        .expect("second job");
+    let first_reservation = bundle_reservation("bundle-a", &first_claim.attempt_id);
+    let second_reservation = bundle_reservation("bundle-b", &second_claim.attempt_id);
 
     let (first, second) = tokio::join!(
-        store.commit_ready_version(&commit),
-        store.commit_ready_version(&commit)
+        first_store.reserve_content_bundle(&first_reservation),
+        second_store.reserve_content_bundle(&second_reservation)
     );
-    let outcomes = [first.expect("first commit"), second.expect("second commit")];
+    let outcomes = [
+        first.expect("first reserve"),
+        second.expect("second reserve"),
+    ];
+    let winner = outcomes
+        .iter()
+        .find_map(|outcome| match outcome {
+            ContentBundleReservationOutcome::Reserved { bundle_id } => Some(bundle_id.clone()),
+            _ => None,
+        })
+        .expect("one reservation wins");
     assert_eq!(
         outcomes
             .iter()
-            .filter(|outcome| **outcome == CommitOutcome::Committed)
-            .count(),
-        1
-    );
-    assert_eq!(
-        outcomes
-            .iter()
-            .filter(|outcome| matches!(outcome, CommitOutcome::AlreadyCommitted { version_id } if version_id == "version-1"))
+            .filter(|outcome| matches!(outcome, ContentBundleReservationOutcome::Reserved { .. }))
             .count(),
         1
     );
 
-    let version_count: i64 = sqlx::query_scalar(
-        "select count(*) from artifact_version where upload_session_id = 'upload-1'",
-    )
-    .fetch_one(&database.pool)
-    .await
-    .expect("version count");
-    let manifest: (String, i32, i64) = sqlx::query_as(
-        "select entry_path, file_count, total_size_bytes from artifact_manifest where version_id = 'version-1'",
-    )
-    .fetch_one(&database.pool)
-    .await
-    .expect("manifest");
-    let assets: Vec<(String, String, String)> = sqlx::query_as(
-        "select path, content_type, sha256 from artifact_asset where version_id = 'version-1' order by path",
-    )
-    .fetch_all(&database.pool)
-    .await
-    .expect("assets");
-    assert_eq!(version_count, 1);
-    assert_eq!(manifest, ("index.html".to_owned(), 2, 9));
-    assert_eq!(assets[0].0, "app.js");
-    assert_eq!(assets[1].0, "index.html");
-    assert_eq!(database.job_state().await, "completed");
-    assert_eq!(database.upload_state().await, "committed");
-    let thumbnail_job: (String, i32) = sqlx::query_as(
-        "select state, attempt_count from artifact_thumbnail_job where version_id = 'version-1'",
-    )
-    .fetch_one(&database.pool)
-    .await
-    .expect("thumbnail job");
-    assert_eq!(thumbnail_job, ("queued".to_owned(), 0));
-    let report: serde_json::Value = sqlx::query_scalar(
-        "select validation_report from artifact_upload_session where id = 'upload-1'",
-    )
-    .fetch_one(&database.pool)
-    .await
-    .expect("validation report");
-    assert!(report["primaryIssue"].is_null());
-    assert_eq!(report["warnings"][0]["code"], "entry_file_inferred");
+    let (winner_claim, winner_worker, winner_job, winner_upload, winner_version) =
+        if winner == "bundle-a" {
+            (&first_claim, "worker-a", "job-1", "upload-1", "version-1")
+        } else {
+            (&second_claim, "worker-b", "job-2", "upload-2", "version-2")
+        };
+    let winner_commit = bundle_commit(
+        &winner,
+        &winner_claim.attempt_id,
+        winner_worker,
+        winner_job,
+        winner_upload,
+        winner_version,
+    );
+    assert_eq!(
+        first_store
+            .commit_content_bundle_version(&winner_commit)
+            .await
+            .expect("publish winner"),
+        CommitOutcome::Committed
+    );
 
+    let (loser_claim, loser_worker, loser_job, loser_upload, loser_version) =
+        if winner == "bundle-a" {
+            (&second_claim, "worker-b", "job-2", "upload-2", "version-2")
+        } else {
+            (&first_claim, "worker-a", "job-1", "upload-1", "version-1")
+        };
+    assert_eq!(
+        second_store
+            .reserve_content_bundle(&bundle_reservation("bundle-retry", &loser_claim.attempt_id))
+            .await
+            .expect("reload ready winner"),
+        ContentBundleReservationOutcome::Ready {
+            bundle_id: winner.clone()
+        }
+    );
+    assert_eq!(
+        second_store
+            .commit_content_bundle_version(&bundle_commit(
+                &winner,
+                &loser_claim.attempt_id,
+                loser_worker,
+                loser_job,
+                loser_upload,
+                loser_version,
+            ))
+            .await
+            .expect("commit reused Version"),
+        CommitOutcome::Committed
+    );
+
+    assert_one_bundle_with_two_versions(&database.pool, &winner).await;
+
+    assert_retired_alias_allows_replacement(&database, &first_store, &winner).await;
+    database.drop().await;
+}
+
+#[tokio::test]
+async fn equivalent_fingerprints_are_isolated_by_user() {
+    let Some(database) = TestDatabase::create().await else {
+        return;
+    };
+    database.seed_two_jobs_different_users().await;
+    let store = PostgresJobStore::new(database.pool.clone());
+    let first = store
+        .claim_next("worker-a", Duration::from_secs(30))
+        .await
+        .expect("first claim")
+        .expect("first job");
+    let second = store
+        .claim_next("worker-b", Duration::from_secs(30))
+        .await
+        .expect("second claim")
+        .expect("second job");
+
+    assert!(matches!(
+        store
+            .reserve_content_bundle(&bundle_reservation("bundle-user-1", &first.attempt_id))
+            .await
+            .expect("first reservation"),
+        ContentBundleReservationOutcome::Reserved { .. }
+    ));
+    assert!(matches!(
+        store
+            .reserve_content_bundle(&bundle_reservation("bundle-user-2", &second.attempt_id))
+            .await
+            .expect("second reservation"),
+        ContentBundleReservationOutcome::Reserved { .. }
+    ));
+    let owners: Vec<String> =
+        sqlx::query_scalar("select owner_user_id from content_bundle order by owner_user_id")
+            .fetch_all(&database.pool)
+            .await
+            .expect("bundle owners");
+    assert_eq!(owners, ["user-1", "user-2"]);
+    database.drop().await;
+}
+
+#[tokio::test]
+async fn expired_creator_is_replaced_and_stale_creator_cannot_commit() {
+    let Some(database) = TestDatabase::create().await else {
+        return;
+    };
+    database.seed_two_jobs_same_user().await;
+    let store = PostgresJobStore::new(database.pool.clone());
+    let first = store
+        .claim_next("worker-a", Duration::from_secs(30))
+        .await
+        .expect("first claim")
+        .expect("first job");
+    let second = store
+        .claim_next("worker-b", Duration::from_secs(30))
+        .await
+        .expect("second claim")
+        .expect("second job");
+    store
+        .reserve_content_bundle(&bundle_reservation("bundle-1", &first.attempt_id))
+        .await
+        .expect("first reservation");
+    sqlx::query(
+        "update content_bundle set creator_lease_expires_at = now() - interval '1 second' where id = 'bundle-1'",
+    )
+    .execute(&database.pool)
+    .await
+    .expect("expire creator");
+
+    assert_eq!(
+        store
+            .reserve_content_bundle(&bundle_reservation("unused", &second.attempt_id))
+            .await
+            .expect("take over"),
+        ContentBundleReservationOutcome::Reserved {
+            bundle_id: "bundle-1".to_owned()
+        }
+    );
+    assert_eq!(
+        store
+            .commit_content_bundle_version(&bundle_commit(
+                "bundle-1",
+                &first.attempt_id,
+                "worker-a",
+                "job-1",
+                "upload-1",
+                "version-stale",
+            ))
+            .await
+            .expect("stale commit rejected"),
+        CommitOutcome::LeaseLost
+    );
+    assert_eq!(
+        store
+            .commit_content_bundle_version(&bundle_commit(
+                "bundle-1",
+                &second.attempt_id,
+                "worker-b",
+                "job-2",
+                "upload-2",
+                "version-current",
+            ))
+            .await
+            .expect("current creator commits"),
+        CommitOutcome::Committed
+    );
+    database.drop().await;
+}
+
+#[tokio::test]
+async fn raw_alias_hit_requires_compatible_revision_and_canonical_worker_evidence() {
+    let Some(database) = TestDatabase::create().await else {
+        return;
+    };
+    database.seed_two_jobs_same_user().await;
+    let store = PostgresJobStore::new(database.pool.clone());
+    let first = store
+        .claim_next("worker-a", Duration::from_secs(30))
+        .await
+        .expect("first claim")
+        .expect("first job");
+    let second = store
+        .claim_next("worker-b", Duration::from_secs(30))
+        .await
+        .expect("second claim")
+        .expect("second job");
+    store
+        .reserve_content_bundle(&bundle_reservation("bundle-raw", &first.attempt_id))
+        .await
+        .expect("reserve bundle");
+    let commit = bundle_commit(
+        "bundle-raw",
+        &first.attempt_id,
+        "worker-a",
+        "job-1",
+        "upload-1",
+        "version-raw",
+    );
+    store
+        .commit_content_bundle_version(&commit)
+        .await
+        .expect("commit source Version");
+
+    assert_eq!(
+        store
+            .lookup_raw_reuse(&second.attempt_id, &commit.raw_reuse)
+            .await
+            .expect("lookup compatible alias")
+            .expect("compatible alias hit")
+            .bundle_id,
+        "bundle-raw"
+    );
+    let mut retired_key = commit.raw_reuse.clone();
+    retired_key.candidates[0].key_revision = "retired-key".to_owned();
+    assert!(
+        store
+            .lookup_raw_reuse(&second.attempt_id, &retired_key)
+            .await
+            .expect("retired-key lookup")
+            .is_none()
+    );
+    sqlx::query(
+        "update raw_input_fingerprint_alias set validation_evidence = jsonb_set(validation_evidence, '{issues}', validation_evidence->'warnings')",
+    )
+    .execute(&database.pool)
+    .await
+    .expect("add blocking cached evidence");
+    assert!(
+        store
+            .lookup_raw_reuse(&second.attempt_id, &commit.raw_reuse)
+            .await
+            .expect("corrupt-evidence lookup")
+            .is_none()
+    );
     database.drop().await;
 }
 
@@ -192,16 +395,28 @@ async fn requeue_only_resets_terminal_browser_failures_without_a_thumbnail() {
     };
     database.seed_job("job-1", 3).await;
     let store = PostgresJobStore::new(database.pool.clone());
-    store
+    let claim = store
         .claim_next("worker-a", Duration::from_secs(30))
         .await
-        .expect("claim query");
+        .expect("claim query")
+        .expect("claim");
     store
-        .commit_ready_version(&ready_version_commit())
+        .reserve_content_bundle(&bundle_reservation("bundle-1", &claim.attempt_id))
         .await
-        .expect("ready version");
+        .expect("reserve bundle");
+    store
+        .commit_content_bundle_version(&bundle_commit(
+            "bundle-1",
+            &claim.attempt_id,
+            "worker-a",
+            "job-1",
+            "upload-1",
+            "version-1",
+        ))
+        .await
+        .expect("ready bundle Version");
     sqlx::query(
-        "update artifact_thumbnail_job set state = 'failed', attempt_count = 3, failure_reason_code = 'thumbnail_image_invalid', lease_owner = 'old-worker', lease_expires_at = now(), heartbeat_at = now() where version_id = 'version-1'",
+        "update content_bundle_thumbnail_job set state = 'failed', attempt_count = 3, failure_reason_code = 'thumbnail_image_invalid' where bundle_id = 'bundle-1' and renderer_revision = 'renderer-v1'",
     )
     .execute(&database.pool)
     .await
@@ -214,7 +429,7 @@ async fn requeue_only_resets_terminal_browser_failures_without_a_thumbnail() {
         0
     );
     sqlx::raw_sql(
-        "update artifact_thumbnail_job set failure_reason_code = 'thumbnail_browser_failed' where version_id = 'version-1'; insert into artifact_thumbnail (version_id, object_key, content_type, size_bytes, width, height, sha256) values ('version-1', 'versions/version-1/thumbnail.webp', 'image/webp', 1, 480, 300, repeat('a', 64))",
+        "update content_bundle_thumbnail_job set failure_reason_code = 'thumbnail_browser_failed' where bundle_id = 'bundle-1'; insert into content_bundle_thumbnail_attempt (id, job_id, attempt_number, capture_version_id, object_key, state, lease_expires_at, write_deadline_at, finished_at) select 'thumbnail-attempt-1', id, 1, 'version-1', 'content-bundles/bundle-1/thumbnails/renderer-v1/attempt-1.webp', 'succeeded', now(), now(), now() from content_bundle_thumbnail_job where bundle_id = 'bundle-1'; insert into content_bundle_thumbnail (bundle_id, owner_user_id, renderer_revision, winning_attempt_id, object_key, content_type, size_bytes, width, height, sha256) values ('bundle-1', 'user-1', 'renderer-v1', 'thumbnail-attempt-1', 'content-bundles/bundle-1/thumbnails/renderer-v1/attempt-1.webp', 'image/webp', 1, 480, 300, repeat('a', 64))",
     )
     .execute(&database.pool)
     .await
@@ -225,7 +440,7 @@ async fn requeue_only_resets_terminal_browser_failures_without_a_thumbnail() {
             .expect("leave completed thumbnail terminal"),
         0
     );
-    sqlx::query("delete from artifact_thumbnail where version_id = 'version-1'")
+    sqlx::query("delete from content_bundle_thumbnail where bundle_id = 'bundle-1'")
         .execute(&database.pool)
         .await
         .expect("remove stored thumbnail");
@@ -236,81 +451,13 @@ async fn requeue_only_resets_terminal_browser_failures_without_a_thumbnail() {
         1
     );
     let state: (String, i32, Option<String>, Option<String>) = sqlx::query_as(
-        "select state, attempt_count, failure_reason_code, lease_owner from artifact_thumbnail_job where version_id = 'version-1'",
+        "select state, attempt_count, failure_reason_code, lease_owner from content_bundle_thumbnail_job where bundle_id = 'bundle-1' and renderer_revision = 'renderer-v1'",
     )
     .fetch_one(&database.pool)
     .await
     .expect("thumbnail job state");
     assert_eq!(state, ("queued".to_owned(), 0, None, None));
 
-    database.drop().await;
-}
-
-#[tokio::test]
-async fn invalid_manifest_rolls_back_every_ready_transition() {
-    let Some(database) = TestDatabase::create().await else {
-        return;
-    };
-    database.seed_job("job-1", 3).await;
-    let store = PostgresJobStore::new(database.pool.clone());
-    let claim = store
-        .claim_next("worker-a", Duration::from_secs(30))
-        .await
-        .expect("claim query")
-        .expect("claim");
-    let mut commit = ready_version_commit();
-    commit.manifest.files[0].sha256 = "invalid".to_owned();
-
-    store
-        .commit_ready_version(&commit)
-        .await
-        .expect_err("database constraint must reject invalid manifest metadata");
-
-    let version_count: i64 = sqlx::query_scalar("select count(*) from artifact_version")
-        .fetch_one(&database.pool)
-        .await
-        .expect("version count");
-    let attempt_state: String =
-        sqlx::query_scalar("select state from artifact_processing_attempt where id = $1")
-            .bind(&claim.attempt_id)
-            .fetch_one(&database.pool)
-            .await
-            .expect("attempt state");
-    assert_eq!(version_count, 0);
-    assert_eq!(attempt_state, "running");
-    assert_eq!(database.job_state().await, "running");
-    assert_eq!(database.upload_state().await, "processing");
-
-    database.drop().await;
-}
-
-#[tokio::test]
-async fn manifest_with_missing_entry_asset_rolls_back_every_ready_transition() {
-    let Some(database) = TestDatabase::create().await else {
-        return;
-    };
-    database.seed_job("job-1", 3).await;
-    let store = PostgresJobStore::new(database.pool.clone());
-    store
-        .claim_next("worker-a", Duration::from_secs(30))
-        .await
-        .expect("claim query")
-        .expect("claim");
-    let mut commit = ready_version_commit();
-    commit.manifest.entry_path = "missing.html".to_owned();
-
-    store
-        .commit_ready_version(&commit)
-        .await
-        .expect_err("missing entry asset must be rejected");
-
-    let version_count: i64 = sqlx::query_scalar("select count(*) from artifact_version")
-        .fetch_one(&database.pool)
-        .await
-        .expect("version count");
-    assert_eq!(version_count, 0);
-    assert_eq!(database.job_state().await, "running");
-    assert_eq!(database.upload_state().await, "processing");
     database.drop().await;
 }
 
@@ -563,6 +710,110 @@ fn ready_version_commit() -> ReadyVersionCommit {
     }
 }
 
+fn bundle_reservation(bundle_id: &str, attempt_id: &str) -> ContentBundleReservation {
+    ContentBundleReservation {
+        bundle_id: bundle_id.to_owned(),
+        attempt_id: attempt_id.to_owned(),
+        content_identity_revision: "content-identity-v1".to_owned(),
+        fingerprint_key_revision: "fingerprint-v1".to_owned(),
+        reuse_fingerprint: "c".repeat(64),
+        previous_fingerprint: None,
+        lease_duration: Duration::from_secs(30),
+    }
+}
+
+fn bundle_commit(
+    bundle_id: &str,
+    attempt_id: &str,
+    worker_id: &str,
+    job_id: &str,
+    upload_session_id: &str,
+    version_id: &str,
+) -> ReadyContentBundleVersionCommit {
+    let mut version = ready_version_commit();
+    worker_id.clone_into(&mut version.worker_id);
+    job_id.clone_into(&mut version.job_id);
+    upload_session_id.clone_into(&mut version.upload_session_id);
+    version_id.clone_into(&mut version.version_id);
+    for asset in &mut version.manifest.files {
+        asset.object_key = format!(
+            "content-bundles/{bundle_id}/attempts/{attempt_id}/files/{}",
+            asset.path
+        );
+    }
+    ReadyContentBundleVersionCommit {
+        bundle_id: bundle_id.to_owned(),
+        attempt_id: attempt_id.to_owned(),
+        renderer_revision: "renderer-v1".to_owned(),
+        version,
+        raw_reuse: RawReuseContext {
+            requested_entry_key: String::new(),
+            policy_revision: "v0.0.1-default".to_owned(),
+            processing_revision: "processing-v1".to_owned(),
+            content_identity_revision: "content-identity-v1".to_owned(),
+            candidates: vec![RawFingerprintCandidate {
+                key_revision: "raw-key-v1".to_owned(),
+                fingerprint: "e".repeat(64),
+            }],
+        },
+    }
+}
+
+async fn assert_one_bundle_with_two_versions(pool: &PgPool, bundle_id: &str) {
+    let bundle_count: i64 = sqlx::query_scalar("select count(*) from content_bundle")
+        .fetch_one(pool)
+        .await
+        .expect("bundle count");
+    let version_count: i64 =
+        sqlx::query_scalar("select count(*) from artifact_version where content_bundle_id = $1")
+            .bind(bundle_id)
+            .fetch_one(pool)
+            .await
+            .expect("version count");
+    assert_eq!(bundle_count, 1);
+    assert_eq!(version_count, 2);
+    let thumbnail_job_count: i64 = sqlx::query_scalar(
+        "select count(*) from content_bundle_thumbnail_job where bundle_id = $1 and renderer_revision = 'renderer-v1'",
+    )
+    .bind(bundle_id)
+    .fetch_one(pool)
+    .await
+    .expect("bundle thumbnail job count");
+    assert_eq!(thumbnail_job_count, 1);
+}
+
+async fn assert_retired_alias_allows_replacement(
+    database: &TestDatabase,
+    store: &PostgresJobStore,
+    bundle_id: &str,
+) {
+    sqlx::query(
+        "update content_bundle_fingerprint_alias set retired_at = now() where bundle_id = $1",
+    )
+    .bind(bundle_id)
+    .execute(&database.pool)
+    .await
+    .expect("retire winner alias");
+    database.seed_additional_same_user_job().await;
+    let claim = store
+        .claim_next("worker-c", Duration::from_secs(30))
+        .await
+        .expect("replacement claim")
+        .expect("replacement job");
+    assert_eq!(
+        store
+            .reserve_content_bundle(&bundle_reservation(
+                "bundle-after-retirement",
+                &claim.attempt_id,
+            ))
+            .await
+            .expect("reserve after alias retirement"),
+        ContentBundleReservationOutcome::Reserved {
+            bundle_id: "bundle-after-retirement".to_owned()
+        }
+    );
+}
+
 impl TestDatabase {
     async fn create() -> Option<Self> {
         let Ok(database_url) = env::var("DATABASE_URL") else {
@@ -601,6 +852,7 @@ impl TestDatabase {
             "db/migrations/0002_artifact_foundation.sql",
             "db/migrations/0003_artifact_validation_report.sql",
             "db/migrations/0010_artifact_thumbnail.sql",
+            "db/migrations/0012_content_bundle_foundation.sql",
         ] {
             let sql = fs::read_to_string(repository_root.join(migration)).expect("read migration");
             sqlx::raw_sql(&sql)
@@ -624,13 +876,12 @@ impl TestDatabase {
             insert into artifact (id, owner_user_id, name)
             values ('artifact-1', 'user-1', 'Artifact');
             insert into artifact_upload_session (
-              id, artifact_id, policy_revision, archive_size_bytes, expanded_size_bytes,
-              file_count, single_file_size_bytes, formats, raw_object_key, raw_sha256,
+              id, artifact_id, owner_user_id, policy_revision, archive_size_bytes, expanded_size_bytes,
+              file_count, single_file_size_bytes, formats, raw_object_key,
               raw_size_bytes
             ) values (
-              'upload-1', 'artifact-1', 'v0.0.1-default', 52428800, 209715200,
-              1000, 52428800, '[]'::jsonb, 'raw/artifact-1/upload-1.zip',
-              repeat('a', 64), 10
+              'upload-1', 'artifact-1', 'user-1', 'v0.0.1-default', 52428800, 209715200,
+              1000, 52428800, '[]'::jsonb, 'raw/artifact-1/upload-1.zip', 10
             );
             "#,
         )
@@ -645,6 +896,62 @@ impl TestDatabase {
         .execute(&self.pool)
         .await
         .expect("seed job");
+    }
+
+    async fn seed_two_jobs_same_user(&self) {
+        self.seed_two_jobs(false).await;
+    }
+
+    async fn seed_two_jobs_different_users(&self) {
+        self.seed_two_jobs(true).await;
+    }
+
+    async fn seed_additional_same_user_job(&self) {
+        sqlx::raw_sql(
+            r"
+            insert into artifact_upload_session (
+              id, artifact_id, owner_user_id, policy_revision, archive_size_bytes, expanded_size_bytes,
+              file_count, single_file_size_bytes, formats, raw_object_key,
+              raw_size_bytes
+            ) values (
+              'upload-3', 'artifact-1', 'user-1', 'v0.0.1-default', 52428800, 209715200,
+              1000, 52428800, '[]'::jsonb, 'raw/three.zip', 10
+            );
+            insert into artifact_processing_job (id, upload_session_id, max_attempts)
+            values ('job-3', 'upload-3', 3);
+            ",
+        )
+        .execute(&self.pool)
+        .await
+        .expect("seed additional same-User job");
+    }
+
+    async fn seed_two_jobs(&self, different_users: bool) {
+        let second_owner = if different_users { "user-2" } else { "user-1" };
+        sqlx::raw_sql(&format!(
+            r#"
+            insert into "user" (id, name, email) values
+              ('user-1', 'Owner One', 'one@example.com'),
+              ('user-2', 'Owner Two', 'two@example.com');
+            insert into artifact (id, owner_user_id, name) values
+              ('artifact-1', 'user-1', 'First'),
+              ('artifact-2', '{second_owner}', 'Second');
+            insert into artifact_upload_session (
+              id, artifact_id, owner_user_id, policy_revision, archive_size_bytes, expanded_size_bytes,
+              file_count, single_file_size_bytes, formats, raw_object_key,
+              raw_size_bytes
+            ) values
+              ('upload-1', 'artifact-1', 'user-1', 'v0.0.1-default', 52428800, 209715200,
+               1000, 52428800, '[]'::jsonb, 'raw/one.zip', 10),
+              ('upload-2', 'artifact-2', '{second_owner}', 'v0.0.1-default', 52428800, 209715200,
+               1000, 52428800, '[]'::jsonb, 'raw/two.zip', 10);
+            insert into artifact_processing_job (id, upload_session_id, max_attempts) values
+              ('job-1', 'upload-1', 3), ('job-2', 'upload-2', 3);
+            "#,
+        ))
+        .execute(&self.pool)
+        .await
+        .expect("seed two jobs");
     }
 
     async fn expire_lease(&self) {

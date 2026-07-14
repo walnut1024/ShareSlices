@@ -24,9 +24,9 @@ async function collect(body: AsyncIterable<Uint8Array>): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-function assertCleanupPrefix(prefix: string): void {
-  if (!prefix.endsWith("/")) {
-    throw new Error("A staging cleanup prefix must end with '/'.");
+function assertCleanupPrefix(prefix: string, root: "staging" | "content-bundles"): void {
+  if (!prefix.startsWith(`${root}/`) || !prefix.endsWith("/") || prefix === `${root}/`) {
+    throw new Error(`A ${root} cleanup prefix must stay below '${root}/' and end with '/'.`);
   }
 }
 
@@ -96,7 +96,16 @@ export class InMemoryObjectStorage implements ObjectStorage {
   }
 
   async removeStagingPrefix(prefix: string): Promise<PrefixRemovalResult> {
-    assertCleanupPrefix(prefix);
+    assertCleanupPrefix(prefix, "staging");
+    return this.#removePrefix(prefix);
+  }
+
+  async removeContentBundlePrefix(prefix: string): Promise<PrefixRemovalResult> {
+    assertCleanupPrefix(prefix, "content-bundles");
+    return this.#removePrefix(prefix);
+  }
+
+  #removePrefix(prefix: string): PrefixRemovalResult {
     let deletedCount = 0;
     for (const key of this.#objects.keys()) {
       if (key.startsWith(prefix)) {

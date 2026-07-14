@@ -1,11 +1,16 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { ArtifactRepositories, UploadPolicySnapshot } from "./repositories.js";
 import type { ObjectBody, ObjectStorage } from "../../storage/index.js";
+import { env } from "../../env.js";
 import {
   discardUncommittedRawObject,
   normalizeRequestedEntry,
   RequestedEntryValidationError
 } from "./artifact-upload-input.js";
+import {
+  createConfiguredRawFingerprintCandidates,
+  type RawFingerprintCandidates
+} from "./raw-fingerprint.js";
 
 export type ArtifactAccepted = {
   artifactId: string;
@@ -30,6 +35,7 @@ type ArtifactIntakeOptions = {
   storage: ObjectStorage;
   viewerOrigin: string;
   maxProcessingAttempts: number;
+  rawFingerprints?: RawFingerprintCandidates;
 };
 
 export type ArtifactIntakeErrorCode =
@@ -99,11 +105,13 @@ export class ArtifactIntakeService {
   readonly #repositories: IntakeRepositories;
   readonly #storage: ObjectStorage;
   readonly #maxProcessingAttempts: number;
+  readonly #rawFingerprints: RawFingerprintCandidates;
 
   constructor(options: ArtifactIntakeOptions) {
     this.#repositories = options.repositories;
     this.#storage = options.storage;
     this.#maxProcessingAttempts = options.maxProcessingAttempts;
+    this.#rawFingerprints = options.rawFingerprints ?? createConfiguredRawFingerprintCandidates();
   }
 
   static inputHash(name: string, zipSha256: string, requestedEntry: string | null = null): string {
@@ -198,7 +206,9 @@ export class ArtifactIntakeService {
         uploadSessionId,
         policy,
         rawObjectKey,
-        rawSha256: raw.sha256,
+        rawFingerprintCandidates: this.#rawFingerprints.create(input.ownerUserId, raw.sha256),
+        processingRevision: env.ARTIFACT_PROCESSING_REVISION,
+        contentIdentityRevision: env.CONTENT_IDENTITY_REVISION,
         rawSizeBytes: raw.sizeBytes,
         requestedEntry,
         processingJobId,

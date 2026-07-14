@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 from io import BytesIO
 from pathlib import Path
+import re
 import time
 from typing import Any
 from uuid import uuid4
@@ -13,6 +14,7 @@ import yaml
 
 
 SPEC_PATH = Path(__file__).with_name("artifact-flow.yaml")
+MAILPIT_URL = "http://127.0.0.1:8025"
 
 
 def read_path(data: Any, dotted_path: str) -> Any:
@@ -49,6 +51,23 @@ def response_json(response: requests.Response) -> Any:
     return response.json() if "application/json" in content_type else None
 
 
+def wait_for_mailpit_code(email: str, subject: str) -> str:
+    deadline = time.monotonic() + 30
+    query = f'to:"{email}" subject:"{subject}"'
+    while time.monotonic() < deadline:
+        response = requests.get(
+            f"{MAILPIT_URL}/view/latest.txt",
+            params={"query": query},
+            timeout=1,
+        )
+        if response.status_code == 200:
+            match = re.search(r"\b\d{6}\b", response.text)
+            if match:
+                return match.group(0)
+        time.sleep(0.1)
+    raise AssertionError(f"Mailpit did not receive a six-digit code for {email}")
+
+
 def assert_response(case: dict[str, Any], response: requests.Response) -> None:
     expected = case["expect"]
     assert response.status_code == expected["status"], (
@@ -60,7 +79,13 @@ def assert_response(case: dict[str, Any], response: requests.Response) -> None:
 
     body = response_json(response)
     for path, value in expected.get("json_paths", {}).items():
-        assert read_path(body, path) == value, case["id"]
+        try:
+            actual = read_path(body, path)
+        except (KeyError, IndexError, TypeError) as error:
+            raise AssertionError(f"{case['id']}: missing JSON path {path}: {body}") from error
+        assert actual == value, case["id"]
+    for path, value in expected.get("json_paths_not_equal", {}).items():
+        assert read_path(body, path) != value, case["id"]
     for path in expected.get("json_absent_paths", []):
         try:
             read_path(body, path)
@@ -88,6 +113,11 @@ def run_contract(spec_path: Path = SPEC_PATH) -> None:
         for raw_case in contract["cases"]:
             case = render(raw_case, context)
             request = case["request"]
+            if email := request.get("mailpit_code_for"):
+                request["json"]["code"] = wait_for_mailpit_code(
+                    email,
+                    request["mailpit_subject"],
+                )
             path = request["path"]
             url = path if path.startswith(("http://", "https://")) else f"{base_url}{path}"
             request_cookies = cookies.get(request.get("cookie_ref"))
@@ -118,11 +148,17 @@ def run_contract(spec_path: Path = SPEC_PATH) -> None:
                     timeout=15,
                 )
                 poll = case.get("poll")
-                if not poll or (
+                body = response_json(response)
+                poll_matches = not poll or (
                     response.status_code == case["expect"]["status"]
-                    and read_path(response_json(response), poll["json_path"])
-                    == poll["equals"]
-                ):
+                    and read_path(body, poll["json_path"]) == poll["equals"]
+                    and (
+                        "json_path_not_equal" not in poll
+                        or read_path(body, poll["json_path_not_equal"])
+                        != poll["not_equals"]
+                    )
+                )
+                if poll_matches:
                     break
                 if time.monotonic() >= deadline:
                     break

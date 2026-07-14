@@ -59,16 +59,15 @@ describe("PostgreSQL reconciliation repository", () => {
   }): Promise<void> {
     await databasePool.query(
       `insert into artifact_upload_session (
-        id, artifact_id, policy_revision, archive_size_bytes, expanded_size_bytes,
-        file_count, single_file_size_bytes, formats, raw_object_key, raw_sha256,
+        id, artifact_id, owner_user_id, policy_revision, archive_size_bytes, expanded_size_bytes,
+        file_count, single_file_size_bytes, formats, raw_object_key,
         raw_size_bytes, state, retryable, superseded_at
-      ) values ($1, $2, 'v0.0.1-default', 100, 200, 10, 100, '[]'::jsonb,
-        $3, $4, 10, $5, $6, $7)`,
+      ) values ($1, $2, 'owner-1', 'v0.0.1-default', 100, 200, 10, 100, '[]'::jsonb,
+        $3, 10, $4, $5, $6)`,
       [
         input.id,
         input.artifactId,
         input.rawObjectKey,
-        "a".repeat(64),
         input.state,
         input.retryable ?? false,
         input.superseded ? new Date("2026-07-09T00:00:00Z") : null
@@ -152,11 +151,11 @@ describe("PostgreSQL reconciliation repository", () => {
     );
     await databasePool.query(
       `insert into artifact_processing_attempt
-        (id, job_id, attempt_number, state, staging_prefix, finished_at)
+        (id, owner_user_id, job_id, attempt_number, state, staging_prefix, finished_at)
        values
-        ('attempt-failed', 'job-failed', 1, 'failed', 'staging/upload-failed/attempt-failed/', now()),
-        ('attempt-running', 'job-running', 1, 'running', 'staging/upload-running/attempt-running/', null),
-        ('attempt-ready', 'job-ready', 1, 'succeeded', 'staging/upload-ready/attempt-ready/', now())`
+        ('attempt-failed', 'owner-1', 'job-failed', 1, 'failed', 'staging/upload-failed/attempt-failed/', now()),
+        ('attempt-running', 'owner-1', 'job-running', 1, 'running', 'staging/upload-running/attempt-running/', null),
+        ('attempt-ready', 'owner-1', 'job-ready', 1, 'succeeded', 'staging/upload-ready/attempt-ready/', now())`
     );
     await databasePool.query(
       `insert into artifact_version (id, artifact_id, upload_session_id, version_number, state)
@@ -208,11 +207,11 @@ describe("PostgreSQL reconciliation repository", () => {
         ('job-future', 'upload-future', 'running', 'worker-3', '2026-07-10T02:00:00Z', 1, 3)`
     );
     await databasePool.query(
-      `insert into artifact_processing_attempt (id, job_id, attempt_number, staging_prefix)
+      `insert into artifact_processing_attempt (id, owner_user_id, job_id, attempt_number, staging_prefix)
        values
-        ('attempt-requeue', 'job-requeue', 1, 'staging/upload-requeue/attempt-requeue/'),
-        ('attempt-exhausted', 'job-exhausted', 3, 'staging/upload-exhausted/attempt-exhausted/'),
-        ('attempt-future', 'job-future', 1, 'staging/upload-future/attempt-future/')`
+        ('attempt-requeue', 'owner-1', 'job-requeue', 1, 'staging/upload-requeue/attempt-requeue/'),
+        ('attempt-exhausted', 'owner-1', 'job-exhausted', 3, 'staging/upload-exhausted/attempt-exhausted/'),
+        ('attempt-future', 'owner-1', 'job-future', 1, 'staging/upload-future/attempt-future/')`
     );
 
     await expect(
@@ -383,5 +382,138 @@ describe("PostgreSQL reconciliation repository", () => {
         last_error_code: null
       }
     ]);
+  });
+
+  it("reclaims an expired running content bundle cleanup after a worker crash", async () => {
+    await databasePool.query(`insert into content_bundle
+      (id, owner_user_id, content_identity_revision, lifecycle_state, deleting_at)
+      values ('bundle-crashed', 'owner-1', 'identity-v1', 'deleting', now())`);
+    await databasePool.query(`insert into content_bundle_cleanup
+      (bundle_id, owner_user_id, object_prefixes, quiesce_after)
+      values ('bundle-crashed', 'owner-1', '["content-bundles/bundle-crashed/"]', now() - interval '1 minute')`);
+
+    const claimAt = new Date("2099-01-01T00:00:00Z");
+    const [first] = await repository.claimContentBundleCleanups(claimAt, 1);
+    expect(first).toMatchObject({ bundleId: "bundle-crashed", attemptCount: 1 });
+    await expect(
+      createReconciliationRepository(database, "worker-2").claimContentBundleCleanups(claimAt, 1)
+    ).resolves.toEqual([]);
+    await databasePool.query(`update content_bundle_cleanup
+      set lease_expires_at = now() - interval '1 second' where bundle_id = 'bundle-crashed'`);
+
+    const [reclaimed] = await createReconciliationRepository(database, "worker-2")
+      .claimContentBundleCleanups(claimAt, 1);
+    expect(reclaimed).toMatchObject({ bundleId: "bundle-crashed", attemptCount: 2 });
+    expect(reclaimed!.leaseToken).not.toBe(first!.leaseToken);
+  });
+
+  it("requires a second pass when a late content bundle prefix appears during cleanup", async () => {
+    await databasePool.query(`insert into content_bundle
+      (id, owner_user_id, content_identity_revision, lifecycle_state, deleting_at)
+      values ('bundle-late', 'owner-1', 'identity-v1', 'deleting', now())`);
+    await databasePool.query(`insert into content_bundle_cleanup
+      (bundle_id, owner_user_id, object_prefixes, quiesce_after)
+      values ('bundle-late', 'owner-1', '["content-bundles/bundle-late/"]', now() - interval '1 minute')`);
+    const claimAt = new Date("2099-01-01T00:00:00Z");
+    const [first] = await repository.claimContentBundleCleanups(claimAt, 1);
+
+    await expect(repository.recordLateContentBundlePrefix(
+      "bundle-late",
+      "content-bundles/bundle-late/attempts/late/"
+    )).resolves.toBe(true);
+    await expect(repository.recordLateContentBundlePrefix(
+      "bundle-late",
+      "content-bundles/bundle-late/attempts/late/"
+    )).resolves.toBe(true);
+    await expect(repository.completeContentBundleCleanup(
+      "bundle-late",
+      first!.leaseToken,
+      first!.objectPrefixes
+    )).resolves.toBe(false);
+
+    const [second] = await repository.claimContentBundleCleanups(claimAt, 1);
+    expect(second!.objectPrefixes).toEqual([
+      "content-bundles/bundle-late/",
+      "content-bundles/bundle-late/attempts/late/"
+    ]);
+    await expect(repository.completeContentBundleCleanup(
+      "bundle-late",
+      second!.leaseToken,
+      second!.objectPrefixes
+    )).resolves.toBe(true);
+    const remaining = await databasePool.query(
+      "select count(*)::int as count from content_bundle where id = 'bundle-late'"
+    );
+    expect(remaining.rows).toEqual([{ count: 0 }]);
+  });
+
+  it("turns an expired abandoned creator into a quiesced durable cleanup", async () => {
+    await insertArtifact("artifact-abandoned");
+    await insertUpload({
+      id: "upload-abandoned",
+      artifactId: "artifact-abandoned",
+      state: "failed",
+      rawObjectKey: "raw/abandoned.zip"
+    });
+    await databasePool.query(`insert into artifact_processing_job
+      (id, upload_session_id, state, attempt_count, max_attempts)
+      values ('job-abandoned', 'upload-abandoned', 'failed', 1, 3)`);
+    await databasePool.query(`insert into artifact_processing_attempt
+      (id, owner_user_id, job_id, attempt_number, state, staging_prefix, object_prefix, finished_at)
+      values ('attempt-abandoned', 'owner-1', 'job-abandoned', 1, 'failed',
+        'staging/abandoned/', 'content-bundles/bundle-abandoned/attempts/attempt-abandoned/', now())`);
+    await databasePool.query(`insert into content_bundle
+      (id, owner_user_id, content_identity_revision, lifecycle_state, creator_attempt_id,
+       creator_lease_expires_at)
+      values ('bundle-abandoned', 'owner-1', 'identity-v1', 'creating', 'attempt-abandoned',
+        now() - interval '1 minute')`);
+    const quiesceAfter = new Date();
+
+    await expect(repository.recoverExpiredCreatingBundles(new Date(), quiesceAfter, 1))
+      .resolves.toBe(1);
+    const result = await databasePool.query(`select bundle.lifecycle_state, cleanup.object_prefixes,
+      cleanup.quiesce_after from content_bundle bundle join content_bundle_cleanup cleanup
+      on cleanup.bundle_id = bundle.id where bundle.id = 'bundle-abandoned'`);
+    expect(result.rows[0]).toMatchObject({
+      lifecycle_state: "deleting",
+      object_prefixes: [
+        "content-bundles/bundle-abandoned/",
+        "content-bundles/bundle-abandoned/attempts/attempt-abandoned/"
+      ]
+    });
+    expect(result.rows[0].quiesce_after.getTime()).toBeGreaterThan(quiesceAfter.getTime());
+    await expect(repository.claimContentBundleCleanups(new Date(), 1)).resolves.toEqual([]);
+  });
+
+  it("leases and completes an eligible losing attempt prefix without deleting its live bundle", async () => {
+    await insertArtifact("artifact-loser");
+    await insertUpload({
+      id: "upload-loser",
+      artifactId: "artifact-loser",
+      state: "failed",
+      rawObjectKey: "raw/loser.zip"
+    });
+    await databasePool.query(`insert into artifact_processing_job
+      (id, upload_session_id, state, attempt_count, max_attempts)
+      values ('job-loser', 'upload-loser', 'failed', 1, 3)`);
+    await databasePool.query(`insert into artifact_processing_attempt
+      (id, owner_user_id, job_id, attempt_number, state, staging_prefix, object_prefix,
+       cleanup_state, cleanup_eligible_at, finished_at)
+      values ('attempt-loser', 'owner-1', 'job-loser', 1, 'failed', 'staging/loser/',
+       'content-bundles/bundle-live/attempts/attempt-loser/', 'eligible', now() - interval '1 minute', now())`);
+
+    const claimAt = new Date("2099-01-01T00:00:00Z");
+    const [claimed] = await repository.claimEligibleAttemptPrefixes(claimAt, 1);
+    expect(claimed).toMatchObject({
+      attemptId: "attempt-loser",
+      objectPrefix: "content-bundles/bundle-live/attempts/attempt-loser/",
+      attemptCount: 1
+    });
+    await expect(repository.claimEligibleAttemptPrefixes(claimAt, 1)).resolves.toEqual([]);
+    await repository.completeAttemptPrefixCleanup("attempt-loser", claimed!.leaseToken);
+    const result = await databasePool.query(`select cleanup_state, cleaned_at, cleanup_lease_owner
+      from artifact_processing_attempt where id = 'attempt-loser'`);
+    expect(result.rows[0]).toMatchObject({ cleanup_state: "cleaned", cleanup_lease_owner: null });
+    expect(result.rows[0].cleaned_at).toBeInstanceOf(Date);
   });
 });
