@@ -112,7 +112,7 @@ export default function App() {
           onSessionExpired={onSessionExpired}
         />
       ) : (
-        <ArtifactsPage onAccepted={(artifactId) => navigate(`/artifacts/${encodeURIComponent(artifactId)}`)} />
+        <ArtifactsPage onAccepted={() => navigate("/artifacts")} />
       )}
     </ManagementShell>
   );

@@ -157,6 +157,18 @@ export function ArtifactsPage({ onAccepted }: { onAccepted: (artifactId: string)
     setSelectedIds(new Set());
   }
 
+  function handleAccepted(artifactId: string) {
+    const generation = ++mutationGeneration.current;
+    onAccepted(artifactId);
+    listArtifacts()
+      .then((value) => {
+        if (generation === mutationGeneration.current) setArtifacts(value);
+      })
+      .catch((reason: unknown) => {
+        if (generation === mutationGeneration.current) setError(reason instanceof Error ? reason.message : "Artifacts could not be loaded.");
+      });
+  }
+
   function toggleSelected(artifactId: string) {
     setSelectedIds((current) => {
       const next = new Set(current);
@@ -305,7 +317,7 @@ export function ArtifactsPage({ onAccepted }: { onAccepted: (artifactId: string)
           <h1 className="m-0 text-2xl font-semibold tracking-[-0.02em]">Artifacts</h1>
           <p className="mt-1 text-[13px] text-muted-foreground">Manage, review and publish uploaded artifacts.</p>
         </div>
-        <CreateArtifactDialog onAccepted={onAccepted} />
+        <CreateArtifactDialog onAccepted={handleAccepted} />
       </div>
 
       {error ? <Alert className="mb-4" variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
@@ -370,7 +382,7 @@ export function ArtifactsPage({ onAccepted }: { onAccepted: (artifactId: string)
       ) : null}
 
       {artifacts === null && !error ? <ArtifactGridSkeleton /> : null}
-      {artifacts?.length === 0 ? <InitialEmptyState onAccepted={onAccepted} /> : null}
+      {artifacts?.length === 0 ? <InitialEmptyState onAccepted={handleAccepted} /> : null}
       {artifacts && artifacts.length > 0 && visibleArtifacts.length === 0 ? (
         <FilteredEmptyState onClear={() => { setQuery(""); setFilter("all"); }} />
       ) : null}

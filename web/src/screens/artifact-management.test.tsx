@@ -623,7 +623,7 @@ describe("Artifact management", () => {
       json({ user }),
       json({ artifacts: [] }),
       json({ policy: uploadPolicy() }),
-      json({ artifact: artifact() })
+      json({ artifacts: [artifact()] })
     ]);
     vi.stubGlobal("XMLHttpRequest", acceptedUploadRequest());
     preflightArtifactZip.mockRejectedValue(new Error("worker failed"));
@@ -633,8 +633,9 @@ describe("Artifact management", () => {
     await interaction.upload(screen.getByLabelText("Artifact file"), new File(["zip"], "report.zip", { type: "application/zip" }));
     await interaction.click(screen.getByRole("button", { name: "Upload" }));
 
-    expect(await screen.findByRole("heading", { name: "Report" })).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/artifacts/artifact-1");
+    expect(await screen.findByRole("heading", { name: "Artifacts" })).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Report" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/artifacts");
   });
 
   it("derives the Artifact name from the ZIP filename", async () => {
@@ -815,7 +816,7 @@ describe("Artifact management", () => {
     expect(screen.queryByRole("button", { name: "Replace file" })).not.toBeInTheDocument();
   });
 
-  it("navigates an accepted upload to its stable Artifact detail", async () => {
+  it("returns an accepted upload to Artifact management", async () => {
     const interaction = userEvent.setup();
     window.history.replaceState(null, "", "/artifacts");
     stubFetch([
@@ -831,7 +832,7 @@ describe("Artifact management", () => {
           enabledExtensions: [".html"]
         }
       }),
-      json({ artifact: artifact() })
+      json({ artifacts: [artifact()] })
     ]);
     vi.stubGlobal("XMLHttpRequest", acceptedUploadRequest());
 
@@ -841,8 +842,9 @@ describe("Artifact management", () => {
     await interaction.upload(screen.getByLabelText("Artifact file"), new File(["zip"], "report.zip", { type: "application/zip" }));
     await interaction.click(screen.getByRole("button", { name: "Upload" }));
 
-    expect(await screen.findByRole("heading", { name: "Report" })).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/artifacts/artifact-1");
+    expect(await screen.findByRole("heading", { name: "Artifacts" })).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Report" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/artifacts");
   });
 
   it("refreshes processing state without moving the action layout", async () => {
