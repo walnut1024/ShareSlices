@@ -22,7 +22,7 @@ import { Progress, ProgressLabel, ProgressValue } from "../components/ui/progres
 import { Spinner } from "../components/ui/spinner";
 import { cn } from "../lib/utils";
 
-export function CreateArtifactDialog({ onAccepted }: { onAccepted: (artifactId: string) => void }) {
+export function CreateArtifactDialog({ onAccepted, initialFile = null }: { onAccepted: (artifactId: string) => void; initialFile?: File | null }) {
   const [open, setOpen] = useState(false);
   const [policy, setPolicy] = useState<UploadPolicy | null>(null);
   const [policyUnavailable, setPolicyUnavailable] = useState(false);
@@ -47,6 +47,14 @@ export function CreateArtifactDialog({ onAccepted }: { onAccepted: (artifactId: 
       preflightController.current?.abort();
     };
   }, [open, policy, policyUnavailable]);
+
+  useEffect(() => {
+    if (!initialFile) return;
+    setSelectedFile(initialFile);
+    setError(null);
+    setPreflightIssue(null);
+    setOpen(true);
+  }, [initialFile]);
 
   function changeOpen(nextOpen: boolean) {
     if (uploading) return;

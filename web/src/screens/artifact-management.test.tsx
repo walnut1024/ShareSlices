@@ -7,10 +7,22 @@ const preflightArtifactZip = vi.hoisted(() => vi.fn());
 vi.mock("../artifacts/archive-preflight-client", () => ({ preflightArtifactZip }));
 
 const user = { id: "user-1", name: "Ada", email: "ada@example.com" };
+const storedPreferences = new Map<string, string>();
+
+Object.defineProperty(window, "localStorage", {
+  configurable: true,
+  value: {
+    getItem: (key: string) => storedPreferences.get(key) ?? null,
+    setItem: (key: string, value: string) => storedPreferences.set(key, value),
+    removeItem: (key: string) => storedPreferences.delete(key),
+    clear: () => storedPreferences.clear()
+  }
+});
 
 describe("Artifact management", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    storedPreferences.clear();
     preflightArtifactZip.mockReset();
     preflightArtifactZip.mockResolvedValue({ primaryIssue: null, issues: [], warnings: [] });
   });
@@ -222,6 +234,210 @@ describe("Artifact management", () => {
     await interaction.type(screen.getByRole("textbox", { name: "Search artifacts" }), "pricing");
     expect(screen.getByRole("link", { name: "Pricing" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Board deck" })).not.toBeInTheDocument();
+  });
+
+  it("distinguishes the first-use empty state from an empty search result", async () => {
+    const interaction = userEvent.setup();
+    window.history.replaceState(null, "", "/artifacts");
+    stubFetch([json({ user }), json({ artifacts: [] })]);
+
+    const { unmount } = render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "No artifacts yet" })).toBeInTheDocument();
+    expect(screen.getByText("Upload your first artifact to start sharing.")).toBeInTheDocument();
+    expect(screen.getByText("Drag and drop a ZIP file here, or use the button below.")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "New artifact" })).toHaveLength(2);
+
+    fireEvent.drop(document.querySelector('[data-slot="empty"]')!, {
+      dataTransfer: { files: [new File(["zip"], "site.zip", { type: "application/zip" })] }
+    });
+    expect(await screen.findByRole("dialog")).toHaveTextContent("site.zip");
+
+    unmount();
+    stubFetch([json({ user }), json({ artifacts: [artifact({ name: "Launch brief" })] })]);
+    render(<App />);
+    await screen.findByRole("link", { name: "Launch brief" });
+    await interaction.type(screen.getByRole("textbox", { name: "Search artifacts" }), "missing");
+
+    expect(screen.getByRole("heading", { name: "No artifacts found" })).toBeInTheDocument();
+    await interaction.click(screen.getByRole("button", { name: "Clear search and filters" }));
+    expect(screen.getByRole("link", { name: "Launch brief" })).toBeInTheDocument();
+  });
+
+  it("keeps selected Artifacts across views and selects only the filtered results", async () => {
+    const interaction = userEvent.setup();
+    window.history.replaceState(null, "", "/artifacts");
+    stubFetch([
+      json({ user }),
+      json({
+        artifacts: [
+          artifact({ id: "artifact-alpha", name: "Alpha", allowedActions: ["publish", "delete"] }),
+          artifact({ id: "artifact-beta", name: "Beta", allowedActions: ["publish", "delete"] }),
+          artifact({ id: "artifact-gamma", name: "Gamma", allowedActions: ["publish", "delete"] })
+        ]
+      })
+    ]);
+
+    render(<App />);
+    await interaction.click(await screen.findByRole("button", { name: "Select" }));
+    await interaction.click(screen.getByRole("checkbox", { name: "Select Alpha" }));
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Export" })).not.toBeInTheDocument();
+
+    await interaction.click(screen.getByRole("button", { name: "List view" }));
+    expect(screen.getByRole("checkbox", { name: "Select Alpha" })).toBeChecked();
+    await interaction.type(screen.getByRole("textbox", { name: "Search artifacts" }), "beta");
+    await interaction.click(screen.getByRole("button", { name: "Select all 1" }));
+
+    expect(screen.getByText("2 selected")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Select Beta" })).toBeChecked();
+    expect(screen.queryByRole("checkbox", { name: "Select Gamma" })).not.toBeInTheDocument();
+
+    await interaction.keyboard("{Escape}");
+    expect(screen.getByRole("button", { name: "Select" })).toBeInTheDocument();
+    expect(screen.queryByText(/selected$/)).not.toBeInTheDocument();
+  });
+
+  it("restores the saved Artifact view", async () => {
+    const interaction = userEvent.setup();
+    window.history.replaceState(null, "", "/artifacts");
+    stubFetch([json({ user }), json({ artifacts: [artifact({ name: "Launch brief" })] })]);
+
+    const firstRender = render(<App />);
+    await interaction.click(await screen.findByRole("button", { name: "List view" }));
+    expect(storedPreferences.get("shareslices.artifacts.view.v1")).toBe("list");
+    expect(document.querySelector('[data-slot="table"]')).toBeInTheDocument();
+
+    firstRender.unmount();
+    stubFetch([json({ user }), json({ artifacts: [artifact({ name: "Launch brief" })] })]);
+    render(<App />);
+    await screen.findByRole("link", { name: "Launch brief" });
+    expect(document.querySelector('[data-slot="table"]')).toBeInTheDocument();
+  });
+
+  it("explains an ineligible batch Publish with Sonner without making a request", async () => {
+    const interaction = userEvent.setup();
+    window.history.replaceState(null, "", "/artifacts");
+    const fetchMock = stubFetch([
+      json({ user }),
+      json({
+        artifacts: [
+          artifact({ id: "artifact-ready", name: "Ready", processingState: "ready", readyVersion: { id: "version-ready", state: "ready" }, allowedActions: ["publish"] }),
+          artifact({ id: "artifact-processing", name: "Processing", processingState: "processing", allowedActions: [] })
+        ]
+      })
+    ]);
+
+    render(<App />);
+    await interaction.click(await screen.findByRole("button", { name: "Select" }));
+    await interaction.click(screen.getByRole("button", { name: "Select all 2" }));
+    await interaction.click(screen.getByRole("button", { name: "Publish" }));
+
+    expect(await screen.findByText(/1 selected artifact cannot be published/i)).toBeInTheDocument();
+    expect(screen.getByText(/still processing/i)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("blocks batch Publish when an allowed Artifact has no ready Version", async () => {
+    const interaction = userEvent.setup();
+    window.history.replaceState(null, "", "/artifacts");
+    const fetchMock = stubFetch([
+      json({ user }),
+      json({ artifacts: [artifact({ name: "Incomplete", processingState: "ready", readyVersion: null, allowedActions: ["publish"] })] })
+    ]);
+
+    render(<App />);
+    await interaction.click(await screen.findByRole("button", { name: "Select" }));
+    await interaction.click(screen.getByRole("checkbox", { name: "Select Incomplete" }));
+    await interaction.click(screen.getByRole("button", { name: "Publish" }));
+
+    expect(await screen.findByText(/has no ready Version/i)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("publishes selected Artifacts with one access period and retains a runtime failure", async () => {
+    const interaction = userEvent.setup();
+    window.history.replaceState(null, "", "/artifacts");
+    const fetchMock = stubFetch([
+      json({ user }),
+      json({
+        artifacts: [
+          artifact({ id: "artifact-alpha", name: "Alpha", processingState: "ready", readyVersion: { id: "version-alpha", state: "ready" }, allowedActions: ["publish"] }),
+          artifact({ id: "artifact-beta", name: "Beta", processingState: "ready", readyVersion: { id: "version-beta", state: "ready" }, allowedActions: ["publish"] })
+        ]
+      }),
+      json({
+        artifact: artifact({
+          id: "artifact-alpha",
+          name: "Alpha",
+          processingState: "ready",
+          readyVersion: { id: "version-alpha", state: "ready" },
+          publicationStatus: "published",
+          publication: { ...publication(), versionId: "version-alpha" },
+          shareLink: { url: "https://view.example.test/a/alpha/", state: "active" },
+          allowedActions: ["manage_publication", "copy_share_link", "unpublish"]
+        }),
+        publication: { ...publication(), versionId: "version-alpha" },
+        shareLink: { url: "https://view.example.test/a/alpha/", state: "active" }
+      }, 201),
+      json({ error: { code: "publication_conflict", message: "Beta changed while publishing." } }, 409)
+    ]);
+
+    render(<App />);
+    await interaction.click(await screen.findByRole("button", { name: "Select" }));
+    await interaction.click(screen.getByRole("button", { name: "Select all 2" }));
+    await interaction.click(screen.getByRole("button", { name: "Publish" }));
+    expect(await screen.findByRole("heading", { name: "Publish 2 artifacts" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Generate a new Share link")).not.toBeInTheDocument();
+    await interaction.click(screen.getByRole("combobox", { name: "Access period" }));
+    await interaction.click(await screen.findByRole("option", { name: "7 days" }));
+    await interaction.click(screen.getByRole("button", { name: "Publish 2 artifacts" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/artifacts/artifact-alpha/publications",
+      expect.objectContaining({ body: JSON.stringify({ versionId: "version-alpha", expiration: { kind: "duration", durationSeconds: 604800 }, link: { mode: "reuse" } }) })
+    ));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/artifacts/artifact-beta/publications",
+      expect.objectContaining({ body: JSON.stringify({ versionId: "version-beta", expiration: { kind: "duration", durationSeconds: 604800 }, link: { mode: "reuse" } }) })
+    );
+    expect(await screen.findByText(/1 published, 1 failed/i)).toBeInTheDocument();
+    expect(screen.getByText(/Beta changed while publishing/i)).toBeInTheDocument();
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Select Beta" })).toBeChecked();
+  });
+
+  it("confirms batch Delete and keeps only runtime failures selected", async () => {
+    const interaction = userEvent.setup();
+    window.history.replaceState(null, "", "/artifacts");
+    const fetchMock = stubFetch([
+      json({ user }),
+      json({
+        artifacts: [
+          artifact({ id: "artifact-alpha", name: "Alpha", allowedActions: ["delete"] }),
+          artifact({ id: "artifact-beta", name: "Beta", allowedActions: ["delete"] })
+        ]
+      }),
+      new Response(null, { status: 204 }),
+      json({ error: { code: "artifact_busy", message: "Beta is busy." } }, 409)
+    ]);
+
+    render(<App />);
+    await interaction.click(await screen.findByRole("button", { name: "Select" }));
+    await interaction.click(screen.getByRole("button", { name: "Select all 2" }));
+    await interaction.click(screen.getByRole("button", { name: "Delete" }));
+
+    expect(await screen.findByRole("heading", { name: "Delete 2 artifacts?" })).toBeInTheDocument();
+    expect(screen.getByText(/Versions, Publications, Share links, and stored files/i)).toBeInTheDocument();
+    await interaction.click(screen.getByRole("button", { name: "Delete 2 artifacts" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/artifacts/artifact-alpha", expect.objectContaining({ method: "DELETE" })));
+    expect(fetchMock).toHaveBeenCalledWith("/api/artifacts/artifact-beta", expect.objectContaining({ method: "DELETE" }));
+    expect(await screen.findByText(/1 deleted, 1 failed/i)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Alpha" })).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Select Beta" })).toBeChecked();
   });
 
   it("sends an unauthenticated management visitor to log in", async () => {
