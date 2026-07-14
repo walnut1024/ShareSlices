@@ -115,7 +115,7 @@ The default upload limits are:
 - Expanded regular files: 1,000
 - Single expanded file: 50 MiB
 
-The first upload capability accepts one ZIP with an unambiguous root HTML entry. It accepts document-oriented static web resources and rejects audio, video, WebAssembly, arbitrary binary attachments, nested archives, links, and special files.
+The first upload capability sends one ZIP with an unambiguous root HTML entry to the server. In the Web app, a user may instead select one self-contained `.html` or `.htm` file; the Web app packages it as a ZIP with a root `index.html` before upload. This single-file convenience does not collect local CSS, JavaScript, images, fonts, or other referenced files. The capability accepts document-oriented static web resources and rejects audio, video, WebAssembly, arbitrary binary attachments, nested archives, links, and special files.
 
 ShareSlices ignores known operating-system metadata that does not belong to Artifact content. When a safe normalization leaves no root `index.html`, ShareSlices may use the only unambiguous root HTML file as the entry file. It does not guess when multiple entry candidates remain. Validation failures identify the affected file, the violated rule, relevant actual and allowed values, and a user-actionable correction whenever that information is available.
 

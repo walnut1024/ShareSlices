@@ -2,6 +2,7 @@ import { FileArchive, Plus, UploadCloud } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ArtifactApiError, createArtifact, getUploadPolicy, type UploadPolicy, type ValidationNotice } from "../api/artifacts";
 import { preflightArtifactZip } from "../artifacts/archive-preflight-client";
+import { artifactNameFromFile, isHtmlUpload, isSupportedArtifactUpload, prepareArtifactUpload } from "../artifacts/upload-file-preparation";
 import { ArtifactValidationReport } from "../components/ArtifactValidationReport";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { Button } from "../components/ui/button";
@@ -87,11 +88,16 @@ export function CreateArtifactDialog({ onAccepted, initialFile = null }: { onAcc
     setPreflightIssue(null);
     setUploading(true);
     try {
+      const uploadFile = await prepareArtifactUpload(selectedFile!);
+      if (policy && uploadFile.size > policy.maxArchiveBytes) {
+        setError(`This upload exceeds the ${formatBytes(policy.maxArchiveBytes)} upload limit.`);
+        return;
+      }
       if (policy) {
         const controller = new AbortController();
         preflightController.current = controller;
         try {
-          const report = await preflightArtifactZip(selectedFile!, policy, controller.signal);
+          const report = await preflightArtifactZip(uploadFile, policy, controller.signal);
           if (report.primaryIssue) {
             setPreflightIssue(report.primaryIssue);
             return;
@@ -106,7 +112,7 @@ export function CreateArtifactDialog({ onAccepted, initialFile = null }: { onAcc
       setProgress(0);
       const accepted = await createArtifact({
         name,
-        file: selectedFile!,
+        file: uploadFile,
         idempotencyKey: idempotencyKey.current,
         onProgress: setProgress
       });
@@ -146,13 +152,13 @@ export function CreateArtifactDialog({ onAccepted, initialFile = null }: { onAcc
       <DialogContent className="sm:max-w-[560px]" showCloseButton={!uploading}>
         <DialogHeader>
           <DialogTitle>New artifact</DialogTitle>
-          <DialogDescription>Drop in a ZIP file. Its filename will become the artifact name.</DialogDescription>
+          <DialogDescription>Drop in a ZIP or self-contained HTML file. Its filename will become the artifact name.</DialogDescription>
         </DialogHeader>
 
         <form ref={formRef} className="flex flex-col gap-5" onSubmit={submit}>
           <FieldGroup>
             <Field data-invalid={fileInvalid}>
-              <FieldLabel htmlFor="artifact-file">ZIP file</FieldLabel>
+              <FieldLabel htmlFor="artifact-file">Artifact file</FieldLabel>
               <Label
                 aria-disabled={uploading}
                 className={cn(
@@ -179,7 +185,7 @@ export function CreateArtifactDialog({ onAccepted, initialFile = null }: { onAcc
                   <FileArchive aria-hidden="true" className="size-5 text-muted-foreground" />
                 </span>
                 <span className="mt-3 max-w-full truncate text-sm font-medium text-foreground">
-                  {selectedFile?.name ?? "Drop a ZIP file here"}
+                  {selectedFile?.name ?? "Drop a ZIP or HTML file here"}
                 </span>
                 <span className="mt-1 text-xs text-muted-foreground">
                   {selectedFile ? "Choose another file" : "or click to choose"}
@@ -190,7 +196,7 @@ export function CreateArtifactDialog({ onAccepted, initialFile = null }: { onAcc
                 id="artifact-file"
                 name="file"
                 type="file"
-                accept=".zip,application/zip"
+                accept=".zip,.html,.htm,application/zip,text/html"
                 className="sr-only"
                 disabled={uploading}
                 aria-invalid={fileInvalid}
@@ -198,6 +204,7 @@ export function CreateArtifactDialog({ onAccepted, initialFile = null }: { onAcc
                   selectFile(event.target.files?.[0] ?? null);
                 }}
               />
+              <p className="text-xs text-muted-foreground">Self-contained HTML files only; local assets are not collected.</p>
             </Field>
           </FieldGroup>
 
@@ -228,15 +235,11 @@ export function CreateArtifactDialog({ onAccepted, initialFile = null }: { onAcc
   );
 }
 
-function artifactNameFromFile(fileName: string): string {
-  return fileName.replace(/\.zip$/i, "").trim().slice(0, 120);
-}
-
 function validateCreateInput(file: File | null, policy: UploadPolicy | null): string | null {
-  if (!file || file.size === 0) return "Choose a ZIP file.";
-  if (!file.name.toLowerCase().endsWith(".zip")) return "Choose a file with a .zip extension.";
-  if (!artifactNameFromFile(file.name)) return "Rename the ZIP file before uploading.";
-  if (policy && file.size > policy.maxArchiveBytes) return `This ZIP exceeds the ${formatBytes(policy.maxArchiveBytes)} upload limit.`;
+  if (!file || file.size === 0) return "Choose a non-empty ZIP or HTML file.";
+  if (!isSupportedArtifactUpload(file.name)) return "Choose a file with a .zip, .html, or .htm extension.";
+  if (!artifactNameFromFile(file.name)) return "Rename the file before uploading.";
+  if (!isHtmlUpload(file.name) && policy && file.size > policy.maxArchiveBytes) return `This ZIP exceeds the ${formatBytes(policy.maxArchiveBytes)} upload limit.`;
   return null;
 }
 

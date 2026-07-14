@@ -245,7 +245,7 @@ describe("Artifact management", () => {
 
     expect(await screen.findByRole("heading", { name: "No artifacts yet" })).toBeInTheDocument();
     expect(screen.getByText("Upload your first artifact to start sharing.")).toBeInTheDocument();
-    expect(screen.getByText("Drag and drop a ZIP file here, or use the button below.")).toBeInTheDocument();
+    expect(screen.getByText("Drag and drop a ZIP or self-contained HTML file here, or use the button below.")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "New artifact" })).toHaveLength(2);
 
     fireEvent.drop(document.querySelector('[data-slot="empty"]')!, {
@@ -515,10 +515,10 @@ describe("Artifact management", () => {
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "New artifact" }));
     await screen.findByRole("heading", { name: "New artifact" });
-    expect(screen.getByText("Drop a ZIP file here").closest("label")).toHaveAttribute("data-slot", "label");
+    expect(screen.getByText("Drop a ZIP or HTML file here").closest("label")).toHaveAttribute("data-slot", "label");
     expect(screen.queryByLabelText("Artifact name")).not.toBeInTheDocument();
     await interaction.upload(
-      screen.getByLabelText("ZIP file"),
+      screen.getByLabelText("Artifact file"),
       new File(["oversized"], "report.zip", { type: "application/zip" })
     );
     await interaction.click(screen.getByRole("button", { name: "Upload" }));
@@ -562,7 +562,7 @@ describe("Artifact management", () => {
 
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "New artifact" }));
-    await interaction.upload(screen.getByLabelText("ZIP file"), new File(["zip"], "report.zip", { type: "application/zip" }));
+    await interaction.upload(screen.getByLabelText("Artifact file"), new File(["zip"], "report.zip", { type: "application/zip" }));
     await interaction.click(screen.getByRole("button", { name: "Upload" }));
 
     expect(await screen.findByText("A file format is not supported.")).toBeInTheDocument();
@@ -608,7 +608,7 @@ describe("Artifact management", () => {
 
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "New artifact" }));
-    await interaction.upload(screen.getByLabelText("ZIP file"), new File(["zip"], "report.zip", { type: "application/zip" }));
+    await interaction.upload(screen.getByLabelText("Artifact file"), new File(["zip"], "report.zip", { type: "application/zip" }));
     await interaction.click(screen.getByRole("button", { name: "Upload" }));
 
     expect(await screen.findByText("ZIP exceeds the upload limit.")).toBeInTheDocument();
@@ -630,7 +630,7 @@ describe("Artifact management", () => {
 
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "New artifact" }));
-    await interaction.upload(screen.getByLabelText("ZIP file"), new File(["zip"], "report.zip", { type: "application/zip" }));
+    await interaction.upload(screen.getByLabelText("Artifact file"), new File(["zip"], "report.zip", { type: "application/zip" }));
     await interaction.click(screen.getByRole("button", { name: "Upload" }));
 
     expect(await screen.findByRole("heading", { name: "Report" })).toBeInTheDocument();
@@ -659,7 +659,7 @@ describe("Artifact management", () => {
     vi.stubGlobal("XMLHttpRequest", acceptedUploadRequest(send));
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "New artifact" }));
-    const file = screen.getByLabelText("ZIP file");
+    const file = screen.getByLabelText("Artifact file");
 
     await interaction.upload(file, new File(["zip"], "quarterly-report.zip", { type: "application/zip" }));
     expect(screen.queryByLabelText("Artifact name")).not.toBeInTheDocument();
@@ -670,6 +670,34 @@ describe("Artifact management", () => {
     expect(body.get("name")).toBe("quarterly-report");
   });
 
+  it("packages self-contained HTML before preflight and upload", async () => {
+    const interaction = userEvent.setup();
+    const send = vi.fn();
+    window.history.replaceState(null, "", "/artifacts");
+    stubFetch([json({ user }), json({ artifacts: [] }), json({ policy: uploadPolicy() })]);
+    vi.stubGlobal("XMLHttpRequest", acceptedUploadRequest(send));
+
+    render(<App />);
+    await interaction.click(await screen.findByRole("button", { name: "New artifact" }));
+    expect(screen.getByText("Self-contained HTML files only; local assets are not collected.")).toBeInTheDocument();
+
+    await interaction.upload(
+      screen.getByLabelText("Artifact file"),
+      new File(["<!doctype html><title>Quarterly report</title>"], "quarterly-report.html", { type: "text/html" })
+    );
+    await interaction.click(screen.getByRole("button", { name: "Upload" }));
+
+    await waitFor(() => expect(send).toHaveBeenCalled());
+    expect(preflightArtifactZip).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "quarterly-report.zip", type: "application/zip" }),
+      expect.anything(),
+      expect.any(AbortSignal)
+    );
+    const body = send.mock.calls[0]?.[0] as FormData;
+    expect(body.get("name")).toBe("quarterly-report");
+    expect(body.get("file")).toEqual(expect.objectContaining({ name: "quarterly-report.zip", type: "application/zip" }));
+  });
+
   it("accepts a ZIP dropped onto the file target", async () => {
     const interaction = userEvent.setup();
     window.history.replaceState(null, "", "/artifacts");
@@ -677,7 +705,7 @@ describe("Artifact management", () => {
 
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "New artifact" }));
-    const target = screen.getByText("Drop a ZIP file here").closest("label");
+    const target = screen.getByText("Drop a ZIP or HTML file here").closest("label");
     fireEvent.drop(target!, { dataTransfer: { files: [new File(["zip"], "dropped-report.zip", { type: "application/zip" })] } });
 
     expect(await screen.findByText("dropped-report.zip")).toBeInTheDocument();
@@ -697,10 +725,10 @@ describe("Artifact management", () => {
 
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "New artifact" }));
-    await interaction.upload(screen.getByLabelText("ZIP file"), new File(["zip"], ".zip", { type: "application/zip" }));
+    await interaction.upload(screen.getByLabelText("Artifact file"), new File(["zip"], ".zip", { type: "application/zip" }));
     await interaction.click(screen.getByRole("button", { name: "Upload" }));
 
-    expect(await screen.findByText("Rename the ZIP file before uploading.")).toBeInTheDocument();
+    expect(await screen.findByText("Rename the file before uploading.")).toBeInTheDocument();
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -810,7 +838,7 @@ describe("Artifact management", () => {
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "New artifact" }));
     await screen.findByRole("heading", { name: "New artifact" });
-    await interaction.upload(screen.getByLabelText("ZIP file"), new File(["zip"], "report.zip", { type: "application/zip" }));
+    await interaction.upload(screen.getByLabelText("Artifact file"), new File(["zip"], "report.zip", { type: "application/zip" }));
     await interaction.click(screen.getByRole("button", { name: "Upload" }));
 
     expect(await screen.findByRole("heading", { name: "Report" })).toBeInTheDocument();
