@@ -1,20 +1,26 @@
 use std::{
+    collections::HashSet,
     io::Cursor,
     net::TcpListener,
     path::{Path, PathBuf},
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use headless_chrome::protocol::cdp::{
     Fetch::{FulfillRequest, RequestPattern, RequestStage, events::RequestPausedEvent},
+    Network,
     Page::CaptureScreenshotFormatOption,
+    types::Event,
 };
-use headless_chrome::{Browser, LaunchOptionsBuilder, browser::tab::RequestPausedDecision};
+use headless_chrome::{
+    Browser, LaunchOptionsBuilder,
+    browser::tab::{RequestPausedDecision, Tab},
+};
 use image::{ImageFormat, imageops::FilterType};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
@@ -26,7 +32,51 @@ use uuid::Uuid;
 use crate::object_storage::{AwsS3ObjectStorage, ObjectStorage, ObjectStorageError};
 
 const RENDER_TIMEOUT: Duration = Duration::from_secs(10);
+const NETWORK_IDLE_TIMEOUT: Duration = Duration::from_secs(5);
+const NETWORK_IDLE_WINDOW: Duration = Duration::from_millis(500);
 const GRANT_LIFETIME_SECONDS: i64 = 30;
+const WAIT_FOR_ARTIFACT_READY_SCRIPT: &str = r"(async () => {
+  const style = document.createElement('style');
+  style.textContent = '*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}';
+  document.documentElement.appendChild(style);
+  const startedAt = performance.now();
+  await Promise.race([
+    document.fonts.ready,
+    new Promise(resolve => setTimeout(resolve, 3000))
+  ]);
+  let lastActivityAt = startedAt;
+  const observer = new MutationObserver(() => {
+    lastActivityAt = performance.now();
+  });
+  observer.observe(document.documentElement, {
+    attributes: true,
+    childList: true,
+    characterData: true,
+    subtree: true
+  });
+  await new Promise(resolve => {
+    const interval = setInterval(() => {
+      const now = performance.now();
+      const imagesReady = Array.from(document.images).every(image => image.complete);
+      const pageStable = now - startedAt >= 2000
+        && now - lastActivityAt >= 500
+        && imagesReady;
+      if (pageStable || now - startedAt >= 3000) {
+        clearInterval(interval);
+        observer.disconnect();
+        resolve();
+      }
+    }, 100);
+  });
+})()";
+const FINALIZE_ARTIFACT_RENDER_SCRIPT: &str = r"(async () => {
+  await Promise.all(
+    Array.from(document.images)
+      .filter(image => image.complete && image.naturalWidth > 0)
+      .map(image => image.decode().catch(() => {}))
+  );
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+})()";
 
 #[derive(Clone, Debug)]
 pub struct ThumbnailConfig {
@@ -50,8 +100,6 @@ struct ClaimedThumbnail {
 pub enum ThumbnailError {
     #[error("thumbnail database operation failed: {0}")]
     Database(#[from] sqlx::Error),
-    #[error("thumbnail render timed out")]
-    RenderTimeout,
     #[error("thumbnail browser failed: {0}")]
     Browser(String),
     #[error("thumbnail image conversion failed: {0}")]
@@ -194,13 +242,9 @@ async fn process_claim(
         claim.grant
     );
     let chromium_path = config.chromium_path.clone();
-    let webp = tokio::time::timeout(
-        RENDER_TIMEOUT,
-        tokio::task::spawn_blocking(move || render_thumbnail(&chromium_path, &url)),
-    )
-    .await
-    .map_err(|_| ThumbnailError::RenderTimeout)?
-    .map_err(|error| ThumbnailError::Browser(error.to_string()))??;
+    let webp = tokio::task::spawn_blocking(move || render_thumbnail(&chromium_path, &url))
+        .await
+        .map_err(|error| ThumbnailError::Browser(error.to_string()))??;
     let object_key = format!("versions/{}/thumbnail.webp", claim.version_id);
     let mut temporary =
         NamedTempFile::new().map_err(|error| ThumbnailError::Image(error.to_string()))?;
@@ -284,6 +328,7 @@ pub fn render_thumbnail(chromium_path: &Path, target_url: &str) -> Result<Vec<u8
     let tab = browser
         .new_tab()
         .map_err(|error| ThumbnailError::Browser(error.to_string()))?;
+    let network_activity = observe_network_activity(&tab)?;
     tab.set_default_timeout(RENDER_TIMEOUT);
     tab.enable_fetch(
         Some(&[RequestPattern {
@@ -318,16 +363,12 @@ pub fn render_thumbnail(chromium_path: &Path, target_url: &str) -> Result<Vec<u8
     tab.navigate_to(target_url)
         .and_then(|tab| tab.wait_until_navigated())
         .map_err(|error| ThumbnailError::Browser(error.to_string()))?;
-    tab.evaluate(
-        r"(async () => {
-          const style = document.createElement('style');
-          style.textContent = '*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}';
-          document.documentElement.appendChild(style);
-          await document.fonts.ready;
-          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-        })()",
-        true,
-    ).map_err(|error| ThumbnailError::Browser(error.to_string()))?;
+    wait_for_network_idle(&network_activity);
+    tab.evaluate(WAIT_FOR_ARTIFACT_READY_SCRIPT, true)
+        .map_err(|error| ThumbnailError::Browser(error.to_string()))?;
+    wait_for_network_idle(&network_activity);
+    tab.evaluate(FINALIZE_ARTIFACT_RENDER_SCRIPT, true)
+        .map_err(|error| ThumbnailError::Browser(error.to_string()))?;
     let png = tab
         .capture_screenshot(CaptureScreenshotFormatOption::Png, None, None, true)
         .map_err(|error| ThumbnailError::Browser(error.to_string()))?;
@@ -339,6 +380,72 @@ pub fn render_thumbnail(chromium_path: &Path, target_url: &str) -> Result<Vec<u8
         .write_to(&mut output, ImageFormat::WebP)
         .map_err(|error| ThumbnailError::Image(error.to_string()))?;
     Ok(output.into_inner())
+}
+
+struct NetworkActivity {
+    pending: HashSet<String>,
+    last_change: Instant,
+}
+
+impl NetworkActivity {
+    fn new() -> Self {
+        Self {
+            pending: HashSet::new(),
+            last_change: Instant::now(),
+        }
+    }
+}
+
+fn observe_network_activity(tab: &Tab) -> Result<Arc<Mutex<NetworkActivity>>, ThumbnailError> {
+    let activity = Arc::new(Mutex::new(NetworkActivity::new()));
+    let listener_activity = Arc::clone(&activity);
+    tab.call_method(Network::Enable {
+        max_total_buffer_size: None,
+        max_resource_buffer_size: None,
+        max_post_data_size: None,
+        report_direct_socket_traffic: None,
+        enable_durable_messages: None,
+    })
+    .map_err(|error| ThumbnailError::Browser(error.to_string()))?;
+    tab.add_event_listener(Arc::new(move |event: &Event| {
+        let mut activity = listener_activity
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match event {
+            Event::NetworkRequestWillBeSent(event) => {
+                activity.pending.insert(event.params.request_id.clone());
+            }
+            Event::NetworkLoadingFinished(event) => {
+                activity.pending.remove(&event.params.request_id);
+            }
+            Event::NetworkLoadingFailed(event) => {
+                activity.pending.remove(&event.params.request_id);
+            }
+            _ => return,
+        }
+        activity.last_change = Instant::now();
+    }))
+    .map_err(|error| ThumbnailError::Browser(error.to_string()))?;
+    Ok(activity)
+}
+
+fn wait_for_network_idle(activity: &Mutex<NetworkActivity>) {
+    let deadline = Instant::now() + NETWORK_IDLE_TIMEOUT;
+    loop {
+        {
+            let activity = activity
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if activity.pending.is_empty() && activity.last_change.elapsed() >= NETWORK_IDLE_WINDOW
+            {
+                return;
+            }
+        }
+        if Instant::now() >= deadline {
+            return;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
 }
 
 /// Verifies that Chromium can launch, render HTML, capture a screenshot, and
@@ -396,7 +503,6 @@ async fn fail_claim(
     let retry = should_retry(transient, claim.attempt_count, claim.max_attempts);
     let state = if retry { "queued" } else { "failed" };
     let reason = match error {
-        ThumbnailError::RenderTimeout => "thumbnail_render_timeout",
         ThumbnailError::Storage(_) => "thumbnail_storage_unavailable",
         ThumbnailError::Database(_) => "thumbnail_database_unavailable",
         ThumbnailError::Browser(_) => "thumbnail_browser_failed",

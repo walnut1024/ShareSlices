@@ -1,3 +1,4 @@
+# cspell:ignore noto
 FROM rust:1.96.1-bookworm AS build
 
 WORKDIR /workspace
@@ -19,6 +20,7 @@ ARG CHROMIUM_VERSION=150.0.7871.114-1~deb12u1
 RUN apt-get update \
     && apt-get install --no-install-recommends --yes \
         ca-certificates \
+        fonts-noto-cjk \
         "chromium=${CHROMIUM_VERSION}" \
         "chromium-common=${CHROMIUM_VERSION}" \
         "chromium-sandbox=${CHROMIUM_VERSION}" \

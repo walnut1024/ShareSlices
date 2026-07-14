@@ -13,6 +13,62 @@ use std::{
 use shareslices_worker::thumbnail::render_thumbnail;
 
 #[test]
+fn chromium_capture_waits_for_delayed_artifact_content() {
+    let Ok(chromium_path) = std::env::var("CHROMIUM_TEST_PATH") else {
+        return;
+    };
+    let page = TcpListener::bind("127.0.0.1:0").expect("page server");
+    let page_address = page.local_addr().expect("page address");
+    let html = r"<!doctype html>
+      <style>html,body{margin:0;width:100%;height:100%;background:#c00}</style>
+      <script>setTimeout(() => {
+        const image = new Image();
+        image.onload = () => document.body.style.background = '#00c853';
+        image.src = 'cover.svg';
+        document.body.appendChild(image);
+      }, 1000)</script>";
+    let page_thread = thread::spawn(move || {
+        for mut stream in page.incoming().flatten().take(2) {
+            let mut request = [0_u8; 1024];
+            let read = stream.read(&mut request).unwrap_or(0);
+            let request = String::from_utf8_lossy(&request[..read]);
+            let (content_type, body) = if request
+                .starts_with("GET /internal/thumbnail-captures/version-1/content/cover.svg")
+            {
+                thread::sleep(Duration::from_secs(3));
+                (
+                    "image/svg+xml",
+                    "<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'/>",
+                )
+            } else {
+                ("text/html; charset=utf-8", html)
+            };
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(response.as_bytes());
+        }
+    });
+
+    let output = render_thumbnail(
+        &PathBuf::from(chromium_path),
+        &format!("http://{page_address}/internal/thumbnail-captures/version-1/content/"),
+    )
+    .expect("render thumbnail");
+    let decoded = image::load_from_memory_with_format(&output, image::ImageFormat::WebP)
+        .expect("decode WebP")
+        .to_rgb8();
+    let center = decoded.get_pixel(240, 150);
+
+    assert!(
+        center[1] > 150 && center[0] < 80,
+        "expected delayed green content, got {center:?}"
+    );
+    page_thread.join().expect("page server thread");
+}
+
+#[test]
 fn chromium_capture_is_webp_and_blocks_another_origin() {
     let Ok(chromium_path) = std::env::var("CHROMIUM_TEST_PATH") else {
         return;
