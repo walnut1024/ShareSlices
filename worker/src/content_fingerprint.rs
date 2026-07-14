@@ -51,10 +51,12 @@ impl FingerprintKey {
     ///
     /// HMAC-SHA-256 accepts keys of every size, so initialization cannot fail.
     #[must_use]
-    pub fn alias(&self, canonical_identity: &[u8]) -> FingerprintAlias {
+    pub fn alias(&self, owner_user_id: &str, canonical_identity: &[u8]) -> FingerprintAlias {
         let mut mac =
             Hmac::<Sha256>::new_from_slice(&self.secret).expect("HMAC accepts any key size");
         mac.update(DOMAIN);
+        mac.update(owner_user_id.as_bytes());
+        mac.update(b"\0");
         mac.update(canonical_identity);
         let bytes = mac.finalize().into_bytes();
         FingerprintAlias {
@@ -68,10 +70,11 @@ impl FingerprintKey {
 pub fn aliases(
     current: &FingerprintKey,
     previous: Option<&FingerprintKey>,
+    owner_user_id: &str,
     canonical_identity: &[u8],
 ) -> Vec<FingerprintAlias> {
-    std::iter::once(current.alias(canonical_identity))
-        .chain(previous.map(|key| key.alias(canonical_identity)))
+    std::iter::once(current.alias(owner_user_id, canonical_identity))
+        .chain(previous.map(|key| key.alias(owner_user_id, canonical_identity)))
         .collect()
 }
 
@@ -99,7 +102,7 @@ mod tests {
             FingerprintKey::new("key-v1", b"previous-secret-with-at-least-32-bytes".to_vec())
                 .unwrap();
 
-        let values = aliases(&current, Some(&previous), b"canonical-identity");
+        let values = aliases(&current, Some(&previous), "owner-1", b"canonical-identity");
 
         assert_eq!(values.len(), 2);
         assert_eq!(values[0].key_revision, "key-v2");
@@ -107,7 +110,11 @@ mod tests {
         assert_ne!(values[0].value, values[1].value);
         assert_eq!(
             values,
-            aliases(&current, Some(&previous), b"canonical-identity")
+            aliases(&current, Some(&previous), "owner-1", b"canonical-identity")
+        );
+        assert_ne!(
+            values[0].value,
+            aliases(&current, None, "owner-2", b"canonical-identity")[0].value
         );
     }
 

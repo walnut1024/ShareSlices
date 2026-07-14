@@ -400,27 +400,6 @@ export function createArtifactRepositories(
             .innerJoin(schema.artifactProcessingJob, eq(schema.artifactProcessingJob.id, schema.artifactProcessingAttempt.jobId))
             .innerJoin(schema.artifactUploadSession, eq(schema.artifactUploadSession.id, schema.artifactProcessingJob.uploadSessionId))
             .where(eq(schema.artifactUploadSession.artifactId, artifactId));
-          await transaction.execute(sql`
-            with artifact_attempt as (
-              select attempt.id
-              from artifact_processing_attempt attempt
-              join artifact_processing_job job on job.id = attempt.job_id
-              join artifact_upload_session upload on upload.id = job.upload_session_id
-              where upload.artifact_id = ${artifactId}
-            )
-            update content_bundle bundle
-            set creator_attempt_id = case
-                  when bundle.creator_attempt_id in (select id from artifact_attempt) then null
-                  else bundle.creator_attempt_id
-                end,
-                winning_attempt_id = case
-                  when bundle.winning_attempt_id in (select id from artifact_attempt) then null
-                  else bundle.winning_attempt_id
-                end,
-                updated_at = now()
-            where bundle.creator_attempt_id in (select id from artifact_attempt)
-               or bundle.winning_attempt_id in (select id from artifact_attempt)
-          `);
           const record = {
             objectKeys: [...new Set(rawObjects.map(({ key }) => key))],
             stagingPrefixes: [...new Set(attempts.map(({ prefix }) => prefix))]
@@ -443,6 +422,28 @@ export function createArtifactRepositories(
               .limit(1);
 
             if (otherReference) {
+              await transaction.execute(sql`
+                with artifact_attempt as (
+                  select attempt.id
+                  from artifact_processing_attempt attempt
+                  join artifact_processing_job job on job.id = attempt.job_id
+                  join artifact_upload_session upload on upload.id = job.upload_session_id
+                  where upload.artifact_id = ${artifactId}
+                )
+                update content_bundle bundle
+                set creator_attempt_id = case
+                      when bundle.creator_attempt_id in (select id from artifact_attempt) then null
+                      else bundle.creator_attempt_id
+                    end,
+                    winning_attempt_id = case
+                      when bundle.winning_attempt_id in (select id from artifact_attempt) then null
+                      else bundle.winning_attempt_id
+                    end,
+                    updated_at = now()
+                where bundle.id = ${bundle.id}
+                  and (bundle.creator_attempt_id in (select id from artifact_attempt)
+                    or bundle.winning_attempt_id in (select id from artifact_attempt))
+              `);
               continue;
             }
 

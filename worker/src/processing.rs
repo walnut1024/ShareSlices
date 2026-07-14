@@ -9,6 +9,7 @@ use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::time::{Instant, sleep};
 use uuid::Uuid;
 use zip::ZipArchive;
 
@@ -29,6 +30,7 @@ use crate::{
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProcessingAttemptInput {
+    pub owner_user_id: String,
     pub job_id: String,
     pub worker_id: String,
     pub upload_session_id: String,
@@ -157,26 +159,7 @@ pub async fn process_attempt(
         Err(error) => return cleanup_failed_attempt(storage, &input.staging_prefix, error).await,
     };
 
-    let identity = manifest
-        .content_identity(&input.content_identity_revision)
-        .map_err(|error| ProcessingError::ContentIdentity(error.to_string()))?;
-    let alias = input.content_fingerprint_key.alias(identity.as_bytes());
-    let previous_alias = input
-        .previous_content_fingerprint_key
-        .as_ref()
-        .map(|key| key.alias(identity.as_bytes()));
-    let proposed_bundle_id = Uuid::new_v4().to_string();
-    let reservation = content_bundles
-        .reserve_content_bundle(&ContentBundleReservation {
-            bundle_id: proposed_bundle_id,
-            attempt_id: input.attempt_id.clone(),
-            content_identity_revision: input.content_identity_revision.clone(),
-            fingerprint_key_revision: alias.key_revision,
-            reuse_fingerprint: alias.value,
-            previous_fingerprint: previous_alias.map(|alias| (alias.key_revision, alias.value)),
-            lease_duration: input.lease_duration,
-        })
-        .await?;
+    let reservation = reserve_normalized_content(content_bundles, &input, &manifest).await?;
     let (bundle_id, publish_objects) = match reservation {
         ContentBundleReservationOutcome::Reserved { bundle_id } => (bundle_id, true),
         ContentBundleReservationOutcome::Ready { bundle_id } => (bundle_id, false),
@@ -244,6 +227,41 @@ pub async fn process_attempt(
         removed_staging_objects,
         reuse_telemetry,
     })
+}
+
+async fn reserve_normalized_content(
+    content_bundles: &dyn ContentBundleStore,
+    input: &ProcessingAttemptInput,
+    manifest: &ReadyManifest,
+) -> Result<ContentBundleReservationOutcome, ProcessingError> {
+    let identity = manifest
+        .content_identity(&input.content_identity_revision)
+        .map_err(|error| ProcessingError::ContentIdentity(error.to_string()))?;
+    let alias = input
+        .content_fingerprint_key
+        .alias(&input.owner_user_id, identity.as_bytes());
+    let previous_alias = input
+        .previous_content_fingerprint_key
+        .as_ref()
+        .map(|key| key.alias(&input.owner_user_id, identity.as_bytes()));
+    let reservation = ContentBundleReservation {
+        bundle_id: Uuid::new_v4().to_string(),
+        attempt_id: input.attempt_id.clone(),
+        content_identity_revision: input.content_identity_revision.clone(),
+        fingerprint_key_revision: alias.key_revision,
+        reuse_fingerprint: alias.value,
+        previous_fingerprint: previous_alias.map(|alias| (alias.key_revision, alias.value)),
+        lease_duration: input.lease_duration,
+    };
+    let wait_deadline = Instant::now() + input.lease_duration;
+    loop {
+        match content_bundles.reserve_content_bundle(&reservation).await? {
+            ContentBundleReservationOutcome::Creating { .. } if Instant::now() < wait_deadline => {
+                sleep(std::time::Duration::from_millis(100)).await;
+            }
+            outcome => return Ok(outcome),
+        }
+    }
 }
 
 fn completion_telemetry(published_objects: bool, manifest: &ReadyManifest) -> ReuseTelemetry {

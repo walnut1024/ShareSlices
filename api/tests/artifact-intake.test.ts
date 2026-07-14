@@ -7,6 +7,7 @@ import type {
   UploadPolicySnapshot
 } from "../src/application/artifacts/repositories.js";
 import { ArtifactIntakeError, ArtifactIntakeService } from "../src/application/artifacts/artifact-intake.js";
+import { RawFingerprintCandidates } from "../src/application/artifacts/raw-fingerprint.js";
 import { InMemoryObjectStorage } from "../src/storage/index.js";
 
 const policy: UploadPolicySnapshot = {
@@ -77,7 +78,12 @@ function harness(existing?: IdempotencyRecord) {
     repositories,
     storage,
     viewerOrigin: "http://127.0.0.1:7456",
-    maxProcessingAttempts: 3
+    maxProcessingAttempts: 3,
+    rawFingerprints: new RawFingerprintCandidates({
+      current: { revision: "key-v1", secret: "test-content-fingerprint-key-material" }
+    }),
+    processingRevision: "processing-v1",
+    contentIdentityRevision: "content-v1"
   });
   return { service, storage, repositories, commitAccepted, records };
 }

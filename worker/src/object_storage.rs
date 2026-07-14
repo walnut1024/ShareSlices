@@ -43,6 +43,10 @@ pub enum ObjectStorageError {
 pub trait ObjectStorage: Send + Sync {
     async fn read_raw_archive(&self, key: &str) -> Result<ObjectReader, ObjectStorageError>;
 
+    async fn read_private_object(&self, key: &str) -> Result<ObjectReader, ObjectStorageError> {
+        self.read_raw_archive(key).await
+    }
+
     async fn write_staging_object(
         &self,
         key: &str,
@@ -267,6 +271,24 @@ impl ObjectStorage for InMemoryObjectStorage {
                     key: key.to_owned(),
                     message: "object not found".to_owned(),
                 })?;
+        Ok(Box::pin(io::Cursor::new(bytes)))
+    }
+
+    async fn read_private_object(&self, key: &str) -> Result<ObjectReader, ObjectStorageError> {
+        let committed = self
+            .committed
+            .read()
+            .await
+            .get(key)
+            .map(|object| object.bytes.clone());
+        let bytes = match committed {
+            Some(bytes) => Some(bytes),
+            None => self.raw.read().await.get(key).cloned(),
+        }
+        .ok_or_else(|| ObjectStorageError::Read {
+            key: key.to_owned(),
+            message: "object not found".to_owned(),
+        })?;
         Ok(Box::pin(io::Cursor::new(bytes)))
     }
 

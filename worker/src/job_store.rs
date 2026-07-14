@@ -68,6 +68,21 @@ pub enum ContentBundleReservationOutcome {
     Ready { bundle_id: String },
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ContentBundleIntegrity {
+    Suspect,
+    Corrupt,
+}
+
+impl ContentBundleIntegrity {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Suspect => "suspect",
+            Self::Corrupt => "corrupt",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReadyContentBundleVersionCommit {
     pub bundle_id: String,
@@ -96,6 +111,14 @@ pub struct RawReuseContext {
 pub struct RawReuseHit {
     pub bundle_id: String,
     pub validation_report: ValidationReport,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BundleAliasReindexCandidate {
+    pub bundle_id: String,
+    pub owner_user_id: String,
+    pub content_identity_revision: String,
+    pub manifest_object_key: Option<String>,
 }
 
 #[derive(Debug, Error)]
@@ -160,6 +183,14 @@ pub trait ContentBundleStore: Send + Sync {
         Ok(())
     }
 
+    async fn quarantine_content_bundle(
+        &self,
+        _bundle_id: &str,
+        _integrity: ContentBundleIntegrity,
+    ) -> Result<bool, JobStoreError> {
+        Ok(false)
+    }
+
     async fn reserve_content_bundle(
         &self,
         reservation: &ContentBundleReservation,
@@ -180,6 +211,111 @@ impl PostgresJobStore {
     #[must_use]
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
+    }
+
+    /// Lists ready bundles that still need an alias for the current key revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a non-positive limit or a database failure.
+    pub async fn list_bundle_alias_reindex_candidates(
+        &self,
+        current_key_revision: &str,
+        limit: i64,
+    ) -> Result<Vec<BundleAliasReindexCandidate>, JobStoreError> {
+        if limit <= 0 {
+            return Err(JobStoreError::InvalidRecoveryLimit);
+        }
+        let rows = sqlx::query(
+            r"
+            select bundle.id, bundle.owner_user_id, bundle.content_identity_revision,
+                   manifest.object_key
+            from content_bundle bundle
+            left join content_bundle_manifest manifest on manifest.bundle_id = bundle.id
+              and manifest.owner_user_id = bundle.owner_user_id
+            where bundle.lifecycle_state = 'ready' and bundle.integrity_state = 'healthy'
+              and not exists (
+                select 1 from content_bundle_fingerprint_alias alias
+                where alias.bundle_id = bundle.id and alias.owner_user_id = bundle.owner_user_id
+                  and alias.fingerprint_key_revision = $1 and alias.retired_at is null
+              )
+            order by bundle.updated_at, bundle.id
+            limit $2
+            ",
+        )
+        .bind(current_key_revision)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(BundleAliasReindexCandidate {
+                    bundle_id: row.try_get("id")?,
+                    owner_user_id: row.try_get("owner_user_id")?,
+                    content_identity_revision: row.try_get("content_identity_revision")?,
+                    manifest_object_key: row.try_get("object_key")?,
+                })
+            })
+            .collect::<Result<Vec<_>, sqlx::Error>>()
+            .map_err(JobStoreError::from)
+    }
+
+    /// Installs a reconstructed current-key alias if the bundle is still reusable.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the bundle state cannot be read or the alias cannot be persisted.
+    pub async fn install_reindexed_bundle_alias(
+        &self,
+        candidate: &BundleAliasReindexCandidate,
+        key_revision: &str,
+        fingerprint: &str,
+    ) -> Result<bool, JobStoreError> {
+        let mut transaction = self.pool.begin().await?;
+        let state = sqlx::query(
+            "select owner_user_id, content_identity_revision, lifecycle_state, integrity_state from content_bundle where id = $1 for update",
+        )
+        .bind(&candidate.bundle_id)
+        .fetch_optional(&mut *transaction)
+        .await?;
+        let Some(state) = state else {
+            transaction.rollback().await?;
+            return Ok(false);
+        };
+        let owner_user_id: String = state.try_get("owner_user_id")?;
+        let content_identity_revision: String = state.try_get("content_identity_revision")?;
+        let lifecycle_state: String = state.try_get("lifecycle_state")?;
+        let integrity_state: String = state.try_get("integrity_state")?;
+        if owner_user_id != candidate.owner_user_id
+            || content_identity_revision != candidate.content_identity_revision
+            || lifecycle_state != "ready"
+            || integrity_state != "healthy"
+        {
+            transaction.rollback().await?;
+            return Ok(false);
+        }
+        let inserted = sqlx::query(
+            r"
+            insert into content_bundle_fingerprint_alias (
+              id, owner_user_id, bundle_id, content_identity_revision,
+              fingerprint_key_revision, reuse_fingerprint
+            ) values ($1, $2, $3, $4, $5, $6)
+            on conflict (
+              owner_user_id, content_identity_revision, fingerprint_key_revision,
+              reuse_fingerprint
+            ) where retired_at is null do nothing
+            ",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(&candidate.owner_user_id)
+        .bind(&candidate.bundle_id)
+        .bind(&candidate.content_identity_revision)
+        .bind(key_revision)
+        .bind(fingerprint)
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        Ok(inserted.rows_affected() == 1)
     }
 }
 
@@ -496,7 +632,7 @@ impl ContentBundleStore for PostgresJobStore {
         for candidate in &context.candidates {
             let row = sqlx::query(
                 r"
-                select alias.bundle_id, alias.validation_evidence
+                select alias.id as alias_id, alias.bundle_id, alias.validation_evidence
                 from raw_input_fingerprint_alias as alias
                 join content_bundle as bundle
                   on bundle.id = alias.bundle_id and bundle.owner_user_id = alias.owner_user_id
@@ -522,10 +658,12 @@ impl ContentBundleStore for PostgresJobStore {
             .fetch_optional(&mut *transaction)
             .await?;
             let Some(row) = row else { continue };
+            let alias_id: String = row.try_get("alias_id")?;
             let evidence: Value = row.try_get("validation_evidence")?;
             let Ok(validation_report) =
                 serde_json::from_value::<ValidationReport>(evidence.clone())
             else {
+                retire_raw_alias(&mut transaction, &alias_id).await?;
                 continue;
             };
             let canonical_evidence = serde_json::to_value(&validation_report)
@@ -534,6 +672,7 @@ impl ContentBundleStore for PostgresJobStore {
                 || validation_report.primary_issue.is_some()
                 || !validation_report.issues.is_empty()
             {
+                retire_raw_alias(&mut transaction, &alias_id).await?;
                 continue;
             }
             let bundle_id: String = row.try_get("bundle_id")?;
@@ -612,88 +751,65 @@ impl ContentBundleStore for PostgresJobStore {
         if let Some(row) =
             lock_bundle_by_alias(&mut transaction, &owner_user_id, reservation).await?
         {
-            let outcome =
-                reserve_existing_bundle(&mut transaction, row, reservation, lease_milliseconds)
-                    .await?;
+            let outcome = reserve_existing_bundle(
+                &mut transaction,
+                row,
+                &owner_user_id,
+                reservation,
+                lease_milliseconds,
+            )
+            .await?;
             transaction.commit().await?;
             return Ok(outcome);
         }
-
-        sqlx::query(
-            r"
-            insert into content_bundle (
-              id, owner_user_id, content_identity_revision, creator_attempt_id,
-              creator_lease_expires_at
-            ) values ($1, $2, $3, $4, now() + ($5 * interval '1 millisecond'))
-            ",
+        let outcome = insert_or_resolve_content_bundle(
+            &mut transaction,
+            &owner_user_id,
+            reservation,
+            lease_milliseconds,
         )
-        .bind(&reservation.bundle_id)
-        .bind(&owner_user_id)
-        .bind(&reservation.content_identity_revision)
-        .bind(&reservation.attempt_id)
-        .bind(lease_milliseconds)
-        .execute(&mut *transaction)
         .await?;
-        let inserted = sqlx::query(
-            r"
-            insert into content_bundle_fingerprint_alias (
-              id, owner_user_id, bundle_id, content_identity_revision,
-              fingerprint_key_revision, reuse_fingerprint
-            ) values ($1, $2, $3, $4, $5, $6)
-            on conflict (
-              owner_user_id, content_identity_revision, fingerprint_key_revision,
-              reuse_fingerprint
-            ) where retired_at is null do nothing
-            ",
-        )
-        .bind(Uuid::new_v4().to_string())
-        .bind(&owner_user_id)
-        .bind(&reservation.bundle_id)
-        .bind(&reservation.content_identity_revision)
-        .bind(&reservation.fingerprint_key_revision)
-        .bind(&reservation.reuse_fingerprint)
-        .execute(&mut *transaction)
-        .await?;
-        if inserted.rows_affected() == 1 {
-            if let Some((key_revision, fingerprint)) = &reservation.previous_fingerprint {
-                sqlx::query(
-                    r"
-                    insert into content_bundle_fingerprint_alias (
-                      id, owner_user_id, bundle_id, content_identity_revision,
-                      fingerprint_key_revision, reuse_fingerprint
-                    ) values ($1, $2, $3, $4, $5, $6)
-                    ",
-                )
-                .bind(Uuid::new_v4().to_string())
-                .bind(&owner_user_id)
-                .bind(&reservation.bundle_id)
-                .bind(&reservation.content_identity_revision)
-                .bind(key_revision)
-                .bind(fingerprint)
-                .execute(&mut *transaction)
-                .await?;
-            }
-            transaction.commit().await?;
-            return Ok(ContentBundleReservationOutcome::Reserved {
-                bundle_id: reservation.bundle_id.clone(),
-            });
-        }
-
-        sqlx::query("delete from content_bundle where id = $1")
-            .bind(&reservation.bundle_id)
-            .execute(&mut *transaction)
-            .await?;
-        let row = lock_bundle_by_alias(&mut transaction, &owner_user_id, reservation)
-            .await?
-            .ok_or_else(|| {
-                JobStoreError::InconsistentState(
-                    "winning Content bundle alias disappeared during reservation".to_owned(),
-                )
-            })?;
-        let outcome =
-            reserve_existing_bundle(&mut transaction, row, reservation, lease_milliseconds).await?;
         transaction.commit().await?;
         Ok(outcome)
+    }
+
+    async fn quarantine_content_bundle(
+        &self,
+        bundle_id: &str,
+        integrity: ContentBundleIntegrity,
+    ) -> Result<bool, JobStoreError> {
+        let mut transaction = self.pool.begin().await?;
+        let locked = sqlx::query_scalar::<_, String>(
+            "select id from content_bundle where id = $1 and lifecycle_state <> 'deleting' for update",
+        )
+        .bind(bundle_id)
+        .fetch_optional(&mut *transaction)
+        .await?;
+        if locked.is_none() {
+            transaction.rollback().await?;
+            return Ok(false);
+        }
+        sqlx::query(
+            "update content_bundle set integrity_state = $2, updated_at = now() where id = $1",
+        )
+        .bind(bundle_id)
+        .bind(integrity.as_str())
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "update content_bundle_fingerprint_alias set retired_at = coalesce(retired_at, now()) where bundle_id = $1 and retired_at is null",
+        )
+        .bind(bundle_id)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "update raw_input_fingerprint_alias set retired_at = coalesce(retired_at, now()) where bundle_id = $1 and retired_at is null",
+        )
+        .bind(bundle_id)
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        Ok(true)
     }
 
     async fn commit_content_bundle_version(
@@ -801,6 +917,19 @@ impl ContentBundleStore for PostgresJobStore {
     }
 }
 
+async fn retire_raw_alias(
+    transaction: &mut Transaction<'_, Postgres>,
+    alias_id: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "update raw_input_fingerprint_alias set retired_at = coalesce(retired_at, now()) where id = $1",
+    )
+    .bind(alias_id)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
+}
+
 async fn active_attempt_owner(
     transaction: &mut Transaction<'_, Postgres>,
     attempt_id: &str,
@@ -818,6 +947,92 @@ async fn active_attempt_owner(
     )
     .bind(attempt_id)
     .fetch_optional(&mut **transaction)
+    .await
+}
+
+async fn insert_or_resolve_content_bundle(
+    transaction: &mut Transaction<'_, Postgres>,
+    owner_user_id: &str,
+    reservation: &ContentBundleReservation,
+    lease_milliseconds: i64,
+) -> Result<ContentBundleReservationOutcome, JobStoreError> {
+    sqlx::query(
+        r"
+        insert into content_bundle (
+          id, owner_user_id, content_identity_revision, creator_attempt_id,
+          creator_lease_expires_at
+        ) values ($1, $2, $3, $4, now() + ($5 * interval '1 millisecond'))
+        ",
+    )
+    .bind(&reservation.bundle_id)
+    .bind(owner_user_id)
+    .bind(&reservation.content_identity_revision)
+    .bind(&reservation.attempt_id)
+    .bind(lease_milliseconds)
+    .execute(&mut **transaction)
+    .await?;
+    let inserted = sqlx::query(
+        r"
+        insert into content_bundle_fingerprint_alias (
+          id, owner_user_id, bundle_id, content_identity_revision,
+          fingerprint_key_revision, reuse_fingerprint
+        ) values ($1, $2, $3, $4, $5, $6)
+        on conflict (
+          owner_user_id, content_identity_revision, fingerprint_key_revision,
+          reuse_fingerprint
+        ) where retired_at is null do nothing
+        ",
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(owner_user_id)
+    .bind(&reservation.bundle_id)
+    .bind(&reservation.content_identity_revision)
+    .bind(&reservation.fingerprint_key_revision)
+    .bind(&reservation.reuse_fingerprint)
+    .execute(&mut **transaction)
+    .await?;
+    if inserted.rows_affected() == 1 {
+        if let Some((key_revision, fingerprint)) = &reservation.previous_fingerprint {
+            sqlx::query(
+                r"
+                insert into content_bundle_fingerprint_alias (
+                  id, owner_user_id, bundle_id, content_identity_revision,
+                  fingerprint_key_revision, reuse_fingerprint
+                ) values ($1, $2, $3, $4, $5, $6)
+                ",
+            )
+            .bind(Uuid::new_v4().to_string())
+            .bind(owner_user_id)
+            .bind(&reservation.bundle_id)
+            .bind(&reservation.content_identity_revision)
+            .bind(key_revision)
+            .bind(fingerprint)
+            .execute(&mut **transaction)
+            .await?;
+        }
+        return Ok(ContentBundleReservationOutcome::Reserved {
+            bundle_id: reservation.bundle_id.clone(),
+        });
+    }
+
+    sqlx::query("delete from content_bundle where id = $1")
+        .bind(&reservation.bundle_id)
+        .execute(&mut **transaction)
+        .await?;
+    let row = lock_bundle_by_alias(transaction, owner_user_id, reservation)
+        .await?
+        .ok_or_else(|| {
+            JobStoreError::InconsistentState(
+                "winning Content bundle alias disappeared during reservation".to_owned(),
+            )
+        })?;
+    reserve_existing_bundle(
+        transaction,
+        row,
+        owner_user_id,
+        reservation,
+        lease_milliseconds,
+    )
     .await
 }
 
@@ -868,6 +1083,7 @@ async fn lock_bundle_by_alias(
 async fn reserve_existing_bundle(
     transaction: &mut Transaction<'_, Postgres>,
     row: sqlx::postgres::PgRow,
+    owner_user_id: &str,
     reservation: &ContentBundleReservation,
     lease_milliseconds: i64,
 ) -> Result<ContentBundleReservationOutcome, JobStoreError> {
@@ -875,6 +1091,26 @@ async fn reserve_existing_bundle(
     let lifecycle_state: String = row.try_get("lifecycle_state")?;
     let integrity_state: String = row.try_get("integrity_state")?;
     if lifecycle_state == "ready" && integrity_state == "healthy" {
+        sqlx::query(
+            r"
+            insert into content_bundle_fingerprint_alias (
+              id, owner_user_id, bundle_id, content_identity_revision,
+              fingerprint_key_revision, reuse_fingerprint
+            ) values ($1, $2, $3, $4, $5, $6)
+            on conflict (
+              owner_user_id, content_identity_revision, fingerprint_key_revision,
+              reuse_fingerprint
+            ) where retired_at is null do nothing
+            ",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(owner_user_id)
+        .bind(&bundle_id)
+        .bind(&reservation.content_identity_revision)
+        .bind(&reservation.fingerprint_key_revision)
+        .bind(&reservation.reuse_fingerprint)
+        .execute(&mut **transaction)
+        .await?;
         return Ok(ContentBundleReservationOutcome::Ready { bundle_id });
     }
     if lifecycle_state != "creating" || integrity_state != "healthy" {

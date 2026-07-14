@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ArtifactRecoveryError, ArtifactRecoveryService } from "../src/application/artifacts/artifact-recovery.js";
+import { RawFingerprintCandidates } from "../src/application/artifacts/raw-fingerprint.js";
 import type {
   ArtifactRepositories,
   ClaimIdempotencyInput,
@@ -126,7 +127,12 @@ function harness(
       repositories,
       storage,
       viewerOrigin: "http://127.0.0.1:7456",
-      maxProcessingAttempts: 3
+      maxProcessingAttempts: 3,
+      rawFingerprints: new RawFingerprintCandidates({
+        current: { revision: "key-v1", secret: "test-content-fingerprint-key-material" }
+      }),
+      processingRevision: "processing-v1",
+      contentIdentityRevision: "content-v1"
     })
   };
 }
@@ -162,16 +168,17 @@ describe("ArtifactRecoveryService", () => {
     );
   });
 
-  it("rejects Retry when retained input is deterministic or a ready Version exists", async () => {
+  it("rejects Retry for deterministic input but allows a failed later Upload", async () => {
     const deterministic = harness({ retryable: false });
     await expect(
       deterministic.service.retry({ ownerUserId: "owner-1", uploadSessionId: "upload-1", idempotencyKey: "retry-key" })
     ).rejects.toEqual(new ArtifactRecoveryError("invalid_artifact_state"));
 
-    const ready = harness({ retryable: true, ready: true });
+    const ready = harness({ retryable: true, ready: true, currentState: "failed" });
     await expect(
       ready.service.retry({ ownerUserId: "owner-1", uploadSessionId: "upload-1", idempotencyKey: "retry-key" })
-    ).rejects.toEqual(new ArtifactRecoveryError("invalid_artifact_state"));
+    ).resolves.toMatchObject({ artifactId: "artifact-1", uploadSessionId: "upload-1" });
+    expect(ready.queueManualRetry).toHaveBeenCalledOnce();
   });
 
   it("stores and commits a replacement under a new Upload session snapshot", async () => {

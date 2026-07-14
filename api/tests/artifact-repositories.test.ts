@@ -792,6 +792,7 @@ describe("Artifact repository adapters", () => {
     );
     expect(noCleanup.rows).toEqual([{ count: 0 }]);
 
+    const finalDeletionStartedAt = Date.now();
     await repositories.artifacts.deleteOwned("owner-1", "artifact-shared-a");
     const finalBundle = await databasePool.query(
       `select lifecycle_state, creator_attempt_id, winning_attempt_id
@@ -804,7 +805,12 @@ describe("Artifact repository adapters", () => {
       "select object_prefixes, quiesce_after from content_bundle_cleanup where bundle_id = 'bundle-shared'"
     );
     expect(cleanup.rows[0].object_prefixes).toContain("content-bundles/bundle-shared/");
-    expect(cleanup.rows[0].quiesce_after).toBeInstanceOf(Date);
+    expect(cleanup.rows[0].object_prefixes).toContain(
+      "content-bundles/bundle-shared/attempts/attempt-shared-a/"
+    );
+    expect(cleanup.rows[0].quiesce_after.getTime()).toBeGreaterThanOrEqual(
+      finalDeletionStartedAt + 65_000
+    );
     const job = await databasePool.query(
       "select state from content_bundle_thumbnail_job where id = 'thumbnail-shared'"
     );

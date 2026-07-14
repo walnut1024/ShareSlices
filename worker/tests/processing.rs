@@ -270,6 +270,27 @@ async fn ready_bundle_hit_skips_promotion_and_commits_a_new_version_reference() 
 }
 
 #[tokio::test]
+async fn live_equivalent_creator_is_waited_for_instead_of_failing_the_upload() {
+    let storage = TrackingStorage::new(Duration::ZERO);
+    storage
+        .inner
+        .put_raw_for_test(
+            "raw/upload-1.zip",
+            archive(&[("index.html", b"<html></html>")]),
+        )
+        .await;
+    let bundles = CreatingThenReadyStore::default();
+
+    let completion = process_attempt(&storage, &bundles, input(2))
+        .await
+        .expect("the losing attempt waits for the ready winner");
+
+    assert_eq!(completion.commit_outcome, CommitOutcome::Committed);
+    assert!(bundles.calls.load(Ordering::SeqCst) >= 2);
+    assert_eq!(bundles.commits.lock().await[0].bundle_id, "winning-bundle");
+}
+
+#[tokio::test]
 async fn compatible_raw_hit_skips_archive_read_and_reuses_worker_validation_evidence() {
     let storage = TrackingStorage::new(Duration::ZERO);
     let report = shareslices_worker::validation_report::ValidationReport {
@@ -463,6 +484,7 @@ async fn cleanup_failure_preserves_the_primary_failure_for_reconciliation_handof
 
 fn input(write_concurrency: usize) -> ProcessingAttemptInput {
     ProcessingAttemptInput {
+        owner_user_id: "user-1".to_owned(),
         job_id: "job-1".to_owned(),
         worker_id: "worker-1".to_owned(),
         upload_session_id: "upload-1".to_owned(),
@@ -582,6 +604,38 @@ struct FixedBundleStore {
     commit_outcome: CommitOutcome,
     commits: Mutex<Vec<ReadyContentBundleVersionCommit>>,
     raw_hit: Option<RawReuseHit>,
+}
+
+#[derive(Default)]
+struct CreatingThenReadyStore {
+    calls: AtomicUsize,
+    commits: Mutex<Vec<ReadyContentBundleVersionCommit>>,
+}
+
+#[async_trait]
+impl ContentBundleStore for CreatingThenReadyStore {
+    async fn reserve_content_bundle(
+        &self,
+        _reservation: &ContentBundleReservation,
+    ) -> Result<ContentBundleReservationOutcome, JobStoreError> {
+        if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+            Ok(ContentBundleReservationOutcome::Creating {
+                bundle_id: "winning-bundle".to_owned(),
+            })
+        } else {
+            Ok(ContentBundleReservationOutcome::Ready {
+                bundle_id: "winning-bundle".to_owned(),
+            })
+        }
+    }
+
+    async fn commit_content_bundle_version(
+        &self,
+        commit: &ReadyContentBundleVersionCommit,
+    ) -> Result<CommitOutcome, JobStoreError> {
+        self.commits.lock().await.push(commit.clone());
+        Ok(CommitOutcome::Committed)
+    }
 }
 
 impl FixedBundleStore {

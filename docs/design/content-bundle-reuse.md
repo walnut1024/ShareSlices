@@ -2,9 +2,9 @@
 
 <!-- cspell:words dedup HMAC idempotently repoint -->
 
-Status: target
+Status: current
 
-This design defines how Versions reference reusable internal content under the Artifact rules owned by [`PRODUCT.md`](../../PRODUCT.md). It realizes [ADR 0005](../adr/0005-reuse-content-bundles-within-user-ownership.md), while [the Module architecture](modules.md) owns Module placement and Interfaces. The implementing OpenSpec change must remove the stale implemented requirement that rejects additional ready Versions.
+This design describes how Versions reference reusable internal content under the Artifact rules owned by [`PRODUCT.md`](../../PRODUCT.md). It realizes [ADR 0005](../adr/0005-reuse-content-bundles-within-user-ownership.md), while [the Module architecture](modules.md) owns Module placement and Interfaces.
 
 ## Goals
 
@@ -86,7 +86,7 @@ Raw reuse never bypasses a newer policy or processing revision. A normalized-con
 
 ## Persistence and lifecycle
 
-The target schema has these relationships:
+The current schema has these relationships:
 
 ```text
 artifact_version.content_bundle_id -> content_bundle.id
@@ -195,4 +195,4 @@ Operational records classify outcomes as `raw_hash_hit`, `content_bundle_hit`, `
 
 ## Adoption boundary
 
-The first implementation uses a destructive pre-production transition: clear existing Artifact database records and their raw, staging, committed, and thumbnail objects before enabling the new schema and object layout. It provides no backfill, dual-read period, or legacy-key compatibility; the implementing OpenSpec change owns the exact execution and rollback procedure.
+The implementation uses a destructive pre-production transition: clear existing Artifact database records and their raw, staging, committed, and thumbnail objects before enabling the new schema and object layout. It provides no backfill, dual-read period, or legacy-key compatibility; migration `0012_content_bundle_foundation.sql` owns the database transition.

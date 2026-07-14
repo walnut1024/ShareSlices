@@ -51,6 +51,7 @@ try {
     ...compose,
     "up",
     "-d",
+    "--force-recreate",
     "--wait",
     "postgres",
     "object-storage",

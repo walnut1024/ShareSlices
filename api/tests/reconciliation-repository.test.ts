@@ -77,7 +77,7 @@ describe("PostgreSQL reconciliation repository", () => {
 
   it("preserves live raw input and selects orphan, superseded, and committed-input ZIPs", async () => {
     await Promise.all(
-      ["artifact-retry", "artifact-active", "artifact-superseded", "artifact-ready"].map(insertArtifact)
+      ["artifact-retry", "artifact-active", "artifact-superseded", "artifact-ready", "artifact-later"].map(insertArtifact)
     );
     await insertUpload({
       id: "upload-retry",
@@ -105,9 +105,26 @@ describe("PostgreSQL reconciliation repository", () => {
       state: "committed",
       rawObjectKey: "raw/committed.zip"
     });
+    await insertUpload({
+      id: "upload-later-ready",
+      artifactId: "artifact-later",
+      state: "committed",
+      rawObjectKey: "raw/later-committed.zip"
+    });
+    await insertUpload({
+      id: "upload-later-retry",
+      artifactId: "artifact-later",
+      state: "failed",
+      rawObjectKey: "raw/later-retry.zip",
+      retryable: true
+    });
     await databasePool.query(
       `insert into artifact_version (id, artifact_id, upload_session_id, version_number, state)
        values ('version-ready', 'artifact-ready', 'upload-ready', 1, 'ready')`
+    );
+    await databasePool.query(
+      `insert into artifact_version (id, artifact_id, upload_session_id, version_number, state)
+       values ('version-later-ready', 'artifact-later', 'upload-later-ready', 1, 'ready')`
     );
 
     await expect(
@@ -116,6 +133,7 @@ describe("PostgreSQL reconciliation repository", () => {
         "raw/active.zip",
         "raw/superseded.zip",
         "raw/committed.zip",
+        "raw/later-retry.zip",
         "raw/orphan.zip"
       ])
     ).resolves.toEqual(["raw/superseded.zip", "raw/committed.zip", "raw/orphan.zip"]);
@@ -515,5 +533,12 @@ describe("PostgreSQL reconciliation repository", () => {
       from artifact_processing_attempt where id = 'attempt-loser'`);
     expect(result.rows[0]).toMatchObject({ cleanup_state: "cleaned", cleanup_lease_owner: null });
     expect(result.rows[0].cleaned_at).toBeInstanceOf(Date);
+    const [repeatClaim] = await repository.claimEligibleAttemptPrefixes(claimAt, 1);
+    expect(repeatClaim).toMatchObject({
+      attemptId: "attempt-loser",
+      objectPrefix: "content-bundles/bundle-live/attempts/attempt-loser/",
+      attemptCount: 2
+    });
+    await repository.completeAttemptPrefixCleanup("attempt-loser", repeatClaim!.leaseToken);
   });
 });

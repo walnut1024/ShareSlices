@@ -2,16 +2,13 @@ import { createHash, randomUUID } from "node:crypto";
 import type { ArtifactAccepted } from "./artifact-intake.js";
 import type { ArtifactRepositories, UploadPolicySnapshot } from "./repositories.js";
 import type { ObjectBody, ObjectStorage } from "../../storage/index.js";
-import { env } from "../../env.js";
 import {
   discardUncommittedRawObject,
+  hashUploadBody,
   normalizeRequestedEntry,
   RequestedEntryValidationError
 } from "./artifact-upload-input.js";
-import {
-  createConfiguredRawFingerprintCandidates,
-  type RawFingerprintCandidates
-} from "./raw-fingerprint.js";
+import type { RawFingerprintCandidates } from "./raw-fingerprint.js";
 
 type RecoveryRepositories = Pick<
   ArtifactRepositories,
@@ -23,7 +20,9 @@ type ArtifactRecoveryOptions = {
   storage: ObjectStorage;
   viewerOrigin: string;
   maxProcessingAttempts: number;
-  rawFingerprints?: RawFingerprintCandidates;
+  rawFingerprints: RawFingerprintCandidates;
+  processingRevision: string;
+  contentIdentityRevision: string;
 };
 
 export type ArtifactRecoveryErrorCode =
@@ -80,19 +79,6 @@ function recoveryRequestedEntry(value: string | null): string | null {
   }
 }
 
-async function hashBody(body: ObjectBody, maxBytes: number): Promise<{ sizeBytes: number; sha256: string }> {
-  const digest = createHash("sha256");
-  let sizeBytes = 0;
-  for await (const chunk of body) {
-    sizeBytes += chunk.byteLength;
-    if (sizeBytes > maxBytes) {
-      throw new ArtifactRecoveryError("archive_too_large");
-    }
-    digest.update(chunk);
-  }
-  return { sizeBytes, sha256: digest.digest("hex") };
-}
-
 function acceptedResponse(value: Record<string, unknown> | null): ArtifactAccepted {
   if (!value) {
     throw new Error("Completed idempotency record has no response body.");
@@ -105,12 +91,16 @@ export class ArtifactRecoveryService {
   readonly #storage: ObjectStorage;
   readonly #maxProcessingAttempts: number;
   readonly #rawFingerprints: RawFingerprintCandidates;
+  readonly #processingRevision: string;
+  readonly #contentIdentityRevision: string;
 
   constructor(options: ArtifactRecoveryOptions) {
     this.#repositories = options.repositories;
     this.#storage = options.storage;
     this.#maxProcessingAttempts = options.maxProcessingAttempts;
-    this.#rawFingerprints = options.rawFingerprints ?? createConfiguredRawFingerprintCandidates();
+    this.#rawFingerprints = options.rawFingerprints;
+    this.#processingRevision = options.processingRevision;
+    this.#contentIdentityRevision = options.contentIdentityRevision;
   }
 
   async retry(input: RetryInput): Promise<ArtifactAccepted> {
@@ -125,8 +115,7 @@ export class ArtifactRecoveryService {
     if (
       session.state !== "failed" ||
       !session.retryable ||
-      session.supersededAt ||
-      (await this.#repositories.artifacts.hasReadyVersion(session.artifactId))
+      session.supersededAt
     ) {
       throw new ArtifactRecoveryError("invalid_artifact_state");
     }
@@ -194,7 +183,11 @@ export class ArtifactRecoveryService {
         throw new ArtifactRecoveryError("operation_in_progress");
       }
       const [replay, , replayEntry] = await Promise.all([
-        hashBody(input.body, input.policy.archiveSizeBytes),
+        hashUploadBody(
+          input.body,
+          input.policy.archiveSizeBytes,
+          () => new ArtifactRecoveryError("archive_too_large")
+        ),
         input.completed ?? Promise.resolve(),
         requestedEntry
       ]);
@@ -251,8 +244,8 @@ export class ArtifactRecoveryService {
         policy: input.policy,
         rawObjectKey,
         rawFingerprintCandidates: this.#rawFingerprints.create(input.ownerUserId, rawResult.value.sha256),
-        processingRevision: env.ARTIFACT_PROCESSING_REVISION,
-        contentIdentityRevision: env.CONTENT_IDENTITY_REVISION,
+        processingRevision: this.#processingRevision,
+        contentIdentityRevision: this.#contentIdentityRevision,
         rawSizeBytes: rawResult.value.sizeBytes,
         requestedEntry: entryResult.value,
         processingJobId: `job_${randomUUID().replaceAll("-", "")}`,

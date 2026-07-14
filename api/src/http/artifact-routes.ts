@@ -7,6 +7,7 @@ import {
 } from "../application/artifacts/artifact-management.js";
 import { ArtifactIntakeError, ArtifactIntakeService } from "../application/artifacts/artifact-intake.js";
 import { ArtifactRecoveryError, ArtifactRecoveryService } from "../application/artifacts/artifact-recovery.js";
+import { RawFingerprintCandidates } from "../application/artifacts/raw-fingerprint.js";
 import type { ArtifactRepositories } from "../application/artifacts/repositories.js";
 import { createArtifactRepositories } from "../db/artifact-repositories.js";
 import { env } from "../env.js";
@@ -32,6 +33,20 @@ const artifactListQuerySchema = z.object({
 
 export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {}): Hono {
   const defaultRepositories = createArtifactRepositories();
+  const rawFingerprints = new RawFingerprintCandidates({
+    current: {
+      revision: env.CONTENT_FINGERPRINT_KEY_CURRENT_REVISION,
+      secret: env.CONTENT_FINGERPRINT_KEY_CURRENT
+    },
+    ...(env.CONTENT_FINGERPRINT_KEY_PREVIOUS && env.CONTENT_FINGERPRINT_KEY_PREVIOUS_REVISION
+      ? {
+          previous: {
+            revision: env.CONTENT_FINGERPRINT_KEY_PREVIOUS_REVISION,
+            secret: env.CONTENT_FINGERPRINT_KEY_PREVIOUS
+          }
+        }
+      : {})
+  });
   const dependencies: ArtifactRouteDependencies = {
     authApi: auth.api,
     repositories: { uploadPolicies: defaultRepositories.uploadPolicies },
@@ -44,13 +59,19 @@ export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {
       repositories: defaultRepositories,
       storage: createConfiguredObjectStorage(),
       viewerOrigin: env.VIEWER_ORIGIN,
-      maxProcessingAttempts: env.WORKER_JOB_MAX_ATTEMPTS
+      maxProcessingAttempts: env.WORKER_JOB_MAX_ATTEMPTS,
+      rawFingerprints,
+      processingRevision: env.ARTIFACT_PROCESSING_REVISION,
+      contentIdentityRevision: env.CONTENT_IDENTITY_REVISION
     }),
     recovery: new ArtifactRecoveryService({
       repositories: defaultRepositories,
       storage: createConfiguredObjectStorage(),
       viewerOrigin: env.VIEWER_ORIGIN,
-      maxProcessingAttempts: env.WORKER_JOB_MAX_ATTEMPTS
+      maxProcessingAttempts: env.WORKER_JOB_MAX_ATTEMPTS,
+      rawFingerprints,
+      processingRevision: env.ARTIFACT_PROCESSING_REVISION,
+      contentIdentityRevision: env.CONTENT_IDENTITY_REVISION
     }),
     ...overrides
   };

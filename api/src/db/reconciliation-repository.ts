@@ -107,24 +107,11 @@ export function createReconciliationRepository(
       const sessions = await database
         .select({
           rawObjectKey: schema.artifactUploadSession.rawObjectKey,
-          artifactId: schema.artifactUploadSession.artifactId,
           state: schema.artifactUploadSession.state,
           supersededAt: schema.artifactUploadSession.supersededAt
         })
         .from(schema.artifactUploadSession)
         .where(inArray(schema.artifactUploadSession.rawObjectKey, keys));
-      const artifactIds = [...new Set(sessions.map((session) => session.artifactId))];
-      const readyArtifacts =
-        artifactIds.length === 0
-          ? new Set<string>()
-          : new Set(
-              (
-                await database
-                  .select({ artifactId: schema.artifactVersion.artifactId })
-                  .from(schema.artifactVersion)
-                  .where(inArray(schema.artifactVersion.artifactId, artifactIds))
-              ).map((version) => version.artifactId)
-            );
       const references = new Map<string, typeof sessions>();
       for (const session of sessions) {
         const existing = references.get(session.rawObjectKey) ?? [];
@@ -139,8 +126,7 @@ export function createReconciliationRepository(
           referencedBy.every(
             (session) =>
               session.supersededAt !== null ||
-              session.state === "committed" ||
-              readyArtifacts.has(session.artifactId)
+              session.state === "committed"
           )
         );
       });
@@ -375,8 +361,9 @@ export function createReconciliationRepository(
       }>(sql`
         with candidates as (
           select id from artifact_processing_attempt
-          where cleanup_state = 'eligible'
-            and object_prefix is not null
+          where object_prefix is not null
+            and (cleanup_state = 'eligible'
+              or (cleanup_state = 'cleaned' and cleaned_at <= ${now}::timestamptz - interval '1 minute'))
             and cleanup_eligible_at <= ${now}::timestamptz
             and cleanup_next_attempt_at <= ${now}::timestamptz
             and (cleanup_lease_expires_at is null or cleanup_lease_expires_at <= ${now}::timestamptz)
@@ -385,7 +372,8 @@ export function createReconciliationRepository(
           limit ${limit}
         )
         update artifact_processing_attempt attempt
-        set cleanup_lease_owner = ${leaseToken},
+        set cleanup_state = 'eligible', cleaned_at = null,
+            cleanup_lease_owner = ${leaseToken},
             cleanup_lease_expires_at = ${now}::timestamptz + interval '1 minute',
             cleanup_attempt_count = attempt.cleanup_attempt_count + 1,
             cleanup_last_error_code = null
@@ -423,7 +411,8 @@ export function createReconciliationRepository(
       }>(sql`
         with candidates as (
           select id from content_bundle_thumbnail_attempt
-          where cleanup_state = 'eligible'
+          where (cleanup_state = 'eligible'
+              or (cleanup_state = 'cleaned' and cleaned_at <= ${now}::timestamptz - interval '1 minute'))
             and cleanup_eligible_at <= ${now}::timestamptz
             and cleanup_next_attempt_at <= ${now}::timestamptz
             and (cleanup_lease_expires_at is null or cleanup_lease_expires_at <= ${now}::timestamptz)
@@ -431,7 +420,8 @@ export function createReconciliationRepository(
           for update skip locked limit ${limit}
         )
         update content_bundle_thumbnail_attempt attempt
-        set cleanup_lease_owner = ${leaseToken},
+        set cleanup_state = 'eligible', cleaned_at = null,
+            cleanup_lease_owner = ${leaseToken},
             cleanup_lease_expires_at = ${now}::timestamptz + interval '1 minute',
             cleanup_attempt_count = attempt.cleanup_attempt_count + 1,
             cleanup_last_error_code = null

@@ -28,10 +28,6 @@ _Avoid_: Slideshow, presentation file
 An immutable Artifact history record that identifies one validated and normalized content snapshot.
 _Avoid_: Upload, build, revision
 
-**Content bundle**:
-An internal immutable set of validated and normalized Artifact files that one or more Versions owned by the same User may reference.
-_Avoid_: Version, ZIP, shared Artifact
-
 **Artifact thumbnail**:
 The owner-facing visual summary of an artifact's latest ready version. It does not represent the version selected by the current publication.
 _Avoid_: Publication thumbnail, share-link preview

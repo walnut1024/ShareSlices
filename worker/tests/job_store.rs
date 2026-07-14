@@ -4,9 +4,10 @@ use std::{env, fs, path::Path, time::Duration};
 use serde_json::json;
 use shareslices_worker::{
     job_store::{
-        CommitOutcome, ContentBundleReservation, ContentBundleReservationOutcome,
-        ContentBundleStore, JobFailure, JobStore, PostgresJobStore, RawFingerprintCandidate,
-        RawReuseContext, ReadyContentBundleVersionCommit, ReadyVersionCommit,
+        CommitOutcome, ContentBundleIntegrity, ContentBundleReservation,
+        ContentBundleReservationOutcome, ContentBundleStore, JobFailure, JobStore,
+        PostgresJobStore, RawFingerprintCandidate, RawReuseContext,
+        ReadyContentBundleVersionCommit, ReadyVersionCommit,
     },
     manifest::{ManifestAsset, ReadyManifest},
     thumbnail::requeue_failed_browser_jobs,
@@ -250,6 +251,127 @@ async fn equivalent_fingerprints_are_isolated_by_user() {
             .expect("bundle owners");
     assert_eq!(owners, ["user-1", "user-2"]);
     database.drop().await;
+}
+
+#[tokio::test]
+async fn rotation_backfills_the_current_alias_and_quarantine_retires_reuse() {
+    let Some(database) = TestDatabase::create().await else {
+        return;
+    };
+    database.seed_two_jobs_same_user().await;
+    let store = PostgresJobStore::new(database.pool.clone());
+    let first = store
+        .claim_next("worker-a", Duration::from_secs(30))
+        .await
+        .expect("first claim")
+        .expect("first job");
+    let mut old = bundle_reservation("bundle-old", &first.attempt_id);
+    old.fingerprint_key_revision = "fingerprint-v1".to_owned();
+    old.reuse_fingerprint = "a".repeat(64);
+    assert_eq!(
+        store
+            .reserve_content_bundle(&old)
+            .await
+            .expect("old reserve"),
+        ContentBundleReservationOutcome::Reserved {
+            bundle_id: "bundle-old".to_owned()
+        }
+    );
+    assert_eq!(
+        store
+            .commit_content_bundle_version(&bundle_commit(
+                "bundle-old",
+                &first.attempt_id,
+                "worker-a",
+                "job-1",
+                "upload-1",
+                "version-1",
+            ))
+            .await
+            .expect("old commit"),
+        CommitOutcome::Committed
+    );
+
+    let reindex_candidates = store
+        .list_bundle_alias_reindex_candidates("fingerprint-v2", 10)
+        .await
+        .expect("reindex candidates");
+    assert_eq!(reindex_candidates.len(), 1);
+    assert_eq!(reindex_candidates[0].bundle_id, "bundle-old");
+    assert!(
+        store
+            .install_reindexed_bundle_alias(
+                &reindex_candidates[0],
+                "fingerprint-v2",
+                &"b".repeat(64),
+            )
+            .await
+            .expect("install reindexed alias")
+    );
+    sqlx::query(
+        "update content_bundle_fingerprint_alias set retired_at = now() where bundle_id = 'bundle-old' and fingerprint_key_revision = 'fingerprint-v2' and retired_at is null",
+    )
+    .execute(&database.pool)
+    .await
+    .expect("retire test current alias before lazy rotation lookup");
+
+    let second = store
+        .claim_next("worker-b", Duration::from_secs(30))
+        .await
+        .expect("second claim")
+        .expect("second job");
+    let mut rotated = bundle_reservation("bundle-new", &second.attempt_id);
+    rotated.fingerprint_key_revision = "fingerprint-v2".to_owned();
+    rotated.reuse_fingerprint = "b".repeat(64);
+    rotated.previous_fingerprint = Some(("fingerprint-v1".to_owned(), "a".repeat(64)));
+    assert_eq!(
+        store
+            .reserve_content_bundle(&rotated)
+            .await
+            .expect("rotated lookup"),
+        ContentBundleReservationOutcome::Ready {
+            bundle_id: "bundle-old".to_owned()
+        }
+    );
+    let current_aliases: i64 = sqlx::query_scalar(
+        "select count(*) from content_bundle_fingerprint_alias where bundle_id = 'bundle-old' and fingerprint_key_revision = 'fingerprint-v2' and retired_at is null",
+    )
+    .fetch_one(&database.pool)
+    .await
+    .expect("current alias count");
+    assert_eq!(current_aliases, 1);
+
+    assert_bundle_quarantine(&database, &store, "bundle-old").await;
+
+    database.drop().await;
+}
+
+async fn assert_bundle_quarantine(
+    database: &TestDatabase,
+    store: &PostgresJobStore,
+    bundle_id: &str,
+) {
+    assert!(
+        store
+            .quarantine_content_bundle(bundle_id, ContentBundleIntegrity::Suspect)
+            .await
+            .expect("quarantine")
+    );
+    let bundle_state: String =
+        sqlx::query_scalar("select integrity_state from content_bundle where id = $1")
+            .bind(bundle_id)
+            .fetch_one(&database.pool)
+            .await
+            .expect("bundle integrity");
+    let active_aliases: i64 = sqlx::query_scalar(
+        "select (select count(*) from content_bundle_fingerprint_alias where bundle_id = $1 and retired_at is null) + (select count(*) from raw_input_fingerprint_alias where bundle_id = $1 and retired_at is null)",
+    )
+    .bind(bundle_id)
+    .fetch_one(&database.pool)
+    .await
+    .expect("active aliases");
+    assert_eq!(bundle_state, "suspect");
+    assert_eq!(active_aliases, 0);
 }
 
 #[tokio::test]

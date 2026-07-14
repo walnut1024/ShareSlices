@@ -1,16 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { ArtifactRepositories, UploadPolicySnapshot } from "./repositories.js";
 import type { ObjectBody, ObjectStorage } from "../../storage/index.js";
-import { env } from "../../env.js";
 import {
   discardUncommittedRawObject,
+  hashUploadBody,
   normalizeRequestedEntry,
   RequestedEntryValidationError
 } from "./artifact-upload-input.js";
-import {
-  createConfiguredRawFingerprintCandidates,
-  type RawFingerprintCandidates
-} from "./raw-fingerprint.js";
+import type { RawFingerprintCandidates } from "./raw-fingerprint.js";
 
 export type ArtifactAccepted = {
   artifactId: string;
@@ -35,7 +32,9 @@ type ArtifactIntakeOptions = {
   storage: ObjectStorage;
   viewerOrigin: string;
   maxProcessingAttempts: number;
-  rawFingerprints?: RawFingerprintCandidates;
+  rawFingerprints: RawFingerprintCandidates;
+  processingRevision: string;
+  contentIdentityRevision: string;
 };
 
 export type ArtifactIntakeErrorCode =
@@ -60,19 +59,6 @@ export class ArtifactIntakeError extends Error {
     super(errorMessages[code]);
     this.name = "ArtifactIntakeError";
   }
-}
-
-async function hashBody(body: ObjectBody, maxBytes: number): Promise<{ sizeBytes: number; sha256: string }> {
-  const hash = createHash("sha256");
-  let sizeBytes = 0;
-  for await (const chunk of body) {
-    sizeBytes += chunk.byteLength;
-    if (sizeBytes > maxBytes) {
-      throw new ArtifactIntakeError("archive_too_large");
-    }
-    hash.update(chunk);
-  }
-  return { sizeBytes, sha256: hash.digest("hex") };
 }
 
 function artifactName(value: string): string {
@@ -106,12 +92,16 @@ export class ArtifactIntakeService {
   readonly #storage: ObjectStorage;
   readonly #maxProcessingAttempts: number;
   readonly #rawFingerprints: RawFingerprintCandidates;
+  readonly #processingRevision: string;
+  readonly #contentIdentityRevision: string;
 
   constructor(options: ArtifactIntakeOptions) {
     this.#repositories = options.repositories;
     this.#storage = options.storage;
     this.#maxProcessingAttempts = options.maxProcessingAttempts;
-    this.#rawFingerprints = options.rawFingerprints ?? createConfiguredRawFingerprintCandidates();
+    this.#rawFingerprints = options.rawFingerprints;
+    this.#processingRevision = options.processingRevision;
+    this.#contentIdentityRevision = options.contentIdentityRevision;
   }
 
   static inputHash(name: string, zipSha256: string, requestedEntry: string | null = null): string {
@@ -145,7 +135,7 @@ export class ArtifactIntakeService {
       }
       const [name, replay, requestedEntry] = await Promise.all([
         namePromise,
-        hashBody(input.body, policy.archiveSizeBytes),
+        hashUploadBody(input.body, policy.archiveSizeBytes, () => new ArtifactIntakeError("archive_too_large")),
         entryPromise
       ]);
       await input.completed;
@@ -207,8 +197,8 @@ export class ArtifactIntakeService {
         policy,
         rawObjectKey,
         rawFingerprintCandidates: this.#rawFingerprints.create(input.ownerUserId, raw.sha256),
-        processingRevision: env.ARTIFACT_PROCESSING_REVISION,
-        contentIdentityRevision: env.CONTENT_IDENTITY_REVISION,
+        processingRevision: this.#processingRevision,
+        contentIdentityRevision: this.#contentIdentityRevision,
         rawSizeBytes: raw.sizeBytes,
         requestedEntry,
         processingJobId,

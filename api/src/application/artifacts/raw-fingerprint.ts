@@ -1,5 +1,4 @@
 import { createHmac } from "node:crypto";
-import { env } from "../../env.js";
 
 type FingerprintKey = {
   revision: string;
@@ -44,21 +43,4 @@ export class RawFingerprintCandidates {
         .digest("hex")
     }));
   }
-}
-
-export function createConfiguredRawFingerprintCandidates(): RawFingerprintCandidates {
-  return new RawFingerprintCandidates({
-    current: {
-      revision: env.CONTENT_FINGERPRINT_KEY_CURRENT_REVISION,
-      secret: env.CONTENT_FINGERPRINT_KEY_CURRENT
-    },
-    ...(env.CONTENT_FINGERPRINT_KEY_PREVIOUS && env.CONTENT_FINGERPRINT_KEY_PREVIOUS_REVISION
-      ? {
-          previous: {
-            revision: env.CONTENT_FINGERPRINT_KEY_PREVIOUS_REVISION,
-            secret: env.CONTENT_FINGERPRINT_KEY_PREVIOUS
-          }
-        }
-      : {})
-  });
 }

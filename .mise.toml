@@ -9,7 +9,7 @@ run = "pnpm install"
 
 [tasks.dev-infra]
 description = "Start local PostgreSQL and object storage"
-run = "docker compose up -d --wait postgres object-storage mailpit && docker compose run --rm object-storage-init"
+run = "docker compose up -d --force-recreate --wait postgres object-storage mailpit && docker compose run --rm object-storage-init"
 
 [tasks.dev]
 description = "Run Web and API locally with infrastructure and Worker in containers"

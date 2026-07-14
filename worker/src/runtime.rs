@@ -118,7 +118,7 @@ impl ProcessingInputSource for PostgresInputSource {
     ) -> Result<ProcessingAttemptInput, InputError> {
         let row = sqlx::query(
             r"
-            select raw_object_key, requested_entry, policy_revision, archive_size_bytes, expanded_size_bytes,
+            select owner_user_id, raw_object_key, requested_entry, policy_revision, archive_size_bytes, expanded_size_bytes,
                    file_count, single_file_size_bytes, formats
             from artifact_upload_session
             where id = $1
@@ -199,6 +199,7 @@ impl ProcessingInputSource for PostgresInputSource {
         };
 
         Ok(ProcessingAttemptInput {
+            owner_user_id: row.try_get("owner_user_id")?,
             job_id: claim.job_id.clone(),
             worker_id: worker_id.to_owned(),
             upload_session_id: claim.upload_session_id.clone(),
@@ -423,7 +424,7 @@ where
 
         let result = self.process_with_heartbeat(&claim, input).await;
         match result {
-            Ok(completion) => emit_reuse_outcome(completion.reuse_telemetry),
+            Ok(completion) => emit_reuse_outcome(completion.reuse_telemetry, claim_context(&claim)),
             Err(error) => {
                 let (operation, classified, validation_report) = classify_attempt_error(&error);
                 self.record_failure(
@@ -579,13 +580,19 @@ fn emit_stopped() {
     .emit();
 }
 
-fn emit_reuse_outcome(telemetry: shareslices_worker::processing::ReuseTelemetry) {
+fn emit_reuse_outcome(
+    telemetry: shareslices_worker::processing::ReuseTelemetry,
+    context: EventContext<'_>,
+) {
     tracing::event!(
         tracing::Level::INFO,
         severity_text = "INFO",
         severity_number = 9_u64,
         event_name = "shareslices.artifact.processing.reuse_outcome",
         body = "processing reuse outcome recorded",
+        upload_session_id = context.upload_session_id.unwrap_or_default(),
+        processing_job_id = context.processing_job_id.unwrap_or_default(),
+        attempt_id = context.attempt_id.unwrap_or_default(),
         "shareslices.reuse.outcome" = telemetry.outcome.as_str(),
         "shareslices.reuse.fallback_reason" = telemetry.fallback_reason.map_or(
             "none",
@@ -660,7 +667,7 @@ fn classify_attempt_error(
             classify_database_error(error),
             None,
         ),
-        AttemptError::Commit(_) => (
+        AttemptError::Commit(_) | AttemptError::BundleCreating => (
             ProcessingOperation::CommitReadyVersion,
             ProcessingError::WorkerInfrastructure,
             None,
@@ -668,11 +675,6 @@ fn classify_attempt_error(
         AttemptError::LeaseLost => (
             ProcessingOperation::CommitReadyVersion,
             ProcessingError::LeaseLost,
-            None,
-        ),
-        AttemptError::BundleCreating => (
-            ProcessingOperation::CommitReadyVersion,
-            ProcessingError::Unclassified,
             None,
         ),
         AttemptError::ContentIdentity(_)
@@ -1037,6 +1039,7 @@ mod tests {
         write_concurrency: usize,
     ) -> ProcessingAttemptInput {
         ProcessingAttemptInput {
+            owner_user_id: "user-1".to_owned(),
             job_id: claim.job_id.clone(),
             worker_id: worker_id.to_owned(),
             upload_session_id: claim.upload_session_id.clone(),
