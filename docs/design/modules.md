@@ -45,11 +45,19 @@ Status: mixed. Account entry remains a thin current HTTP/Auth/DB path. Artifact,
 
 - `ArtifactIntakeService`, `ArtifactManagementService`, and `ArtifactRecoveryService` are the current Artifact application modules. Together they own raw upload acceptance, Artifact state projection, name changes, permanent deletion, Share-link expiration, Retry, Replace file, idempotency, and ready-Version gates.
 - `PublicationViewerService` is the current Publication and Viewer application module. It owns owner Preview and Version export checks, atomic Publish and Unpublish behavior, Share-slug lifecycle resolution, normalized manifest lookup, and immutable Version selection for each request.
+- `api/src/http/publication-viewer-routes.ts` is the Viewer HTTP Adapter. For an active Publication entry request it serves a fixed trusted player that owns the Viewer full-screen controls and embeds the resolved Artifact entry through the reserved content-mode request; status pages remain plain responses, and the application Module still owns every Publication and asset-resolution decision.
 - `ReconciliationModule` is current. It owns bounded expired-lease recovery, raw/staging object cleanup while preserving the current retryable input, completion of durable Artifact-deletion cleanup intents after interrupted requests, stale creating-bundle recovery, and unreferenced-bundle cleanup defined by [Content bundle reuse](content-bundle-reuse.md).
 - Version thumbnail reads and internal capture routing are current thin HTTP paths over `ArtifactThumbnailRepository`. The repository owns Owner-scoped immutable thumbnail lookup through a Version's pinned Content bundle and renderer revision, one-time capture-grant consumption, capture-session validation, and manifest asset lookup; a separate application Module remains deferred until a second caller or Adapter appears.
 - `UserModule` remains target. Current account entry intentionally stays in `api/src/http/account-routes.ts`, Better Auth, and focused account queries until another caller or implementation requires extraction.
 - `AdministrationModule` is a roadmap Module for user search, deactivation, reactivation, soft deletion, forced sign out, session revocation, email verification policy, and administrative audit. It stays separate because the actor and permissions differ from user-managed flows.
 - `AuthenticationEmailDelivery` is current. Account routes persist encrypted delivery payloads and return without contacting SMTP; the API-runtime dispatcher leases pending rows, renders fixed authentication templates, sends through `api/src/email/`, records bounded retry outcomes, and removes terminal payloads. SMTP outages do not affect API readiness.
+
+## Web Artifact player
+
+Status: current
+
+- `web/src/components/ArtifactPlayer.tsx` is the reusable owner player for the ordinary Preview page and Card full-screen mode. It owns the content iframe, accessible enter and exit controls, Fullscreen API event synchronization, and local failure feedback; it does not own Artifact, Version, or Publication policy.
+- The `/artifacts/{artifactId}/preview` route renders the player outside the management shell. `ArtifactsPage` keeps Card eligibility and management-state preservation local, while `ArtifactPage` and Card thumbnail navigation open the same trusted Preview route.
 
 ## Rust worker Modules
 

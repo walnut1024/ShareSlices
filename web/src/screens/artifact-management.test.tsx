@@ -25,6 +25,9 @@ describe("Artifact management", () => {
     storedPreferences.clear();
     preflightArtifactZip.mockReset();
     preflightArtifactZip.mockResolvedValue({ primaryIssue: null, issues: [], warnings: [] });
+    Object.defineProperty(document, "fullscreenElement", { configurable: true, value: null });
+    Reflect.deleteProperty(document, "exitFullscreen");
+    Reflect.deleteProperty(HTMLElement.prototype, "requestFullscreen");
   });
 
   it("routes an authenticated user to the Artifact list", async () => {
@@ -94,9 +97,91 @@ describe("Artifact management", () => {
     const thumbnail = card.querySelector("img");
     expect(thumbnail).toHaveAttribute("src", "/api/versions/version%2F1/thumbnail");
     expect(thumbnail).toHaveClass("object-cover");
-    expect(within(card).getByRole("link", { name: "Preview Report" })).toHaveAttribute("href", "/api/versions/version%2F1/content/");
+    expect(within(card).getByRole("link", { name: "Preview Report" })).toHaveAttribute("href", "/artifacts/artifact-1/preview?versionId=version%2F1");
     expect(within(card).getByRole("link", { name: "Preview Report" })).toHaveAttribute("target", "_blank");
-    expect(within(card).queryByRole("button", { name: "Start presentation for Report" })).not.toBeInTheDocument();
+    expect(within(card).getByRole("link", { name: "Preview Report" })).toHaveAttribute("rel", "noopener");
+    expect(within(card).getByRole("button", { name: "Enter full screen for Report" })).toBeInTheDocument();
+  });
+
+  it("enters Card full screen directly and restores unchanged management state on exit", async () => {
+    const interaction = userEvent.setup();
+    let fullscreenElement: Element | null = null;
+    let requestTarget: HTMLElement | null = null;
+    Object.defineProperty(document, "fullscreenElement", { configurable: true, get: () => fullscreenElement });
+    Object.defineProperty(document, "exitFullscreen", {
+      configurable: true,
+      value: vi.fn(async () => {
+        fullscreenElement = null;
+        document.dispatchEvent(new Event("fullscreenchange"));
+      })
+    });
+    Object.defineProperty(HTMLElement.prototype, "requestFullscreen", {
+      configurable: true,
+      value: vi.fn(async function (this: HTMLElement) {
+        requestTarget = this;
+        fullscreenElement = this;
+      })
+    });
+    window.history.replaceState(null, "", "/artifacts");
+    stubFetch([
+      json({ user }),
+      json({ artifacts: [artifact({ processingState: "ready", readyVersion: { id: "version/1", state: "ready" }, allowedActions: ["preview"] })] })
+    ]);
+
+    render(<App />);
+    const search = await screen.findByRole("textbox", { name: "Search artifacts" });
+    await interaction.type(search, "report");
+    const button = screen.getByRole("button", { name: "Enter full screen for Report" });
+    const card = button.closest<HTMLElement>('[data-slot="card"]')!;
+    await interaction.click(button);
+
+    expect(requestTarget).toBe(card);
+    expect(await screen.findByTitle("Artifact content")).toHaveAttribute("src", "/api/versions/version%2F1/content/");
+    expect(window.location.pathname).toBe("/artifacts");
+    expect(search).toHaveValue("report");
+
+    fullscreenElement = null;
+    document.dispatchEvent(new Event("fullscreenchange"));
+    await waitFor(() => expect(screen.queryByTitle("Artifact content")).not.toBeInTheDocument());
+    expect(search).toHaveValue("report");
+  });
+
+  it("reports a rejected Card full-screen request without navigation", async () => {
+    const interaction = userEvent.setup();
+    Object.defineProperty(document, "fullscreenElement", { configurable: true, value: null });
+    Object.defineProperty(HTMLElement.prototype, "requestFullscreen", {
+      configurable: true,
+      value: vi.fn().mockRejectedValue(new TypeError("Denied"))
+    });
+    window.history.replaceState(null, "", "/artifacts");
+    stubFetch([
+      json({ user }),
+      json({ artifacts: [artifact({ processingState: "ready", readyVersion: { id: "version-1", state: "ready" }, allowedActions: ["preview"] })] })
+    ]);
+
+    render(<App />);
+    await interaction.click(await screen.findByRole("button", { name: "Enter full screen for Report" }));
+
+    expect(await screen.findByText("Full screen could not be opened.")).toBeInTheDocument();
+    expect(screen.queryByTitle("Artifact content")).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe("/artifacts");
+  });
+
+  it("omits Card full screen from list view and selection mode", async () => {
+    const interaction = userEvent.setup();
+    window.history.replaceState(null, "", "/artifacts");
+    stubFetch([
+      json({ user }),
+      json({ artifacts: [artifact({ processingState: "ready", readyVersion: { id: "version-1", state: "ready" }, allowedActions: ["preview"] })] })
+    ]);
+
+    render(<App />);
+    expect(await screen.findByRole("button", { name: "Enter full screen for Report" })).toBeInTheDocument();
+    await interaction.click(screen.getByRole("button", { name: "List view" }));
+    expect(screen.queryByRole("button", { name: "Enter full screen for Report" })).not.toBeInTheDocument();
+    await interaction.click(screen.getByRole("button", { name: "Grid view" }));
+    await interaction.click(screen.getByRole("button", { name: "Select" }));
+    expect(screen.queryByRole("button", { name: "Enter full screen for Report" })).not.toBeInTheDocument();
   });
 
   it("hides grid card actions that the server does not allow", async () => {
@@ -110,7 +195,7 @@ describe("Artifact management", () => {
     render(<App />);
 
     await screen.findByRole("link", { name: "Report" });
-    expect(screen.queryByRole("button", { name: "Start presentation for Report" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Enter full screen for Report" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Share Report" })).not.toBeInTheDocument();
     await interaction.click(screen.getByRole("button", { name: "More actions for Report" }));
     expect(await screen.findByRole("menuitem", { name: "Info" })).toBeInTheDocument();
@@ -1066,9 +1151,20 @@ describe("Artifact management", () => {
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "Preview" }));
 
-    expect(open).toHaveBeenCalledWith("/api/versions/version%2F1/content/", "_blank");
+    expect(open).toHaveBeenCalledWith("/artifacts/artifact-1/preview?versionId=version%2F1", "_blank");
     expect(await screen.findByText("Preview opened in a new tab.")).toBeInTheDocument();
     expect(previewWindow.opener).toBeNull();
+  });
+
+  it("renders an authenticated ready-Version in the trusted Preview player", async () => {
+    window.history.replaceState(null, "", "/artifacts/artifact-1/preview?versionId=version%2F1");
+    stubFetch([json({ user })]);
+
+    render(<App />);
+
+    expect(await screen.findByTitle("Artifact content")).toHaveAttribute("src", "/api/versions/version%2F1/content/");
+    expect(screen.getByRole("button", { name: "Enter full screen" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Artifacts" })).not.toBeInTheDocument();
   });
 
   it("shows publication pending and failure states without losing the allowed action", async () => {

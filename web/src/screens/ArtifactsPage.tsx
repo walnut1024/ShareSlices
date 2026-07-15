@@ -9,6 +9,7 @@ import {
   Grid2X2,
   Info,
   List,
+  Maximize,
   MoreVertical,
   Pencil,
   Search,
@@ -61,6 +62,8 @@ import { ToggleGroup, ToggleGroupItem } from "../components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/tooltip";
 import { ArtifactShareDialog } from "./ArtifactShareDialog";
 import { CreateArtifactDialog } from "./CreateArtifactDialog";
+import { artifactPreviewUrl, versionContentUrl } from "../artifacts/preview";
+import { ArtifactPlayer } from "../components/ArtifactPlayer";
 
 type ArtifactFilter = "all" | "published" | "ready" | "processing" | "attention";
 type ViewMode = "grid" | "list";
@@ -445,12 +448,33 @@ function ArtifactTile({
 }) {
   const ready = artifact.readyVersion !== null;
   const detailUrl = `/artifacts/${encodeURIComponent(artifact.id)}`;
-  const previewUrl = ready ? `/api/versions/${encodeURIComponent(artifact.readyVersion!.id)}/content/` : null;
+  const previewUrl = ready ? artifactPreviewUrl(artifact.id, artifact.readyVersion!.id) : null;
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [fullscreenVersionId, setFullscreenVersionId] = useState<string | null>(null);
+
+  async function enterFullscreen(event: React.MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    const card = cardRef.current;
+    const versionId = artifact.readyVersion?.id;
+    if (!card || !versionId || !card.requestFullscreen) {
+      toast.error("Full screen could not be opened.");
+      return;
+    }
+    try {
+      await card.requestFullscreen();
+      const active = document.fullscreenElement;
+      if (active === card || (active && card.contains(active))) setFullscreenVersionId(versionId);
+    } catch {
+      setFullscreenVersionId(null);
+      toast.error("Full screen could not be opened.");
+    }
+  }
 
   return (
     <li className="relative">
       <AspectRatio ratio={8 / 5}>
-        <Card className={selected ? "relative h-full gap-0 overflow-visible py-0 shadow-none ring-2 ring-foreground" : "relative h-full gap-0 overflow-visible py-0 shadow-[0_1px_2px_rgba(9,9,11,0.05)] ring-border transition-[box-shadow,outline-color] hover:shadow-[0_6px_18px_-10px_rgba(9,9,11,0.22)] hover:ring-foreground/20"}>
+        <Card ref={cardRef} className={selected ? "relative h-full gap-0 overflow-visible py-0 shadow-none ring-2 ring-foreground fullscreen:h-screen fullscreen:w-screen fullscreen:overflow-hidden fullscreen:rounded-none fullscreen:ring-0" : "relative h-full gap-0 overflow-visible py-0 shadow-[0_1px_2px_rgba(9,9,11,0.05)] ring-border transition-[box-shadow,outline-color] hover:shadow-[0_6px_18px_-10px_rgba(9,9,11,0.22)] hover:ring-foreground/20 fullscreen:h-screen fullscreen:w-screen fullscreen:overflow-hidden fullscreen:rounded-none fullscreen:ring-0"}>
           {selectionMode ? <button aria-label={`${selected ? "Deselect" : "Select"} ${artifact.name}`} className="absolute inset-0 z-30 rounded-xl" type="button" onClick={onSelect} /> : <a aria-label={artifact.name} className="absolute inset-0 z-0 rounded-xl" href={detailUrl} />}
           <CardContent className={`relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-t-xl p-0 ${previewClass(artifact, index)}`}>
             <FileText aria-hidden="true" className="size-9 text-muted-foreground/55" />
@@ -462,9 +486,12 @@ function ArtifactTile({
                 src={`/api/versions/${encodeURIComponent(artifact.readyVersion.id)}/thumbnail`}
               />
             ) : null}
-            {!selectionMode && previewUrl && artifact.allowedActions.includes("preview") ? <a aria-label={`Preview ${artifact.name}`} className="absolute inset-0 z-10 cursor-pointer" href={previewUrl} target="_blank" /> : null}
+            {!selectionMode && previewUrl && artifact.allowedActions.includes("preview") ? <a aria-label={`Preview ${artifact.name}`} className="absolute inset-0 z-10 cursor-pointer" href={previewUrl} rel="noopener" target="_blank" /> : null}
             {selectionMode ? <><span aria-hidden="true" className={selected ? "absolute inset-0 bg-foreground/5" : ""} /><Checkbox aria-label={`Select ${artifact.name}`} checked={selected} className="absolute top-2 left-2 z-40 bg-background/95" onCheckedChange={onSelect} /></> : <div className="pointer-events-none absolute top-2 left-2 z-20"><StatusBadge artifact={artifact} overlay /></div>}
             {!selectionMode ? <div className="absolute right-2 bottom-2 z-20 flex gap-1.5">
+            {ready && artifact.allowedActions.includes("preview") ? (
+              <Tooltip><TooltipTrigger render={<Button aria-label={`Enter full screen for ${artifact.name}`} className="bg-background/95 shadow-none" size="icon-xs" variant="outline" onClick={(event) => void enterFullscreen(event)} />}><Maximize aria-hidden="true" /></TooltipTrigger><TooltipContent>Enter full screen</TooltipContent></Tooltip>
+            ) : null}
             {ready && (artifact.allowedActions.includes("publish") || artifact.allowedActions.includes("manage_publication")) ? (
               <Tooltip><TooltipTrigger render={<Button aria-label={`${artifact.publicationStatus === "published" ? "Manage publication for" : "Publish"} ${artifact.name}`} className="bg-background/95 shadow-none" size="icon-xs" variant="outline" onClick={onPublication} />}><Rocket aria-hidden="true" /></TooltipTrigger><TooltipContent>{artifact.publicationStatus === "published" ? "Manage publication" : "Publish"}</TooltipContent></Tooltip>
             ) : null}
@@ -474,6 +501,15 @@ function ArtifactTile({
             <ArtifactCardName name={artifact.name} />
             <span className="mt-0.5 truncate font-mono text-[10.5px] text-muted-foreground">{formatModified(artifact.updatedAt)}</span>
           </CardFooter>
+          {fullscreenVersionId ? (
+            <div className="absolute inset-0 z-50">
+              <ArtifactPlayer
+                contentUrl={versionContentUrl(fullscreenVersionId)}
+                fullscreenTargetRef={cardRef}
+                onFullscreenExit={() => setFullscreenVersionId(null)}
+              />
+            </div>
+          ) : null}
         </Card>
       </AspectRatio>
       {!selectionMode ? <div className="absolute top-2 right-2 z-30"><ArtifactMenu artifact={artifact} detailUrl={detailUrl} overlay onRename={onRename} onDelete={onDelete} /></div> : null}

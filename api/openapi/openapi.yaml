@@ -1132,9 +1132,17 @@ paths:
         - viewer
       operationId: getSharedArtifactEntry
       summary: View published content or the known Share-link state.
+      parameters:
+        - name: contentMode
+          in: query
+          required: false
+          description: Reserved player-frame mode that returns the published manifest entry instead of the trusted Viewer shell.
+          schema:
+            type: boolean
+            default: false
       responses:
         "200":
-          description: Published entry content or an unpublished state page.
+          description: Trusted Viewer player, published entry content in content mode, or an unpublished state page.
           headers:
             Cache-Control:
               $ref: "#/components/headers/NoStore"

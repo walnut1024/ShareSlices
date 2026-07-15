@@ -117,6 +117,79 @@ function statePage(kind: Exclude<ShareResolution["kind"], "published">, manageme
   });
 }
 
+function viewerPlayerPage(shareSlug: string): Response {
+  const contentUrl = `/a/${encodeURIComponent(shareSlug)}/?contentMode=true`;
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ShareSlices Viewer</title>
+  <style>
+    html,body,#shareslices-player{width:100%;height:100%;margin:0;overflow:hidden;background:#09090b}
+    #shareslices-player{position:relative}
+    iframe{display:block;width:100%;height:100%;border:0;background:#09090b}
+    button{position:fixed;top:12px;right:12px;z-index:2;display:grid;width:32px;height:32px;padding:0;place-items:center;border:1px solid rgba(255,255,255,.2);border-radius:8px;background:rgba(24,24,27,.86);color:#fafafa;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+    button:hover{background:rgba(39,39,42,.96)}
+    button:focus-visible{outline:2px solid #fafafa;outline-offset:2px}
+    svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+    [hidden]{display:none!important}
+    #shareslices-fullscreen-error{position:fixed;top:52px;right:12px;z-index:2;margin:0;padding:8px 10px;border-radius:8px;background:rgba(127,29,29,.94);color:#fef2f2;font:13px/1.4 system-ui,sans-serif}
+  </style>
+</head>
+<body>
+  <main id="shareslices-player">
+    <iframe src="${escapeHtml(contentUrl)}" title="Artifact content" allow="fullscreen"></iframe>
+    <button id="shareslices-fullscreen" type="button" aria-label="Enter full screen" title="Enter full screen">
+      <svg data-enter-icon viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+      <svg data-exit-icon viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M8 21v-3a2 2 0 0 0-2-2H3M16 21v-3a2 2 0 0 1 2-2h3"/></svg>
+    </button>
+    <p id="shareslices-fullscreen-error" role="status" hidden>Full screen could not be opened.</p>
+  </main>
+  <script>
+    (() => {
+      const player = document.getElementById("shareslices-player");
+      const button = document.getElementById("shareslices-fullscreen");
+      const enterIcon = button.querySelector("[data-enter-icon]");
+      const exitIcon = button.querySelector("[data-exit-icon]");
+      const error = document.getElementById("shareslices-fullscreen-error");
+      const sync = () => {
+        const active = Boolean(document.fullscreenElement);
+        const label = active ? "Exit full screen" : "Enter full screen";
+        button.setAttribute("aria-label", label);
+        button.setAttribute("title", label);
+        enterIcon.hidden = active;
+        exitIcon.hidden = !active;
+      };
+      button.addEventListener("click", async () => {
+        error.hidden = true;
+        try {
+          if (document.fullscreenElement) {
+            await document.exitFullscreen();
+          } else if (player.requestFullscreen) {
+            await player.requestFullscreen();
+          } else {
+            throw new Error("Fullscreen API unavailable");
+          }
+        } catch {
+          error.hidden = false;
+        }
+      });
+      document.addEventListener("fullscreenchange", sync);
+      sync();
+    })();
+  </script>
+</body>
+</html>`;
+  return new Response(html, {
+    status: 200,
+    headers: {
+      "Cache-Control": "no-store",
+      "Content-Type": "text/html; charset=utf-8"
+    }
+  });
+}
+
 export function publicationViewerRoutes(
   overrides: Partial<PublicationViewerRouteDependencies> = {}
 ): Hono {
@@ -349,11 +422,14 @@ export function publicationViewerRoutes(
     }
   });
 
-  async function viewer(c: Context, rawPath: string) {
+  async function viewer(c: Context, rawPath: string, contentMode = false) {
     try {
       const result = await dependencies.service.resolveViewer(c.req.param("shareSlug") ?? "", rawPath);
       if (!("objectKey" in result)) {
         return statePage(result.kind, dependencies.managementOrigin);
+      }
+      if (rawPath === "" && !contentMode) {
+        return viewerPlayerPage(c.req.param("shareSlug") ?? "");
       }
       const object = await dependencies.storage.readCommittedObject(result.objectKey);
       return assetResponse(result, object.body);
@@ -365,7 +441,7 @@ export function publicationViewerRoutes(
     }
   }
 
-  app.get("/a/:shareSlug/", (c) => viewer(c, ""));
+  app.get("/a/:shareSlug/", (c) => viewer(c, "", c.req.query("contentMode") === "true"));
   app.get("/a/:shareSlug/*", (c) =>
     viewer(c, wildcardPath(c, `/a/${c.req.param("shareSlug") ?? ""}/`))
   );

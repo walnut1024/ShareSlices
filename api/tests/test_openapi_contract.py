@@ -124,6 +124,13 @@ def test_openapi_artifact_contract_and_local_references() -> None:
     schemas = document["components"]["schemas"]
     export_parameters = document["paths"]["/api/versions/{versionId}/export"]["get"]["parameters"]
     assert any(parameter.get("name") == "artifactId" and parameter.get("in") == "query" for parameter in export_parameters)
+    viewer_entry_parameters = document["paths"]["/a/{shareSlug}/"]["get"]["parameters"]
+    assert any(
+        parameter.get("name") == "contentMode"
+        and parameter.get("in") == "query"
+        and parameter.get("schema") == {"type": "boolean", "default": False}
+        for parameter in viewer_entry_parameters
+    )
     create_upload = schemas["CreateArtifactRequest"]
     assert "entry" in create_upload["properties"]
     assert "entry" not in create_upload["required"]

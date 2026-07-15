@@ -142,6 +142,54 @@ describe("Publication, Preview, and Viewer routes", () => {
     expect(deps.service.resolveViewer).toHaveBeenCalledWith("stable-slug", "");
   });
 
+  it("serves a trusted Viewer player while content mode preserves the Artifact entry base", async () => {
+    const deps = await dependencies();
+    const readCommittedObject = vi.spyOn(deps.storage, "readCommittedObject");
+    const app = buildApp({ publicationViewer: deps } as never);
+
+    const player = await app.request("/a/stable-slug/");
+    const playerHtml = await player.text();
+    expect(readCommittedObject).not.toHaveBeenCalled();
+    const content = await app.request("/a/stable-slug/?contentMode=true");
+    const contentHtml = await content.text();
+
+    expect(player.status).toBe(200);
+    expect(player.headers.get("cache-control")).toBe("no-store");
+    expect(player.headers.get("content-type")).toContain("text/html");
+    expect(playerHtml).toContain('aria-label="Enter full screen"');
+    expect(playerHtml).toContain('src="/a/stable-slug/?contentMode=true"');
+    expect(playerHtml).not.toContain('<script src="assets/app.js"></script>');
+    expect(content.status).toBe(200);
+    expect(content.headers.get("cache-control")).toBe("no-store");
+    expect(contentHtml).toContain('<script src="assets/app.js"></script>');
+    expect(deps.service.resolveViewer).toHaveBeenNthCalledWith(1, "stable-slug", "");
+    expect(deps.service.resolveViewer).toHaveBeenNthCalledWith(2, "stable-slug", "");
+  });
+
+  it("revalidates Publication state before serving Viewer content mode", async () => {
+    const deps = await dependencies();
+    deps.service.resolveViewer
+      .mockResolvedValueOnce({
+        versionId: "version-1",
+        path: "腾讯文档盘点分析报告.html",
+        objectKey: "committed/version-1/腾讯文档盘点分析报告.html",
+        sizeBytes: 1,
+        contentType: "text/html; charset=utf-8",
+        sha256: "a".repeat(64)
+      })
+      .mockResolvedValueOnce({ kind: "unpublished" } as never);
+    const app = buildApp({ publicationViewer: deps } as never);
+
+    const player = await app.request("/a/stable-slug/");
+    const content = await app.request("/a/stable-slug/?contentMode=true");
+    const contentHtml = await content.text();
+
+    expect(player.status).toBe(200);
+    expect(content.status).toBe(200);
+    expect(contentHtml).toContain("not currently published");
+    expect(contentHtml).not.toContain("Enter full screen");
+  });
+
   it("streams an owner thumbnail with private immutable caching", async () => {
     const deps = await dependencies();
     const app = buildApp({ publicationViewer: deps } as never);
@@ -263,6 +311,7 @@ describe("Publication, Preview, and Viewer routes", () => {
     expect(response.headers.get("x-robots-tag")).toContain("noindex");
     expect(html).toContain(text);
     expect(html).not.toContain("artifact-1");
+    expect(html).not.toContain("Enter full screen");
     expect(html).toContain("http://127.0.0.1:5173");
   });
 });

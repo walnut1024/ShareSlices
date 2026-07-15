@@ -12,6 +12,7 @@ import {
 } from "../api/artifacts";
 import { ArtifactShareDialog } from "./ArtifactShareDialog";
 import { preflightArtifactZip } from "../artifacts/archive-preflight-client";
+import { artifactPreviewUrl } from "../artifacts/preview";
 import { ArtifactStatus } from "../components/ArtifactStatus";
 import { ArtifactValidationReport } from "../components/ArtifactValidationReport";
 import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert";
@@ -157,7 +158,7 @@ export function ArtifactPage({
     setActionFeedback(null);
     await Promise.resolve();
     try {
-      const previewWindow = window.open(previewUrl(artifact.readyVersion.id), "_blank");
+      const previewWindow = window.open(artifactPreviewUrl(artifact.id, artifact.readyVersion.id), "_blank");
       if (!previewWindow) throw new Error("Preview was blocked by the browser.");
       previewWindow.opener = null;
       setActionFeedback({ kind: "success", message: "Preview opened in a new tab." });
@@ -432,10 +433,6 @@ function ActionButton({
       {label}
     </Button>
   );
-}
-
-function previewUrl(versionId: string): string {
-  return `/api/versions/${encodeURIComponent(versionId)}/content/`;
 }
 
 function failureAction(artifact: Artifact): string {

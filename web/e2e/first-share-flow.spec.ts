@@ -23,22 +23,25 @@ test("normalize a macOS named-entry ZIP, Preview, Publish, and open the stable V
   await expect(page.getByRole("heading", { name: "Artifacts", exact: true })).toBeVisible();
 
   await page.locator('[data-slot="empty"]').getByRole("button", { name: "New artifact", exact: true }).click();
-  await page.getByLabel("ZIP file").setInputFiles({
+  await page.getByLabel("Artifact file").setInputFiles({
     name: "First share flow.zip",
     mimeType: "application/zip",
     buffer: Buffer.from(
       zipSync({
         "report.html": strToU8(
-          '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="assets/site.css"></head><body><h1>Published artifact</h1><script src="assets/app.js"></script></body></html>'
+          '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="assets/site.css"></head><body><h1>Published artifact</h1><button id="artifact-fullscreen">Artifact full screen</button><script src="assets/app.js"></script></body></html>'
         ),
         "__MACOSX/._report.html": strToU8("macOS metadata"),
         ".DS_Store": strToU8("finder metadata"),
         "assets/site.css": strToU8("body { font-family: sans-serif; color: #171717; }"),
-        "assets/app.js": strToU8('document.body.dataset.ready = "true";')
+        "assets/app.js": strToU8('document.body.dataset.ready = "true"; document.querySelector("#artifact-fullscreen").addEventListener("click", () => document.body.requestFullscreen());')
       })
     )
   });
   await page.getByRole("button", { name: "Upload" }).click();
+  await expect(page).toHaveURL(/\/artifacts$/);
+  await page.getByRole("button", { name: "More actions for First share flow" }).click();
+  await page.getByRole("menuitem", { name: "Info" }).click();
   await expect(page.getByRole("heading", { name: "First share flow" })).toBeVisible();
 
   for (let attempt = 0; attempt < 80; attempt += 1) {
@@ -61,16 +64,33 @@ test("normalize a macOS named-entry ZIP, Preview, Publish, and open the stable V
   const previewPromise = page.waitForEvent("popup");
   await page.getByRole("button", { name: "Preview" }).click();
   const preview = await previewPromise;
-  await expect(preview.getByRole("heading", { name: "Published artifact" })).toBeVisible();
-  await expect(preview.locator("body")).toHaveAttribute("data-ready", "true");
+  const previewContent = preview.frameLocator('iframe[title="Artifact content"]');
+  await expect(previewContent.getByRole("heading", { name: "Published artifact" })).toBeVisible();
+  await expect(previewContent.locator("body")).toHaveAttribute("data-ready", "true");
+  await previewContent.getByRole("button", { name: "Artifact full screen" }).click();
+  await expect(preview.getByRole("button", { name: "Exit full screen" })).toBeVisible();
+  await preview.evaluate(() => document.exitFullscreen());
+  await expect(preview.getByRole("button", { name: "Enter full screen" })).toBeVisible();
+  await preview.getByRole("button", { name: "Enter full screen" }).click();
+  await expect(preview.getByRole("button", { name: "Exit full screen" })).toBeVisible();
+  await preview.getByRole("button", { name: "Exit full screen" }).click();
+  await expect(preview.getByRole("button", { name: "Enter full screen" })).toBeVisible();
   await preview.close();
 
   await page.goto("/artifacts");
   await expect(page.getByRole("heading", { name: "Artifacts", exact: true })).toBeVisible();
+  const search = page.getByRole("textbox", { name: "Search artifacts" });
+  await search.fill("First share flow");
+  await page.getByRole("button", { name: "Enter full screen for First share flow" }).click();
+  await expect(page.getByRole("button", { name: "Exit full screen" })).toBeVisible();
+  await expect(page.frameLocator('iframe[title="Artifact content"]').getByRole("heading", { name: "Published artifact" })).toBeVisible();
+  await page.getByRole("button", { name: "Exit full screen" }).click();
+  await expect(page.getByRole("button", { name: "Enter full screen for First share flow" })).toBeVisible();
+  await expect(search).toHaveValue("First share flow");
   const cardPreviewPromise = page.waitForEvent("popup");
   await page.getByRole("link", { name: "Preview First share flow" }).click();
   const cardPreview = await cardPreviewPromise;
-  await expect(cardPreview.getByRole("heading", { name: "Published artifact" })).toBeVisible();
+  await expect(cardPreview.frameLocator('iframe[title="Artifact content"]').getByRole("heading", { name: "Published artifact" })).toBeVisible();
   await cardPreview.close();
   await page.getByRole("button", { name: "More actions for First share flow" }).click();
   await page.getByRole("menuitem", { name: "Info" }).click();
@@ -105,6 +125,7 @@ test("normalize a macOS named-entry ZIP, Preview, Publish, and open the stable V
 
   await page.goto(shareLink!);
   await expect(page.getByRole("heading", { name: "This publication has expired" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Enter full screen" })).toHaveCount(0);
   expect((await page.request.get(shareLink!)).status()).toBe(200);
 
   await page.goto(`/artifacts/${artifactId}`);
@@ -141,8 +162,13 @@ test("normalize a macOS named-entry ZIP, Preview, Publish, and open the stable V
   expect((await page.request.get(shareLink!)).status()).toBe(410);
 
   await page.goto(replacementLink!);
-  await expect(page.getByRole("heading", { name: "Published artifact" })).toBeVisible();
-  await expect(page.locator("body")).toHaveAttribute("data-ready", "true");
+  const viewerContent = page.frameLocator('iframe[title="Artifact content"]');
+  await expect(viewerContent.getByRole("heading", { name: "Published artifact" })).toBeVisible();
+  await expect(viewerContent.locator("body")).toHaveAttribute("data-ready", "true");
+  await page.getByRole("button", { name: "Enter full screen" }).click();
+  await expect(page.getByRole("button", { name: "Exit full screen" })).toBeVisible();
+  await page.getByRole("button", { name: "Exit full screen" }).click();
+  await expect(page.getByRole("button", { name: "Enter full screen" })).toBeVisible();
   await assertNoHorizontalOverflow(page);
   await page.screenshot({
     path: `../output/playwright/${testInfo.project.name}-viewer.png`,
@@ -185,7 +211,7 @@ test("explain ambiguous root HTML candidates after processing fails", async ({ p
   await expect(page.getByRole("heading", { name: "Artifacts", exact: true })).toBeVisible();
 
   await page.locator('[data-slot="empty"]').getByRole("button", { name: "New artifact", exact: true }).click();
-  await page.getByLabel("ZIP file").setInputFiles({
+  await page.getByLabel("Artifact file").setInputFiles({
     name: "Ambiguous entry.zip",
     mimeType: "application/zip",
     buffer: Buffer.from(zipSync({

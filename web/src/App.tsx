@@ -4,6 +4,7 @@ import { AccountApiError, deleteCurrentSession, getCurrentUser, type User } from
 import { ManagementShell } from "./components/ManagementShell";
 import { Spinner } from "./components/ui/spinner";
 import { ArtifactPage } from "./screens/ArtifactPage";
+import { ArtifactPreviewPage } from "./screens/ArtifactPreviewPage";
 import { ArtifactsPage } from "./screens/ArtifactsPage";
 import { DeviceAuthorizationPage } from "./screens/DeviceAuthorizationPage";
 import { LoginPage } from "./screens/LoginPage";
@@ -100,6 +101,18 @@ export default function App() {
   }
   if (!user) {
     return <LoginPage onSignedIn={onSignedIn} />;
+  }
+
+  const previewMatch = window.location.pathname.match(/^\/artifacts\/[^/]+\/preview$/);
+  if (previewMatch) {
+    const versionId = new URLSearchParams(window.location.search).get("versionId");
+    return versionId ? (
+      <ArtifactPreviewPage versionId={versionId} />
+    ) : (
+      <main className="flex min-h-screen items-center justify-center bg-neutral-950 text-sm text-white">
+        Preview Version is missing.
+      </main>
+    );
   }
 
   const detailMatch = window.location.pathname.match(/^\/artifacts\/([^/]+)$/);

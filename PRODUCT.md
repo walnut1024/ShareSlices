@@ -162,6 +162,10 @@ Owner and Viewer are contextual roles, not separate account types. A person who 
 
 Preview uses the owner's current signed-in management session to render one ready Version without changing publication state. Version 0.0.1 does not create a separate Preview session, grant, expiry, or shareable Preview link.
 
+Preview and accessible Viewer content provide controls to enter and exit full-screen mode. Full-screen mode changes only how the effective Version is displayed: it does not select another Version, change Publication state, or grant access. The user can exit with the visible control or the browser's Escape behavior; leaving full-screen mode from a content page keeps that page open.
+
+An eligible Artifact grid card provides a full-screen control for its latest ready Version. It enters full-screen Preview directly from the management page without replacing the card's existing Preview navigation. Leaving that full-screen Preview returns the Owner to the unchanged management page. List rows, selection mode, and non-content Viewer status pages do not provide this control.
+
 The Artifact grid card may show an Artifact thumbnail for its latest ready Version. Thumbnail generation is asynchronous and does not delay ready state, Preview, Publish, or external access; while a thumbnail is unavailable or after generation fails, the card shows a neutral placeholder. A thumbnail summarizes Version content for the Owner and does not indicate which Version is currently published. The first thumbnail UI is limited to grid cards; list and detail surfaces do not show thumbnails.
 
 An Artifact has no Share link before its first Publish. It then has at most one non-retired Share link. An Owner may explicitly replace that link only while publishing; replacement requires confirmation, creates a new link, and permanently retires the previous link. Existing links created before this policy remain reserved for their Artifact and are reused on its next Publish.
