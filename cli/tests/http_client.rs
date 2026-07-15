@@ -65,10 +65,22 @@ async fn maps_upgrade_required_without_exposing_server_internals() {
         .await;
 
     let client = ApiClient::new(&server.uri()).expect("client");
-    assert!(matches!(
-        client.start_authorization().await,
-        Err(AuthError::UpgradeRequired { .. })
-    ));
+    let AuthError::ServerEvidence(evidence) = client
+        .start_authorization()
+        .await
+        .expect_err("upgrade required")
+    else {
+        panic!("expected preserved Server evidence");
+    };
+    assert_eq!(evidence.code, "cli_upgrade_required");
+    assert_eq!(evidence.request_id.as_deref(), Some("req-secret"));
+    assert_eq!(
+        evidence
+            .details
+            .as_ref()
+            .and_then(|value| value["minimumVersion"].as_str()),
+        Some("0.2.0")
+    );
 }
 
 #[tokio::test]
@@ -92,11 +104,18 @@ async fn artifact_requests_preserve_actionable_upgrade_details() {
         .artifact_state("secret", "artifact-1")
         .await
         .expect_err("upgrade required");
-    assert!(matches!(
-        error,
-        ArtifactError::UpgradeRequired { current, minimum }
-            if current == "0.1.0" && minimum == "0.2.0"
-    ));
+    let ArtifactError::ServerEvidence(evidence) = error else {
+        panic!("expected preserved Server evidence");
+    };
+    assert_eq!(evidence.code, "cli_upgrade_required");
+    assert_eq!(evidence.request_id.as_deref(), Some("req-secret"));
+    assert_eq!(
+        evidence
+            .details
+            .as_ref()
+            .and_then(|value| value["currentVersion"].as_str()),
+        Some("0.1.0")
+    );
 }
 
 #[tokio::test]

@@ -1,6 +1,6 @@
 [package]
 name = "shareslices-cli"
-version = "0.1.6"
+version = "0.2.0"
 edition.workspace = true
 rust-version.workspace = true
 publish = false
@@ -30,9 +30,10 @@ webbrowser = "1"
 zip = "2.4"
 glob = "0.3"
 tempfile = "3"
-time = { version = "0.3", features = ["parsing"] }
+time = { version = "0.3", features = ["formatting", "parsing"] }
 
 [dev-dependencies]
+jsonschema = "0.37"
 wiremock = "0.6"
 
 [lints]

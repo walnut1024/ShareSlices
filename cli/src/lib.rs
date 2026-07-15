@@ -1,12 +1,19 @@
+mod agent_protocol;
 mod api_client;
 mod artifact_commands;
 mod auth_commands;
+mod auth_continuation;
 mod cli_runner;
 mod command_line;
 mod credential_store;
 mod model;
 mod packaging;
 
+pub use agent_protocol::{
+    AGENT_ACTION_KINDS, AGENT_FEATURES, AGENT_OPERATIONS, AGENT_OUTCOMES, AGENT_PROTOCOL_VERSION,
+    AgentActionKind, AgentCapabilities, AgentContinuation, AgentEnvelope, AgentError,
+    AgentNextAction, AgentOutcome, agent_capabilities, failed_agent_envelope,
+};
 pub use api_client::ApiClient;
 pub use artifact_commands::{
     ArtifactInteraction, UploadTargetChoice, artifact_exit_code, run_artifact_command,
@@ -17,7 +24,12 @@ pub use artifact_commands::{
     select_upload_target,
 };
 pub use auth_commands::run_auth;
-pub use cli_runner::run_cli_process;
+pub use auth_continuation::{
+    AuthContinuationRecord, AuthContinuationStore, CONTINUATION_RECORD_VERSION,
+    FileAuthContinuationStore, MemoryAuthContinuationStore, format_timestamp, normalized_origin,
+    unix_now,
+};
+pub use cli_runner::{agent_operation_id, run_cli_process};
 pub use command_line::{
     ArtifactCommand, ArtifactDeleteArgs, ArtifactExportArgs, ArtifactListArgs,
     ArtifactPublicationCommand, ArtifactPublicationEditArgs, ArtifactPublicationViewArgs,
@@ -26,7 +38,7 @@ pub use command_line::{
 };
 pub use credential_store::KeyringCredentialStore;
 pub use model::{
-    Artifact, ArtifactAccepted, ArtifactDetail, ArtifactError, ArtifactFailure,
+    ApiErrorEvidence, Artifact, ArtifactAccepted, ArtifactDetail, ArtifactError, ArtifactFailure,
     ArtifactPublication, ArtifactShareLink, ArtifactState, ExpirationPolicy, PublicationResult,
     PublicationStatus, PublishedResult, ReadyArtifactVersion, ReadyVersion, UploadPolicy,
 };

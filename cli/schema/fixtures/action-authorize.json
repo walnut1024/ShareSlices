@@ -1,0 +1,1 @@
+{"protocolVersion":1,"cliVersion":"0.1.6","operation":"auth.status","outcome":"action_required","resources":{},"data":{},"nextAction":{"kind":"authorize","instruction":"Sign in before continuing."}}

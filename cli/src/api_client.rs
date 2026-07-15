@@ -1,7 +1,7 @@
 use crate::{
-    Artifact, ArtifactAccepted, ArtifactDetail, ArtifactError, ArtifactState, AuthApi, AuthError,
-    Authorization, Exchange, ExpirationPolicy, ProcessingFilter, PublicationFilter,
-    PublishedResult, ReadyArtifactVersion, UploadPolicy, User,
+    ApiErrorEvidence, Artifact, ArtifactAccepted, ArtifactDetail, ArtifactError, ArtifactState,
+    AuthApi, AuthError, Authorization, Exchange, ExpirationPolicy, ProcessingFilter,
+    PublicationFilter, PublishedResult, ReadyArtifactVersion, UploadPolicy, User,
 };
 use async_trait::async_trait;
 use reqwest::{Client, Response, StatusCode};
@@ -24,14 +24,16 @@ struct ErrorEnvelope {
 #[serde(rename_all = "camelCase")]
 struct ErrorBody {
     code: String,
-    details: Option<CompatibilityDetails>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CompatibilityDetails {
-    current_version: Option<String>,
-    minimum_version: Option<String>,
+    #[serde(default)]
+    message: String,
+    #[serde(default)]
+    request_id: Option<String>,
+    #[serde(default)]
+    action: Option<String>,
+    #[serde(default)]
+    fields: Option<serde_json::Value>,
+    #[serde(default)]
+    details: Option<serde_json::Value>,
 }
 
 impl ApiClient {
@@ -108,29 +110,35 @@ impl ApiClient {
     }
 
     async fn error(response: Response) -> AuthError {
-        if response.status() == StatusCode::UNAUTHORIZED {
-            return AuthError::Unauthenticated;
-        }
+        let status = response.status();
+        let retry_after_seconds = retry_after_seconds(&response);
+        let header_request_id = response
+            .headers()
+            .get("x-request-id")
+            .and_then(|value| value.to_str().ok())
+            .map(ToOwned::to_owned);
         let body = response.json::<ErrorEnvelope>().await.ok();
-        match body.as_ref().map(|value| value.error.code.as_str()) {
-            Some("authorization_pending") => AuthError::Pending,
-            Some("slow_down") => AuthError::SlowDown,
-            Some("expired_token" | "invalid_grant") => AuthError::Expired,
-            Some("access_denied") => AuthError::Denied,
-            Some("cli_upgrade_required") => {
-                let details = body.and_then(|value| value.error.details);
-                AuthError::UpgradeRequired {
-                    current: details
-                        .as_ref()
-                        .and_then(|value| value.current_version.clone())
-                        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned()),
-                    minimum: details
-                        .and_then(|value| value.minimum_version)
-                        .unwrap_or_else(|| "a newer version".to_owned()),
+        body.map_or_else(
+            || {
+                if status == StatusCode::UNAUTHORIZED {
+                    AuthError::Unauthenticated
+                } else {
+                    AuthError::Server
                 }
-            }
-            _ => AuthError::Server,
-        }
+            },
+            |value| {
+                AuthError::ServerEvidence(Box::new(ApiErrorEvidence {
+                    code: value.error.code,
+                    message: value.error.message,
+                    request_id: value.error.request_id.or(header_request_id),
+                    action: value.error.action,
+                    fields: value.error.fields,
+                    details: value.error.details,
+                    retry_after_seconds,
+                    status: status.as_u16(),
+                }))
+            },
+        )
     }
 
     async fn send(&self, request: reqwest::RequestBuilder) -> Result<Response, AuthError> {
@@ -141,29 +149,35 @@ impl ApiClient {
     }
 
     async fn artifact_error(response: Response) -> ArtifactError {
-        if response.status() == StatusCode::UNAUTHORIZED {
-            return ArtifactError::Unauthenticated;
-        }
+        let status = response.status();
+        let retry_after_seconds = retry_after_seconds(&response);
+        let header_request_id = response
+            .headers()
+            .get("x-request-id")
+            .and_then(|value| value.to_str().ok())
+            .map(ToOwned::to_owned);
         let body = response.json::<ErrorEnvelope>().await.ok();
-        if body.as_ref().map(|value| value.error.code.as_str()) == Some("cli_upgrade_required") {
-            let details = body.and_then(|value| value.error.details);
-            return ArtifactError::UpgradeRequired {
-                current: details
-                    .as_ref()
-                    .and_then(|value| value.current_version.clone())
-                    .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned()),
-                minimum: details
-                    .and_then(|value| value.minimum_version)
-                    .unwrap_or_else(|| "a newer version".to_owned()),
-            };
-        }
-        match body.as_ref().map(|value| value.error.code.as_str()) {
-            Some("artifact_not_found") => return ArtifactError::ArtifactNotFound,
-            Some("version_not_ready") => return ArtifactError::VersionNotReady,
-            Some("invalid_artifact_state") => return ArtifactError::InvalidArtifactState,
-            _ => {}
-        }
-        ArtifactError::Server
+        body.map_or_else(
+            || {
+                if status == StatusCode::UNAUTHORIZED {
+                    ArtifactError::Unauthenticated
+                } else {
+                    ArtifactError::Server
+                }
+            },
+            |value| {
+                ArtifactError::ServerEvidence(Box::new(ApiErrorEvidence {
+                    code: value.error.code,
+                    message: value.error.message,
+                    request_id: value.error.request_id.or(header_request_id),
+                    action: value.error.action,
+                    fields: value.error.fields,
+                    details: value.error.details,
+                    retry_after_seconds,
+                    status: status.as_u16(),
+                }))
+            },
+        )
     }
 
     async fn upload_error(
@@ -174,34 +188,33 @@ impl ApiClient {
         if status == StatusCode::UNAUTHORIZED {
             return (ArtifactError::Unauthenticated, None);
         }
-        let retry_after = response
+        let retry_header = retry_after_seconds(&response);
+        let header_request_id = response
             .headers()
-            .get(reqwest::header::RETRY_AFTER)
+            .get("x-request-id")
             .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.parse::<u64>().ok())
+            .map(ToOwned::to_owned);
+        let retry_after = retry_header
             .map_or(fallback_delay, std::time::Duration::from_secs)
             .min(std::time::Duration::from_secs(5));
         let body = response.json::<ErrorEnvelope>().await.ok();
         let code = body.as_ref().map(|value| value.error.code.as_str());
-        if code == Some("cli_upgrade_required") {
-            let details = body.and_then(|value| value.error.details);
-            return (
-                ArtifactError::UpgradeRequired {
-                    current: details
-                        .as_ref()
-                        .and_then(|value| value.current_version.clone())
-                        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned()),
-                    minimum: details
-                        .and_then(|value| value.minimum_version)
-                        .unwrap_or_else(|| "a newer version".to_owned()),
-                },
-                None,
-            );
-        }
         let retryable = status == StatusCode::TOO_MANY_REQUESTS
             || status.is_server_error()
             || code == Some("operation_in_progress");
-        (ArtifactError::Server, retryable.then_some(retry_after))
+        let error = body.map_or(ArtifactError::Server, |value| {
+            ArtifactError::ServerEvidence(Box::new(ApiErrorEvidence {
+                code: value.error.code,
+                message: value.error.message,
+                request_id: value.error.request_id.or(header_request_id),
+                action: value.error.action,
+                fields: value.error.fields,
+                details: value.error.details,
+                retry_after_seconds: retry_header,
+                status: status.as_u16(),
+            }))
+        });
+        (error, retryable.then_some(retry_after))
     }
 
     /// Lists owned Artifacts, following Server pages until `limit` is reached.
@@ -594,6 +607,14 @@ impl ApiClient {
             .map(|v| v.artifact)
             .map_err(|_| ArtifactError::Server)
     }
+}
+
+fn retry_after_seconds(response: &Response) -> Option<u64> {
+    response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse().ok())
 }
 
 #[async_trait]

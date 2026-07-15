@@ -1,78 +1,76 @@
 ---
 name: shareslices
-description: Publish and manage local static artifacts through the ShareSlices CLI. Use when an agent needs to share HTML, a built static site, a ZIP, or selected local files; upload a new Artifact or Version; publish or unpublish a ready Version; inspect Publication state; export an Artifact; or return a ShareSlices Share link.
+description: Publish, upload, inspect, export, or manage local static artifacts through the installed ShareSlices CLI. Use for ShareSlices Artifact, Version, Publication, Share-link, authentication, export, delete, or local static-content sharing requests. Preserve Upload-only versus Publish intent, and do not use this skill for deploying an app, merely building or archiving local files, developing/debugging ShareSlices itself, or implementing a direct HTTP API integration.
 ---
 
 # ShareSlices
 
-Use the `shareslices` CLI as the only ShareSlices integration. Discover local input, invoke the CLI non-interactively, and summarize the durable result.
+Act as a thin intent adapter over the installed `shareslices` CLI. The CLI owns packaging,
+validation, authentication mechanics, retries, and product state. Never call the ShareSlices HTTP
+API, database, or object storage directly.
 
-## Establish the CLI boundary
+## Establish the machine contract
 
-1. Run `command -v shareslices`.
-2. If the command is missing, stop and tell the user that the ShareSlices CLI must be installed. Do not replace it with direct HTTP requests.
-3. Honor a user-provided `SHARESLICES_API_URL` or `--api-url`. Otherwise, retain the CLI default.
-4. Set `SHARESLICES_PROMPT_DISABLED=1` for agent-driven commands. Add `--no-progress` to transfer commands.
-5. Use `shareslices <command> --help` when exact flags or output fields are uncertain. Treat installed CLI help as the current command contract.
+1. Check `command -v shareslices`. If it is absent, tell the user to install the ShareSlices CLI.
+2. Run `shareslices --agent capabilities` before the first operation. Require Agent protocol `1`
+   and the intended operation. If either is unavailable, report the install-or-upgrade action and
+   stop. Do not parse human output or use selected-field JSON as a fallback.
+3. Use installed `shareslices ... --help` only to discover current flags. Do not infer flags from
+   this file.
+4. Invoke operations with `--agent --agent-protocol 1`. Agent mode is non-interactive and returns
+   one typed envelope; do not add `--json`, `--jq`, or `--template`.
+5. Honor a user-provided API URL. Otherwise retain the CLI default.
 
-## Prepare the input
+## Select only the requested operation
 
-1. Resolve every selected path inside the user's authorized workspace.
-2. Prefer an existing built static output or prepared ZIP. If a build is required, follow the repository's own build instructions before invoking ShareSlices.
-3. Preserve relative asset paths by choosing the correct root. Do not gather unselected sibling files.
-4. Pass `--entry <path>` when the user named an entry file or the root HTML choice is ambiguous. Otherwise, let the CLI and Server validate or infer the entry.
-5. Use the user's Artifact name. If none was supplied, derive a concise name from the selected file or directory and state that choice.
-6. Do not publish credential files, environment files, private keys, dependency directories, or unrelated build output. If the requested selection appears to include secrets, stop and identify the risky paths.
+- Upload intent means create an Artifact or Version without making it public. Choose
+  `artifact.upload`; never turn it into Publish.
+- Publish or share-link intent means publish. Choose the high-level local Publish operation unless
+  the user explicitly asks to review the uploaded Version first.
+- Existing-Artifact, Publication, Export, Delete, authentication, and inspection requests map to
+  their matching advertised operation. Do not widen one management request into another.
 
-## Choose the workflow
+Resolve only local inputs authorized by the request. Prefer an existing build output or prepared
+ZIP. Follow repository build instructions when the user also authorized a build. Preserve relative
+paths, select no unrelated siblings, and never include credentials, environment files, private
+keys, or dependency directories.
 
-Use the one-step workflow unless the user explicitly wants to inspect the uploaded Version before publishing:
+If one deterministic Entry or name follows from the authorized input, use it and state a mutable
+name suggestion. Ask the user when there are multiple plausible Entries or targets, a misleading
+name, possible secret exposure, a material content change, or any ambiguity that changes what will
+be uploaded. Local repair is allowed only when the original request authorizes it and the repair
+does not materially change intended content.
 
-```bash
-SHARESLICES_PROMPT_DISABLED=1 shareslices publish <paths...> \
-  --name <artifact-name> \
-  --no-progress
-```
+## Follow the envelope
 
-Add only options required by the request:
+Use `operation`, `outcome`, `resources`, `error`, `nextAction`, and `continuation` as the complete
+execution contract. Do not branch on human-readable error messages.
 
-- `--root <directory>` to define relative paths across multiple selections.
-- `--entry <path>` to select the entry file.
-- `--duration <seconds>` or `--expires-at <RFC3339>` to set a requested Publication end.
-- `--replace-link --confirm-replace-link` only when the user explicitly requests permanent Share-link replacement and understands that the previous link will stop working.
+- `completed`: report only confirmed durable resources.
+- `in_progress`: report accepted resources and inspect state only as directed.
+- `partial`: report what completed, what did not, and the exact next action. Never claim Publish
+  completed merely because Upload did.
+- `action_required`: tell the user exactly what they must do. The Skill may ask the user whenever
+  uncertainty cannot be resolved safely from authorized evidence.
+- `indeterminate`: preserve known resources and inspect durable state before any replay. Never
+  blindly repeat a mutation.
+- `failed` or `cancelled`: report the evidence and stop unless the declared next action is safe and
+  still within the user's request.
 
-Use stepwise commands when review is required:
+For `authorize`, show the verification instructions, retain only the opaque continuation ID in the
+working conversation, and invoke `auth login --continue` as a new Agent operation after the user
+approves. Then reconstruct the original business command from current user intent and workspace
+state; a continuation never stores or replays it.
 
-```bash
-SHARESLICES_PROMPT_DISABLED=1 shareslices artifact upload <paths...> \
-  --name <artifact-name> \
-  --no-progress \
-  --json artifact,version,publication
-
-SHARESLICES_PROMPT_DISABLED=1 shareslices artifact publish <artifact-id> \
-  --version <version-id> \
-  --json artifactId,versionId,publicationState,expiresAt,url,copyEligible
-```
-
-Use `shareslices artifact --help` to select the implemented command for listing, uploading another Version, viewing or editing Publication state, ending a Publication early, exporting, or deleting. Supply every required identifier and flag; never depend on an interactive selector in agent-driven work.
-
-## Handle authentication and failures
-
-1. Run `shareslices auth status` before the first authenticated operation when authentication state is unknown.
-2. If sign-in is required, run `shareslices auth login`, show the verification instructions, and wait for the user to approve the browser flow before retrying.
-3. Never request, print, store, or transmit the user's email password or CLI credential.
-4. If the Server requires a newer CLI, report the required upgrade and stop.
-5. Treat a nonzero exit as failure. Preserve the CLI's actionable error, avoid claiming that content was published, and retry only after resolving the reported cause.
-6. Do not bypass CLI or Server validation. Do not invent a Share link from an Artifact ID or slug.
+Require the user's current confirmation for permanent Delete and Share-link replacement. Explicit
+Publish and Unpublish need no redundant confirmation. For `install_or_upgrade`,
+`resolve_ambiguity`, `confirm_irreversible`, or `contact_support`, stop and tell the user what to do.
+Follow `change_local_input`, `inspect_state`, or `retry_later` only when the action is safe,
+authorized, and consistent with the returned timing and resource evidence.
 
 ## Report the result
 
-Return only durable outcome details:
-
-- Artifact name and identifier when available.
-- Version identifier when available.
-- Publication state and expiration when available.
-- Exact Share link returned by the CLI when publishing succeeds.
-- Any user action still required.
-
-Do not include transient progress output, credentials, raw API responses, or unsupported lifecycle claims.
+Return Artifact and Version identifiers, Publication state and expiration, exact output path, or
+exact Share link only when present in the envelope. Clearly distinguish accepted processing,
+partial completion, and uncertainty. Never invent a link, state, identifier, success, retry policy,
+or Server behavior.

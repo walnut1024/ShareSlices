@@ -1,4 +1,4 @@
 interface:
   display_name: "ShareSlices"
-  short_description: "Publish local artifacts through the ShareSlices CLI"
-  default_prompt: "Use $shareslices to publish this local artifact and return its Share link."
+  short_description: "Safely publish and manage artifacts with the ShareSlices CLI"
+  default_prompt: "Use $shareslices to perform the requested ShareSlices operation through Agent protocol v1, preserve Upload versus Publish intent, and report confirmed durable resources or the exact human action required."

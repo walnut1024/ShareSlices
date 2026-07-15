@@ -107,7 +107,7 @@ async fn login_stores_the_credential_without_printing_it() {
     let mut output = Vec::new();
 
     run_auth(
-        AuthCommand::Login,
+        AuthCommand::Login { continuation: None },
         api.as_ref(),
         &store,
         &mut output,
@@ -186,7 +186,7 @@ async fn old_cli_error_is_actionable() {
     );
     let mut output = Vec::new();
     let error = run_auth(
-        AuthCommand::Login,
+        AuthCommand::Login { continuation: None },
         api.as_ref(),
         &store,
         &mut output,
@@ -209,7 +209,7 @@ async fn storage_failure_revokes_the_new_server_session() {
     );
     let mut output = Vec::new();
     let error = run_auth(
-        AuthCommand::Login,
+        AuthCommand::Login { continuation: None },
         api.as_ref(),
         &FailingStore,
         &mut output,
@@ -279,7 +279,7 @@ async fn pending_and_slow_down_continue_until_approval() {
     let store = MemoryStore::default();
     let mut output = Vec::new();
     run_auth(
-        AuthCommand::Login,
+        AuthCommand::Login { continuation: None },
         api.as_ref(),
         &store,
         &mut output,
@@ -301,7 +301,7 @@ async fn denial_and_expiry_create_no_local_credential() {
         let mut output = Vec::new();
         assert!(
             run_auth(
-                AuthCommand::Login,
+                AuthCommand::Login { continuation: None },
                 api.as_ref(),
                 &store,
                 &mut output,
@@ -326,7 +326,7 @@ async fn browser_failure_keeps_manual_instructions_visible() {
     let store = MemoryStore::default();
     let mut output = Vec::new();
     run_auth(
-        AuthCommand::Login,
+        AuthCommand::Login { continuation: None },
         api.as_ref(),
         &store,
         &mut output,
@@ -344,7 +344,7 @@ async fn already_signed_in_login_creates_no_authorization() {
     let api = api(Ok(user()), vec![]);
     let mut output = Vec::new();
     run_auth(
-        AuthCommand::Login,
+        AuthCommand::Login { continuation: None },
         api.as_ref(),
         &store,
         &mut output,
@@ -386,9 +386,13 @@ async fn cancelling_login_leaves_the_store_empty() {
     }
     let store = MemoryStore::default();
     let mut output = Vec::new();
-    let login = run_auth(AuthCommand::Login, &PendingApi, &store, &mut output, |_| {
-        Ok(())
-    });
+    let login = run_auth(
+        AuthCommand::Login { continuation: None },
+        &PendingApi,
+        &store,
+        &mut output,
+        |_| Ok(()),
+    );
     assert!(
         tokio::time::timeout(std::time::Duration::from_millis(1), login)
             .await

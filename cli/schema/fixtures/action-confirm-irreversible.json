@@ -1,0 +1,1 @@
+{"protocolVersion":1,"cliVersion":"0.1.6","operation":"artifact.delete","outcome":"action_required","resources":{"artifact":{"id":"artifact_123"}},"data":{},"nextAction":{"kind":"confirm_irreversible","instruction":"Confirm permanent deletion of this Artifact."}}

@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "skill": "shareslices",
+  "cases": [
+    {
+      "id": "upload-only",
+      "prompt": "Upload dist/ as a new Artifact named Preview, but do not publish it.",
+      "expectedOperation": "artifact.upload",
+      "argv": ["--agent", "--agent-protocol", "1", "artifact", "upload", "dist", "--name", "Preview"],
+      "snapshotRisk": "The previous default workflow preferred high-level Publish.",
+      "assertions": ["no_implicit_publish", "agent_v1_only", "no_direct_rest"]
+    },
+    {
+      "id": "explicit-publish",
+      "prompt": "Publish dist/ as Product demo and return the Share link.",
+      "expectedOperation": "artifact.publish_local",
+      "argv": ["--agent", "--agent-protocol", "1", "publish", "dist", "--name", "Product demo"],
+      "snapshotRisk": "The previous workflow had no whole-command machine result.",
+      "assertions": ["exact_publish_intent", "one_agent_envelope", "no_human_output_parsing"]
+    },
+    {
+      "id": "ambiguous-entry",
+      "prompt": "Upload this folder; index.html and report.html are both plausible entries.",
+      "expectedOperation": null,
+      "argv": [],
+      "snapshotRisk": "The previous workflow could defer ambiguity to a human CLI path.",
+      "assertions": ["ask_before_upload", "no_content_guess", "no_implicit_publish"]
+    },
+    {
+      "id": "existing-artifact-upload",
+      "prompt": "Upload dist/ as a new Version of artifact_123 without publishing.",
+      "expectedOperation": "artifact.upload",
+      "argv": ["--agent", "--agent-protocol", "1", "artifact", "upload", "dist", "--artifact", "artifact_123"],
+      "assertions": ["no_implicit_publish", "exact_target"]
+    },
+    {
+      "id": "authentication-continuation",
+      "prompt": "Sign in, then continue the upload after I approve.",
+      "expectedOperation": "auth.login",
+      "argv": ["--agent", "--agent-protocol", "1", "auth", "login"],
+      "assertions": ["opaque_continuation_only", "business_command_not_persisted"]
+    },
+    {
+      "id": "missing-or-old-cli",
+      "prompt": "Share this site, but the installed CLI has no Agent protocol v1.",
+      "expectedOperation": null,
+      "argv": [],
+      "assertions": ["fail_closed", "no_human_output_fallback", "no_direct_rest"]
+    },
+    {
+      "id": "publication-management",
+      "prompt": "End the current Publication for artifact_123.",
+      "expectedOperation": "artifact.unpublish",
+      "argv": ["--agent", "--agent-protocol", "1", "artifact", "unpublish", "artifact_123"],
+      "assertions": ["no_redundant_confirmation", "exact_operation"]
+    },
+    {
+      "id": "export",
+      "prompt": "Export version_7 of artifact_123 to ./backup.zip.",
+      "expectedOperation": "artifact.export",
+      "argv": ["--agent", "--agent-protocol", "1", "artifact", "export", "artifact_123", "--version", "version_7", "--output", "./backup.zip"],
+      "assertions": ["exact_output", "no_publish"]
+    },
+    {
+      "id": "irreversible-delete",
+      "prompt": "Delete artifact_123 permanently.",
+      "expectedOperation": null,
+      "argv": [],
+      "assertions": ["confirm_irreversible", "no_delete_before_confirmation"]
+    },
+    {
+      "id": "partial-or-indeterminate",
+      "prompt": "Publish dist/ and handle an uncertain response safely.",
+      "expectedOperation": "artifact.publish_local",
+      "argv": ["--agent", "--agent-protocol", "1", "publish", "dist", "--name", "dist"],
+      "assertions": ["preserve_durable_resources", "inspect_before_replay", "no_unsupported_success"]
+    }
+  ]
+}

@@ -62,6 +62,40 @@ describe("Artifact routes", () => {
     vi.spyOn(apiLogger, "emit").mockImplementation(() => undefined);
   });
 
+  it("rejects an incompatible Bearer CLI before a management route runs", async () => {
+    const dependencies = managementDependencies();
+    const app = buildApp({ artifact: dependencies } as never);
+
+    const response = await app.request("/api/artifacts", {
+      headers: {
+        Authorization: "Bearer secret-token-that-must-not-leak",
+        "ShareSlices-CLI-Version": "0.0.9",
+        "ShareSlices-CLI-OS": "amiga",
+        "X-Request-Id": "req_contract_426"
+      }
+    });
+
+    expect(response.status).toBe(426);
+    const body = await response.json();
+    expect(response.headers.get("x-request-id")).toBe("req_contract_426");
+    expect(body).toEqual({
+      error: {
+        code: "cli_upgrade_required",
+        message: "Update ShareSlices CLI to continue.",
+        requestId: "req_contract_426",
+        action: "Update ShareSlices CLI to 0.1.0 or newer.",
+        details: {
+          currentVersion: "0.0.9",
+          minimumVersion: "0.1.0",
+          operatingSystem: "amiga",
+          supportedOperatingSystems: ["linux", "macos", "windows"]
+        }
+      }
+    });
+    expect(JSON.stringify(body)).not.toContain("secret-token-that-must-not-leak");
+    expect(dependencies.management.list).not.toHaveBeenCalled();
+  });
+
   it("requires a management session for upload-policy discovery", async () => {
     const dependencies = artifactDependencies(null);
     const app = buildApp({ artifact: dependencies } as never);
@@ -174,6 +208,17 @@ describe("Artifact routes", () => {
     const response = await app.request("/api/artifacts", { method: "POST" });
 
     expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(response.headers.get("x-request-id")).toBe(body.error.requestId);
+    expect(body.error).toMatchObject({
+      code: "invalid_request",
+      fields: [{
+        path: "idempotency-key",
+        code: "required",
+        message: "Required field is missing."
+      }]
+    });
+    expect(JSON.stringify(body)).not.toMatch(/cookie|session|bearer|object[_-]?key|stack/i);
     expect(dependencies.intake.create).not.toHaveBeenCalled();
   });
 
@@ -207,6 +252,7 @@ describe("Artifact routes", () => {
       }
     });
     expect(body.error.details).not.toHaveProperty("actualBytes");
+    expect(response.headers.get("retry-after")).toBeNull();
   });
 
   it("routes manual Retry without exposing Processing Jobs", async () => {

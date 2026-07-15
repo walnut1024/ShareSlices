@@ -12,7 +12,7 @@ import type { ArtifactRepositories } from "../application/artifacts/repositories
 import { createArtifactRepositories } from "../db/artifact-repositories.js";
 import { env } from "../env.js";
 import { createConfiguredObjectStorage } from "../storage/index.js";
-import { errorJson, requestId } from "./http-error.js";
+import { errorJson, type FieldError, requestId } from "./http-error.js";
 import { MultipartUploadError, parseArtifactMultipartUpload } from "./multipart-upload.js";
 
 export type ArtifactRouteDependencies = {
@@ -30,6 +30,42 @@ const artifactListQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(30),
   pageToken: z.string().min(1).optional()
 }).strict();
+
+const MAX_FIELD_ERRORS = 20;
+
+function zodFieldErrors(error: z.ZodError): FieldError[] {
+  return error.issues.flatMap((issue) => {
+    if (issue.code === "unrecognized_keys") {
+      return issue.keys.map((key) => ({
+        path: [...issue.path, key].join(".") || key,
+        code: "unrecognized_keys",
+        message: "Invalid field."
+      }));
+    }
+    return [{
+      path: issue.path.join(".") || "request",
+      code: issue.code,
+      message: "Invalid field."
+    }];
+  }).slice(0, MAX_FIELD_ERRORS);
+}
+
+function requiredField(path: string): FieldError[] {
+  return [{ path, code: "required", message: "Required field is missing." }];
+}
+
+function multipartField(error: MultipartUploadError): FieldError[] {
+  const path = error.code.includes("file") || error.code === "archive_too_large"
+    ? "file"
+    : error.code.includes("entry")
+      ? "entry"
+      : error.code.includes("name")
+        ? "name"
+        : error.code.includes("content_type") || error.code.includes("boundary")
+          ? "content-type"
+          : "request";
+  return [{ path, code: error.code, message: "Invalid field." }];
+}
 
 export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {}): Hono {
   const defaultRepositories = createArtifactRepositories();
@@ -122,7 +158,7 @@ export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {
     }
     const parsed = artifactListQuerySchema.safeParse(c.req.query());
     if (!parsed.success) {
-      return errorJson(c, 400, "invalid_request");
+      return errorJson(c, 400, "invalid_request", zodFieldErrors(parsed.error));
     }
     try {
       const page = await dependencies.management.list(ownerId, parsed.data);
@@ -130,7 +166,11 @@ export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {
       return c.json(page);
     } catch (error) {
       if (error instanceof ArtifactManagementError && error.code === "invalid_page_token") {
-        return errorJson(c, 400, "invalid_request");
+        return errorJson(c, 400, "invalid_request", [{
+          path: "pageToken",
+          code: "invalid_page_token",
+          message: "Invalid field."
+        }]);
       }
       throw error;
     }
@@ -143,7 +183,7 @@ export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {
     }
     const idempotencyKey = c.req.header("idempotency-key");
     if (!idempotencyKey) {
-      return errorJson(c, 400, "invalid_request");
+      return errorJson(c, 400, "invalid_request", requiredField("idempotency-key"));
     }
     const policy = await dependencies.repositories.uploadPolicies.getActive();
     if (!policy) {
@@ -155,7 +195,7 @@ export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {
       upload = parseArtifactMultipartUpload(c.req.raw, { maxArchiveBytes: policy.archiveSizeBytes });
     } catch (error) {
       if (error instanceof MultipartUploadError) {
-        return errorJson(c, 400, "invalid_request");
+        return errorJson(c, 400, "invalid_request", multipartField(error));
       }
       throw error;
     }
@@ -177,7 +217,7 @@ export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {
       if (error instanceof MultipartUploadError) {
         return error.code === "archive_too_large"
           ? archiveTooLarge(c, policy.archiveSizeBytes)
-          : errorJson(c, 400, "invalid_request");
+          : errorJson(c, 400, "invalid_request", multipartField(error));
       }
       if (error instanceof ArtifactIntakeError) {
         if (error.code === "archive_too_large") {
@@ -231,7 +271,7 @@ export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {
     }
     const idempotencyKey = c.req.header("idempotency-key");
     if (!idempotencyKey) {
-      return errorJson(c, 400, "invalid_request");
+      return errorJson(c, 400, "invalid_request", requiredField("idempotency-key"));
     }
     const policy = await dependencies.repositories.uploadPolicies.getActive();
     if (!policy) {
@@ -246,7 +286,7 @@ export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {
       });
     } catch (error) {
       if (error instanceof MultipartUploadError) {
-        return errorJson(c, 400, "invalid_request");
+        return errorJson(c, 400, "invalid_request", multipartField(error));
       }
       throw error;
     }
@@ -267,7 +307,7 @@ export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {
       if (error instanceof MultipartUploadError) {
         return error.code === "archive_too_large"
           ? archiveTooLarge(c, policy.archiveSizeBytes)
-          : errorJson(c, 400, "invalid_request");
+          : errorJson(c, 400, "invalid_request", multipartField(error));
       }
       if (error instanceof ArtifactRecoveryError) {
         if (error.code === "artifact_not_found") {
@@ -301,7 +341,7 @@ export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {
     }
     const idempotencyKey = c.req.header("idempotency-key");
     if (!idempotencyKey) {
-      return errorJson(c, 400, "invalid_request");
+      return errorJson(c, 400, "invalid_request", requiredField("idempotency-key"));
     }
     try {
       const result = await dependencies.recovery.retry({ ownerUserId: ownerId, uploadSessionId, idempotencyKey });
@@ -332,7 +372,7 @@ export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {
     }
     const parsed = updateArtifactSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) {
-      return errorJson(c, 400, "invalid_request");
+      return errorJson(c, 400, "invalid_request", zodFieldErrors(parsed.error));
     }
     try {
       const artifact = await dependencies.management.rename(ownerId, c.req.param("artifactId"), parsed.data.name);

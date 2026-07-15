@@ -1,0 +1,1 @@
+{"protocolVersion":1,"cliVersion":"0.1.6","operation":"artifact.list","outcome":"action_required","resources":{},"data":{},"nextAction":{"kind":"install_or_upgrade","instruction":"Install a CLI version that supports the negotiated protocol."}}

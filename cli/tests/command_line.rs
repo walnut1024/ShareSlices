@@ -98,7 +98,7 @@ fn every_command_has_detailed_help_and_examples() {
 #[test]
 fn parses_auth_commands_without_artifact_commands() {
     for (name, expected) in [
-        ("login", AuthCommand::Login),
+        ("login", AuthCommand::Login { continuation: None }),
         ("status", AuthCommand::Status),
         ("logout", AuthCommand::Logout),
     ] {
@@ -109,6 +109,22 @@ fn parses_auth_commands_without_artifact_commands() {
         assert_eq!(format!("{command:?}"), format!("{expected:?}"));
     }
     assert!(Cli::try_parse_from(["shareslices", "upload"]).is_err());
+}
+
+#[test]
+fn parses_offline_agent_capabilities_without_a_protocol_version() {
+    let cli = Cli::try_parse_from(["shareslices", "--agent", "capabilities"])
+        .expect("agent capabilities command");
+    assert!(cli.agent);
+    assert_eq!(cli.agent_protocol, None);
+    assert!(matches!(cli.command, Command::Capabilities));
+}
+
+#[test]
+fn agent_protocol_requires_agent_flag() {
+    assert!(
+        Cli::try_parse_from(["shareslices", "--agent-protocol", "1", "auth", "status"]).is_err()
+    );
 }
 
 #[test]

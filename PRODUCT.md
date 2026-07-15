@@ -24,6 +24,18 @@ The agent is the primary product entry point. The expected path is that the agen
 
 Programmers and automation workflows can integrate directly, but product decisions prioritize non-programmer users.
 
+## Agent and CLI execution
+
+The official Skill preserves the user's requested operation. Upload-only intent remains Upload, explicit Publish uses Publish, and management requests use the corresponding management operation. The Skill does not make content externally accessible merely because the user did not request an intermediate review.
+
+The Skill selects user-authorized local inputs and may perform deterministic inspection, builds, or local repairs already implied by the Artifact-creation request. It asks before a choice would materially change the content, Artifact target, Entry file, publication intent, or an irreversible result. The CLI owns packaging, validation, authentication, transfer, retry policy, lifecycle defaults, and Server calls; the Server remains authoritative for account, authorization, Artifact, Version, Publication, and validation state.
+
+The installed CLI provides a separate Agent mode for the official Skill. Agent mode is non-interactive, suppresses transient progress, and returns one versioned Outcome envelope for each invocation. Capability discovery is local and does not require credentials or network access. The Skill selects a mutually supported Agent protocol version for operational commands and does not fall back to human output, selected-field JSON, or direct REST calls when negotiation fails. Existing human CLI output and selected-field JSON remain separate compatibility surfaces.
+
+Agent outcomes distinguish completed, active, partial, action-required, failed, indeterminate, and cancelled work while preserving only known durable resources and Server evidence. A Next action can request authorization, ambiguity resolution, irreversible confirmation, installation or upgrade, local-input correction, state inspection, delayed retry, or support. Indeterminate mutations require state inspection before any replay, and retries require contract evidence that they are safe.
+
+Browser authorization is the only resumable Agent operation in protocol version 1. Its Continuation identifies authorization state only; it contains no business command, local path, Artifact content, credential, or irreversible confirmation. The official Skill does not activate an Agent protocol release until every operation it advertises has passing contract and safety coverage.
+
 ## User accounts
 
 Users sign up and sign in with email first. Product planning also includes phone, Google, and WeChat sign-in methods.

@@ -28,6 +28,15 @@ impl CredentialStore for ProcessStore {
 }
 
 async fn run_injected_process(server: &MockServer, arguments: &[&str], cwd: &Path) -> Output {
+    run_injected_process_with_token(server, arguments, cwd, Some(TOKEN)).await
+}
+
+async fn run_injected_process_with_token(
+    server: &MockServer,
+    arguments: &[&str],
+    cwd: &Path,
+    token: Option<&str>,
+) -> Output {
     let mut cli_arguments = vec![
         "shareslices".to_owned(),
         "--api-url".to_owned(),
@@ -37,6 +46,7 @@ async fn run_injected_process(server: &MockServer, arguments: &[&str], cwd: &Pat
     let encoded = serde_json::to_string(&cli_arguments).expect("process arguments");
     let executable = std::env::current_exe().expect("test process");
     let cwd = cwd.to_owned();
+    let token = token.unwrap_or_default().to_owned();
     tokio::task::spawn_blocking(move || {
         Command::new(executable)
             .args([
@@ -46,7 +56,8 @@ async fn run_injected_process(server: &MockServer, arguments: &[&str], cwd: &Pat
                 "--nocapture",
             ])
             .env("SHARESLICES_TEST_CLI_ARGUMENTS", encoded)
-            .env("SHARESLICES_TEST_TOKEN", TOKEN)
+            .env("SHARESLICES_TEST_TOKEN", token)
+            .env("SHARESLICES_STATE_DIR", cwd.join("agent-state"))
             .env("SHARESLICES_PROMPT_DISABLED", "1")
             .current_dir(cwd)
             .output()
@@ -54,6 +65,59 @@ async fn run_injected_process(server: &MockServer, arguments: &[&str], cwd: &Pat
     })
     .await
     .expect("process task")
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_login_starts_once_returns_immediately_and_reuses_the_continuation() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/cli-authorizations"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+            "authorization": {
+                "deviceCode": "server-only-device-secret",
+                "userCode": "ABCD-EFGH",
+                "verificationUri": "https://example.test/device",
+                "verificationUriComplete": "https://example.test/device?user_code=ABCDEFGH",
+                "expiresIn": 600,
+                "interval": 5
+            }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let directory = tempfile::tempdir().expect("directory");
+    let arguments = ["--agent", "--agent-protocol", "1", "auth", "login"];
+
+    let first = run_injected_process_with_token(&server, &arguments, directory.path(), None).await;
+    let second = run_injected_process_with_token(&server, &arguments, directory.path(), None).await;
+
+    for output in [&first, &second] {
+        assert_eq!(output.status.code(), Some(4));
+        assert!(output.stderr.is_empty());
+    }
+    let first = agent_document(&first.stdout);
+    let second = agent_document(&second.stdout);
+    assert_eq!(first["outcome"], "action_required");
+    assert_eq!(first["nextAction"]["kind"], "authorize");
+    assert_eq!(first["continuation"]["id"], second["continuation"]["id"]);
+    assert!(
+        !serde_json::to_string(&first)
+            .expect("JSON")
+            .contains("server-only-device-secret")
+    );
+}
+
+fn agent_document(stdout: &[u8]) -> serde_json::Value {
+    let stdout = String::from_utf8_lossy(stdout);
+    let document = stdout
+        .lines()
+        .find(|line| line.starts_with('{'))
+        .expect("one Agent JSON document");
+    assert_eq!(
+        stdout.lines().filter(|line| line.starts_with('{')).count(),
+        1
+    );
+    serde_json::from_str(document).expect("Agent JSON")
 }
 
 fn assert_success(output: &Output) {
@@ -154,6 +218,142 @@ async fn injected_runner_process_lists_artifacts_through_parser_http_and_stdio()
     assert!(stdout.contains("artifact-list"));
     assert!(stdout.contains("Quarterly report"));
     assert!(output.stderr.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn injected_runner_agent_list_emits_one_typed_document_and_empty_stderr() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts"))
+        .and(header("authorization", format!("Bearer {TOKEN}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifacts": [{
+                "id": "artifact-agent-list",
+                "name": "Agent report",
+                "updatedAt": "2026-07-13T00:00:00Z",
+                "processingState": "failed",
+                "shareLink": null,
+                "publicationStatus": "not_published",
+                "publication": null,
+                "readyVersion": null,
+                "validationReport": { "primaryIssue": { "code": "missing_entry" } },
+                "failure": { "code": "validation_failed", "message": "Entry is missing.", "recoverable": true },
+                "allowedActions": ["replace_file", "delete"]
+            }],
+            "nextPageToken": null
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let directory = tempfile::tempdir().expect("directory");
+
+    let output = run_injected_process(
+        &server,
+        &["--agent", "--agent-protocol", "1", "artifact", "list"],
+        directory.path(),
+    )
+    .await;
+
+    assert_success(&output);
+    assert!(output.stderr.is_empty());
+    // The subprocess is the Rust test harness, so `--nocapture` surrounds the CLI's stdout with
+    // harness status lines. Parse the one JSON line emitted by `run_cli_process` itself.
+    let value = agent_document(&output.stdout);
+    assert_eq!(value["operation"], "artifact.list");
+    assert_eq!(value["outcome"], "completed");
+    assert_eq!(
+        value["data"]["artifacts"][0]["validationReport"]["primaryIssue"]["code"],
+        "missing_entry"
+    );
+    assert_eq!(
+        value["data"]["artifacts"][0]["failure"]["recoverable"],
+        true
+    );
+    assert_eq!(
+        value["data"]["artifacts"][0]["allowedActions"],
+        serde_json::json!(["replace_file", "delete"])
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn indeterminate_publish_requires_state_inspection_before_any_replay() {
+    let server = MockServer::start().await;
+    let publication = serde_json::json!({
+        "id": "publication-current",
+        "versionId": "version-current",
+        "publishedAt": "2026-07-13T00:00:00Z",
+        "expirationKind": "permanent",
+        "durationSeconds": null,
+        "expiresAt": null,
+        "endedAt": null,
+        "endReason": null
+    });
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-uncertain"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "artifact": artifact("artifact-uncertain", &publication)
+        })))
+        .expect(2)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/artifacts/artifact-uncertain/publications"))
+        .respond_with(ResponseTemplate::new(500).set_body_json(serde_json::json!({
+            "error": {
+                "code": "internal_error",
+                "message": "The result could not be confirmed.",
+                "requestId": "request-uncertain"
+            }
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let directory = tempfile::tempdir().expect("directory");
+
+    let mutation = run_injected_process(
+        &server,
+        &[
+            "--agent",
+            "--agent-protocol",
+            "1",
+            "artifact",
+            "publish",
+            "artifact-uncertain",
+            "--version",
+            "version-next",
+        ],
+        directory.path(),
+    )
+    .await;
+    assert_eq!(mutation.status.code(), Some(1));
+    assert!(mutation.stderr.is_empty());
+    let result = agent_document(&mutation.stdout);
+    assert_eq!(result["outcome"], "indeterminate");
+    assert_eq!(result["resources"]["artifact"]["id"], "artifact-uncertain");
+    assert_eq!(result["error"]["requestId"], "request-uncertain");
+    assert_eq!(result["nextAction"]["kind"], "inspect_state");
+
+    let inspection = run_injected_process(
+        &server,
+        &[
+            "--agent",
+            "--agent-protocol",
+            "1",
+            "artifact",
+            "publication",
+            "view",
+            "artifact-uncertain",
+        ],
+        directory.path(),
+    )
+    .await;
+    assert_success(&inspection);
+    let state = agent_document(&inspection.stdout);
+    assert_eq!(state["outcome"], "completed");
+    assert_eq!(
+        state["resources"]["artifact"]["publication"]["id"],
+        "publication-current"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -573,7 +773,7 @@ async fn injected_cli_runner_process_fixture() {
     )
     .expect("valid CLI arguments");
     let token = std::env::var("SHARESLICES_TEST_TOKEN").expect("test token");
-    let store = ProcessStore(Mutex::new(Some(token)));
+    let store = ProcessStore(Mutex::new((!token.is_empty()).then_some(token)));
     let code = run_cli_process(
         arguments,
         |_| Ok(store),

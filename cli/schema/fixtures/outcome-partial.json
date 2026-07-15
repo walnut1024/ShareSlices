@@ -1,0 +1,1 @@
+{"protocolVersion":1,"cliVersion":"0.1.6","operation":"artifact.publish_local","outcome":"partial","resources":{"artifact":{"id":"artifact_123"},"version":{"id":"version_123"}},"data":{"publishCompleted":false},"nextAction":{"kind":"inspect_state","instruction":"Inspect the Artifact before retrying Publish."}}

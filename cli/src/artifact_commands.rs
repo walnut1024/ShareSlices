@@ -1269,7 +1269,17 @@ async fn wait_for_ready(
     diagnostics: &mut dyn Write,
 ) -> Result<(String, String), ArtifactError> {
     let mut activity = 0_usize;
+    let deadline = args.agent_mode.then(|| {
+        std::time::Instant::now()
+            + std::time::Duration::from_secs(crate::agent_protocol::PROCESSING_WAIT_SECONDS.into())
+    });
     loop {
+        if deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
+            return Err(ArtifactError::ProcessingInProgress {
+                artifact_id: accepted.artifact_id.clone(),
+                upload_session_id: accepted.upload_session_id.clone(),
+            });
+        }
         if !args.no_progress {
             const FRAMES: [&str; 4] = ["|", "/", "-", "\\"];
             write!(

@@ -14,7 +14,12 @@ pub async fn run_auth(
     open_browser: impl Fn(&str) -> Result<(), AuthError>,
 ) -> Result<(), AuthError> {
     match command {
-        AuthCommand::Login => login(api, store, output, open_browser).await,
+        AuthCommand::Login { continuation } => {
+            if continuation.is_some() {
+                return Err(AuthError::Server);
+            }
+            login(api, store, output, open_browser).await
+        }
         AuthCommand::Status => status(api, store, output).await,
         AuthCommand::Logout => logout(api, store, output).await,
     }
@@ -80,6 +85,10 @@ async fn login(
             }
             Err(AuthError::Pending) => {}
             Err(AuthError::SlowDown) => interval = interval.saturating_add(5),
+            Err(error) if error.has_server_code("authorization_pending") => {}
+            Err(error) if error.has_server_code("slow_down") => {
+                interval = interval.saturating_add(5);
+            }
             Err(error) => return Err(error),
         }
     }

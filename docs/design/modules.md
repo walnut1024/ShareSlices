@@ -9,7 +9,7 @@ Engineering rules that constrain all designs live in `AGENTS.md`. Product behavi
 
 ## Top-level seams
 
-Status: current for the 0.0.1 runtime seams, CLI authentication, Artifact listing, Upload, thumbnail generation and reads, Publish, Unpublish, Share-link management, and Delete; Skill entry remains target.
+Status: current for the runtime seams, CLI authentication and Artifact commands, Agent protocol v1, official Skill entry, thumbnail generation and reads, and Publication management.
 
 | Seam | Status | Interface owner | Production Adapter | Test Adapter |
 | --- | --- | --- | --- | --- |
@@ -21,40 +21,33 @@ Status: current for the 0.0.1 runtime seams, CLI authentication, Artifact listin
 | Raw and processed object access | current | Application and worker Modules | S3-compatible Adapter | In-memory object Adapter |
 | Processing job handoff | current | `db/migrations/` schema plus job Interfaces | Drizzle enqueue Adapter and SQLx claim Adapter | Local PostgreSQL and fake Adapters |
 | Thumbnail job handoff | current | `db/migrations/` schema plus thumbnail job Interfaces | ready-Version enqueue and SQLx claim Adapter | Local PostgreSQL and fake Adapters |
-| Agent intent into CLI | target | `skill/shareslices/` invocation contract | Official ShareSlices Skill | Skill-to-CLI contract fixtures |
-| CLI commands into ShareSlices | current for authentication, Artifact listing, Upload, Publish, Unpublish, Share-link management, and Delete | `cli/` command Interface | Rust CLI with operating-system credential store | In-memory credential and fake HTTP Adapters |
+| Agent intent into CLI | current | `skill/shareslices/` invocation contract | Official ShareSlices Skill | Fake CLI plus behavior, contract, and trigger evaluations |
+| CLI commands into ShareSlices | current for human and Agent protocol v1 surfaces | `cli/` command Interface | Rust CLI with operating-system credential and continuation stores | In-memory credential/continuation and fake HTTP Adapters |
 
 ## Official Skill entry
 
-Status: target
+Status: current
 
-- The official Skill is an intent Adapter, not a second ShareSlices client or a copy of the CLI manual. Each non-interactive CLI invocation executes one explicit operation; the Skill may compose separate capability discovery, authentication, state-inspection, and business invocations into the authorized workflow, consumes each structured outcome, and summarizes the durable result.
-- Intent routing preserves the user's requested operation. A request to Publish local content uses the high-level Publish command; a request to Upload without external access remains Upload; explicit management requests use the corresponding resource command. The Skill never upgrades Upload into Publish merely because the user did not request an intermediate review.
-- The Skill owns workspace context: it identifies the user-authorized local inputs and relevant built output. When uncertainty would materially change the selected content, Artifact target, Entry file, publication intent, or irreversible action, it asks the user before invoking the CLI.
-- The CLI owns package mechanics and execution policy after input selection: deterministic root and Entry-file handling, packaging, validation, authentication, transfer, retries, lifecycle defaults, Server calls, and result rendering. The Server remains the source of truth for account, authorization, Artifact, Version, Publication, and validation state.
-- The Skill calls only the installed `shareslices` CLI and does not duplicate command flags, selectable output fields, lifecycle rules, REST calls, or Server validation. Exact command syntax and fields come from the installed CLI contract.
-- The installed CLI exposes an explicit global Agent mode for the official Skill. Agent mode disables stdin prompts, suppresses transient progress, and emits exactly one versioned JSON outcome envelope per process invocation. Existing human-readable output and field-selected JSON remain separate compatibility surfaces.
-- A local `shareslices --agent capabilities` probe requires no credential or network access and advertises supported integer Agent protocol versions, operations, and the bounded processing-wait budget independently of CLI semantic version. The Skill explicitly selects a mutually supported version on every operational Agent invocation and fails closed when no supported version or operation exists; it does not parse human output or selected-field JSON as a fallback.
-- The Agent-mode envelope identifies the operation and outcome, preserves every known durable resource, carries command-specific data, and optionally carries a structured error and next action. Outcomes distinguish completed, in-progress, partial, action-required, failed, indeterminate, and cancelled work; process exit codes remain an additional coarse signal rather than the source of outcome semantics.
-- A browser authorization that needs user approval is a resumable two-stage operation. The first invocation returns the verification instructions and a non-sensitive continuation identifier, while sensitive authorization state remains under CLI control. A later invocation completes or checks that continuation before the Skill issues a new invocation for the still-authorized original operation. Authentication is the only resumable Agent operation in protocol version 1; the continuation stores no business command, local path, content, or irreversible confirmation.
-- The Server supplies authoritative error codes, request identifiers, field errors, limits, validation reports, recoverability, allowed actions, retry timing, and resource state. The CLI preserves those facts and maps them into command-aware next actions; the Skill combines them only with user intent and local workspace evidence.
-- Next actions distinguish authorization, material ambiguity, irreversible confirmation, installation or upgrade, local-input changes, state inspection, delayed retry, and support escalation. The Skill tells the user the exact required action and resumes the original operation when the action completes.
-- The surrounding agent may inspect, build, and make a deterministic local repair when that work is already authorized by the original artifact-creation task and does not materially change the user's intended content. The Skill itself does not edit Artifact content. Material content changes, multiple plausible inputs or targets, secrets risk, and irreversible operations require user direction; read-only state inspection and contract-declared safe retries do not.
-- The revised Skill activates only after Agent mode covers every command it advertises. Skill-to-CLI contract fixtures and versioned behavioral and trigger eval definitions guard intent routing, destructive boundaries, compatibility handling, and evidence-based reporting; generated evaluation output is not a durable repository artifact.
-- The implementing change defines the concrete result, error, continuation, and next-action schemas and may update CLI or Server Interfaces when the current boundary cannot provide the required evidence.
+- `PRODUCT.md` owns intent, authorization, ambiguity, retry, resumption, and activation policy for the Skill and Agent mode. This section describes only the implementation seam.
+- The official Skill is an intent Adapter over the installed `shareslices` CLI, not a second ShareSlices client. It may compose capability discovery, authentication, state inspection, and one explicit business operation, then summarize the durable result.
+- Capability discovery and every operational invocation cross the same CLI process boundary. The Skill consumes the versioned Agent protocol and never imports CLI implementation modules or calls ShareSlices HTTP routes directly.
+- The CLI owns package and execution mechanics behind its command Interface. It maps Server evidence into the common Agent envelope; the Skill adds only current user intent and authorized workspace evidence.
+- Authentication continuation storage is a private CLI Adapter behind a versioned Interface. The Skill sees only the opaque identifier returned in the envelope and never persists CLI authorization state.
+- Skill-to-CLI contract fixtures use a fake CLI Adapter. Behavioral and trigger evaluations exercise the intent Adapter without a live Server; generated evaluation output is not durable repository documentation.
 
 ## CLI authentication Modules
 
 Status: current
 
 - `cli/src/auth_commands.rs` owns the `auth login`, `auth status`, and `auth logout` command behavior behind `AuthApi` and `CredentialStore` Interfaces; `cli/src/lib.rs` is the public facade. The production Adapters use the checked HTTP API and the operating-system credential store; tests use fake HTTP and in-memory credentials.
+- `cli/src/auth_continuation.rs` owns the versioned Agent authorization continuation Interface and its in-memory and private atomic filesystem Adapters. `cli/src/agent_protocol.rs` owns the checked protocol registry and typed envelope; `cli/src/cli_runner.rs` keeps Agent rendering separate from unchanged human dispatch.
 - `api/src/http/cli-auth-routes.ts` is the product-owned HTTP Adapter over Better Auth Device Authorization and Bearer Sessions. It validates the fixed CLI client and transient version/operating-system compatibility metadata without persisting device identity.
 - `web/src/screens/DeviceAuthorizationPage.tsx` owns the Cookie-authenticated `/device?user_code=...` approval flow. It preserves the verification code through login, exposes no account switch, and replaces approval with the terminal-return success state.
 - JSON management routes accept Cookie or Bearer Sessions through the existing `getSession` seam. Preview content remains Cookie-only and Viewer content remains public according to Publication state.
 
 ## CLI Artifact Modules
 
-Status: current for Artifact listing, Upload, Publish, Unpublish, Share-link management, ready-Version Export, and Delete; other management commands remain target.
+Status: current for Artifact listing, Upload, high-level and stepwise Publish, Unpublish, Publication view/edit, ready-Version Export, and Delete in both human and Agent modes.
 
 - `cli/src/artifact_commands.rs` owns bounded Artifact list presentation, selectable JSON formatting, shared interactive Artifact and ready-Version selection, Upload orchestration through ready Version commit, atomic Publish and Unpublish commands, Share-link management, atomic local Export, and confirmed permanent Delete. `cli/src/packaging.rs` expands selected local inputs, applies the active Server policy, and deterministically streams safe effective paths into a temporary ZIP; a single prepared ZIP bypasses repackaging. `ApiClient` follows opaque Server pages, transfers ZIP input with safe idempotent retries, downloads normalized Version ZIPs, never retries an indeterminate Delete, and supplies transient CLI compatibility metadata; production credentials still come only from the operating-system credential store.
 - `ArtifactManagementService` owns list filtering, opaque pagination, and the owner-scoped ready-Version collection used by interactive CLI selection. Hono routes validate DTOs and map application errors without deriving Artifact state or Publication behavior.

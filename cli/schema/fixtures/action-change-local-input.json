@@ -1,0 +1,1 @@
+{"protocolVersion":1,"cliVersion":"0.1.6","operation":"artifact.upload","outcome":"action_required","resources":{},"data":{},"nextAction":{"kind":"change_local_input","instruction":"Correct the local entry file before retrying."}}

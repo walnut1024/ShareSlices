@@ -1,0 +1,1 @@
+{"protocolVersion":1,"cliVersion":"0.1.6","operation":"artifact.publish","outcome":"indeterminate","resources":{},"data":{},"error":{"code":"request_interrupted"},"nextAction":{"kind":"inspect_state","instruction":"Inspect the current Publication state before retrying."}}

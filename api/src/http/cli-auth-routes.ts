@@ -53,7 +53,12 @@ export function checkCliCompatibility(c: Context, minimumCliVersion: string) {
   ) {
     return errorJson(c, 426, "cli_upgrade_required", undefined, {
       action: `Update ShareSlices CLI to ${minimumCliVersion} or newer.`,
-      details: { currentVersion, minimumVersion: minimumCliVersion } as never
+      details: {
+        currentVersion,
+        minimumVersion: minimumCliVersion,
+        operatingSystem,
+        supportedOperatingSystems: [...supportedOperatingSystems]
+      }
     });
   }
   return null;

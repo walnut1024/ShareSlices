@@ -174,13 +174,26 @@ def test_openapi_artifact_contract_and_local_references() -> None:
     assert schemas["ShareLink"]["properties"]["state"]["enum"] == ["active", "retired"]
     manage_publication = document["paths"]["/api/artifacts/{artifactId}/publications/{publicationId}"]
     assert set(manage_publication) - {"parameters"} == {"patch", "delete"}
-    assert set(manage_publication["patch"]["responses"]) == {"200", "400", "401", "404", "409", "500"}
+    assert set(manage_publication["patch"]["responses"]) == {
+        "200", "400", "401", "404", "409", "426", "500"
+    }
     delete_artifact = document["paths"]["/api/artifacts/{artifactId}"]["delete"]
-    assert set(delete_artifact["responses"]) == {"204", "401", "404", "409", "500"}
+    assert set(delete_artifact["responses"]) == {"204", "401", "404", "409", "426", "500"}
     assert "must not automatically retry" in delete_artifact["description"]
     assert delete_artifact["responses"]["204"]["headers"]["X-Request-Id"] == {
         "$ref": "#/components/headers/RequestId"
     }
+    bearer_operations = [
+        operation
+        for path_item in document["paths"].values()
+        for method, operation in path_item.items()
+        if method != "parameters"
+        and any("sessionBearer" in security for security in operation.get("security", []))
+    ]
+    assert bearer_operations
+    assert all(operation["responses"]["426"] == {
+        "$ref": "#/components/responses/CliUpgradeRequired"
+    } for operation in bearer_operations)
 
     validation_details = schemas["ValidationDetails"]
     assert validation_details["additionalProperties"] is False
@@ -216,7 +229,23 @@ def test_openapi_artifact_contract_and_local_references() -> None:
 
     error_properties = schemas["ErrorBody"]["properties"]
     assert error_properties["action"]["type"] == "string"
-    assert error_properties["details"] == {"$ref": "#/components/schemas/ValidationDetails"}
+    assert error_properties["details"] == {
+        "oneOf": [
+            {"$ref": "#/components/schemas/ValidationDetails"},
+            {"$ref": "#/components/schemas/CliCompatibilityDetails"},
+            {"$ref": "#/components/schemas/RequestFieldDetails"},
+            {"$ref": "#/components/schemas/SizeLimitDetails"},
+            {"$ref": "#/components/schemas/ConflictDetails"},
+        ]
+    }
+    assert error_properties["fields"]["maxItems"] == 20
+    assert schemas["CliCompatibilityDetails"]["required"] == [
+        "currentVersion",
+        "minimumVersion",
+        "operatingSystem",
+        "supportedOperatingSystems",
+    ]
+    assert schemas["SizeLimitDetails"]["required"] == ["limitBytes"]
     upload_too_large = document["components"]["responses"]["UploadTooLarge"]["content"]["application/json"][
         "examples"
     ]["tooLarge"]["value"]["error"]

@@ -1,0 +1,1 @@
+{"protocolVersion":1,"cliVersion":"0.1.6","operation":"artifact.list","outcome":"failed","resources":{},"data":{},"error":{"code":"unexpected_server_error","requestId":"request_123"},"nextAction":{"kind":"contact_support","instruction":"Contact support with the request identifier.","parameters":{"requestId":"request_123"}}}

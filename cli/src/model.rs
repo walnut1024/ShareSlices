@@ -1,7 +1,39 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiErrorEvidence {
+    pub code: String,
+    pub message: String,
+    pub request_id: Option<String>,
+    pub action: Option<String>,
+    pub fields: Option<serde_json::Value>,
+    pub details: Option<serde_json::Value>,
+    pub retry_after_seconds: Option<u64>,
+    pub status: u16,
+}
+
+impl std::fmt::Display for ApiErrorEvidence {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if !self.message.is_empty() {
+            return formatter.write_str(&self.message);
+        }
+        formatter.write_str(match self.code.as_str() {
+            "unauthenticated" => "Not signed in. Run shareslices auth login.",
+            "cli_upgrade_required" => "Update ShareSlices CLI before continuing.",
+            "version_not_ready" => {
+                "The selected Version is not ready. Wait for processing to finish, then try again."
+            }
+            "invalid_artifact_state" => {
+                "The Artifact's current state does not allow this operation."
+            }
+            _ => "ShareSlices returned an unexpected response.",
+        })
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct User {
     pub name: String,
     pub email: String,
@@ -41,10 +73,19 @@ pub enum AuthError {
     Network(String),
     #[error("ShareSlices returned an unexpected response.")]
     Server,
+    #[error("{0}")]
+    ServerEvidence(Box<ApiErrorEvidence>),
     #[error("The operating system credential store is unavailable: {0}")]
     CredentialStore(String),
     #[error("Invalid ShareSlices API URL.")]
     InvalidApiUrl,
+}
+
+impl AuthError {
+    #[must_use]
+    pub fn has_server_code(&self, expected: &str) -> bool {
+        matches!(self, Self::ServerEvidence(evidence) if evidence.code == expected)
+    }
 }
 
 pub trait CredentialStore: Send + Sync {
@@ -84,6 +125,14 @@ pub struct Artifact {
     #[serde(default)]
     pub publication_status: PublicationStatus,
     pub publication: Option<ArtifactPublication>,
+    #[serde(default)]
+    pub ready_version: Option<ReadyVersion>,
+    #[serde(default)]
+    pub validation_report: Option<serde_json::Value>,
+    #[serde(default)]
+    pub failure: Option<ArtifactFailure>,
+    #[serde(default)]
+    pub allowed_actions: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -152,6 +201,16 @@ pub struct ArtifactDetail {
     #[serde(default)]
     pub publication_status: PublicationStatus,
     pub publication: Option<ArtifactPublication>,
+    #[serde(default)]
+    pub processing_state: String,
+    #[serde(default)]
+    pub ready_version: Option<ReadyVersion>,
+    #[serde(default)]
+    pub validation_report: Option<serde_json::Value>,
+    #[serde(default)]
+    pub failure: Option<ArtifactFailure>,
+    #[serde(default)]
+    pub allowed_actions: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -178,7 +237,7 @@ pub struct ArtifactAccepted {
     pub upload_session_id: String,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtifactState {
     #[serde(default)]
@@ -188,17 +247,23 @@ pub struct ArtifactState {
     #[serde(default)]
     pub publication: Option<ArtifactPublication>,
     pub failure: Option<ArtifactFailure>,
+    #[serde(default)]
+    pub validation_report: Option<serde_json::Value>,
+    #[serde(default)]
+    pub allowed_actions: Vec<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ReadyVersion {
     pub id: String,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ArtifactFailure {
     pub code: String,
     pub message: String,
+    #[serde(default)]
+    pub recoverable: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -232,6 +297,8 @@ pub enum ArtifactError {
     UpgradeRequired { current: String, minimum: String },
     #[error("ShareSlices returned an unexpected response.")]
     Server,
+    #[error("{0}")]
+    ServerEvidence(Box<ApiErrorEvidence>),
     #[error("Upload input must be one readable .zip file.")]
     InvalidZipInput,
     #[error("Invalid upload input: {0}")]
@@ -242,6 +309,11 @@ pub enum ArtifactError {
     InvalidEntry,
     #[error("Artifact processing failed: {0}")]
     ProcessingFailed(String),
+    #[error("Artifact processing is still in progress.")]
+    ProcessingInProgress {
+        artifact_id: String,
+        upload_session_id: String,
+    },
     #[error(
         "Upload was sent, but ShareSlices could not confirm acceptance after safe retries. Check artifact list before retrying."
     )]

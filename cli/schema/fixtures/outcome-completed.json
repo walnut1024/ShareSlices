@@ -1,0 +1,1 @@
+{"protocolVersion":1,"cliVersion":"0.1.6","operation":"artifact.publish_local","outcome":"completed","resources":{"artifact":{"id":"artifact_123"},"version":{"id":"version_123"},"publication":{"id":"publication_123"},"shareLink":{"url":"https://view.example.test/a/share_123/"}},"data":{}}

@@ -1,0 +1,1 @@
+{"protocolVersion":1,"cliVersion":"0.1.6","operation":"artifact.delete","outcome":"indeterminate","resources":{"artifact":{"id":"artifact_123"}},"data":{},"error":{"code":"request_interrupted"},"nextAction":{"kind":"inspect_state","instruction":"Inspect whether the Artifact still exists before retrying Delete."}}

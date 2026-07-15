@@ -1,0 +1,241 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shareslices.dev/schema/agent-protocol-v1.schema.json",
+  "title": "ShareSlices Agent protocol v1",
+  "oneOf": [
+    { "$ref": "#/$defs/capabilities" },
+    { "$ref": "#/$defs/envelope" }
+  ],
+  "$defs": {
+    "semanticVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"
+    },
+    "operation": {
+      "enum": [
+        "capabilities",
+        "artifact.publish_local",
+        "auth.login",
+        "auth.status",
+        "auth.logout",
+        "artifact.list",
+        "artifact.upload",
+        "artifact.publish",
+        "artifact.unpublish",
+        "artifact.delete",
+        "artifact.publication.view",
+        "artifact.publication.edit",
+        "artifact.export"
+      ]
+    },
+    "outcome": {
+      "enum": [
+        "completed",
+        "in_progress",
+        "partial",
+        "action_required",
+        "failed",
+        "indeterminate",
+        "cancelled"
+      ]
+    },
+    "actionKind": {
+      "enum": [
+        "authorize",
+        "resolve_ambiguity",
+        "confirm_irreversible",
+        "install_or_upgrade",
+        "change_local_input",
+        "inspect_state",
+        "retry_later",
+        "contact_support"
+      ]
+    },
+    "capabilities": {
+      "type": "object",
+      "required": [
+        "cliVersion",
+        "supportedProtocolVersions",
+        "protocolVersion",
+        "features",
+        "outcomes",
+        "actionKinds",
+        "processingWaitSeconds",
+        "operations"
+      ],
+      "properties": {
+        "cliVersion": { "$ref": "#/$defs/semanticVersion" },
+        "supportedProtocolVersions": {
+          "type": "array",
+          "const": [1]
+        },
+        "protocolVersion": { "const": 1 },
+        "features": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "outcomes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/outcome" },
+          "minItems": 7,
+          "maxItems": 7,
+          "uniqueItems": true
+        },
+        "actionKinds": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/actionKind" },
+          "minItems": 8,
+          "maxItems": 8,
+          "uniqueItems": true
+        },
+        "processingWaitSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "operations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/operation" },
+          "minItems": 13,
+          "maxItems": 13,
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "envelope": {
+      "type": "object",
+      "required": [
+        "protocolVersion",
+        "cliVersion",
+        "operation",
+        "outcome",
+        "resources",
+        "data"
+      ],
+      "properties": {
+        "protocolVersion": { "const": 1 },
+        "cliVersion": { "$ref": "#/$defs/semanticVersion" },
+        "operation": { "$ref": "#/$defs/operation" },
+        "outcome": { "$ref": "#/$defs/outcome" },
+        "resources": { "$ref": "#/$defs/resources" },
+        "data": { "type": "object" },
+        "error": { "oneOf": [{ "$ref": "#/$defs/error" }, { "type": "null" }] },
+        "nextAction": { "oneOf": [{ "$ref": "#/$defs/nextAction" }, { "type": "null" }] },
+        "continuation": { "oneOf": [{ "$ref": "#/$defs/continuation" }, { "type": "null" }] }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "outcome": { "const": "action_required" } },
+            "required": ["outcome"]
+          },
+          "then": { "required": ["nextAction"] }
+        },
+        {
+          "if": {
+            "properties": { "outcome": { "const": "indeterminate" } },
+            "required": ["outcome"]
+          },
+          "then": {
+            "required": ["nextAction"],
+            "properties": {
+              "nextAction": {
+                "properties": { "kind": { "const": "inspect_state" } }
+              }
+            }
+          }
+        },
+        {
+          "if": { "required": ["continuation"] },
+          "then": {
+            "properties": {
+              "operation": { "const": "auth.login" }
+            }
+          }
+        }
+      ],
+      "additionalProperties": true
+    },
+    "resources": {
+      "type": "object",
+      "properties": {
+        "artifact": { "$ref": "#/$defs/idResource" },
+        "uploadSession": { "$ref": "#/$defs/idResource" },
+        "version": { "$ref": "#/$defs/idResource" },
+        "publication": { "$ref": "#/$defs/idResource" },
+        "shareLink": { "$ref": "#/$defs/shareLinkResource" }
+      },
+      "additionalProperties": true
+    },
+    "idResource": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    },
+    "shareLinkResource": {
+      "type": "object",
+      "required": ["url"],
+      "properties": {
+        "url": { "type": "string", "format": "uri" }
+      },
+      "additionalProperties": true
+    },
+    "error": {
+      "type": "object",
+      "required": ["code"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^[a-z0-9]+(?:_[a-z0-9]+)*$" },
+        "message": { "type": "string", "minLength": 1 },
+        "requestId": { "type": "string", "minLength": 1 },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["field", "code"],
+            "properties": {
+              "field": { "type": "string", "minLength": 1 },
+              "code": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": true
+          }
+        },
+        "details": { "type": "object" },
+        "validationReport": { "type": "object" },
+        "recoverability": { "type": "string", "minLength": 1 },
+        "allowedActions": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "retryAfterSeconds": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "nextAction": {
+      "type": "object",
+      "required": ["kind", "instruction"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/actionKind" },
+        "instruction": { "type": "string", "minLength": 1 },
+        "parameters": { "type": "object" }
+      },
+      "additionalProperties": true
+    },
+    "continuation": {
+      "type": "object",
+      "required": ["id", "expiresAt", "checkAfter"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "checkAfter": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

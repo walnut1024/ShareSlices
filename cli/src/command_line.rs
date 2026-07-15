@@ -5,7 +5,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
     name = "shareslices",
     version,
     about = "Publish and manage local artifacts with ShareSlices",
-    long_about = "Publish and manage local static artifacts with ShareSlices.\n\nAuthenticate once, then use `publish` for the common upload-and-publish workflow or `artifact` commands for stepwise lifecycle control. Human-readable output is the default. Artifact resource commands support --json with optional --jq or --template for agents and scripts.",
+    long_about = "Publish and manage local static artifacts with ShareSlices.\n\nAuthenticate once, then use `publish` for the common upload-and-publish workflow or `artifact` commands for stepwise lifecycle control. Human-readable output is the default. Resource commands retain --json with optional --jq or --template for selected-field scripts. Agents use the separate whole-command contract discovered with `shareslices --agent capabilities`.",
     after_long_help = "EXAMPLES:\n  shareslices auth login\n  shareslices publish ./dist --name \"Quarterly report\"\n  shareslices artifact list --processing ready --json id,name --jq '.[].id'\n\nAGENTS AND SCRIPTS:\n  Set SHARESLICES_PROMPT_DISABLED=1 and provide every decision-relevant ID and value explicitly. Missing values that would normally prompt fail before an API request. Stepwise artifact resource commands accept --json with optional --jq or --template for stable stdout; progress and diagnostics use stderr. The shortcut `publish` uses human-readable output.\n\nENVIRONMENT:\n  SHARESLICES_API_URL          Default API origin.\n  SHARESLICES_PROMPT_DISABLED Disable interactive prompts.\n\nEXIT CODES:\n  0 success; 1 operational or server error; 2 interactive cancellation; 4 authentication required.\n\nRun `shareslices <COMMAND> --help` for command-specific arguments, behavior, and examples."
 )]
 pub struct Cli {
@@ -16,12 +16,24 @@ pub struct Cli {
         default_value = "http://127.0.0.1:7456"
     )]
     pub api_url: String,
+    /// Emit the versioned Agent protocol instead of human-readable output.
+    #[arg(long, global = true)]
+    pub agent: bool,
+    /// Select the Agent protocol version for an operational command.
+    #[arg(long, global = true, requires = "agent", value_name = "VERSION")]
+    pub agent_protocol: Option<u32>,
     #[command(subcommand)]
     pub command: Command,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Describe locally supported Agent protocol versions and operations.
+    #[command(
+        long_about = "Describe the locally installed Agent protocol and operation surface. This command is available only with --agent, performs no network or credential-store access, and does not require --agent-protocol.",
+        after_long_help = "EXAMPLE:\n  shareslices --agent capabilities"
+    )]
+    Capabilities,
     /// Package, upload, and publish local content in one operation.
     #[command(
         long_about = "Package local content, upload it as a new Artifact, wait for a ready Version, publish it, and print the Share link. The Publication is permanent by default. Use stepwise commands to publish a Version of an existing Artifact.",
@@ -40,7 +52,7 @@ pub enum Command {
     /// Upload and manage owned Artifacts, Versions, and Publications.
     #[command(
         long_about = "Manage the complete Artifact lifecycle. Upload creates content without external access; publish enables external access; unpublish removes access without deleting content; delete is permanent. Publication commands inspect or edit link metadata.",
-        after_long_help = "EXAMPLES:\n  shareslices artifact upload ./dist --name \"Report\" --entry index.html\n  shareslices artifact publish artifact_123\n  shareslices artifact publication view artifact_123\n  shareslices artifact unpublish artifact_123\n\nFor agents, set SHARESLICES_PROMPT_DISABLED=1 and supply omitted IDs and required choices explicitly."
+        after_long_help = "EXAMPLES:\n  shareslices artifact upload ./dist --name \"Report\" --entry index.html\n  shareslices artifact publish artifact_123\n  shareslices artifact publication view artifact_123\n  shareslices artifact unpublish artifact_123\n\nAgents first probe `shareslices --agent capabilities`, then use --agent --agent-protocol 1 and supply omitted IDs and required choices explicitly."
     )]
     Artifact {
         #[command(subcommand)]
@@ -48,14 +60,18 @@ pub enum Command {
     },
 }
 
-#[derive(Clone, Copy, Debug, Subcommand)]
+#[derive(Clone, Debug, Subcommand)]
 pub enum AuthCommand {
     /// Authorize this machine through a browser verification flow.
     #[command(
         long_about = "Authorize an independent CLI session using a browser verification code. The command prints the verification URL and code, attempts to open the browser, polls until approval, and stores the credential in the operating-system credential store. Browser launch failure is not fatal. If a valid credential already exists, the current account is reported without starting a new authorization; logout first to change accounts.",
         after_long_help = "EXAMPLES:\n  shareslices auth login\n  shareslices --api-url https://api.example.com auth login"
     )]
-    Login,
+    Login {
+        /// Check one previously started Agent authorization without replaying a business command.
+        #[arg(long = "continue", value_name = "CONTINUATION_ID")]
+        continuation: Option<String>,
+    },
     /// Show the account and validity of the stored CLI credential.
     #[command(
         long_about = "Inspect the CLI credential for the selected API origin. A revoked or expired credential is removed locally. Credentials and session IDs are never printed.",
@@ -287,6 +303,8 @@ pub struct ArtifactUnpublishArgs {
 
 #[derive(Debug, Args)]
 pub struct ArtifactUploadArgs {
+    #[arg(skip)]
+    pub agent_mode: bool,
     /// Files, directories, glob patterns, or one prepared ZIP. Defaults to the current directory.
     #[arg(value_name = "PATHS", default_value = ".")]
     pub paths: Vec<std::path::PathBuf>,

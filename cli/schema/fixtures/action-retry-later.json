@@ -1,0 +1,1 @@
+{"protocolVersion":1,"cliVersion":"0.1.6","operation":"artifact.list","outcome":"action_required","resources":{},"data":{},"nextAction":{"kind":"retry_later","instruction":"Retry after the server-provided delay.","parameters":{"retryAfterSeconds":5}}}

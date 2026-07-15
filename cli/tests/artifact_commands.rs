@@ -980,10 +980,17 @@ async fn share_upgrade_required_stops_before_expiration_mutation() {
     )
     .await
     .expect_err("upgrade gate");
-    assert!(matches!(
-        error,
-        shareslices_cli::ArtifactError::UpgradeRequired { .. }
-    ));
+    let shareslices_cli::ArtifactError::ServerEvidence(evidence) = error else {
+        panic!("expected preserved compatibility evidence");
+    };
+    assert_eq!(evidence.code, "cli_upgrade_required");
+    assert_eq!(
+        evidence
+            .details
+            .as_ref()
+            .and_then(|details| details["minimumVersion"].as_str()),
+        Some("0.2.0")
+    );
 }
 
 #[tokio::test]
@@ -1942,6 +1949,7 @@ async fn uploads_prepared_zip_waits_for_ready_and_suppresses_progress() {
     writer.write_all(b"<html></html>").expect("body");
     writer.finish().expect("finish");
     let args = ArtifactUploadArgs {
+        agent_mode: false,
         paths: vec![path],
         root: None,
         name: Some("Report".into()),
@@ -1992,6 +2000,7 @@ async fn uploads_new_version_to_explicit_artifact_without_sending_a_name() {
     writer.write_all(b"<html></html>").expect("body");
     writer.finish().expect("finish");
     let args = ArtifactUploadArgs {
+        agent_mode: false,
         paths: vec![path],
         root: None,
         name: None,
@@ -2027,6 +2036,7 @@ async fn uploads_new_version_to_explicit_artifact_without_sending_a_name() {
 #[tokio::test]
 async fn missing_upload_target_fails_before_any_request_without_a_terminal() {
     let args = ArtifactUploadArgs {
+        agent_mode: false,
         paths: vec!["missing.zip".into()],
         root: None,
         name: None,
@@ -2424,6 +2434,10 @@ fn shared_selector_never_prompts_when_disabled_or_without_a_terminal() {
         }),
         publication_status: shareslices_cli::PublicationStatus::NotPublished,
         publication: None,
+        ready_version: None,
+        validation_report: None,
+        failure: None,
+        allowed_actions: Vec::new(),
     }];
     for (prompts, terminal) in [(false, true), (true, false)] {
         let mut output = Vec::new();

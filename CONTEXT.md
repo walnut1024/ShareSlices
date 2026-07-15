@@ -76,6 +76,26 @@ _Avoid_: Account, identity
 A person who opens a share link, including an artifact owner when that owner follows the share link.
 _Avoid_: Visitor, reader
 
+**Agent mode**:
+The explicit non-interactive CLI execution surface used by the official Skill. It returns an Outcome envelope instead of human-readable or selected-field output.
+_Avoid_: JSON mode, headless mode
+
+**Agent protocol**:
+The versioned machine contract that defines Agent-mode capability discovery, operations, Outcome envelopes, and compatibility rules independently of the CLI release version.
+_Avoid_: CLI version, REST API
+
+**Outcome envelope**:
+The single Agent-protocol JSON document that reports one operation's outcome, known resources, data, and any structured error, Next action, or Continuation.
+_Avoid_: Command output, API response
+
+**Next action**:
+The one structured follow-up supported by current command evidence when an Agent operation cannot finish without another action or a safe continuation step.
+_Avoid_: Retry permission, Server action
+
+**Continuation**:
+An opaque, non-sensitive identifier that lets a later Agent invocation check resumable authentication state. It does not store or replay business intent.
+_Avoid_: Session, job, command token
+
 **Sign-in identifier**:
 A configured email address or phone number that can identify a user account during sign-in.
 _Avoid_: Contact point, username

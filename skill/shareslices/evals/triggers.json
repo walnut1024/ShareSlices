@@ -1,0 +1,22 @@
+[
+  {"query":"Upload ./dist to ShareSlices as release candidate, but keep it private.","shouldTrigger":true},
+  {"query":"Publish the static report in build/ and give me its ShareSlices link.","shouldTrigger":true},
+  {"query":"Add this ZIP as a new Version of my existing ShareSlices Artifact.","shouldTrigger":true},
+  {"query":"Show whether artifact_123 is published and when it expires.","shouldTrigger":true},
+  {"query":"End the current ShareSlices Publication for artifact_123.","shouldTrigger":true},
+  {"query":"Change this ShareSlices Publication to expire tomorrow.","shouldTrigger":true},
+  {"query":"Export version_7 from ShareSlices to backup.zip.","shouldTrigger":true},
+  {"query":"Permanently delete an old ShareSlices Artifact after I confirm.","shouldTrigger":true},
+  {"query":"The ShareSlices CLI says I need to authorize; help me continue login.","shouldTrigger":true},
+  {"query":"Replace the public ShareSlices link for this Artifact.","shouldTrigger":true},
+  {"query":"Deploy this Vite application to Cloudflare Pages.","shouldTrigger":false},
+  {"query":"Run the local production build and fix any TypeScript failures.","shouldTrigger":false},
+  {"query":"Create a ZIP archive from dist/ for emailing to a client.","shouldTrigger":false},
+  {"query":"Design a direct integration against the ShareSlices REST API.","shouldTrigger":false},
+  {"query":"Add a new subcommand to the ShareSlices Rust CLI.","shouldTrigger":false},
+  {"query":"Debug a 500 response in the ShareSlices API server.","shouldTrigger":false},
+  {"query":"Start the ShareSlices development stack locally.","shouldTrigger":false},
+  {"query":"Review the OpenAPI schema for Artifact upload errors.","shouldTrigger":false},
+  {"query":"Package this Rust binary for a GitHub Release.","shouldTrigger":false},
+  {"query":"Move these static files into the repository public directory.","shouldTrigger":false}
+]

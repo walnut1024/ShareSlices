@@ -100,6 +100,8 @@ shareslices [GLOBAL OPTIONS] <COMMAND>
 | Option | Value | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `--api-url` | URL | No | `SHARESLICES_API_URL`, then `http://127.0.0.1:7456` | Select the ShareSlices API origin. Credentials are stored separately for each origin. |
+| `--agent` | None | No | — | Emit the versioned whole-command Agent contract. Use `shareslices --agent capabilities` to discover support. |
+| `--agent-protocol` | Integer | Agent operations only | — | Select a protocol version advertised by capabilities. Protocol v1 is independent of CLI SemVer. |
 | `--version` | None | No | — | Print the CLI version and exit. |
 | `--help` | None | No | — | Print help for the selected command and exit. |
 
@@ -115,6 +117,29 @@ Command arguments and options override environment values. The CLI sends its ver
 Transfer progress is written to stderr so it never corrupts human-readable or formatted stdout. Upload and Export provide a command-specific `--no-progress`; with it, successful commands remain silent until their final result and failures still write diagnostics to stderr. The official Skill uses `--no-progress` for transfer commands to avoid consuming agent tokens with transient output.
 
 Interactive prompts follow GitHub CLI conventions: omitting input in a terminal starts guided selection; supplying all arguments and flags skips prompts. The official Skill supplies every required value and sets `SHARESLICES_PROMPT_DISABLED=1`.
+
+## Agent protocol v1
+
+`shareslices --agent capabilities` is an offline, unauthenticated discovery command. Every other
+Agent invocation requires `--agent --agent-protocol 1`, disables prompts and transient progress,
+writes exactly one JSON document to stdout, and keeps CLI-controlled stderr empty. Agent mode
+conflicts with `--json`, `--jq`, and `--template`; those selected-field formats remain unchanged for
+non-Agent callers.
+
+The envelope distinguishes `completed`, `in_progress`, `partial`, `action_required`, `failed`,
+`indeterminate`, and `cancelled`. It preserves known durable resources and exposes a typed next
+action. Callers must inspect state before replaying an indeterminate mutation and must not treat a
+partial high-level Publish as a completed Publication.
+
+Agent authentication is resumable across processes. `auth login` creates or reuses one challenge
+for the selected API origin and returns immediately; `auth login --continue <opaque-id>` performs
+one bounded check. The continuation contains authorization protocol state only and never stores a
+business command, local input, credential, or irreversible confirmation. Human login retains its
+existing browser-opening and polling behavior.
+
+Protocol v1 is additive: optional fields and stable error codes may be added. Removing or renaming
+fields, changing types or outcome meanings, or making an optional field required needs a new Agent
+protocol version. An unsupported protocol is rejected before credentials or network access.
 
 ## Authentication
 
@@ -408,7 +433,10 @@ Commands that return resource data follow GitHub CLI formatting conventions:
 | `--jq` | jq expression | Filter JSON output. Requires `--json`. |
 | `--template` | Go template | Format selected JSON fields. Requires `--json`. |
 
-Default output is concise human-readable text. Agents and scripts select the exact fields they consume. Progress and diagnostics are written to stderr and never corrupt formatted stdout. Secrets, Cookies, credential paths, and Session IDs are never available as JSON fields.
+Default output is concise human-readable text. Selected-field JSON remains available to scripts;
+agents use the whole-command Agent protocol described above. Progress and diagnostics are written
+to stderr and never corrupt formatted stdout. Secrets, Cookies, credential paths, and Session IDs
+are never available as JSON fields.
 
 Examples:
 

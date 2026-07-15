@@ -1,0 +1,1 @@
+{"protocolVersion":1,"cliVersion":"0.1.6","operation":"artifact.upload","outcome":"action_required","resources":{},"data":{},"nextAction":{"kind":"resolve_ambiguity","instruction":"Choose one entry file before uploading.","parameters":{"candidates":["index.html","report.html"]}}}

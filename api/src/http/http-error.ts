@@ -1,6 +1,23 @@
 import type { Context } from "hono";
 import type { ValidationDetails } from "../application/artifacts/repositories.js";
 
+export type CliCompatibilityDetails = {
+  currentVersion: string;
+  minimumVersion: string;
+  operatingSystem: string;
+  supportedOperatingSystems: string[];
+};
+
+export type SizeLimitDetails = {
+  limitBytes: number;
+  actualBytes?: number;
+};
+
+export type RequestFieldDetails = {
+  expected?: string;
+  received?: string;
+};
+
 export type FieldError = {
   path: string;
   code: string;
@@ -9,7 +26,7 @@ export type FieldError = {
 
 export type ErrorDetails = {
   action?: string;
-  details?: ValidationDetails;
+  details?: ValidationDetails | CliCompatibilityDetails | SizeLimitDetails | RequestFieldDetails;
 };
 
 export type ErrorCode =

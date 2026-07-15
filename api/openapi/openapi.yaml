@@ -590,6 +590,8 @@ paths:
                       email: ada@example.com
         "401":
           $ref: "#/components/responses/Unauthenticated"
+        "426":
+          $ref: "#/components/responses/CliUpgradeRequired"
         "500":
           $ref: "#/components/responses/InternalError"
   /api/artifact-upload-policies/current:
@@ -616,6 +618,8 @@ paths:
                 $ref: "#/components/schemas/UploadPolicyResponse"
         "401":
           $ref: "#/components/responses/Unauthenticated"
+        "426":
+          $ref: "#/components/responses/CliUpgradeRequired"
         "500":
           $ref: "#/components/responses/InternalError"
   /api/artifacts:
@@ -644,6 +648,8 @@ paths:
           $ref: "#/components/responses/InvalidRequest"
         "401":
           $ref: "#/components/responses/Unauthenticated"
+        "426":
+          $ref: "#/components/responses/CliUpgradeRequired"
         "500":
           $ref: "#/components/responses/InternalError"
     post:
@@ -653,7 +659,8 @@ paths:
       summary: Create an Artifact from a name and ZIP.
       description: >
         Streams the ZIP to private storage before creating the Artifact,
-        Upload session, Share link, and processing job.
+        Upload session, and processing job. Upload does not publish the Artifact
+        or create externally accessible content.
       security:
         - sessionCookie: []
         - sessionBearer: []
@@ -685,6 +692,8 @@ paths:
           $ref: "#/components/responses/OperationConflict"
         "413":
           $ref: "#/components/responses/UploadTooLarge"
+        "426":
+          $ref: "#/components/responses/CliUpgradeRequired"
         "500":
           $ref: "#/components/responses/InternalError"
   /api/artifacts/{artifactId}:
@@ -715,6 +724,8 @@ paths:
           $ref: "#/components/responses/Unauthenticated"
         "404":
           $ref: "#/components/responses/ArtifactNotFound"
+        "426":
+          $ref: "#/components/responses/CliUpgradeRequired"
         "500":
           $ref: "#/components/responses/InternalError"
     patch:
@@ -750,6 +761,8 @@ paths:
           $ref: "#/components/responses/Unauthenticated"
         "404":
           $ref: "#/components/responses/ArtifactNotFound"
+        "426":
+          $ref: "#/components/responses/CliUpgradeRequired"
         "500":
           $ref: "#/components/responses/InternalError"
     delete:
@@ -779,6 +792,8 @@ paths:
           $ref: "#/components/responses/ArtifactNotFound"
         "409":
           $ref: "#/components/responses/OperationConflict"
+        "426":
+          $ref: "#/components/responses/CliUpgradeRequired"
         "500":
           $ref: "#/components/responses/InternalError"
   /api/artifacts/{artifactId}/versions:
@@ -806,6 +821,8 @@ paths:
           $ref: "#/components/responses/Unauthenticated"
         "404":
           $ref: "#/components/responses/ArtifactNotFound"
+        "426":
+          $ref: "#/components/responses/CliUpgradeRequired"
         "500":
           $ref: "#/components/responses/InternalError"
   /api/artifacts/{artifactId}/upload-sessions:
@@ -849,6 +866,8 @@ paths:
           $ref: "#/components/responses/OperationConflict"
         "413":
           $ref: "#/components/responses/UploadTooLarge"
+        "426":
+          $ref: "#/components/responses/CliUpgradeRequired"
         "500":
           $ref: "#/components/responses/InternalError"
   /api/upload-sessions/{uploadSessionId}:retry:
@@ -882,6 +901,8 @@ paths:
           $ref: "#/components/responses/UploadSessionNotFound"
         "409":
           $ref: "#/components/responses/OperationConflict"
+        "426":
+          $ref: "#/components/responses/CliUpgradeRequired"
         "500":
           $ref: "#/components/responses/InternalError"
   /api/versions/{versionId}/content/:
@@ -956,6 +977,8 @@ paths:
           $ref: "#/components/responses/Unauthenticated"
         "404":
           $ref: "#/components/responses/VersionNotFound"
+        "426":
+          $ref: "#/components/responses/CliUpgradeRequired"
         "500":
           $ref: "#/components/responses/InternalError"
   /api/versions/{versionId}/thumbnail:
@@ -1061,6 +1084,8 @@ paths:
           $ref: "#/components/responses/ArtifactNotFound"
         "409":
           $ref: "#/components/responses/OperationConflict"
+        "426":
+          $ref: "#/components/responses/CliUpgradeRequired"
         "500":
           $ref: "#/components/responses/InternalError"
   /api/artifacts/{artifactId}/publications/{publicationId}:
@@ -1099,6 +1124,8 @@ paths:
           $ref: "#/components/responses/ArtifactNotFound"
         "409":
           $ref: "#/components/responses/OperationConflict"
+        "426":
+          $ref: "#/components/responses/CliUpgradeRequired"
         "500":
           $ref: "#/components/responses/InternalError"
     delete:
@@ -1122,6 +1149,8 @@ paths:
           $ref: "#/components/responses/Unauthenticated"
         "404":
           $ref: "#/components/responses/ArtifactNotFound"
+        "426":
+          $ref: "#/components/responses/CliUpgradeRequired"
         "500":
           $ref: "#/components/responses/InternalError"
   /a/{shareSlug}/:
@@ -1341,7 +1370,7 @@ components:
         type: string
         minLength: 1
     RetryAfter:
-      description: Seconds the client should wait before retrying.
+      description: Server-owned minimum delay in seconds; it does not grant permission to replay a mutation.
       schema:
         type: integer
         minimum: 1
@@ -1368,6 +1397,9 @@ components:
                   requestId: req_000000000000000000000000
     CliUpgradeRequired:
       description: The CLI is missing compatible metadata or must be upgraded.
+      headers:
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
       content:
         application/json:
           schema:
@@ -1383,6 +1415,8 @@ components:
                   details:
                     currentVersion: 0.0.9
                     minimumVersion: 0.1.0
+                    operatingSystem: macos
+                    supportedOperatingSystems: [linux, macos, windows]
     DeviceAuthorizationIncomplete:
       description: Authorization is pending, slowed, expired, denied, or invalid.
       content:
@@ -2329,6 +2363,58 @@ components:
           type: string
         entryFile:
           type: string
+    CliCompatibilityDetails:
+      type: object
+      additionalProperties: false
+      required:
+        - currentVersion
+        - minimumVersion
+        - operatingSystem
+        - supportedOperatingSystems
+      properties:
+        currentVersion:
+          type: string
+        minimumVersion:
+          type: string
+          pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        operatingSystem:
+          type: string
+        supportedOperatingSystems:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [linux, macos, windows]
+    RequestFieldDetails:
+      type: object
+      additionalProperties: false
+      properties:
+        expected:
+          type: string
+        received:
+          type: string
+    SizeLimitDetails:
+      type: object
+      additionalProperties: false
+      required:
+        - limitBytes
+      properties:
+        actualBytes:
+          type: integer
+          format: int64
+          minimum: 0
+        limitBytes:
+          type: integer
+          format: int64
+          minimum: 1
+    ConflictDetails:
+      type: object
+      additionalProperties: false
+      properties:
+        resourceId:
+          type: string
+        state:
+          type: string
     ValidationNotice:
       type: object
       additionalProperties: false
@@ -2561,9 +2647,15 @@ components:
           type: string
           minLength: 1
         details:
-          $ref: "#/components/schemas/ValidationDetails"
+          oneOf:
+            - $ref: "#/components/schemas/ValidationDetails"
+            - $ref: "#/components/schemas/CliCompatibilityDetails"
+            - $ref: "#/components/schemas/RequestFieldDetails"
+            - $ref: "#/components/schemas/SizeLimitDetails"
+            - $ref: "#/components/schemas/ConflictDetails"
         fields:
           type: array
+          maxItems: 20
           items:
             $ref: "#/components/schemas/FieldError"
     FieldError:
