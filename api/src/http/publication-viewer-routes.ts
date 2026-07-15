@@ -441,7 +441,13 @@ export function publicationViewerRoutes(
     }
   }
 
-  app.get("/a/:shareSlug/", (c) => viewer(c, "", c.req.query("contentMode") === "true"));
+  app.get("/a/:shareSlug/", (c) =>
+    viewer(
+      c,
+      "",
+      c.req.query("contentMode") === "true" || c.req.header("Sec-Fetch-Dest") === "iframe"
+    )
+  );
   app.get("/a/:shareSlug/*", (c) =>
     viewer(c, wildcardPath(c, `/a/${c.req.param("shareSlug") ?? ""}/`))
   );

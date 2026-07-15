@@ -152,6 +152,9 @@ describe("Publication, Preview, and Viewer routes", () => {
     expect(readCommittedObject).not.toHaveBeenCalled();
     const content = await app.request("/a/stable-slug/?contentMode=true");
     const contentHtml = await content.text();
+    const selfNavigation = await app.request("/a/stable-slug/", {
+      headers: { "Sec-Fetch-Dest": "iframe" }
+    });
 
     expect(player.status).toBe(200);
     expect(player.headers.get("cache-control")).toBe("no-store");
@@ -162,8 +165,10 @@ describe("Publication, Preview, and Viewer routes", () => {
     expect(content.status).toBe(200);
     expect(content.headers.get("cache-control")).toBe("no-store");
     expect(contentHtml).toContain('<script src="assets/app.js"></script>');
+    expect(await selfNavigation.text()).toContain('<script src="assets/app.js"></script>');
     expect(deps.service.resolveViewer).toHaveBeenNthCalledWith(1, "stable-slug", "");
     expect(deps.service.resolveViewer).toHaveBeenNthCalledWith(2, "stable-slug", "");
+    expect(deps.service.resolveViewer).toHaveBeenNthCalledWith(3, "stable-slug", "");
   });
 
   it("revalidates Publication state before serving Viewer content mode", async () => {
