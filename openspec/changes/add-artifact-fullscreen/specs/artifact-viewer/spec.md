@@ -22,8 +22,8 @@ Preview and Viewer SHALL load Artifact entry files from URLs whose trailing-slas
 
 #### Scenario: Entry page references a relative asset
 
-- **WHEN** the Artifact entry file loaded for `/a/{shareSlug}/` contains `assets/app.js`
-- **THEN** the browser requests `/a/{shareSlug}/assets/app.js` and the Viewer resolves that manifest path
+- **WHEN** the Artifact entry file loaded through the reserved content route contains `assets/app.js`
+- **THEN** the browser requests that asset under the same reserved content route and the Viewer resolves it to the manifest path `assets/app.js`
 
 #### Scenario: Stylesheet references a relative image
 
