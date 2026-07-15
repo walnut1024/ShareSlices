@@ -2,7 +2,10 @@
 -- Artifact-owned objects before applying this renderer-v2 dimension contract.
 do $$
 begin
-  if exists (select 1 from content_bundle_thumbnail) then
+  if exists (select 1 from artifact)
+    or exists (select 1 from content_bundle)
+    or exists (select 1 from artifact_idempotency_record)
+    or exists (select 1 from artifact_deletion_cleanup) then
     raise exception 'clear Artifact data before applying the renderer-v2 thumbnail contract';
   end if;
 end

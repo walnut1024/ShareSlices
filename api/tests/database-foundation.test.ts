@@ -86,6 +86,22 @@ describe("artifact database foundation", () => {
     await client.query('truncate artifact, "user" cascade');
   });
 
+  it("rejects the renderer-v2 cutover while Artifact-domain data remains", async () => {
+    await client.query(
+      `insert into "user" (id, name, email)
+       values ('cutover-user', 'Cutover User', 'cutover@example.test')`
+    );
+    await client.query(
+      `insert into artifact (id, owner_user_id, name)
+       values ('cutover-artifact', 'cutover-user', 'Cutover Artifact')`
+    );
+    const migration = await readFile(resolve(process.cwd(), "../db/migrations/0013_artifact_thumbnail_16_9.sql"), "utf8");
+
+    await expect(client.query(migration)).rejects.toThrow(
+      "clear Artifact data before applying the renderer-v2 thumbnail contract"
+    );
+  });
+
   it("defines transient device authorization without client device metadata", async () => {
     const config = getTableConfig(deviceCode);
     expect(config.name).toBe("device_code");

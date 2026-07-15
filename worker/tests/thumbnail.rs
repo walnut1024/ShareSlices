@@ -13,6 +13,76 @@ use std::{
 use shareslices_worker::thumbnail::render_thumbnail;
 
 #[test]
+fn chromium_capture_preserves_all_16_by_9_frame_edges() {
+    let Ok(chromium_path) = std::env::var("CHROMIUM_TEST_PATH") else {
+        return;
+    };
+    let page = TcpListener::bind("127.0.0.1:0").expect("page server");
+    let page_address = page.local_addr().expect("page address");
+    let html = r#"<!doctype html>
+      <style>
+        html,body{margin:0;width:100%;height:100%}
+        body{display:grid;grid-template:1fr 1fr/1fr 1fr}
+        div:nth-child(1){background:#ff0000}div:nth-child(2){background:#00ff00}
+        div:nth-child(3){background:#0000ff}div:nth-child(4){background:#ffff00}
+        img{position:fixed;width:1px;height:1px;opacity:0}
+      </style>
+      <div></div><div></div><div></div><div></div><img src="marker.svg">"#;
+    let page_thread = thread::spawn(move || {
+        for mut stream in page.incoming().flatten().take(2) {
+            let mut request = [0_u8; 1024];
+            let read = stream.read(&mut request).unwrap_or(0);
+            let request = String::from_utf8_lossy(&request[..read]);
+            let (content_type, body) = if request.contains("marker.svg") {
+                (
+                    "image/svg+xml",
+                    "<svg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/>",
+                )
+            } else {
+                ("text/html; charset=utf-8", html)
+            };
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(response.as_bytes());
+        }
+    });
+
+    let output = render_thumbnail(
+        &PathBuf::from(chromium_path),
+        &format!("http://{page_address}/internal/thumbnail-captures/version-1/content/"),
+    )
+    .expect("render thumbnail");
+    let decoded = image::load_from_memory_with_format(&output, image::ImageFormat::WebP)
+        .expect("decode WebP")
+        .to_rgb8();
+    assert_eq!((decoded.width(), decoded.height()), (800, 450));
+
+    let red = decoded.get_pixel(20, 20);
+    let green = decoded.get_pixel(780, 20);
+    let blue = decoded.get_pixel(20, 430);
+    let yellow = decoded.get_pixel(780, 430);
+    assert!(
+        red[0] > 200 && red[1] < 50 && red[2] < 50,
+        "red corner: {red:?}"
+    );
+    assert!(
+        green[0] < 50 && green[1] > 200 && green[2] < 50,
+        "green corner: {green:?}"
+    );
+    assert!(
+        blue[0] < 50 && blue[1] < 50 && blue[2] > 200,
+        "blue corner: {blue:?}"
+    );
+    assert!(
+        yellow[0] > 200 && yellow[1] > 200 && yellow[2] < 50,
+        "yellow corner: {yellow:?}"
+    );
+    page_thread.join().expect("page server thread");
+}
+
+#[test]
 fn chromium_capture_waits_for_delayed_artifact_content() {
     let Ok(chromium_path) = std::env::var("CHROMIUM_TEST_PATH") else {
         return;

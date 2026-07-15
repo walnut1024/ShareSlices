@@ -440,6 +440,16 @@ cases:
       status: 200
       headers:
         Cache-Control: no-store
+      body_contains: Enter full screen
+
+  - id: view_published_content
+    request:
+      method: GET
+      path: "{share_url}?contentMode=true"
+    expect:
+      status: 200
+      headers:
+        Cache-Control: no-store
       body_contains: assets/app.js
 
   - id: view_relative_asset

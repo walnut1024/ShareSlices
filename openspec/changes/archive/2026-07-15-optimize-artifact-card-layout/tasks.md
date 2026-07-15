@@ -31,8 +31,8 @@
 
 - [x] 5.1 Update `docs/design/modules.md` and other current design references from `1440x900` and `480x300` thumbnail rendering to the new 16:9 `1440x810` and `800x450` renderer contract without changing the Web UI's default `1440x900` acceptance viewport.
 - [x] 5.2 Run focused Web, API, Worker, database, typecheck, Rust format, Clippy, and test suites; keep Grid/List preference, Content bundle reuse, Preview, Full-screen Preview, Publish, and Delete regressions green.
-  - Web (154), API (225), API account-entry contract, Rust workspace, and the real-Chromium thumbnail tests pass. The final containerized Artifact-flow rerun was blocked before execution by Docker Hub returning HTTP 502 for pinned Node and Debian base-image metadata; no product test failed.
+  - Web (154), API (226), API account-entry contract, Rust workspace, real-Chromium edge-landmark thumbnail tests, and the complete containerized Artifact-flow contract pass.
 - [x] 5.3 Run Playwright at `1280x720`, `1440x900`, `1512x982` DPR 2, `1728x1117` DPR 2, `1920x1080`, `2560x1440`, and `3840x2160`; assert expected three-to-five column counts, `1920px` content cap, no horizontal overflow, stable action placement, and complete 16:9 thumbnails.
 - [x] 5.4 Inspect the captured screenshots for thumbnail clarity, sparse-row sizing, footer separation, long names, placeholders, selection mode, and 4K whitespace; fix any visual regression without adding mobile or density-selector scope.
 - [x] 5.5 Run `openspec validate optimize-artifact-card-layout --strict`, `openspec validate --all --no-interactive`, `mise run check`, and `git diff --check`, and record any unrelated environment failure separately rather than weakening a gate.
-  - Both OpenSpec validations and `git diff --check` pass. `mise run check` reaches documentation link validation and is blocked only by three pre-existing broken links under `.agents/skills/cloudflare/`; change-owned Markdown, spelling, and links pass.
+  - Both OpenSpec validations, `mise run check`, and `git diff --check` pass.

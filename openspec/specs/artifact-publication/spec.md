@@ -3,9 +3,7 @@
 ## Purpose
 
 TBD - created by archiving change v0-0-1-first-share-flow. Update Purpose after archive.
-
 ## Requirements
-
 ### Requirement: Manage owned Artifacts
 
 The Web management surface SHALL present owned Artifacts and expose only state-valid Preview, Full-screen Preview, Publish, Manage publication, Copy, Unpublish, Rename, Export, Delete, Retry, and Replace file actions. It MUST NOT expose Share as a separate lifecycle action. Publication history, analytics, and link replacement outside Publish SHALL NOT be exposed.
@@ -187,9 +185,9 @@ The Web Artifact grid card SHALL display a long Artifact name on one line while 
 
 ### Requirement: Browse owned Artifacts in grid and list views
 
-The Web Artifacts Page SHALL present the Owner's current filtered collection in grid and list views. Grid SHALL be the default when no local view preference exists, and the Web SHALL preserve the browser-local view preference across reloads. The grid SHALL add bounded-width columns as desktop space permits and SHALL retain the existing grid-only thumbnail behavior. The list SHALL show Artifact name, processing state, Publication status, last modified time, and state-valid actions without adding thumbnails.
+The Web Artifacts Page SHALL present the Owner's current filtered collection in grid and list views. Grid SHALL be the default when no local view preference exists, and the Web SHALL preserve the browser-local view preference across reloads. The complete Artifacts Page content SHALL remain centered within a maximum width of `1920` CSS pixels. Within that surface, the grid SHALL use a `20` CSS-pixel gap and automatically fill columns with a minimum width of `310` CSS pixels, producing three to five columns over the supported desktop acceptance range. Sparse collections MUST preserve the same bounded track sizing instead of stretching their cards across unused columns. The grid SHALL retain grid-only thumbnail behavior and each card SHALL pair one 16:9 preview with an independent `60-64` CSS-pixel metadata footer.
 
-The Web SHALL provide a case-insensitive Artifact-name search and the existing processing and Publication filters. Activating a list row SHALL open Artifact detail, while its checkbox and action controls MUST operate without row navigation.
+The list SHALL show Artifact name, processing state, Publication status, last modified time, and state-valid actions without adding thumbnails. The Web SHALL provide a case-insensitive Artifact-name search and the existing processing and Publication filters. Activating a list row SHALL open Artifact detail, while its checkbox and action controls MUST operate without row navigation.
 
 #### Scenario: Owner switches Artifact views
 
@@ -205,6 +203,26 @@ The Web SHALL provide a case-insensitive Artifact-name search and the existing p
 
 - **WHEN** an Owner activates a checkbox or state-valid action in an Artifact list row
 - **THEN** that control performs its behavior without opening Artifact detail
+
+#### Scenario: Minimum supported desktop shows three cards per row
+
+- **WHEN** the Artifacts Page renders in Grid view at a `1280x720` CSS-pixel viewport
+- **THEN** the grid shows three columns without horizontal page overflow and keeps every existing card action operable
+
+#### Scenario: Default desktop shows four cards per row
+
+- **WHEN** the Artifacts Page renders in Grid view at a `1440x900` CSS-pixel viewport
+- **THEN** the grid shows four columns with the preview and metadata footer geometry unchanged across the row
+
+#### Scenario: Large desktop remains bounded
+
+- **WHEN** the Artifacts Page renders in Grid view at or above a `1920` CSS-pixel viewport width, including a 2K or 4K physical display under any operating-system scale that yields that CSS width
+- **THEN** the content surface does not exceed `1920` CSS pixels and the grid shows no more than five columns
+
+#### Scenario: Sparse collection uses normal card scale
+
+- **WHEN** fewer Artifacts exist than the number of tracks that fit in the current grid row
+- **THEN** each rendered card retains the same track width it would have in a full row and unused tracks remain empty
 
 ### Requirement: Present distinct Artifact empty states
 
@@ -384,3 +402,4 @@ When Artifact content itself owns a nested full-screen session, the browser plac
 
 - **WHEN** an Artifact has no latest ready Version or does not expose Preview as a state-valid action
 - **THEN** its grid card does not expose Full-screen Preview
+
