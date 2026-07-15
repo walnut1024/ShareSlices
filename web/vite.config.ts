@@ -29,7 +29,7 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      "/a": "http://127.0.0.1:7456",
+      "^/a(?:/|$)": "http://127.0.0.1:7456",
       "/api": "http://127.0.0.1:7456",
       "/health": "http://127.0.0.1:7456",
       "/ready": "http://127.0.0.1:7456"
