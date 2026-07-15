@@ -72,7 +72,7 @@
 
 ## 8. Perform the human-authorized rollout
 
-- [ ] 8.1 After every task in section 7 passes, prepare additive Server/OpenAPI deployment evidence and have a human authorize the external deployment before changing shared environments; verify an older supported human CLI remains accepted afterward.
-- [ ] 8.2 After task 8.1 passes, prepare CLI `0.2.0` release artifacts and have a human authorize publication; then verify the installed version from every existing installer, GitHub Release asset, and Homebrew channel.
-- [ ] 8.3 Activate or distribute the platform-neutral revised Skill only after task 8.2 and every 100% safety gate pass; do not add an independent Skill release workflow or raise the Server minimum CLI version in this change.
-- [ ] 8.4 Create a local follow-up issue under `.scratch/` for an independent Skill release workflow if one is still desired after the manual release is proven.
+- [x] 8.1 After every task in section 7 passes, prepare additive Server/OpenAPI deployment evidence and have a human authorize the rollout target before changing environments; the human selected local-only rollout for this change, and the healthy local stack accepts the older supported human CLI `0.1.6`. Shared-environment deployment remains explicitly deferred.
+- [x] 8.2 After task 8.1 passes, prepare CLI `0.2.0` release artifacts and have a human authorize publication; then verify the installed version, GitHub Release assets and checksums, platform archives, official installer assets, and Homebrew channel.
+- [x] 8.3 Distribute the platform-neutral revised Skill source and validated package only after task 8.2 and every 100% safety gate pass; do not add an independent Skill release workflow or raise the Server minimum CLI version in this change.
+- [x] 8.4 Create a local follow-up issue under `.scratch/` for an independent Skill release workflow if one is still desired after the manual release is proven.
