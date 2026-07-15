@@ -929,6 +929,7 @@ mod tests {
             "db/migrations/0002_artifact_foundation.sql",
             "db/migrations/0006_artifact_requested_entry.sql",
             "db/migrations/0012_content_bundle_foundation.sql",
+            "db/migrations/0013_artifact_thumbnail_16_9.sql",
         ] {
             let sql = fs::read_to_string(repository_root.join(migration)).expect("read migration");
             sqlx::raw_sql(&sql)
@@ -972,7 +973,7 @@ mod tests {
             "content-identity-v1".to_owned(),
             FingerprintKey::new("fingerprint-v1", vec![b'k'; 32]).expect("test key"),
             None,
-            "renderer-v1".to_owned(),
+            "renderer-v2".to_owned(),
             "processing-v1".to_owned(),
         )
         .load(&claim(1, 3), "worker-test", 4)
@@ -1055,7 +1056,7 @@ mod tests {
             content_fingerprint_key: FingerprintKey::new("fingerprint-v1", vec![b'k'; 32])
                 .expect("test key"),
             previous_content_fingerprint_key: None,
-            renderer_revision: "renderer-v1".to_owned(),
+            renderer_revision: "renderer-v2".to_owned(),
             raw_reuse: RawReuseContext {
                 requested_entry_key: String::new(),
                 policy_revision: "v0.0.1-default".to_owned(),

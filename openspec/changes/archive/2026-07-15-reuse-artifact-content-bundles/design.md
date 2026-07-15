@@ -6,7 +6,7 @@
 
 Artifact files, Manifests, and thumbnails are currently owned directly by Version records. The Worker expands every accepted ZIP into Version-scoped objects and creates one Version-scoped thumbnail job. This repeats CPU, object writes, and Chromium work when one User uploads equivalent content more than once.
 
-The target architecture is owned by [Content bundle reuse](../../../docs/design/content-bundle-reuse.md) and [ADR 0005](../../../docs/adr/0005-reuse-content-bundles-within-user-ownership.md). This change realizes that target without changing public resource shapes. It also removes the stale implemented requirement that rejects additional ready Versions.
+The target architecture is owned by [Content bundle reuse](../../../../docs/design/content-bundle-reuse.md) and [ADR 0005](../../../../docs/adr/0005-reuse-content-bundles-within-user-ownership.md). This change realizes that target without changing public resource shapes. It also removes the stale implemented requirement that rejects additional ready Versions.
 
 ## Goals / Non-Goals
 

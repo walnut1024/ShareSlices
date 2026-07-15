@@ -55,6 +55,10 @@ run = "node tools/run-smtp-check.mjs"
 description = "Run Web tests"
 run = "pnpm run web:test"
 
+[tasks.web-e2e]
+description = "Run desktop Web end-to-end tests against a running local stack"
+run = "pnpm --dir web run e2e --project=desktop-chromium"
+
 [tasks.rust-fmt]
 description = "Check Rust formatting"
 run = "pnpm run rust:fmt"

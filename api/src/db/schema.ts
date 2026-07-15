@@ -833,7 +833,7 @@ export const contentBundleThumbnail = pgTable(
     }).onDelete("cascade"),
     check("content_bundle_thumbnail_content_type_check", sql`${table.contentType} = 'image/webp'`),
     check("content_bundle_thumbnail_size_check", sql`${table.sizeBytes} > 0`),
-    check("content_bundle_thumbnail_dimensions_check", sql`${table.width} = 480 and ${table.height} = 300`),
+    check("content_bundle_thumbnail_dimensions_check", sql`${table.width} = 800 and ${table.height} = 450`),
     check("content_bundle_thumbnail_sha256_check", sql`${table.sha256} ~ '^[0-9a-f]{64}$'`)
   ]
 );

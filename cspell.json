@@ -25,6 +25,7 @@
     "confdeltype",
     "conname",
     "connamespace",
+    "constraintdef",
     "configmap",
     "contentbundle",
     "contentbundleid",
@@ -32,6 +33,7 @@
     "contentsha",
     "createdb",
     "cspell",
+    "cutover",
     "dropdb",
     "deduplicationhit",
     "deduphit",
@@ -49,7 +51,9 @@
     "hcnk",
     "isinstance",
     "isready",
+    "letterboxing",
     "markdownlint",
+    "minmax",
     "msvc",
     "Lanczos",
     "LOCALAPPDATA",
@@ -87,6 +91,7 @@
     "unionid",
     "unrequested",
     "venv",
+    "viewports",
     "webp",
     "webbrowser"
   ]

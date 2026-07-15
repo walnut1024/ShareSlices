@@ -425,7 +425,7 @@ async fn complete_claim(
         insert into content_bundle_thumbnail (
           bundle_id, owner_user_id, renderer_revision, winning_attempt_id,
           object_key, content_type, size_bytes, width, height, sha256
-        ) values ($1, $2, $3, $4, $5, 'image/webp', $6, 480, 300, $7)
+        ) values ($1, $2, $3, $4, $5, 'image/webp', $6, 800, 450, $7)
         ",
     )
     .bind(&claim.bundle_id)
@@ -514,7 +514,7 @@ pub fn render_thumbnail(chromium_path: &Path, target_url: &str) -> Result<Vec<u8
         // seccomp profile. Isolation is provided by the non-root Worker container,
         // no privilege escalation, request interception, and the manifest-only route.
         .sandbox(false)
-        .window_size(Some((1440, 900)))
+        .window_size(Some((1440, 810)))
         .args(vec![reduced_motion])
         .idle_browser_timeout(RENDER_TIMEOUT)
         .build()
@@ -570,7 +570,7 @@ pub fn render_thumbnail(chromium_path: &Path, target_url: &str) -> Result<Vec<u8
         .map_err(|error| ThumbnailError::Browser(error.to_string()))?;
     let image = image::load_from_memory_with_format(&png, ImageFormat::Png)
         .map_err(|error| ThumbnailError::Image(error.to_string()))?
-        .resize_exact(480, 300, FilterType::Lanczos3);
+        .resize_exact(800, 450, FilterType::Lanczos3);
     let mut output = Cursor::new(Vec::new());
     image
         .write_to(&mut output, ImageFormat::WebP)
@@ -805,7 +805,7 @@ mod tests {
             .await
             .expect("publish thumbnail metadata");
         let winner: (String, String) = sqlx::query_as(
-            "select winning_attempt_id, object_key from content_bundle_thumbnail where bundle_id = 'bundle-1' and renderer_revision = 'renderer-v1'",
+            "select winning_attempt_id, object_key from content_bundle_thumbnail where bundle_id = 'bundle-1' and renderer_revision = 'renderer-v2'",
         )
         .fetch_one(&database.pool)
         .await
@@ -987,6 +987,7 @@ mod tests {
                 "db/migrations/0003_artifact_validation_report.sql",
                 "db/migrations/0010_artifact_thumbnail.sql",
                 "db/migrations/0012_content_bundle_foundation.sql",
+                "db/migrations/0013_artifact_thumbnail_16_9.sql",
             ] {
                 let sql = fs::read_to_string(root.join(migration)).expect("read migration");
                 sqlx::raw_sql(&sql)
@@ -1029,11 +1030,11 @@ mod tests {
                   id, artifact_id, upload_session_id, version_number, state, owner_user_id,
                   content_bundle_id, renderer_revision
                 ) values
-                  ('version-a', 'artifact-a', 'upload-a', 1, 'ready', 'owner-1', 'bundle-1', 'renderer-v1'),
-                  ('version-b', 'artifact-b', 'upload-b', 1, 'ready', 'owner-1', 'bundle-1', 'renderer-v1');
+                  ('version-a', 'artifact-a', 'upload-a', 1, 'ready', 'owner-1', 'bundle-1', 'renderer-v2'),
+                  ('version-b', 'artifact-b', 'upload-b', 1, 'ready', 'owner-1', 'bundle-1', 'renderer-v2');
                 insert into content_bundle_thumbnail_job (
                   id, bundle_id, owner_user_id, renderer_revision
-                ) values ('thumbnail-job', 'bundle-1', 'owner-1', 'renderer-v1');
+                ) values ('thumbnail-job', 'bundle-1', 'owner-1', 'renderer-v2');
                 "#,
             )
             .execute(&self.pool)

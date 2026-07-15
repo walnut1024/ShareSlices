@@ -260,7 +260,7 @@ mod tests {
         assert!(config.s3_force_path_style);
         assert_eq!(config.deployment_environment, "test");
         assert_eq!(config.content_identity_revision, "content-v1");
-        assert_eq!(config.renderer_revision, "renderer-v1");
+        assert_eq!(config.renderer_revision, "renderer-v2");
     }
 
     #[test]
@@ -353,7 +353,7 @@ mod tests {
             ("CONTENT_FINGERPRINT_KEY_CURRENT_REVISION", "key-v1"),
             ("CONTENT_IDENTITY_REVISION", "content-v1"),
             ("ARTIFACT_PROCESSING_REVISION", "processing-v1"),
-            ("ARTIFACT_RENDERER_REVISION", "renderer-v1"),
+            ("ARTIFACT_RENDERER_REVISION", "renderer-v2"),
             ("NODE_ENV", "test"),
         ]
     }

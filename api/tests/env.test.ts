@@ -27,7 +27,7 @@ const validEnv = {
   IDEMPOTENCY_ENCRYPTION_KEY_CURRENT_REVISION: "key-v1",
   CONTENT_IDENTITY_REVISION: "content-v1",
   ARTIFACT_PROCESSING_REVISION: "processing-v1",
-  ARTIFACT_RENDERER_REVISION: "renderer-v1",
+  ARTIFACT_RENDERER_REVISION: "renderer-v2",
   MINIMUM_CLI_VERSION: "0.1.0",
   AUTH_EMAIL_SMTP_URL: "smtp://127.0.0.1:1025",
   AUTH_EMAIL_FROM: "ShareSlices <no-reply@shareslices.local>",
@@ -51,6 +51,7 @@ describe("API environment", () => {
       WORKER_JOB_LEASE_SECONDS: 30,
       WORKER_JOB_HEARTBEAT_SECONDS: 10,
       WORKER_JOB_MAX_ATTEMPTS: 3,
+      ARTIFACT_RENDERER_REVISION: "renderer-v2",
       MINIMUM_CLI_VERSION: "0.1.0"
     });
   });

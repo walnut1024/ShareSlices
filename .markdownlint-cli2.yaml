@@ -3,7 +3,7 @@ config:
   MD013: false
   MD033: false
 globs:
-  - "AGENTS.md"
+  - "**/AGENTS.md"
   - "PRODUCT.md"
   - "CONTEXT.md"
   - "docs/**/*.md"

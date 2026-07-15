@@ -92,7 +92,7 @@ describe("Artifact repository adapters", () => {
     );
     await databasePool.query(
       `update artifact_version
-       set owner_user_id = 'owner-1', content_bundle_id = 'bundle-1', renderer_revision = 'renderer-v1'
+       set owner_user_id = 'owner-1', content_bundle_id = 'bundle-1', renderer_revision = 'renderer-v2'
        where id = 'version-1'`
     );
     await databasePool.query(
@@ -113,7 +113,7 @@ describe("Artifact repository adapters", () => {
       `insert into content_bundle_thumbnail_job (
          id, bundle_id, owner_user_id, renderer_revision, state, attempt_count
        ) values (
-         'bundle-thumbnail-job-1', 'bundle-1', 'owner-1', 'renderer-v1', 'completed', 1
+         'bundle-thumbnail-job-1', 'bundle-1', 'owner-1', 'renderer-v2', 'completed', 1
        )`
     );
     await databasePool.query(
@@ -122,7 +122,7 @@ describe("Artifact repository adapters", () => {
          lease_expires_at, write_deadline_at, finished_at
        ) values (
          'bundle-thumbnail-attempt-1', 'bundle-thumbnail-job-1', 1, 'version-1',
-         'content-bundles/bundle-1/thumbnails/renderer-v1/attempt-1.webp',
+         'content-bundles/bundle-1/thumbnails/renderer-v2/attempt-1.webp',
          'succeeded', now(), now(), now()
        )`
     );
@@ -131,9 +131,9 @@ describe("Artifact repository adapters", () => {
          bundle_id, owner_user_id, renderer_revision, winning_attempt_id,
          object_key, content_type, size_bytes, width, height, sha256
        ) values (
-         'bundle-1', 'owner-1', 'renderer-v1', 'bundle-thumbnail-attempt-1',
-         'content-bundles/bundle-1/thumbnails/renderer-v1/attempt-1.webp',
-         'image/webp', 100, 480, 300, repeat('a', 64)
+         'bundle-1', 'owner-1', 'renderer-v2', 'bundle-thumbnail-attempt-1',
+         'content-bundles/bundle-1/thumbnails/renderer-v2/attempt-1.webp',
+         'image/webp', 100, 800, 450, repeat('a', 64)
        )`
     );
     await databasePool.query(
@@ -175,7 +175,7 @@ describe("Artifact repository adapters", () => {
 
   it("authorizes a Version and resolves its pinned Content bundle thumbnail", async () => {
     await expect(thumbnails.findOwned("owner-1", "version-1")).resolves.toEqual({
-      objectKey: "content-bundles/bundle-1/thumbnails/renderer-v1/attempt-1.webp",
+      objectKey: "content-bundles/bundle-1/thumbnails/renderer-v2/attempt-1.webp",
       contentType: "image/webp"
     });
     await expect(thumbnails.findOwned("owner-2", "version-1")).resolves.toBeNull();

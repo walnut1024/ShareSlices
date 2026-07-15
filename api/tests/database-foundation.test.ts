@@ -183,6 +183,7 @@ describe("artifact database foundation", () => {
         "content_bundle_manifest_entry_asset_fk",
         "content_bundle_thumbnail_job_lease_check",
         "content_bundle_thumbnail_attempt_cleanup_check",
+        "content_bundle_thumbnail_dimensions_check",
         "content_bundle_thumbnail_sha256_check",
         "content_bundle_cleanup_lease_check"
       ])
@@ -191,6 +192,17 @@ describe("artifact database foundation", () => {
     expect(getTableConfig(contentBundleThumbnail).columns.map((column) => column.name)).toEqual(
       expect.arrayContaining(["bundle_id", "renderer_revision", "object_key", "sha256"])
     );
+
+    const thumbnailDimensions = await client.query(
+      `select pg_get_constraintdef(oid) as definition
+       from pg_constraint
+       where connamespace = $1::regnamespace
+         and conname = 'content_bundle_thumbnail_dimensions_check'`,
+      [schemaName]
+    );
+    expect(thumbnailDimensions.rows).toEqual([
+      expect.objectContaining({ definition: expect.stringMatching(/width = 800.*height = 450/i) })
+    ]);
 
     const indexes = await client.query(
       `select indexname from pg_indexes where schemaname = $1`,
@@ -265,6 +277,35 @@ describe("artifact database foundation", () => {
           '', 'upload-one', 1, 'ready')`
       )
     ).rejects.toMatchObject({ code: "23514" });
+  });
+
+  it("keeps thumbnail work independent by bundle and renderer revision", async () => {
+    await seedCreatingBundle("one");
+    await client.query(
+      `insert into content_bundle_thumbnail_job (
+        id, bundle_id, owner_user_id, renderer_revision
+      ) values
+        ('thumbnail-v1', 'bundle-one', 'user-one', 'renderer-v1'),
+        ('thumbnail-v2', 'bundle-one', 'user-one', 'renderer-v2')`
+    );
+
+    const jobs = await client.query(
+      `select renderer_revision
+       from content_bundle_thumbnail_job
+       where bundle_id = 'bundle-one'
+       order by renderer_revision`
+    );
+    expect(jobs.rows).toEqual([
+      { renderer_revision: "renderer-v1" },
+      { renderer_revision: "renderer-v2" }
+    ]);
+    await expect(
+      client.query(
+        `insert into content_bundle_thumbnail_job (
+          id, bundle_id, owner_user_id, renderer_revision
+        ) values ('thumbnail-v2-duplicate', 'bundle-one', 'user-one', 'renderer-v2')`
+      )
+    ).rejects.toMatchObject({ code: "23505" });
   });
 
   it("allows a retired fingerprint alias but only one active alias per User identity", async () => {

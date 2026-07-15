@@ -551,7 +551,7 @@ async fn requeue_only_resets_terminal_browser_failures_without_a_thumbnail() {
         0
     );
     sqlx::raw_sql(
-        "update content_bundle_thumbnail_job set failure_reason_code = 'thumbnail_browser_failed' where bundle_id = 'bundle-1'; insert into content_bundle_thumbnail_attempt (id, job_id, attempt_number, capture_version_id, object_key, state, lease_expires_at, write_deadline_at, finished_at) select 'thumbnail-attempt-1', id, 1, 'version-1', 'content-bundles/bundle-1/thumbnails/renderer-v1/attempt-1.webp', 'succeeded', now(), now(), now() from content_bundle_thumbnail_job where bundle_id = 'bundle-1'; insert into content_bundle_thumbnail (bundle_id, owner_user_id, renderer_revision, winning_attempt_id, object_key, content_type, size_bytes, width, height, sha256) values ('bundle-1', 'user-1', 'renderer-v1', 'thumbnail-attempt-1', 'content-bundles/bundle-1/thumbnails/renderer-v1/attempt-1.webp', 'image/webp', 1, 480, 300, repeat('a', 64))",
+        "update content_bundle_thumbnail_job set failure_reason_code = 'thumbnail_browser_failed' where bundle_id = 'bundle-1'; insert into content_bundle_thumbnail_attempt (id, job_id, attempt_number, capture_version_id, object_key, state, lease_expires_at, write_deadline_at, finished_at) select 'thumbnail-attempt-1', id, 1, 'version-1', 'content-bundles/bundle-1/thumbnails/renderer-v1/attempt-1.webp', 'succeeded', now(), now(), now() from content_bundle_thumbnail_job where bundle_id = 'bundle-1'; insert into content_bundle_thumbnail (bundle_id, owner_user_id, renderer_revision, winning_attempt_id, object_key, content_type, size_bytes, width, height, sha256) values ('bundle-1', 'user-1', 'renderer-v1', 'thumbnail-attempt-1', 'content-bundles/bundle-1/thumbnails/renderer-v1/attempt-1.webp', 'image/webp', 1, 800, 450, repeat('a', 64))",
     )
     .execute(&database.pool)
     .await
@@ -866,7 +866,7 @@ fn bundle_commit(
     ReadyContentBundleVersionCommit {
         bundle_id: bundle_id.to_owned(),
         attempt_id: attempt_id.to_owned(),
-        renderer_revision: "renderer-v1".to_owned(),
+        renderer_revision: "renderer-v2".to_owned(),
         version,
         raw_reuse: RawReuseContext {
             requested_entry_key: String::new(),
@@ -895,7 +895,7 @@ async fn assert_one_bundle_with_two_versions(pool: &PgPool, bundle_id: &str) {
     assert_eq!(bundle_count, 1);
     assert_eq!(version_count, 2);
     let thumbnail_job_count: i64 = sqlx::query_scalar(
-        "select count(*) from content_bundle_thumbnail_job where bundle_id = $1 and renderer_revision = 'renderer-v1'",
+        "select count(*) from content_bundle_thumbnail_job where bundle_id = $1 and renderer_revision = 'renderer-v2'",
     )
     .bind(bundle_id)
     .fetch_one(pool)
@@ -975,6 +975,7 @@ impl TestDatabase {
             "db/migrations/0003_artifact_validation_report.sql",
             "db/migrations/0010_artifact_thumbnail.sql",
             "db/migrations/0012_content_bundle_foundation.sql",
+            "db/migrations/0013_artifact_thumbnail_16_9.sql",
         ] {
             let sql = fs::read_to_string(repository_root.join(migration)).expect("read migration");
             sqlx::raw_sql(&sql)

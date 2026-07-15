@@ -59,7 +59,9 @@ fn chromium_capture_waits_for_delayed_artifact_content() {
     let decoded = image::load_from_memory_with_format(&output, image::ImageFormat::WebP)
         .expect("decode WebP")
         .to_rgb8();
-    let center = decoded.get_pixel(240, 150);
+    eprintln!("delayed_artifact_thumbnail_bytes={}", output.len());
+    assert_eq!((decoded.width(), decoded.height()), (800, 450));
+    let center = decoded.get_pixel(400, 225);
 
     assert!(
         center[1] > 150 && center[0] < 80,
@@ -125,7 +127,8 @@ fn chromium_capture_is_webp_and_blocks_another_origin() {
     .expect("render thumbnail");
     let decoded = image::load_from_memory_with_format(&output, image::ImageFormat::WebP)
         .expect("decode WebP");
-    assert_eq!((decoded.width(), decoded.height()), (480, 300));
+    eprintln!("isolated_artifact_thumbnail_bytes={}", output.len());
+    assert_eq!((decoded.width(), decoded.height()), (800, 450));
     external_thread.join().expect("external server thread");
     assert_eq!(external_hits.load(Ordering::SeqCst), 0);
     assert_eq!(same_origin_escape_hits.load(Ordering::SeqCst), 0);

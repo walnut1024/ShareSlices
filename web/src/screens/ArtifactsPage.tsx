@@ -314,7 +314,7 @@ export function ArtifactsPage({ onAccepted }: { onAccepted: (artifactId: string)
   }
 
   return (
-    <div className="flex min-h-[calc(100vh-110px)] flex-col">
+    <div data-testid="artifacts-page" className="mx-auto flex min-h-[calc(100vh-110px)] w-full max-w-[1920px] flex-col">
       <div className="mb-5 flex items-start gap-4">
         <div className="min-w-0 flex-1">
           <h1 className="m-0 text-2xl font-semibold tracking-[-0.02em]">Artifacts</h1>
@@ -390,7 +390,7 @@ export function ArtifactsPage({ onAccepted }: { onAccepted: (artifactId: string)
         <FilteredEmptyState onClear={() => { setQuery(""); setFilter("all"); }} />
       ) : null}
       {visibleArtifacts.length > 0 && view === "grid" ? (
-        <ul className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3.5">
+        <ul className="grid grid-cols-[repeat(auto-fill,minmax(310px,1fr))] gap-5">
           {visibleArtifacts.map((artifact, index) => (
             <ArtifactTile
               key={artifact.id}
@@ -473,10 +473,10 @@ function ArtifactTile({
 
   return (
     <li className="relative">
-      <AspectRatio ratio={8 / 5}>
-        <Card ref={cardRef} className={selected ? "relative h-full gap-0 overflow-visible py-0 shadow-none ring-2 ring-foreground fullscreen:h-screen fullscreen:w-screen fullscreen:overflow-hidden fullscreen:rounded-none fullscreen:ring-0" : "relative h-full gap-0 overflow-visible py-0 shadow-[0_1px_2px_rgba(9,9,11,0.05)] ring-border transition-[box-shadow,outline-color] hover:shadow-[0_6px_18px_-10px_rgba(9,9,11,0.22)] hover:ring-foreground/20 fullscreen:h-screen fullscreen:w-screen fullscreen:overflow-hidden fullscreen:rounded-none fullscreen:ring-0"}>
-          {selectionMode ? <button aria-label={`${selected ? "Deselect" : "Select"} ${artifact.name}`} className="absolute inset-0 z-30 rounded-xl" type="button" onClick={onSelect} /> : <a aria-label={artifact.name} className="absolute inset-0 z-0 rounded-xl" href={detailUrl} />}
-          <CardContent className={`relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-t-xl p-0 ${previewClass(artifact, index)}`}>
+      <Card ref={cardRef} className={selected ? "relative gap-0 overflow-visible py-0 shadow-none ring-2 ring-foreground fullscreen:h-screen fullscreen:w-screen fullscreen:overflow-hidden fullscreen:rounded-none fullscreen:ring-0" : "relative gap-0 overflow-visible py-0 shadow-[0_1px_2px_rgba(9,9,11,0.05)] ring-border transition-[box-shadow,outline-color] hover:shadow-[0_6px_18px_-10px_rgba(9,9,11,0.22)] hover:ring-foreground/20 fullscreen:h-screen fullscreen:w-screen fullscreen:overflow-hidden fullscreen:rounded-none fullscreen:ring-0"}>
+        {selectionMode ? <button aria-label={`${selected ? "Deselect" : "Select"} ${artifact.name}`} className="absolute inset-0 z-30 rounded-xl" type="button" onClick={onSelect} /> : <a aria-label={artifact.name} className="absolute inset-0 z-0 rounded-xl" href={detailUrl} />}
+        <AspectRatio ratio={16 / 9}>
+          <CardContent className={`relative flex h-full items-center justify-center overflow-hidden rounded-t-xl p-0 ${previewClass(artifact, index)}`}>
             <FileText aria-hidden="true" className="size-9 text-muted-foreground/55" />
             {artifact.readyVersion?.thumbnailState === "ready" ? (
               <img
@@ -497,21 +497,21 @@ function ArtifactTile({
             ) : null}
             </div> : null}
           </CardContent>
-          <CardFooter className="pointer-events-none flex-col items-start gap-0 border-t border-muted px-3 pt-[11px] pb-[13px]">
-            <ArtifactCardName name={artifact.name} />
-            <span className="mt-0.5 truncate font-mono text-[10.5px] text-muted-foreground">{formatModified(artifact.updatedAt)}</span>
-          </CardFooter>
-          {fullscreenVersionId ? (
-            <div className="absolute inset-0 z-50">
-              <ArtifactPlayer
-                contentUrl={versionContentUrl(fullscreenVersionId)}
-                fullscreenTargetRef={cardRef}
-                onFullscreenExit={() => setFullscreenVersionId(null)}
-              />
-            </div>
-          ) : null}
-        </Card>
-      </AspectRatio>
+        </AspectRatio>
+        <CardFooter className="pointer-events-none min-h-16 flex-col items-start gap-0 border-t border-muted px-3 pt-[11px] pb-[13px]">
+          <ArtifactCardName name={artifact.name} />
+          <span className="mt-0.5 truncate font-mono text-[10.5px] text-muted-foreground">{formatModified(artifact.updatedAt)}</span>
+        </CardFooter>
+        {fullscreenVersionId ? (
+          <div className="absolute inset-0 z-50">
+            <ArtifactPlayer
+              contentUrl={versionContentUrl(fullscreenVersionId)}
+              fullscreenTargetRef={cardRef}
+              onFullscreenExit={() => setFullscreenVersionId(null)}
+            />
+          </div>
+        ) : null}
+      </Card>
       {!selectionMode ? <div className="absolute top-2 right-2 z-30"><ArtifactMenu artifact={artifact} detailUrl={detailUrl} overlay onRename={onRename} onDelete={onDelete} /></div> : null}
     </li>
   );
@@ -662,7 +662,7 @@ function FilteredEmptyState({ onClear }: { onClear: () => void }) {
 }
 
 function ArtifactGridSkeleton() {
-  return <div aria-label="Loading artifacts" className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3.5">{Array.from({ length: 10 }, (_, index) => <Skeleton key={index} className="aspect-[8/5]" />)}</div>;
+  return <div aria-label="Loading artifacts" className="grid grid-cols-[repeat(auto-fill,minmax(310px,1fr))] gap-5">{Array.from({ length: 10 }, (_, index) => <div key={index} className="overflow-hidden rounded-xl ring-1 ring-foreground/10"><Skeleton className="aspect-video rounded-none" /><div className="min-h-16 border-t border-muted bg-muted/50" /></div>)}</div>;
 }
 
 function artifactFilter(artifact: Artifact): Exclude<ArtifactFilter, "all"> {

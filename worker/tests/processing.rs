@@ -507,7 +507,7 @@ fn input(write_concurrency: usize) -> ProcessingAttemptInput {
         content_fingerprint_key: FingerprintKey::new("fingerprint-v1", vec![b'k'; 32])
             .expect("test fingerprint key"),
         previous_content_fingerprint_key: None,
-        renderer_revision: "renderer-v1".to_owned(),
+        renderer_revision: "renderer-v2".to_owned(),
         raw_reuse: RawReuseContext {
             requested_entry_key: String::new(),
             policy_revision: "v0.0.1-default".to_owned(),

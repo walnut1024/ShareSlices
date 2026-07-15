@@ -55,12 +55,17 @@ describe("Artifact management", () => {
 
     const artifactLink = await screen.findByRole("link", { name: "Report" });
     const artifactCard = artifactLink.closest('[data-slot="card"]');
+    const artifactGrid = artifactCard?.closest("ul");
+    const preview = artifactCard?.querySelector('[data-slot="aspect-ratio"]');
+    const footer = artifactCard?.querySelector('[data-slot="card-footer"]');
     expect(document.querySelector('[data-slot="avatar"]')).toBeInTheDocument();
     expect(document.querySelector('[data-slot="toggle-group"]')).toBeInTheDocument();
+    expect(screen.getByTestId("artifacts-page")).toHaveClass("mx-auto", "w-full", "max-w-[1920px]");
+    expect(artifactGrid).toHaveClass("grid-cols-[repeat(auto-fill,minmax(310px,1fr))]", "gap-5");
     expect(artifactCard).toHaveClass("shadow-[0_1px_2px_rgba(9,9,11,0.05)]");
-    expect(artifactCard).toHaveClass("h-full");
-    expect(artifactCard?.parentElement).toHaveAttribute("data-slot", "aspect-ratio");
-    expect(artifactCard?.parentElement).toHaveStyle({ "--ratio": "1.6" });
+    expect(artifactCard?.parentElement).not.toHaveAttribute("data-slot", "aspect-ratio");
+    expect(preview).toHaveStyle({ "--ratio": `${16 / 9}` });
+    expect(footer).toHaveClass("min-h-16");
     expect(screen.getByText("Accepted").closest(".group\\/badge")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "More actions for Report" })).toHaveClass("group/button");
   });
