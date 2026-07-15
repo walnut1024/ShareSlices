@@ -66,6 +66,13 @@ data:
         reverse_proxy {$API_UPSTREAM}
       }
 
+      handle /artifacts/*/preview {
+        root * /srv
+        rewrite * /index.html
+        header Cache-Control "no-store"
+        file_server
+      }
+
       handle {
         root * /srv
         try_files {path} /index.html

@@ -152,23 +152,24 @@ describe("Publication, Preview, and Viewer routes", () => {
     expect(readCommittedObject).not.toHaveBeenCalled();
     const content = await app.request("/a/stable-slug/?contentMode=true");
     const contentHtml = await content.text();
-    const selfNavigation = await app.request("/a/stable-slug/", {
-      headers: { "Sec-Fetch-Dest": "iframe" }
-    });
+    const selfNavigation = await app.request("/a/stable-slug/_shareslices-content/");
+    const nestedAsset = await app.request("/a/stable-slug/_shareslices-content/assets/app.js");
 
     expect(player.status).toBe(200);
     expect(player.headers.get("cache-control")).toBe("no-store");
     expect(player.headers.get("content-type")).toContain("text/html");
     expect(playerHtml).toContain('aria-label="Enter full screen"');
-    expect(playerHtml).toContain('src="/a/stable-slug/?contentMode=true"');
+    expect(playerHtml).toContain('src="/a/stable-slug/_shareslices-content/"');
     expect(playerHtml).not.toContain('<script src="assets/app.js"></script>');
     expect(content.status).toBe(200);
     expect(content.headers.get("cache-control")).toBe("no-store");
     expect(contentHtml).toContain('<script src="assets/app.js"></script>');
     expect(await selfNavigation.text()).toContain('<script src="assets/app.js"></script>');
+    expect(await nestedAsset.text()).toBe("window.ready = true");
     expect(deps.service.resolveViewer).toHaveBeenNthCalledWith(1, "stable-slug", "");
     expect(deps.service.resolveViewer).toHaveBeenNthCalledWith(2, "stable-slug", "");
     expect(deps.service.resolveViewer).toHaveBeenNthCalledWith(3, "stable-slug", "");
+    expect(deps.service.resolveViewer).toHaveBeenNthCalledWith(4, "stable-slug", "assets/app.js");
   });
 
   it("revalidates Publication state before serving Viewer content mode", async () => {

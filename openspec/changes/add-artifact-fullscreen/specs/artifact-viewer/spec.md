@@ -41,6 +41,8 @@ Preview and Viewer SHALL load Artifact entry files from URLs whose trailing-slas
 
 The trusted player shell for an accessible Publication SHALL provide persistent `Enter full screen` and `Exit full screen` icon controls with accessible names. It SHALL request full screen only from a user activation, synchronize its control state from browser full-screen events, and permit Artifact content to make its own user-activated full-screen request. Full-screen display MUST NOT select another Version, change Publication state, or grant access.
 
+When Artifact content itself owns a nested full-screen session, the browser places that iframe above trusted sibling controls. In that nested case the user exits through Escape or browser-provided full-screen UI; after exit, the trusted player's synchronized control becomes visible again.
+
 Known-link status pages that do not serve Artifact content and unknown Share links MUST NOT show the full-screen control.
 
 #### Scenario: Viewer enters full screen

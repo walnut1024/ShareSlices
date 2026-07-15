@@ -24,6 +24,8 @@ The Web SHALL present Full-screen Preview as a display state of the latest ready
 
 Preview content SHALL be hosted inside a trusted player surface that provides visible `Enter full screen` and `Exit full screen` icon controls with accessible names and tooltips. The player SHALL request full screen only from a user activation, SHALL synchronize its control state from browser full-screen events, and SHALL permit Artifact content to make its own user-activated full-screen request.
 
+When Artifact content itself owns a nested full-screen session, the browser places that iframe above trusted sibling controls. In that nested case the user exits through Escape or browser-provided full-screen UI; after exit, the trusted player's synchronized control becomes visible again.
+
 #### Scenario: Owner enters directly from a grid card
 
 - **WHEN** the Owner activates Full-screen Preview on an eligible grid card
