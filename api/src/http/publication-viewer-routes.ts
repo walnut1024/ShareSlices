@@ -118,7 +118,7 @@ function statePage(kind: Exclude<ShareResolution["kind"], "published">, manageme
 }
 
 function viewerPlayerPage(shareSlug: string): Response {
-  const contentUrl = `/a/${encodeURIComponent(shareSlug)}/_shareslices-content/`;
+  const contentUrl = `/a/${encodeURIComponent(shareSlug)}/?contentMode=true`;
   const html = `<!doctype html>
 <html lang="en">
 <head>
@@ -442,10 +442,6 @@ export function publicationViewerRoutes(
   }
 
   app.get("/a/:shareSlug/", (c) => viewer(c, "", c.req.query("contentMode") === "true"));
-  app.get("/a/:shareSlug/_shareslices-content/", (c) => viewer(c, "", true));
-  app.get("/a/:shareSlug/_shareslices-content/*", (c) =>
-    viewer(c, wildcardPath(c, `/a/${c.req.param("shareSlug") ?? ""}/_shareslices-content/`), true)
-  );
   app.get("/a/:shareSlug/*", (c) =>
     viewer(c, wildcardPath(c, `/a/${c.req.param("shareSlug") ?? ""}/`))
   );

@@ -1133,7 +1133,8 @@ describe("Artifact management", () => {
 
   it("opens the authenticated ready-Version Preview", async () => {
     const interaction = userEvent.setup();
-    const previewWindow = { opener: window } as unknown as Window;
+    const replace = vi.fn();
+    const previewWindow = { opener: window, location: { replace } } as unknown as Window;
     const open = vi.spyOn(window, "open").mockReturnValue(previewWindow);
     window.history.replaceState(null, "", "/artifacts/artifact-1");
     stubFetch([
@@ -1151,7 +1152,8 @@ describe("Artifact management", () => {
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "Preview" }));
 
-    expect(open).toHaveBeenCalledWith("/artifacts/artifact-1/preview?versionId=version%2F1", "_blank");
+    expect(open).toHaveBeenCalledWith("about:blank", "_blank");
+    expect(replace).toHaveBeenCalledWith("/artifacts/artifact-1/preview?versionId=version%2F1");
     expect(await screen.findByText("Preview opened in a new tab.")).toBeInTheDocument();
     expect(previewWindow.opener).toBeNull();
   });

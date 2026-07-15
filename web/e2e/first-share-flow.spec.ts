@@ -64,6 +64,9 @@ test("normalize a macOS named-entry ZIP, Preview, Publish, and open the stable V
   const previewPromise = page.waitForEvent("popup");
   await page.getByRole("button", { name: "Preview" }).click();
   const preview = await previewPromise;
+  await preview.waitForURL(/\/artifacts\/.+\/preview\?versionId=/);
+  const previewShell = await preview.request.get(preview.url());
+  expect(previewShell.headers()["cache-control"]).toBe("no-store");
   const previewContent = preview.frameLocator('iframe[title="Artifact content"]');
   await expect(previewContent.getByRole("heading", { name: "Published artifact" })).toBeVisible();
   await expect(previewContent.locator("body")).toHaveAttribute("data-ready", "true");

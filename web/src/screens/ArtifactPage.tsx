@@ -158,9 +158,10 @@ export function ArtifactPage({
     setActionFeedback(null);
     await Promise.resolve();
     try {
-      const previewWindow = window.open(artifactPreviewUrl(artifact.id, artifact.readyVersion.id), "_blank");
+      const previewWindow = window.open("about:blank", "_blank");
       if (!previewWindow) throw new Error("Preview was blocked by the browser.");
       previewWindow.opener = null;
+      previewWindow.location.replace(artifactPreviewUrl(artifact.id, artifact.readyVersion.id));
       setActionFeedback({ kind: "success", message: "Preview opened in a new tab." });
     } catch (reason) {
       setActionFeedback({ kind: "error", message: reason instanceof Error ? reason.message : "Preview could not be opened." });
