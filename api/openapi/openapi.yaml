@@ -37,6 +37,14 @@ tags:
     description: Owner-only ready-Version content.
   - name: viewer
     description: Public Share-link pages and committed assets.
+  - name: gallery-owner
+    description: Signed-in Creator profile and Gallery listing management.
+  - name: gallery
+    description: Anonymous Gallery discovery and trusted listing operations.
+  - name: gallery-content
+    description: Credential-bound Untrusted-content entry and manifest assets.
+  - name: gallery-governance
+    description: Signed-in reporting, Appeal, and Administrator governance operations.
 security: []
 paths:
   /health:
@@ -1239,6 +1247,508 @@ paths:
                 type: string
         "500":
           $ref: "#/components/responses/InternalError"
+  /api/gallery/permission-grant:
+    get:
+      tags: [gallery-owner]
+      operationId: getCurrentGalleryPermissionGrant
+      summary: Read the optional current indivisible Gallery permission grant.
+      security: [{sessionCookie: []}, {sessionBearer: []}]
+      responses:
+        "200": {$ref: "#/components/responses/GalleryPermissionGrantRead"}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "426": {$ref: "#/components/responses/CliUpgradeRequired"}
+        "500": {$ref: "#/components/responses/InternalError"}
+        "503": {$ref: "#/components/responses/GalleryUnavailable"}
+  /api/gallery/profile:
+    get:
+      tags: [gallery-owner]
+      operationId: getOwnGalleryProfile
+      summary: Read the signed-in User's staged or public Creator profile.
+      security: [{sessionCookie: []}, {sessionBearer: []}]
+      responses:
+        "200": {$ref: "#/components/responses/OwnGalleryProfileRead"}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "426": {$ref: "#/components/responses/CliUpgradeRequired"}
+        "500": {$ref: "#/components/responses/InternalError"}
+    patch:
+      tags: [gallery-owner]
+      operationId: updateOwnGalleryProfile
+      summary: Update editable Creator profile fields with revision checking.
+      security: [{sessionCookie: []}, {sessionBearer: []}]
+      parameters: [{$ref: "#/components/parameters/ExpectedProfileRevision"}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: "#/components/schemas/UpdateGalleryProfileRequest"}}
+      responses:
+        "200": {$ref: "#/components/responses/OwnGalleryProfileRead"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "404": {$ref: "#/components/responses/GalleryProfileNotFound"}
+        "409": {$ref: "#/components/responses/GalleryConflict"}
+        "426": {$ref: "#/components/responses/CliUpgradeRequired"}
+        "500": {$ref: "#/components/responses/InternalError"}
+  /api/gallery/profile/avatar-uploads:
+    post:
+      tags: [gallery-owner]
+      operationId: uploadOwnGalleryAvatar
+      summary: Stage one bounded, platform-validated raster Creator avatar.
+      security: [{sessionCookie: []}, {sessionBearer: []}]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [file]
+              properties:
+                file: {type: string, format: binary}
+      responses:
+        "201":
+          description: A short-lived owner-bound avatar upload handle.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [avatarUploadId, width, height]
+                properties:
+                  avatarUploadId: {type: string}
+                  width: {type: integer, minimum: 1, maximum: 4096}
+                  height: {type: integer, minimum: 1, maximum: 4096}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "426": {$ref: "#/components/responses/CliUpgradeRequired"}
+        "500": {$ref: "#/components/responses/InternalError"}
+  /gallery-media/avatar/{creatorSlug}:
+    parameters: [{$ref: "#/components/parameters/CreatorSlug"}]
+    get:
+      tags: [gallery]
+      operationId: readGalleryCreatorAvatar
+      summary: Read one platform-validated public Creator avatar from the trusted media boundary.
+      description: Gallery eligibility is checked before profile or object lookup. The response never exposes an object key or accepts executable image formats.
+      responses:
+        "200":
+          description: A validated PNG, JPEG, or WebP avatar.
+          headers:
+            Cache-Control: {schema: {type: string, enum: ["public, max-age=300"]}}
+            Referrer-Policy: {$ref: "#/components/headers/NoReferrer"}
+            X-Content-Type-Options: {schema: {type: string, enum: [nosniff]}}
+          content:
+            image/png: {schema: {type: string, format: binary}}
+            image/jpeg: {schema: {type: string, format: binary}}
+            image/webp: {schema: {type: string, format: binary}}
+        "404": {$ref: "#/components/responses/GalleryProfileNotFound"}
+        "503": {$ref: "#/components/responses/PublicGalleryUnavailable"}
+  /api/artifacts/{artifactId}/gallery-listing:
+    parameters: [{$ref: "#/components/parameters/ArtifactId"}]
+    get:
+      tags: [gallery-owner]
+      operationId: getArtifactGalleryListing
+      summary: Read owner-visible listing, proposal, evidence, and allowed actions.
+      security: [{sessionCookie: []}, {sessionBearer: []}]
+      responses:
+        "200": {$ref: "#/components/responses/OwnerGalleryListingRead"}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "404": {$ref: "#/components/responses/ArtifactNotFound"}
+        "426": {$ref: "#/components/responses/CliUpgradeRequired"}
+        "500": {$ref: "#/components/responses/InternalError"}
+    post:
+      tags: [gallery-owner]
+      operationId: shareArtifactToGallery
+      summary: Stage one owned ready Version for Gallery review and promotion.
+      description: Accepted-key recovery is read-only and remains available when new Gallery admission is unavailable.
+      security: [{sessionCookie: []}, {sessionBearer: []}]
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: "#/components/schemas/ShareToGalleryRequest"}}
+      responses:
+        "202": {$ref: "#/components/responses/GalleryMutationAccepted"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "404": {$ref: "#/components/responses/ArtifactNotFound"}
+        "409": {$ref: "#/components/responses/GalleryConflict"}
+        "426": {$ref: "#/components/responses/CliUpgradeRequired"}
+        "500": {$ref: "#/components/responses/InternalError"}
+        "503": {$ref: "#/components/responses/GalleryUnavailable"}
+  /api/gallery-listings/{listingId}:
+    parameters: [{$ref: "#/components/parameters/GalleryListingId"}]
+    patch:
+      tags: [gallery-owner]
+      operationId: updateGalleryListing
+      summary: Stage an atomic update to a Listed committed revision.
+      security: [{sessionCookie: []}, {sessionBearer: []}]
+      parameters:
+        - {$ref: "#/components/parameters/IdempotencyKey"}
+        - {$ref: "#/components/parameters/ExpectedListingRevision"}
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: "#/components/schemas/UpdateGalleryListingRequest"}}
+      responses:
+        "202": {$ref: "#/components/responses/GalleryMutationAccepted"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "404": {$ref: "#/components/responses/GalleryListingNotFound"}
+        "409": {$ref: "#/components/responses/GalleryConflict"}
+        "426": {$ref: "#/components/responses/CliUpgradeRequired"}
+        "500": {$ref: "#/components/responses/InternalError"}
+        "503": {$ref: "#/components/responses/GalleryUnavailable"}
+    delete:
+      tags: [gallery-owner]
+      operationId: withdrawGalleryListing
+      summary: Permanently withdraw a Pending or Listed Gallery listing.
+      description: Risk-reducing withdrawal and accepted-key recovery remain available while public Gallery is unavailable.
+      security: [{sessionCookie: []}, {sessionBearer: []}]
+      parameters:
+        - {$ref: "#/components/parameters/IdempotencyKey"}
+        - {$ref: "#/components/parameters/ExpectedListingRevision"}
+      responses:
+        "200": {$ref: "#/components/responses/GalleryMutationAccepted"}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "404": {$ref: "#/components/responses/GalleryListingNotFound"}
+        "409": {$ref: "#/components/responses/GalleryConflict"}
+        "426": {$ref: "#/components/responses/CliUpgradeRequired"}
+        "500": {$ref: "#/components/responses/InternalError"}
+  /api/gallery-decisions/{decisionId}/appeals:
+    parameters: [{$ref: "#/components/parameters/GalleryDecisionId"}]
+    post:
+      tags: [gallery-governance]
+      operationId: createGalleryAppeal
+      summary: Submit one eligible idempotent Appeal before its snapshotted deadline.
+      security: [{sessionCookie: []}, {sessionBearer: []}]
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: "#/components/schemas/CreateGalleryAppealRequest"}}
+      responses:
+        "201": {$ref: "#/components/responses/GalleryAppealRead"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "404": {$ref: "#/components/responses/GalleryListingNotFound"}
+        "409": {$ref: "#/components/responses/GalleryConflict"}
+        "426": {$ref: "#/components/responses/CliUpgradeRequired"}
+        "500": {$ref: "#/components/responses/InternalError"}
+        "503": {$ref: "#/components/responses/GalleryGovernanceUnavailable"}
+  /gallery:
+    get:
+      tags: [gallery]
+      operationId: listGallery
+      summary: Browse eligible Gallery listings in deterministic creation order.
+      parameters: [{$ref: "#/components/parameters/Cursor"}, {$ref: "#/components/parameters/PageLimit"}]
+      responses:
+        "200": {$ref: "#/components/responses/GalleryListingPageRead"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
+        "503": {$ref: "#/components/responses/PublicGalleryUnavailable"}
+  /gallery/newest:
+    get:
+      tags: [gallery]
+      operationId: listNewestGallery
+      summary: Browse newest eligible listings.
+      parameters: [{$ref: "#/components/parameters/Cursor"}, {$ref: "#/components/parameters/PageLimit"}]
+      responses:
+        "200": {$ref: "#/components/responses/GalleryListingPageRead"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
+        "503": {$ref: "#/components/responses/PublicGalleryUnavailable"}
+  /gallery/featured:
+    get:
+      tags: [gallery]
+      operationId: listFeaturedGallery
+      summary: Browse curated listings by durable Featured position.
+      parameters: [{$ref: "#/components/parameters/Cursor"}, {$ref: "#/components/parameters/PageLimit"}]
+      responses:
+        "200": {$ref: "#/components/responses/GalleryListingPageRead"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
+        "503": {$ref: "#/components/responses/PublicGalleryUnavailable"}
+  /gallery/search:
+    get:
+      tags: [gallery]
+      operationId: searchGallery
+      summary: Search eligible plain-text listing and Creator metadata.
+      parameters:
+        - {name: q, in: query, required: true, schema: {type: string, minLength: 1, maxLength: 200}}
+        - {$ref: "#/components/parameters/Cursor"}
+        - {$ref: "#/components/parameters/PageLimit"}
+      responses:
+        "200": {$ref: "#/components/responses/GalleryListingPageRead"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
+        "503": {$ref: "#/components/responses/PublicGalleryUnavailable"}
+  /gallery/tags/{tag}:
+    parameters: [{$ref: "#/components/parameters/GalleryTag"}]
+    get:
+      tags: [gallery]
+      operationId: listGalleryByTag
+      summary: Browse eligible listings having one exact tag.
+      parameters: [{$ref: "#/components/parameters/Cursor"}, {$ref: "#/components/parameters/PageLimit"}]
+      responses:
+        "200": {$ref: "#/components/responses/GalleryListingPageRead"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
+        "503": {$ref: "#/components/responses/PublicGalleryUnavailable"}
+  /gallery/creators/{creatorSlug}:
+    parameters: [{$ref: "#/components/parameters/CreatorSlug"}]
+    get:
+      tags: [gallery]
+      operationId: getPublicGalleryCreator
+      summary: Read a public Creator profile and its eligible listing page.
+      parameters: [{$ref: "#/components/parameters/Cursor"}, {$ref: "#/components/parameters/PageLimit"}]
+      responses:
+        "200": {$ref: "#/components/responses/PublicCreatorProfileRead"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
+        "404": {$ref: "#/components/responses/GalleryProfileNotFound"}
+        "503": {$ref: "#/components/responses/PublicGalleryUnavailable"}
+  /gallery/{gallerySlug}:
+    parameters: [{$ref: "#/components/parameters/GallerySlug"}]
+    get:
+      tags: [gallery]
+      operationId: getPublicGalleryListing
+      summary: Read one trusted Gallery listing page projection.
+      description: Gallery disabled or ineligible is checked before slug lookup; Withdrawn is 410; eligible Listed is 200; every other state is 404.
+      responses:
+        "200": {$ref: "#/components/responses/PublicGalleryListingRead"}
+        "404": {$ref: "#/components/responses/PublicGalleryNotFound"}
+        "410": {$ref: "#/components/responses/PublicGalleryGone"}
+        "503": {$ref: "#/components/responses/PublicGalleryUnavailable"}
+  /gallery/{gallerySlug}/player-authorizations:
+    parameters: [{$ref: "#/components/parameters/GallerySlug"}]
+    post:
+      tags: [gallery]
+      operationId: createGalleryPlayerAuthorization
+      summary: Bind a short-lived public player credential and record one view.
+      responses:
+        "201": {$ref: "#/components/responses/GalleryPlayerAuthorizationRead"}
+        "404": {$ref: "#/components/responses/PublicGalleryNotFound"}
+        "410": {$ref: "#/components/responses/PublicGalleryGone"}
+        "429": {$ref: "#/components/responses/RateLimited"}
+        "503": {$ref: "#/components/responses/PublicGalleryUnavailable"}
+  /gallery/{gallerySlug}/download:
+    parameters: [{$ref: "#/components/parameters/GallerySlug"}]
+    get:
+      tags: [gallery]
+      operationId: downloadGalleryListing
+      summary: Atomically authorize, lease, count, and stream the fixed Version ZIP.
+      responses:
+        "200": {$ref: "#/components/responses/GalleryDownloadRead"}
+        "404": {$ref: "#/components/responses/PublicGalleryNotFound"}
+        "410": {$ref: "#/components/responses/PublicGalleryGone"}
+        "429": {$ref: "#/components/responses/RateLimited"}
+        "503": {$ref: "#/components/responses/PublicGalleryUnavailable"}
+  /gallery/{gallerySlug}/reports:
+    parameters: [{$ref: "#/components/parameters/GallerySlug"}]
+    post:
+      tags: [gallery-governance]
+      operationId: createGalleryReport
+      summary: Submit an authenticated or anonymously challenge-verified public report without exposing reporter identity.
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: "#/components/schemas/CreateGalleryReportRequest"}}
+      responses:
+        "202": {$ref: "#/components/responses/GalleryReportAccepted"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
+        "404": {$ref: "#/components/responses/PublicGalleryNotFound"}
+        "410": {$ref: "#/components/responses/PublicGalleryGone"}
+        "429": {$ref: "#/components/responses/RateLimited"}
+        "503": {$ref: "#/components/responses/PublicGalleryUnavailable"}
+  /api/gallery/{gallerySlug}/copy-operations:
+    parameters: [{$ref: "#/components/parameters/GallerySlug"}]
+    post:
+      tags: [gallery]
+      operationId: createGalleryCopyOperation
+      summary: Accept an immutable fixed-Version Save-a-copy operation.
+      description: A known equivalent idempotency key recovers its durable operation without reauthorizing current source access.
+      security: [{sessionCookie: []}, {sessionBearer: []}]
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: "#/components/schemas/CreateGalleryCopyRequest"}}
+      responses:
+        "202": {$ref: "#/components/responses/GalleryCopyOperationRead"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "404": {$ref: "#/components/responses/PublicGalleryNotFound"}
+        "409": {$ref: "#/components/responses/GalleryConflict"}
+        "410": {$ref: "#/components/responses/PublicGalleryGone"}
+        "426": {$ref: "#/components/responses/CliUpgradeRequired"}
+        "429": {$ref: "#/components/responses/RateLimited"}
+        "503": {$ref: "#/components/responses/PublicGalleryUnavailable"}
+  /api/gallery-copy-operations/{operationId}:
+    parameters: [{$ref: "#/components/parameters/GalleryOperationId"}]
+    get:
+      tags: [gallery]
+      operationId: getGalleryCopyOperation
+      summary: Recover an accepted Save-a-copy operation by actor-bound identity.
+      security: [{sessionCookie: []}, {sessionBearer: []}]
+      responses:
+        "200": {$ref: "#/components/responses/GalleryCopyOperationRead"}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "404": {$ref: "#/components/responses/GalleryOperationNotFound"}
+        "426": {$ref: "#/components/responses/CliUpgradeRequired"}
+        "500": {$ref: "#/components/responses/InternalError"}
+  /gallery-content/public/{playerAuthorization}/:
+    parameters: [{$ref: "#/components/parameters/GalleryPlayerAuthorization"}]
+    get:
+      tags: [gallery-content]
+      operationId: getGalleryContentEntry
+      summary: Stream the credential-bound committed entry from the content-only runtime.
+      responses:
+        "200": {$ref: "#/components/responses/GalleryContentRead"}
+        "404": {$ref: "#/components/responses/PublicGalleryNotFound"}
+        "503": {$ref: "#/components/responses/PublicGalleryUnavailable"}
+  /gallery-content/public/{playerAuthorization}/{assetPath}:
+    parameters:
+      - {$ref: "#/components/parameters/GalleryPlayerAuthorization"}
+      - {$ref: "#/components/parameters/AssetPath"}
+    get:
+      tags: [gallery-content]
+      operationId: getGalleryContentAsset
+      summary: Stream one normalized credential-bound manifest asset.
+      responses:
+        "200": {$ref: "#/components/responses/GalleryContentRead"}
+        "404": {$ref: "#/components/responses/PublicGalleryNotFound"}
+        "503": {$ref: "#/components/responses/PublicGalleryUnavailable"}
+  /gallery-content/review/{reviewAuthorization}/:
+    parameters: [{$ref: "#/components/parameters/GalleryReviewAuthorization"}]
+    get:
+      tags: [gallery-content]
+      operationId: getGalleryReviewContentEntry
+      summary: Stream a case-bound candidate entry using a distinct review credential.
+      responses:
+        "200": {$ref: "#/components/responses/GalleryContentRead"}
+        "404": {$ref: "#/components/responses/PublicGalleryNotFound"}
+        "503": {$ref: "#/components/responses/GalleryGovernanceUnavailable"}
+  /gallery-content/review/{reviewAuthorization}/{assetPath}:
+    parameters:
+      - {$ref: "#/components/parameters/GalleryReviewAuthorization"}
+      - {$ref: "#/components/parameters/AssetPath"}
+    get:
+      tags: [gallery-content]
+      operationId: getGalleryReviewContentAsset
+      summary: Stream one normalized case-bound candidate asset.
+      responses:
+        "200": {$ref: "#/components/responses/GalleryContentRead"}
+        "404": {$ref: "#/components/responses/PublicGalleryNotFound"}
+        "503": {$ref: "#/components/responses/GalleryGovernanceUnavailable"}
+  /api/gallery/notifications:
+    get:
+      tags: [gallery-governance]
+      operationId: listOwnGalleryNotifications
+      summary: Read only governance notifications addressed to the signed-in User.
+      security: [{sessionCookie: []}, {sessionBearer: []}]
+      parameters: [{$ref: "#/components/parameters/Cursor"}, {$ref: "#/components/parameters/PageLimit"}]
+      responses:
+        "200": {$ref: "#/components/responses/GalleryNotificationPageRead"}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "426": {$ref: "#/components/responses/CliUpgradeRequired"}
+        "500": {$ref: "#/components/responses/InternalError"}
+        "503": {$ref: "#/components/responses/GalleryGovernanceUnavailable"}
+  /api/admin/gallery/cases:
+    get:
+      tags: [gallery-governance]
+      operationId: listGalleryGovernanceCases
+      summary: List authorized proposal, report, removal, restriction, takedown, and Appeal work.
+      security: [{sessionCookie: []}, {sessionBearer: []}]
+      parameters:
+        - {$ref: "#/components/parameters/Cursor"}
+        - {$ref: "#/components/parameters/PageLimit"}
+        - {name: queue, in: query, required: true, schema: {$ref: "#/components/schemas/GalleryGovernanceQueue"}}
+      responses:
+        "200": {$ref: "#/components/responses/GalleryGovernanceCasePageRead"}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "426": {$ref: "#/components/responses/CliUpgradeRequired"}
+        "500": {$ref: "#/components/responses/InternalError"}
+        "503": {$ref: "#/components/responses/GalleryGovernanceUnavailable"}
+  /api/admin/gallery/cases/{caseId}:
+    parameters: [{$ref: "#/components/parameters/GalleryCaseId"}]
+    get:
+      tags: [gallery-governance]
+      operationId: getGalleryGovernanceCase
+      summary: Read immutable case snapshots, evidence, policy, deadline, and allowed decisions.
+      security: [{sessionCookie: []}, {sessionBearer: []}]
+      responses:
+        "200": {$ref: "#/components/responses/GalleryGovernanceCaseRead"}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/GalleryCaseNotFound"}
+        "426": {$ref: "#/components/responses/CliUpgradeRequired"}
+        "500": {$ref: "#/components/responses/InternalError"}
+        "503": {$ref: "#/components/responses/GalleryGovernanceUnavailable"}
+  /api/admin/gallery/cases/{caseId}/review-authorizations:
+    parameters: [{$ref: "#/components/parameters/GalleryCaseId"}]
+    post:
+      tags: [gallery-governance]
+      operationId: createGalleryReviewAuthorization
+      summary: Issue a short-lived case-bound candidate review credential.
+      security: [{sessionCookie: []}, {sessionBearer: []}]
+      responses:
+        "201": {$ref: "#/components/responses/GalleryReviewAuthorizationRead"}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/GalleryCaseNotFound"}
+        "409": {$ref: "#/components/responses/GalleryConflict"}
+        "426": {$ref: "#/components/responses/CliUpgradeRequired"}
+        "500": {$ref: "#/components/responses/InternalError"}
+        "503": {$ref: "#/components/responses/GalleryGovernanceUnavailable"}
+  /api/admin/gallery/cases/{caseId}/decisions:
+    parameters: [{$ref: "#/components/parameters/GalleryCaseId"}]
+    post:
+      tags: [gallery-governance]
+      operationId: createGalleryGovernanceDecision
+      summary: Commit an idempotent Administrator decision with revision and policy evidence.
+      security: [{sessionCookie: []}, {sessionBearer: []}]
+      parameters: [{$ref: "#/components/parameters/IdempotencyKey"}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: "#/components/schemas/CreateGalleryGovernanceDecisionRequest"}}
+      responses:
+        "201": {$ref: "#/components/responses/GalleryGovernanceDecisionRead"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/GalleryCaseNotFound"}
+        "409": {$ref: "#/components/responses/GalleryConflict"}
+        "426": {$ref: "#/components/responses/CliUpgradeRequired"}
+        "500": {$ref: "#/components/responses/InternalError"}
+        "503": {$ref: "#/components/responses/GalleryGovernanceUnavailable"}
+  /api/admin/gallery/featured-positions/{position}:
+    parameters: [{$ref: "#/components/parameters/GalleryFeaturedPosition"}]
+    put:
+      tags: [gallery-governance]
+      operationId: setGalleryFeaturedPosition
+      summary: Set one durable curated position to an eligible listing.
+      security: [{sessionCookie: []}, {sessionBearer: []}]
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: "#/components/schemas/SetGalleryFeaturedPositionRequest"}}
+      responses:
+        "200": {$ref: "#/components/responses/GalleryFeaturedPositionRead"}
+        "400": {$ref: "#/components/responses/InvalidRequest"}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/GalleryListingNotFound"}
+        "409": {$ref: "#/components/responses/GalleryConflict"}
+        "426": {$ref: "#/components/responses/CliUpgradeRequired"}
+        "500": {$ref: "#/components/responses/InternalError"}
+        "503": {$ref: "#/components/responses/GalleryGovernanceUnavailable"}
+    delete:
+      tags: [gallery-governance]
+      operationId: clearGalleryFeaturedPosition
+      summary: Clear one durable curated position without automatic return.
+      security: [{sessionCookie: []}, {sessionBearer: []}]
+      responses:
+        "204": {description: Featured position cleared.}
+        "401": {$ref: "#/components/responses/Unauthenticated"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "426": {$ref: "#/components/responses/CliUpgradeRequired"}
+        "500": {$ref: "#/components/responses/InternalError"}
+        "503": {$ref: "#/components/responses/GalleryGovernanceUnavailable"}
 components:
   securitySchemes:
     sessionCookie:
@@ -1363,6 +1873,82 @@ components:
         type: string
         minLength: 1
         maxLength: 255
+    GalleryListingId:
+      name: listingId
+      in: path
+      required: true
+      schema: {$ref: "#/components/schemas/GalleryListingId"}
+    GalleryDecisionId:
+      name: decisionId
+      in: path
+      required: true
+      schema: {type: string, pattern: '^gdecision_[A-Za-z0-9_-]{20,128}$'}
+    GallerySlug:
+      name: gallerySlug
+      in: path
+      required: true
+      description: Opaque Gallery listing slug that reveals no source or Creator identifier.
+      schema: {$ref: "#/components/schemas/GallerySlug"}
+    CreatorSlug:
+      name: creatorSlug
+      in: path
+      required: true
+      schema: {$ref: "#/components/schemas/CreatorSlug"}
+    GalleryTag:
+      name: tag
+      in: path
+      required: true
+      schema: {$ref: "#/components/schemas/GalleryTag"}
+    GalleryOperationId:
+      name: operationId
+      in: path
+      required: true
+      schema: {$ref: "#/components/schemas/GalleryOperationId"}
+    GalleryCaseId:
+      name: caseId
+      in: path
+      required: true
+      schema: {$ref: "#/components/schemas/GalleryCaseId"}
+    GalleryPlayerAuthorization:
+      name: playerAuthorization
+      in: path
+      required: true
+      description: Short-lived opaque public credential; redact the value from every log.
+      schema: {type: string, minLength: 32, maxLength: 512}
+    GalleryReviewAuthorization:
+      name: reviewAuthorization
+      in: path
+      required: true
+      description: Short-lived opaque Administrator-review credential; never valid on public routes.
+      schema: {type: string, minLength: 32, maxLength: 512}
+    ExpectedListingRevision:
+      name: If-Match
+      in: header
+      required: true
+      description: Quoted current listing concurrency revision.
+      schema: {type: string, pattern: '^"[1-9][0-9]*"$'}
+    ExpectedProfileRevision:
+      name: If-Match
+      in: header
+      required: true
+      description: Quoted current Creator-profile concurrency revision.
+      schema: {type: string, pattern: '^"[1-9][0-9]*"$'}
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Opaque cursor containing the complete deterministic ordering tuple.
+      schema: {type: string, minLength: 1, maxLength: 1024}
+    PageLimit:
+      name: limit
+      in: query
+      required: false
+      schema: {type: integer, minimum: 1, maximum: 100, default: 24}
+    GalleryFeaturedPosition:
+      name: position
+      in: path
+      required: true
+      schema: {type: integer, minimum: 1, maximum: 1000}
   headers:
     RequestId:
       description: Stable request identifier for logs and support.
@@ -1381,6 +1967,13 @@ components:
         type: string
         enum:
           - no-store
+    NoReferrer:
+      description: Prevents credential-bearing content URLs from becoming referrer data.
+      required: true
+      schema: {type: string, enum: [no-referrer]}
+    EntityTag:
+      description: Quoted concurrency revision for the returned resource.
+      schema: {type: string, pattern: '^"[1-9][0-9]*"$'}
   responses:
     Forbidden:
       description: The authenticated user cannot perform this operation.
@@ -1735,6 +2328,131 @@ components:
                   code: internal_error
                   message: Internal server error.
                   requestId: req_000000000000000000000000
+    GalleryPermissionGrantRead:
+      description: Current grant evidence; `grant` is null when no current grant exists.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}, Cache-Control: {$ref: "#/components/headers/NoStore"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/GalleryPermissionGrantResponse"}}}
+    OwnGalleryProfileRead:
+      description: Owner-visible staged or public Creator profile, or null before staging.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}, ETag: {$ref: "#/components/headers/EntityTag"}, Cache-Control: {$ref: "#/components/headers/NoStore"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/OwnGalleryProfileResponse"}}}
+    OwnerGalleryListingRead:
+      description: Owner-visible current listing projection, proposal, evidence, and actions.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}, ETag: {$ref: "#/components/headers/EntityTag"}, Cache-Control: {$ref: "#/components/headers/NoStore"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/OwnerGalleryListingResponse"}}}
+    GalleryMutationAccepted:
+      description: Durable historical operation outcome plus a separately labeled current projection.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}, Cache-Control: {$ref: "#/components/headers/NoStore"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/GalleryListingOperationResponse"}}}
+    GalleryListingPageRead:
+      description: One deterministic page containing only effectively accessible public projections.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}, Cache-Control: {$ref: "#/components/headers/NoStore"}, Referrer-Policy: {$ref: "#/components/headers/NoReferrer"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/GalleryListingPage"}}}
+    PublicGalleryListingRead:
+      description: Eligible Listed committed public projection.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}, Cache-Control: {$ref: "#/components/headers/NoStore"}, Referrer-Policy: {$ref: "#/components/headers/NoReferrer"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/PublicGalleryListing"}}}
+    PublicCreatorProfileRead:
+      description: Public profile and possibly empty eligible-listing collection.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}, Cache-Control: {$ref: "#/components/headers/NoStore"}, Referrer-Policy: {$ref: "#/components/headers/NoReferrer"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/PublicCreatorProfileResponse"}}}
+    GalleryPlayerAuthorizationRead:
+      description: Short-lived public player authorization bound to listing, revision, and Version.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}, Cache-Control: {$ref: "#/components/headers/NoStore"}, Referrer-Policy: {$ref: "#/components/headers/NoReferrer"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/GalleryPlayerAuthorizationResponse"}}}
+    GalleryDownloadRead:
+      description: Normalized ZIP stream accepted under a bounded durable source-read lease.
+      headers:
+        X-Request-Id: {$ref: "#/components/headers/RequestId"}
+        Cache-Control: {$ref: "#/components/headers/NoStore"}
+        Referrer-Policy: {$ref: "#/components/headers/NoReferrer"}
+        Content-Disposition: {schema: {type: string}, description: Attachment filename derived from safe public metadata.}
+      content: {application/zip: {schema: {type: string, format: binary}}}
+    GalleryContentRead:
+      description: Bound entry or manifest asset with content-runtime security policy.
+      headers:
+        Cache-Control: {$ref: "#/components/headers/NoStore"}
+        Referrer-Policy: {$ref: "#/components/headers/NoReferrer"}
+        Content-Security-Policy: {schema: {type: string}}
+        Permissions-Policy: {schema: {type: string}}
+        X-Content-Type-Options: {schema: {type: string, enum: [nosniff]}}
+      content: {application/octet-stream: {schema: {type: string, format: binary}}}
+    GalleryCopyOperationRead:
+      description: Actor-bound durable Save-a-copy operation recovery projection.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}, Cache-Control: {$ref: "#/components/headers/NoStore"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/GalleryCopyOperationResponse"}}}
+    GalleryReportAccepted:
+      description: Neutral accepted report response.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}, Cache-Control: {$ref: "#/components/headers/NoStore"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/GalleryReportResponse"}}}
+    GalleryAppealRead:
+      description: Appeal outcome with snapshotted policy and deadline evidence.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}, Cache-Control: {$ref: "#/components/headers/NoStore"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/GalleryAppealResponse"}}}
+    GalleryGovernanceCasePageRead:
+      description: Authorized governance queue page.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}, Cache-Control: {$ref: "#/components/headers/NoStore"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/GalleryGovernanceCasePage"}}}
+    GalleryNotificationPageRead:
+      description: Actor-scoped durable governance notifications.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}, Cache-Control: {$ref: "#/components/headers/NoStore"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/GalleryNotificationPage"}}}
+    GalleryGovernanceCaseRead:
+      description: Authorized case detail with immutable evidence snapshot.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}, Cache-Control: {$ref: "#/components/headers/NoStore"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/GalleryGovernanceCaseResponse"}}}
+    GalleryReviewAuthorizationRead:
+      description: Distinct case-bound Administrator review credential or static-preview unavailability.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}, Cache-Control: {$ref: "#/components/headers/NoStore"}, Referrer-Policy: {$ref: "#/components/headers/NoReferrer"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/GalleryReviewAuthorizationResponse"}}}
+    GalleryGovernanceDecisionRead:
+      description: Committed governance decision and resulting effective-access projection.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}, Cache-Control: {$ref: "#/components/headers/NoStore"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/GalleryGovernanceDecisionResponse"}}}
+    GalleryFeaturedPositionRead:
+      description: Durable Featured placement.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/GalleryFeaturedPosition"}}}
+    GalleryUnavailable:
+      description: Gallery admission is disabled or deployment-ineligible; accepted recovery may still be available.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}, Cache-Control: {$ref: "#/components/headers/NoStore"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/ErrorResponse"}, examples: {unavailable: {value: {error: {code: gallery_unavailable, message: Gallery is unavailable., requestId: req_000000000000000000000000}}}}}}
+    PublicGalleryUnavailable:
+      description: Pre-lookup response while Gallery is disabled or deployment-ineligible.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}, Cache-Control: {$ref: "#/components/headers/NoStore"}, Referrer-Policy: {$ref: "#/components/headers/NoReferrer"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/ErrorResponse"}, examples: {unavailable: {value: {error: {code: gallery_unavailable, message: Gallery is unavailable., requestId: req_000000000000000000000000}}}}}}
+    GalleryGovernanceUnavailable:
+      description: A trusted governance dependency required by this operation is unavailable.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}, Cache-Control: {$ref: "#/components/headers/NoStore"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/ErrorResponse"}}}
+    PublicGalleryNotFound:
+      description: Generic response for unknown, Pending, Removed, Restricted, taken-down, or otherwise ineligible listing state.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}, Cache-Control: {$ref: "#/components/headers/NoStore"}, Referrer-Policy: {$ref: "#/components/headers/NoReferrer"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/ErrorResponse"}}}
+    PublicGalleryGone:
+      description: Generic retired response for a Withdrawn listing; exposes no listing or Creator metadata.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}, Cache-Control: {$ref: "#/components/headers/NoStore"}, Referrer-Policy: {$ref: "#/components/headers/NoReferrer"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/ErrorResponse"}}}
+    GalleryConflict:
+      description: Revision, proposal, idempotency, state, grant, quota, or restoration conflict.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}, Cache-Control: {$ref: "#/components/headers/NoStore"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/ErrorResponse"}}}
+    GalleryListingNotFound:
+      description: Listing is unknown or not owned by the authenticated actor.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/ErrorResponse"}}}
+    GalleryProfileNotFound:
+      description: Profile is unknown, staged-only, account-deleted, or not owned where ownership is required.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}, Cache-Control: {$ref: "#/components/headers/NoStore"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/ErrorResponse"}}}
+    GalleryOperationNotFound:
+      description: Operation is unknown or belongs to another actor.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/ErrorResponse"}}}
+    GalleryCaseNotFound:
+      description: Governance case is unknown or unavailable to the Administrator.
+      headers: {X-Request-Id: {$ref: "#/components/headers/RequestId"}}
+      content: {application/json: {schema: {$ref: "#/components/schemas/ErrorResponse"}}}
   schemas:
     VerificationState:
       type: object
@@ -2617,6 +3335,421 @@ components:
             - type: string
               enum: [expired, unpublished, superseded]
             - type: "null"
+    GalleryListingId: {type: string, pattern: '^glisting_[A-Za-z0-9_-]{20,128}$'}
+    GalleryOperationId: {type: string, pattern: '^(goperation|gcopy)_[A-Za-z0-9_-]{20,128}$'}
+    GalleryCaseId: {type: string, pattern: '^gcase_[A-Za-z0-9_-]{20,128}$'}
+    GallerySlug: {type: string, minLength: 20, maxLength: 64, pattern: '^[A-Za-z0-9_-]+$'}
+    CreatorSlug: {type: string, minLength: 8, maxLength: 64, pattern: '^[A-Za-z0-9_-]+$'}
+    GalleryTag: {type: string, minLength: 1, maxLength: 40}
+    GalleryListingLifecycle: {type: string, enum: [pending, listed, withdrawn, removed]}
+    GalleryReviewState: {type: string, enum: [clear, reviewing, restricted]}
+    GalleryClosureReason:
+      oneOf:
+        - {type: string, enum: [creator_withdrawal, artifact_deleted, account_deleted, initial_policy_rejection, initial_governance_block, administrator_removal]}
+        - {type: "null"}
+    GalleryCopyState: {type: string, enum: [accepted, processing, ready, failed, cancelled, indeterminate]}
+    GalleryProposalState: {type: string, enum: [open, promoted, rejected, governance_blocked, stale, closed]}
+    GalleryAppealState: {type: string, enum: [pending, upheld, reversed, moot]}
+    GalleryPermissionGrant:
+      type: object
+      additionalProperties: false
+      required: [version, text, permissions]
+      properties:
+        version: {type: string, minLength: 1, maxLength: 128}
+        text: {type: string, minLength: 1, maxLength: 20000}
+        permissions:
+          type: array
+          prefixItems:
+            - {const: view}
+            - {const: gallery_download}
+            - {const: save_a_copy}
+          minItems: 3
+          maxItems: 3
+    GalleryPermissionEvidence:
+      type: object
+      additionalProperties: false
+      required: [grantVersion, acceptedAt]
+      properties:
+        grantVersion: {type: string}
+        acceptedAt: {type: string, format: date-time}
+    GalleryPermissionGrantResponse:
+      type: object
+      additionalProperties: false
+      required: [grant]
+      properties:
+        grant: {oneOf: [{$ref: "#/components/schemas/GalleryPermissionGrant"}, {type: "null"}]}
+    GalleryAvatar:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [url, width, height]
+          properties:
+            url: {type: string, format: uri-reference}
+            width: {type: integer, minimum: 1}
+            height: {type: integer, minimum: 1}
+        - {type: "null"}
+    GalleryCreatorProfile:
+      type: object
+      additionalProperties: false
+      required: [slug, displayName, biography, avatar, revision, visibility]
+      properties:
+        slug: {$ref: "#/components/schemas/CreatorSlug"}
+        displayName: {type: string, minLength: 1, maxLength: 80}
+        biography: {oneOf: [{type: string, maxLength: 500}, {type: "null"}]}
+        avatar: {$ref: "#/components/schemas/GalleryAvatar"}
+        revision: {type: integer, minimum: 1}
+        visibility: {type: string, enum: [staged, public, retired]}
+    OwnGalleryProfileResponse:
+      type: object
+      additionalProperties: false
+      required: [profile]
+      properties: {profile: {oneOf: [{$ref: "#/components/schemas/GalleryCreatorProfile"}, {type: "null"}]}}
+    UpdateGalleryProfileRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        displayName: {type: string, minLength: 1, maxLength: 80}
+        biography: {oneOf: [{type: string, maxLength: 500}, {type: "null"}]}
+        avatarUploadId: {oneOf: [{type: string, minLength: 1}, {type: "null"}]}
+    GalleryMetadata:
+      type: object
+      additionalProperties: false
+      required: [title, description, tags]
+      properties:
+        title: {type: string, minLength: 1, maxLength: 200}
+        description: {oneOf: [{type: string, maxLength: 2000}, {type: "null"}]}
+        tags: {type: array, minItems: 1, maxItems: 5, uniqueItems: true, items: {$ref: "#/components/schemas/GalleryTag"}}
+    GalleryEffectiveAccess:
+      type: object
+      additionalProperties: false
+      required: [accessible, restrictions]
+      properties:
+        accessible: {type: boolean}
+        restrictions:
+          type: array
+          uniqueItems: true
+          items: {type: string, enum: [gallery_disabled, deployment_ineligible, not_listed, public_sharing_restricted, artifact_takedown, administrator_removal, appeal_pending, source_deleted]}
+    GalleryProposal:
+      type: object
+      additionalProperties: false
+      required: [id, state, baseListingRevision, versionId, metadata]
+      properties:
+        id: {type: string}
+        state: {$ref: "#/components/schemas/GalleryProposalState"}
+        baseListingRevision: {type: integer, minimum: 1}
+        versionId: {type: string}
+        metadata: {$ref: "#/components/schemas/GalleryMetadata"}
+    GalleryAllowedAction:
+      type: string
+      enum: [share_to_gallery, update_gallery, withdraw_from_gallery, accept_gallery_permission, submit_appeal, create_replacement]
+    OwnerGalleryListing:
+      type: object
+      additionalProperties: false
+      required: [id, artifactId, lifecycle, reviewState, closureReason, revision, committed, proposal, currentGrantEvidence, historicalGrantEvidence, effectiveAccess, allowedActions, publicUrl]
+      properties:
+        id: {$ref: "#/components/schemas/GalleryListingId"}
+        artifactId: {type: string}
+        lifecycle: {$ref: "#/components/schemas/GalleryListingLifecycle"}
+        reviewState: {$ref: "#/components/schemas/GalleryReviewState"}
+        closureReason: {$ref: "#/components/schemas/GalleryClosureReason"}
+        revision: {type: integer, minimum: 1}
+        committed: {oneOf: [{$ref: "#/components/schemas/GalleryCommittedRevision"}, {type: "null"}]}
+        proposal: {oneOf: [{$ref: "#/components/schemas/GalleryProposal"}, {type: "null"}]}
+        currentGrantEvidence: {oneOf: [{$ref: "#/components/schemas/GalleryPermissionEvidence"}, {type: "null"}]}
+        historicalGrantEvidence: {type: array, items: {$ref: "#/components/schemas/GalleryPermissionEvidence"}}
+        effectiveAccess: {$ref: "#/components/schemas/GalleryEffectiveAccess"}
+        allowedActions: {type: array, uniqueItems: true, items: {$ref: "#/components/schemas/GalleryAllowedAction"}}
+        publicUrl: {oneOf: [{type: string, format: uri-reference}, {type: "null"}]}
+    GalleryCommittedRevision:
+      type: object
+      additionalProperties: false
+      required: [revision, versionId, metadata, createdAt]
+      properties:
+        revision: {type: integer, minimum: 1}
+        versionId: {type: string}
+        metadata: {$ref: "#/components/schemas/GalleryMetadata"}
+        createdAt: {type: string, format: date-time}
+    OwnerGalleryListingResponse:
+      type: object
+      additionalProperties: false
+      required: [listing]
+      properties: {listing: {oneOf: [{$ref: "#/components/schemas/OwnerGalleryListing"}, {type: "null"}]}}
+    ShareToGalleryRequest:
+      type: object
+      additionalProperties: false
+      required: [versionId, metadata, profile, permission]
+      properties:
+        versionId: {type: string}
+        metadata: {$ref: "#/components/schemas/GalleryMetadata"}
+        profile: {$ref: "#/components/schemas/GalleryProfileConfirmation"}
+        permission: {$ref: "#/components/schemas/GalleryPermissionAcceptance"}
+        confirmedReplacement: {type: boolean, default: false}
+    GalleryProfileConfirmation:
+      type: object
+      additionalProperties: false
+      required: [displayName, biography, avatar, expectedRevision]
+      properties:
+        displayName: {type: string, minLength: 1, maxLength: 80}
+        biography: {oneOf: [{type: string, maxLength: 500}, {type: "null"}]}
+        avatar: {type: "null", description: Avatar changes use the owner-bound avatar upload flow.}
+        expectedRevision: {oneOf: [{type: integer, minimum: 1}, {type: "null"}]}
+    GalleryPermissionAcceptance:
+      type: object
+      additionalProperties: false
+      required: [grantVersion, accepted]
+      properties:
+        grantVersion: {type: string, minLength: 1}
+        accepted: {type: boolean, const: true}
+    UpdateGalleryListingRequest:
+      type: object
+      additionalProperties: false
+      required: [versionId, metadata, profile, permission]
+      properties:
+        versionId: {type: string}
+        metadata: {$ref: "#/components/schemas/GalleryMetadata"}
+        profile: {$ref: "#/components/schemas/GalleryProfileConfirmation"}
+        permission: {$ref: "#/components/schemas/GalleryPermissionAcceptance"}
+    GalleryOperationHistoricalOutcome:
+      type: object
+      additionalProperties: false
+      required: [operationId, operation, acceptedAt, status, committedListingRevision]
+      properties:
+        operationId: {$ref: "#/components/schemas/GalleryOperationId"}
+        operation: {type: string, enum: [share_to_gallery, update_gallery, withdraw_from_gallery]}
+        acceptedAt: {type: string, format: date-time}
+        status: {type: string, enum: [accepted, completed, rejected, indeterminate]}
+        committedListingRevision: {oneOf: [{type: integer, minimum: 1}, {type: "null"}]}
+    GalleryListingOperationResponse:
+      type: object
+      additionalProperties: false
+      required: [historicalOutcome, current]
+      properties:
+        historicalOutcome: {$ref: "#/components/schemas/GalleryOperationHistoricalOutcome"}
+        current: {$ref: "#/components/schemas/OwnerGalleryListing"}
+    PublicGalleryCreator:
+      type: object
+      additionalProperties: false
+      required: [slug, displayName]
+      properties:
+        slug: {$ref: "#/components/schemas/CreatorSlug"}
+        displayName: {type: string}
+    GalleryCoverProjection:
+      type: object
+      additionalProperties: false
+      required: [state, url]
+      properties:
+        state: {type: string, enum: [placeholder, ready]}
+        url: {oneOf: [{type: string, format: uri-reference}, {type: "null"}]}
+    PublicGalleryCard:
+      type: object
+      additionalProperties: false
+      required: [slug, title, description, tags, creator, cover, createdAt]
+      properties:
+        slug: {$ref: "#/components/schemas/GallerySlug"}
+        title: {type: string}
+        description: {oneOf: [{type: string}, {type: "null"}]}
+        tags: {type: array, minItems: 1, maxItems: 5, items: {$ref: "#/components/schemas/GalleryTag"}}
+        creator: {$ref: "#/components/schemas/PublicGalleryCreator"}
+        cover: {$ref: "#/components/schemas/GalleryCoverProjection"}
+        createdAt: {type: string, format: date-time}
+    GallerySourceAttribution:
+      type: object
+      additionalProperties: false
+      required: [originalCreator]
+      properties:
+        originalCreator: {oneOf: [{$ref: "#/components/schemas/PublicGalleryCreator"}, {type: "null"}]}
+    PublicGalleryListing:
+      type: object
+      additionalProperties: false
+      required: [slug, title, description, tags, creator, cover, createdAt, sourceAttribution]
+      properties:
+        slug: {$ref: "#/components/schemas/GallerySlug"}
+        title: {type: string}
+        description: {oneOf: [{type: string}, {type: "null"}]}
+        tags: {type: array, minItems: 1, maxItems: 5, items: {$ref: "#/components/schemas/GalleryTag"}}
+        creator: {$ref: "#/components/schemas/PublicGalleryCreator"}
+        cover: {$ref: "#/components/schemas/GalleryCoverProjection"}
+        createdAt: {type: string, format: date-time}
+        sourceAttribution: {oneOf: [{$ref: "#/components/schemas/GallerySourceAttribution"}, {type: "null"}]}
+    GalleryListingPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/PublicGalleryCard"}}
+        nextCursor: {oneOf: [{type: string}, {type: "null"}]}
+    PublicCreatorProfileResponse:
+      type: object
+      additionalProperties: false
+      required: [profile, listings]
+      properties:
+        profile:
+          type: object
+          additionalProperties: false
+          required: [slug, displayName, biography, avatarUrl]
+          properties:
+            slug: {$ref: "#/components/schemas/CreatorSlug"}
+            displayName: {type: string}
+            biography: {oneOf: [{type: string}, {type: "null"}]}
+            avatarUrl: {oneOf: [{type: string, format: uri-reference}, {type: "null"}]}
+        listings: {$ref: "#/components/schemas/GalleryListingPage"}
+    GalleryPlayerAuthorizationResponse:
+      type: object
+      additionalProperties: false
+      required: [entryUrl, expiresAt]
+      properties:
+        entryUrl: {type: string, format: uri-reference}
+        expiresAt: {type: string, format: date-time}
+    CreateGalleryCopyRequest:
+      type: object
+      additionalProperties: false
+      required: [title]
+      properties: {title: {type: string, minLength: 1, maxLength: 200}}
+    GalleryQuotaOutcome:
+      type: object
+      additionalProperties: false
+      required: [state, reservedArtifacts, reservedBytes]
+      properties:
+        state: {type: string, enum: [reserved, committed, released, held]}
+        reservedArtifacts: {type: integer, minimum: 0}
+        reservedBytes: {type: integer, minimum: 0}
+    GalleryCopyOperation:
+      type: object
+      additionalProperties: false
+      required: [id, state, sourceListingId, sourceListingRevision, sourceVersionId, destinationArtifactId, quotaState]
+      properties:
+        id: {$ref: "#/components/schemas/GalleryOperationId"}
+        state: {$ref: "#/components/schemas/GalleryCopyState"}
+        sourceListingId: {$ref: "#/components/schemas/GalleryListingId"}
+        sourceListingRevision: {type: integer, minimum: 1}
+        sourceVersionId: {type: string}
+        destinationArtifactId: {oneOf: [{type: string}, {type: "null"}]}
+        quotaState: {type: string, enum: [held, committed, released]}
+    GalleryCopyOperationResponse:
+      $ref: "#/components/schemas/GalleryCopyOperation"
+    CreateGalleryReportRequest:
+      type: object
+      additionalProperties: false
+      required: [category, details]
+      properties:
+        category: {type: string, enum: [malware, abuse, copyright, privacy, other]}
+        details: {type: string, minLength: 1, maxLength: 4000}
+        challengeToken: {type: string, minLength: 1, maxLength: 4096, description: Required for anonymous reports and omitted by authenticated reporters.}
+    GalleryReportResponse:
+      type: object
+      additionalProperties: false
+      required: [accepted]
+      properties: {accepted: {type: boolean, const: true}}
+    GalleryAppealPolicyEvidence:
+      type: object
+      additionalProperties: false
+      required: [policyVersion, decisionAt, deadlineAt]
+      properties:
+        policyVersion: {type: string}
+        decisionAt: {type: string, format: date-time}
+        deadlineAt: {type: string, format: date-time}
+    CreateGalleryAppealRequest:
+      type: object
+      additionalProperties: false
+      required: [statement]
+      properties:
+        statement: {type: string, minLength: 1, maxLength: 8000}
+    GalleryAppealResponse:
+      type: object
+      additionalProperties: false
+      required: [appealId, state, policy]
+      properties:
+        appealId: {type: string}
+        state: {$ref: "#/components/schemas/GalleryAppealState"}
+        policy: {$ref: "#/components/schemas/GalleryAppealPolicyEvidence"}
+    GalleryGovernanceQueue: {type: string, enum: [proposals, reports, appeals, restrictions, takedowns, removals]}
+    GalleryNotification:
+      type: object
+      additionalProperties: false
+      required: [id, category, rule, currentEffect, appeal, createdAt]
+      properties:
+        id: {type: string}
+        category: {type: string, enum: [removal, appeal_decision, artifact_takedown, public_sharing_restriction]}
+        rule: {type: string, minLength: 1, maxLength: 500}
+        currentEffect: {type: string, minLength: 1, maxLength: 1000}
+        appeal: {oneOf: [{$ref: "#/components/schemas/GalleryAppealPolicyEvidence"}, {type: "null"}]}
+        createdAt: {type: string, format: date-time}
+    GalleryNotificationPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/GalleryNotification"}}
+        nextCursor: {oneOf: [{type: string}, {type: "null"}]}
+    GalleryGovernanceCaseSummary:
+      type: object
+      additionalProperties: false
+      required: [id, queue, state, createdAt, listingRevision]
+      properties:
+        id: {$ref: "#/components/schemas/GalleryCaseId"}
+        queue: {$ref: "#/components/schemas/GalleryGovernanceQueue"}
+        state: {type: string, enum: [open, decided, moot]}
+        createdAt: {type: string, format: date-time}
+        listingRevision: {oneOf: [{type: integer, minimum: 1}, {type: "null"}]}
+    GalleryGovernanceCasePage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items: {type: array, items: {$ref: "#/components/schemas/GalleryGovernanceCaseSummary"}}
+        nextCursor: {oneOf: [{type: string}, {type: "null"}]}
+    GalleryGovernanceCaseResponse:
+      type: object
+      additionalProperties: false
+      required: [case, evidenceDigest, plainTextEvidence, appealPolicy, allowedDecisions, preview]
+      properties:
+        case: {$ref: "#/components/schemas/GalleryGovernanceCaseSummary"}
+        evidenceDigest: {type: string}
+        plainTextEvidence: {oneOf: [{type: string, maxLength: 4000}, {type: "null"}]}
+        appealPolicy: {oneOf: [{$ref: "#/components/schemas/GalleryAppealPolicyEvidence"}, {type: "null"}]}
+        allowedDecisions: {type: array, items: {type: string, enum: [approve, reject, remove, restore, restrict, clear_restriction, takedown, clear_takedown, uphold_appeal, reverse_appeal]}}
+        preview: {type: string, enum: [available, unavailable]}
+    GalleryReviewAuthorizationResponse:
+      type: object
+      additionalProperties: false
+      required: [state, entryUrl, expiresAt]
+      properties:
+        state: {type: string, enum: [available, unavailable]}
+        entryUrl: {oneOf: [{type: string, format: uri-reference}, {type: "null"}]}
+        expiresAt: {oneOf: [{type: string, format: date-time}, {type: "null"}]}
+    CreateGalleryGovernanceDecisionRequest:
+      type: object
+      additionalProperties: false
+      required: [decision, expectedListingRevision, ruleCode, rationale]
+      properties:
+        decision: {type: string, enum: [approve, reject, dismiss, remove, restore, restrict, clear_restriction, takedown, clear_takedown, uphold_appeal, reverse_appeal]}
+        expectedListingRevision: {oneOf: [{type: integer, minimum: 1}, {type: "null"}]}
+        ruleCode: {type: string, minLength: 1, maxLength: 200}
+        rationale: {type: string, minLength: 1, maxLength: 8000}
+    GalleryGovernanceDecisionResponse:
+      type: object
+      additionalProperties: false
+      required: [decisionId, committedAt, policy, effectiveAccess]
+      properties:
+        decisionId: {type: string}
+        committedAt: {type: string, format: date-time}
+        policy: {oneOf: [{$ref: "#/components/schemas/GalleryAppealPolicyEvidence"}, {type: "null"}]}
+        effectiveAccess: {$ref: "#/components/schemas/GalleryEffectiveAccess"}
+    SetGalleryFeaturedPositionRequest:
+      type: object
+      additionalProperties: false
+      required: [listingId, expectedListingRevision]
+      properties:
+        listingId: {$ref: "#/components/schemas/GalleryListingId"}
+        expectedListingRevision: {type: integer, minimum: 1}
+    GalleryFeaturedPosition:
+      type: object
+      additionalProperties: false
+      required: [position, listingId]
+      properties:
+        position: {type: integer, minimum: 1}
+        listingId: {$ref: "#/components/schemas/GalleryListingId"}
     ErrorResponse:
       type: object
       additionalProperties: false

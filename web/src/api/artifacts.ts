@@ -31,7 +31,14 @@ export type Artifact = {
   } | null;
   failure: { code: string; message: string; recoverable: boolean } | null;
   validationReport: ValidationReport | null;
+  publicSharingRestriction?: { state: "restricted" } | null;
   allowedActions: ArtifactAction[];
+};
+
+export type ReadyArtifactVersion = {
+  id: string;
+  versionNumber: number;
+  state: "ready";
 };
 
 export type ValidationDetails = {
@@ -134,6 +141,15 @@ export async function listArtifacts(): Promise<Artifact[]> {
 export async function getArtifact(artifactId: string): Promise<Artifact> {
   const response = await request<{ artifact: Artifact }>(`/api/artifacts/${encodeURIComponent(artifactId)}`);
   return response.artifact;
+}
+
+export async function listReadyArtifactVersions(
+  artifactId: string,
+): Promise<ReadyArtifactVersion[]> {
+  const response = await request<{ versions: ReadyArtifactVersion[] }>(
+    `/api/artifacts/${encodeURIComponent(artifactId)}/versions`,
+  );
+  return response.versions;
 }
 
 export async function updateArtifactName(artifactId: string, name: string): Promise<Artifact> {

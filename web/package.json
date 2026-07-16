@@ -6,6 +6,10 @@
     "dev": "vite --host 127.0.0.1 --port 5173",
     "build": "vite build",
     "e2e": "playwright test",
+    "interface:check": "node scripts/check-interface-conformance.mjs && node --test scripts/check-interface-conformance.node-test.mjs",
+    "interface:report": "node scripts/check-interface-conformance.mjs --report-only",
+    "interface:measure-build": "vite build && node scripts/measure-interface-build.mjs",
+    "interface:benchmark-test": "node --test scripts/interface-benchmark.node-test.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

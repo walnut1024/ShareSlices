@@ -42,6 +42,42 @@ ARTIFACT_OPERATIONS = {
     ("get", "/a/{shareSlug}/{assetPath}"),
 }
 
+GALLERY_OPERATIONS = {
+    ("get", "/api/gallery/permission-grant"),
+    ("get", "/api/gallery/profile"),
+    ("patch", "/api/gallery/profile"),
+    ("post", "/api/gallery/profile/avatar-uploads"),
+    ("get", "/gallery-media/avatar/{creatorSlug}"),
+    ("get", "/api/artifacts/{artifactId}/gallery-listing"),
+    ("post", "/api/artifacts/{artifactId}/gallery-listing"),
+    ("patch", "/api/gallery-listings/{listingId}"),
+    ("delete", "/api/gallery-listings/{listingId}"),
+    ("post", "/api/gallery-decisions/{decisionId}/appeals"),
+    ("get", "/gallery"),
+    ("get", "/gallery/newest"),
+    ("get", "/gallery/featured"),
+    ("get", "/gallery/search"),
+    ("get", "/gallery/tags/{tag}"),
+    ("get", "/gallery/creators/{creatorSlug}"),
+    ("get", "/gallery/{gallerySlug}"),
+    ("post", "/gallery/{gallerySlug}/player-authorizations"),
+    ("get", "/gallery/{gallerySlug}/download"),
+    ("post", "/gallery/{gallerySlug}/reports"),
+    ("post", "/api/gallery/{gallerySlug}/copy-operations"),
+    ("get", "/api/gallery-copy-operations/{operationId}"),
+    ("get", "/api/gallery/notifications"),
+    ("get", "/gallery-content/public/{playerAuthorization}/"),
+    ("get", "/gallery-content/public/{playerAuthorization}/{assetPath}"),
+    ("get", "/gallery-content/review/{reviewAuthorization}/"),
+    ("get", "/gallery-content/review/{reviewAuthorization}/{assetPath}"),
+    ("get", "/api/admin/gallery/cases"),
+    ("get", "/api/admin/gallery/cases/{caseId}"),
+    ("post", "/api/admin/gallery/cases/{caseId}/review-authorizations"),
+    ("post", "/api/admin/gallery/cases/{caseId}/decisions"),
+    ("put", "/api/admin/gallery/featured-positions/{position}"),
+    ("delete", "/api/admin/gallery/featured-positions/{position}"),
+}
+
 
 def resolve_local_ref(document: dict[str, Any], reference: str) -> Any:
     assert reference.startswith("#/"), reference
@@ -253,6 +289,103 @@ def test_openapi_artifact_contract_and_local_references() -> None:
     assert upload_too_large["action"] == "Reduce the ZIP below the upload limit and try again."
     assert upload_too_large["details"] == {"limitBytes": 52_428_800}
     assert "actualBytes" not in upload_too_large["details"]
+
+
+def test_gallery_wire_contract_is_complete_and_fail_closed() -> None:
+    document = yaml.safe_load(OPENAPI_PATH.read_text(encoding="utf-8"))
+    actual_operations = {
+        (method, path)
+        for path, path_item in document["paths"].items()
+        for method in path_item
+        if method != "parameters" and (method, path) in GALLERY_OPERATIONS
+    }
+    assert actual_operations == GALLERY_OPERATIONS
+
+    schemas = document["components"]["schemas"]
+    assert schemas["GalleryListingLifecycle"]["enum"] == [
+        "pending", "listed", "withdrawn", "removed"
+    ]
+    assert schemas["GalleryReviewState"]["enum"] == ["clear", "reviewing", "restricted"]
+    assert schemas["GalleryClosureReason"]["oneOf"][0]["enum"] == [
+        "creator_withdrawal",
+        "artifact_deleted",
+        "account_deleted",
+        "initial_policy_rejection",
+        "initial_governance_block",
+        "administrator_removal",
+    ]
+    assert schemas["GalleryCopyState"]["enum"] == [
+        "accepted", "processing", "ready", "failed", "cancelled", "indeterminate"
+    ]
+    assert schemas["GalleryPermissionGrant"]["properties"]["permissions"]["prefixItems"] == [
+        {"const": "view"},
+        {"const": "gallery_download"},
+        {"const": "save_a_copy"},
+    ]
+    assert schemas["GalleryPermissionGrantResponse"]["properties"]["grant"]["oneOf"][1] == {
+        "type": "null"
+    }
+    owner_listing_properties = schemas["OwnerGalleryListing"]["properties"]
+    assert {"currentGrantEvidence", "historicalGrantEvidence", "effectiveAccess"} <= set(
+        owner_listing_properties
+    )
+    assert schemas["GalleryListingOperationResponse"]["required"] == [
+        "historicalOutcome", "current"
+    ]
+    assert schemas["GalleryAppealPolicyEvidence"]["required"] == [
+        "policyVersion", "decisionAt", "deadlineAt"
+    ]
+
+    listing_read = document["paths"]["/gallery/{gallerySlug}"]["get"]
+    assert set(listing_read["responses"]) == {"200", "404", "410", "503"}
+    assert "checked before slug lookup" in listing_read["description"]
+    creator_read = document["paths"]["/gallery/creators/{creatorSlug}"]["get"]
+    assert set(creator_read["responses"]) == {"200", "400", "404", "503"}
+    assert "410" not in creator_read["responses"]
+
+    mutation_paths = {
+        ("post", "/api/artifacts/{artifactId}/gallery-listing"),
+        ("patch", "/api/gallery-listings/{listingId}"),
+        ("delete", "/api/gallery-listings/{listingId}"),
+        ("post", "/api/gallery-decisions/{decisionId}/appeals"),
+        ("post", "/api/gallery/{gallerySlug}/copy-operations"),
+        ("post", "/api/admin/gallery/cases/{caseId}/decisions"),
+    }
+    for method, path in mutation_paths:
+        parameters = document["paths"][path][method].get("parameters", [])
+        assert {"$ref": "#/components/parameters/IdempotencyKey"} in parameters
+
+    for method, path in {
+        ("patch", "/api/gallery/profile"),
+        ("patch", "/api/gallery-listings/{listingId}"),
+        ("delete", "/api/gallery-listings/{listingId}"),
+    }:
+        parameters = document["paths"][path][method]["parameters"]
+        assert any(parameter["$ref"].endswith(("ExpectedProfileRevision", "ExpectedListingRevision"))
+                   for parameter in parameters)
+
+    anonymous_prefixes = ("/gallery", "/gallery-content")
+    for method, path in GALLERY_OPERATIONS:
+        operation = document["paths"][path][method]
+        if path.startswith(anonymous_prefixes) and not path.startswith("/api/"):
+            assert "security" not in operation
+        elif path.startswith("/api/"):
+            assert operation["security"] == [{"sessionCookie": []}, {"sessionBearer": []}]
+
+    for response_name in (
+        "PublicGalleryListingRead",
+        "GalleryListingPageRead",
+        "PublicCreatorProfileRead",
+        "GalleryPlayerAuthorizationRead",
+        "GalleryDownloadRead",
+        "GalleryContentRead",
+        "PublicGalleryNotFound",
+        "PublicGalleryGone",
+        "PublicGalleryUnavailable",
+    ):
+        headers = document["components"]["responses"][response_name]["headers"]
+        assert headers["Cache-Control"] == {"$ref": "#/components/headers/NoStore"}
+        assert headers["Referrer-Policy"] == {"$ref": "#/components/headers/NoReferrer"}
 
 
 def test_public_responses_do_not_expose_content_reuse_internals() -> None:

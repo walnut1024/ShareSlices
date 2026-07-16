@@ -9,12 +9,15 @@ import {
   PublicationViewerService,
   type ContentAsset,
   type ShareResolution,
-  normalizeContentPath
+  normalizeContentPath,
 } from "../application/artifacts/publication-viewer.js";
 import { ArtifactManagementService } from "../application/artifacts/artifact-management.js";
 import { createArtifactRepositories } from "../db/artifact-repositories.js";
 import { createPublicationContentRepository } from "../db/publication-content-repository.js";
-import { createArtifactThumbnailRepository, type ArtifactThumbnailRepository } from "../db/artifact-thumbnail-repository.js";
+import {
+  createArtifactThumbnailRepository,
+  type ArtifactThumbnailRepository,
+} from "../db/artifact-thumbnail-repository.js";
 import { env } from "../env.js";
 import { createConfiguredObjectStorage } from "../storage/index.js";
 import type { ObjectBody, ObjectStorage } from "../storage/object-storage.js";
@@ -22,32 +25,64 @@ import { errorJson, requestId } from "./http-error.js";
 
 export type PublicationViewerRouteDependencies = {
   authApi: Pick<typeof auth.api, "getSession">;
-  service: Pick<PublicationViewerService, "preview" | "exportVersion" | "publish" | "updateExpiration" | "unpublish" | "resolveViewer">;
+  service: Pick<
+    PublicationViewerService,
+    | "preview"
+    | "exportVersion"
+    | "publish"
+    | "updateExpiration"
+    | "unpublish"
+    | "resolveViewer"
+  >;
   management: Pick<ArtifactManagementService, "get">;
   storage: Pick<ObjectStorage, "readCommittedObject">;
-  thumbnailRepository: Pick<ArtifactThumbnailRepository, "findOwned" | "consumeGrant" | "resolveSession" | "findVersionAsset">;
+  thumbnailRepository: Pick<
+    ArtifactThumbnailRepository,
+    "findOwned" | "consumeGrant" | "resolveSession" | "findVersionAsset"
+  >;
   managementOrigin: string;
 };
 
 const expirationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("permanent") }).strict(),
-  z.object({ kind: z.literal("duration"), durationSeconds: z.number().int().positive() }).strict(),
-  z.object({ kind: z.literal("exact"), expiresAt: z.string().datetime({ offset: true }) }).strict()
+  z
+    .object({
+      kind: z.literal("duration"),
+      durationSeconds: z.number().int().positive(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("exact"),
+      expiresAt: z.string().datetime({ offset: true }),
+    })
+    .strict(),
 ]);
-const publishSchema = z.object({
-  versionId: z.string().min(1).max(128),
-  expiration: expirationSchema,
-  link: z.discriminatedUnion("mode", [
-    z.object({ mode: z.literal("reuse") }).strict(),
-    z.object({ mode: z.literal("replace"), confirmRetire: z.literal(true) }).strict()
-  ])
-}).strict();
-const updatePublicationSchema = z.object({
-  expiration: z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("permanent") }).strict(),
-    z.object({ kind: z.literal("exact"), expiresAt: z.string().datetime({ offset: true }) }).strict()
-  ])
-}).strict();
+const publishSchema = z
+  .object({
+    versionId: z.string().min(1).max(128),
+    expiration: expirationSchema,
+    link: z.discriminatedUnion("mode", [
+      z.object({ mode: z.literal("reuse") }).strict(),
+      z
+        .object({ mode: z.literal("replace"), confirmRetire: z.literal(true) })
+        .strict(),
+    ]),
+  })
+  .strict();
+const updatePublicationSchema = z
+  .object({
+    expiration: z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("permanent") }).strict(),
+      z
+        .object({
+          kind: z.literal("exact"),
+          expiresAt: z.string().datetime({ offset: true }),
+        })
+        .strict(),
+    ]),
+  })
+  .strict();
 
 function stream(body: ObjectBody): ReadableStream<Uint8Array> {
   const iterator = body[Symbol.asyncIterator]();
@@ -66,14 +101,18 @@ function stream(body: ObjectBody): ReadableStream<Uint8Array> {
     },
     async cancel() {
       await iterator.return?.();
-    }
+    },
   });
 }
 
-function assetResponse(asset: ContentAsset, body: ObjectBody, requestIdentifier?: string): Response {
+function assetResponse(
+  asset: ContentAsset,
+  body: ObjectBody,
+  requestIdentifier?: string,
+): Response {
   const headers = new Headers({
     "Cache-Control": "no-store",
-    "Content-Type": asset.contentType
+    "Content-Type": asset.contentType,
   });
   if (requestIdentifier) {
     headers.set("X-Request-Id", requestIdentifier);
@@ -99,12 +138,36 @@ function escapeHtml(value: string): string {
     .replaceAll(">", "&gt;");
 }
 
-function statePage(kind: Exclude<ShareResolution["kind"], "published">, managementOrigin: string): Response {
+function statePage(
+  kind: Exclude<ShareResolution["kind"], "published">,
+  managementOrigin: string,
+): Response {
   const state = {
-    unpublished: { status: 200, title: "This artifact is not currently published", detail: "The owner is not sharing it right now." },
-    expired: { status: 200, title: "This publication has expired", detail: "The owner may publish it again at this link." },
-    retired: { status: 410, title: "This share link is no longer available", detail: "Ask the owner for a new share link." },
-    unknown: { status: 404, title: "Share link not found", detail: "Check the link and try again." }
+    unpublished: {
+      status: 200,
+      title: "This artifact is not currently published",
+      detail: "The owner is not sharing it right now.",
+    },
+    restricted: {
+      status: 404,
+      title: "Share link unavailable",
+      detail: "This artifact is not publicly available.",
+    },
+    expired: {
+      status: 200,
+      title: "This publication has expired",
+      detail: "The owner may publish it again at this link.",
+    },
+    retired: {
+      status: 410,
+      title: "This share link is no longer available",
+      detail: "Ask the owner for a new share link.",
+    },
+    unknown: {
+      status: 404,
+      title: "Share link not found",
+      detail: "Check the link and try again.",
+    },
   }[kind];
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="robots" content="noindex,nofollow"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${state.title}</title></head><body><main><h1>${state.title}</h1><p>${state.detail}</p><p><a href="${escapeHtml(managementOrigin)}">Go to ShareSlices</a></p></main></body></html>`;
   return new Response(html, {
@@ -112,8 +175,8 @@ function statePage(kind: Exclude<ShareResolution["kind"], "published">, manageme
     headers: {
       "Cache-Control": "no-store",
       "Content-Type": "text/html; charset=utf-8",
-      "X-Robots-Tag": "noindex, nofollow"
-    }
+      "X-Robots-Tag": "noindex, nofollow",
+    },
   });
 }
 
@@ -185,13 +248,13 @@ function viewerPlayerPage(shareSlug: string): Response {
     status: 200,
     headers: {
       "Cache-Control": "no-store",
-      "Content-Type": "text/html; charset=utf-8"
-    }
+      "Content-Type": "text/html; charset=utf-8",
+    },
   });
 }
 
 export function publicationViewerRoutes(
-  overrides: Partial<PublicationViewerRouteDependencies> = {}
+  overrides: Partial<PublicationViewerRouteDependencies> = {},
 ): Hono {
   const repository = createPublicationContentRepository();
   const dependencies: PublicationViewerRouteDependencies = {
@@ -200,19 +263,19 @@ export function publicationViewerRoutes(
     management: new ArtifactManagementService({
       repositories: createArtifactRepositories(),
       viewerOrigin: env.VIEWER_ORIGIN,
-      storage: createConfiguredObjectStorage()
+      storage: createConfiguredObjectStorage(),
     }),
     storage: createConfiguredObjectStorage(),
     thumbnailRepository: createArtifactThumbnailRepository(),
     managementOrigin: env.WEB_ORIGIN,
-    ...overrides
+    ...overrides,
   };
   const app = new Hono();
 
   async function ownerUserId(headers: Headers): Promise<string | null> {
     const session = await dependencies.authApi.getSession({
       headers,
-      query: { disableRefresh: true }
+      query: { disableRefresh: true },
     });
     return session?.user.id ?? null;
   }
@@ -226,30 +289,49 @@ export function publicationViewerRoutes(
       return errorJson(c, 401, "unauthenticated");
     }
     try {
-      const asset = await dependencies.service.preview(ownerId, c.req.param("versionId") ?? "", rawPath);
-      const object = await dependencies.storage.readCommittedObject(asset.objectKey);
+      const asset = await dependencies.service.preview(
+        ownerId,
+        c.req.param("versionId") ?? "",
+        rawPath,
+      );
+      const object = await dependencies.storage.readCommittedObject(
+        asset.objectKey,
+      );
       return assetResponse(asset, object.body, requestId(c));
     } catch (error) {
       if (error instanceof PublicationViewerError) {
-        return errorJson(c, 404, error.code === "asset_not_found" ? "asset_not_found" : "version_not_found");
+        return errorJson(
+          c,
+          404,
+          error.code === "asset_not_found"
+            ? "asset_not_found"
+            : "version_not_found",
+        );
       }
       throw error;
     }
   }
 
   app.get("/api/versions/:versionId/content/", (c) => preview(c, ""));
-  app.get("/api/versions/:versionId/content/*", (c) => preview(c, wildcardPath(c, "/content/")));
+  app.get("/api/versions/:versionId/content/*", (c) =>
+    preview(c, wildcardPath(c, "/content/")),
+  );
 
   app.get("/api/versions/:versionId/thumbnail", async (c) => {
     const ownerId = await ownerUserId(c.req.raw.headers);
     if (!ownerId) return errorJson(c, 401, "unauthenticated");
-    const asset = await dependencies.thumbnailRepository.findOwned(ownerId, c.req.param("versionId"));
+    const asset = await dependencies.thumbnailRepository.findOwned(
+      ownerId,
+      c.req.param("versionId"),
+    );
     if (!asset) return errorJson(c, 404, "thumbnail_not_found");
-    const object = await dependencies.storage.readCommittedObject(asset.objectKey);
+    const object = await dependencies.storage.readCommittedObject(
+      asset.objectKey,
+    );
     const headers = new Headers({
       "Cache-Control": "private, max-age=31536000, immutable",
       "Content-Type": asset.contentType,
-      "X-Request-Id": requestId(c)
+      "X-Request-Id": requestId(c),
     });
     return new Response(stream(object.body), { status: 200, headers });
   });
@@ -262,29 +344,47 @@ export function publicationViewerRoutes(
     if (rawPath === "") {
       const grant = c.req.query("grant");
       if (!grant) return errorJson(c, 404, "asset_not_found");
-      const session = await dependencies.thumbnailRepository.consumeGrant(grant, versionId);
+      const session = await dependencies.thumbnailRepository.consumeGrant(
+        grant,
+        versionId,
+      );
       if (!session) return errorJson(c, 404, "asset_not_found");
       sessionToken = session.token;
       setCookie(c, "shareslices_capture", session.token, {
         httpOnly: true,
         sameSite: "Strict",
         path: `/internal/thumbnail-captures/${encodeURIComponent(versionId)}/content/`,
-        maxAge: 30
+        maxAge: 30,
       });
-    } else if (!sessionToken || !(await dependencies.thumbnailRepository.resolveSession(sessionToken, versionId))) {
+    } else if (
+      !sessionToken ||
+      !(await dependencies.thumbnailRepository.resolveSession(
+        sessionToken,
+        versionId,
+      ))
+    ) {
       return errorJson(c, 404, "asset_not_found");
     }
-    const asset = await dependencies.thumbnailRepository.findVersionAsset(versionId, path);
+    const asset = await dependencies.thumbnailRepository.findVersionAsset(
+      versionId,
+      path,
+    );
     if (!asset) return errorJson(c, 404, "asset_not_found");
-    const object = await dependencies.storage.readCommittedObject(asset.objectKey);
+    const object = await dependencies.storage.readCommittedObject(
+      asset.objectKey,
+    );
     return c.body(stream(object.body), 200, {
       "Cache-Control": "no-store",
-      "Content-Type": asset.contentType
+      "Content-Type": asset.contentType,
     });
   }
 
-  app.get("/internal/thumbnail-captures/:versionId/content/", (c) => capture(c, ""));
-  app.get("/internal/thumbnail-captures/:versionId/content/*", (c) => capture(c, wildcardPath(c, "/content/")));
+  app.get("/internal/thumbnail-captures/:versionId/content/", (c) =>
+    capture(c, ""),
+  );
+  app.get("/internal/thumbnail-captures/:versionId/content/*", (c) =>
+    capture(c, wildcardPath(c, "/content/")),
+  );
 
   app.get("/api/versions/:versionId/export", async (c) => {
     const ownerId = await ownerUserId(c.req.raw.headers);
@@ -293,26 +393,32 @@ export function publicationViewerRoutes(
       const exported = await dependencies.service.exportVersion(
         ownerId,
         c.req.param("versionId"),
-        c.req.query("artifactId")
+        c.req.query("artifactId"),
       );
       const archive = new ZipArchive({ zlib: { level: 9 } });
       for (const asset of exported.assets) {
-        const object = await dependencies.storage.readCommittedObject(asset.objectKey);
+        const object = await dependencies.storage.readCommittedObject(
+          asset.objectKey,
+        );
         archive.append(Readable.from(object.body), { name: asset.path });
       }
       void archive.finalize();
       const fileName = `${exported.artifactName.replaceAll(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "artifact"}.zip`;
-      return new Response(Readable.toWeb(archive) as ReadableStream<Uint8Array>, {
-        status: 200,
-        headers: {
-          "Cache-Control": "no-store",
-          "Content-Disposition": `attachment; filename="${fileName}"`,
-          "Content-Type": "application/zip",
-          "X-Request-Id": requestId(c)
-        }
-      });
+      return new Response(
+        Readable.toWeb(archive) as ReadableStream<Uint8Array>,
+        {
+          status: 200,
+          headers: {
+            "Cache-Control": "no-store",
+            "Content-Disposition": `attachment; filename="${fileName}"`,
+            "Content-Type": "application/zip",
+            "X-Request-Id": requestId(c),
+          },
+        },
+      );
     } catch (error) {
-      if (error instanceof PublicationViewerError) return errorJson(c, 404, "version_not_found");
+      if (error instanceof PublicationViewerError)
+        return errorJson(c, 404, "version_not_found");
       throw error;
     }
   });
@@ -326,7 +432,9 @@ export function publicationViewerRoutes(
     if (!idempotencyKey) {
       return errorJson(c, 400, "invalid_request");
     }
-    const parsed = publishSchema.safeParse(await c.req.json().catch(() => null));
+    const parsed = publishSchema.safeParse(
+      await c.req.json().catch(() => null),
+    );
     if (!parsed.success) {
       return errorJson(c, 400, "invalid_request");
     }
@@ -336,12 +444,17 @@ export function publicationViewerRoutes(
         artifactId: c.req.param("artifactId"),
         versionId: parsed.data.versionId,
         idempotencyKey,
-        expiration: parsed.data.expiration.kind === "exact"
-          ? { kind: "exact", expiresAt: new Date(parsed.data.expiration.expiresAt) }
-          : parsed.data.expiration,
-        link: parsed.data.link.mode === "replace"
-          ? { mode: "replace", confirmRetire: parsed.data.link.confirmRetire }
-          : { mode: "reuse", confirmRetire: false }
+        expiration:
+          parsed.data.expiration.kind === "exact"
+            ? {
+                kind: "exact",
+                expiresAt: new Date(parsed.data.expiration.expiresAt),
+              }
+            : parsed.data.expiration,
+        link:
+          parsed.data.link.mode === "replace"
+            ? { mode: "replace", confirmRetire: parsed.data.link.confirmRetire }
+            : { mode: "reuse", confirmRetire: false },
       });
       c.header("X-Request-Id", requestId(c));
       return c.json(
@@ -354,84 +467,113 @@ export function publicationViewerRoutes(
             durationSeconds: result.publication.durationSeconds,
             expiresAt: result.publication.expiresAt?.toISOString() ?? null,
             endedAt: null,
-            endReason: null
+            endReason: null,
           },
-          shareLink: result.shareLink
+          shareLink: result.shareLink,
         },
-        201
+        201,
       );
     } catch (error) {
       if (error instanceof PublicationViewerError) {
         if (error.code === "artifact_not_found") {
           return errorJson(c, 404, "artifact_not_found");
         }
-        if (error.code === "operation_in_progress" || error.code === "idempotency_conflict") {
+        if (
+          error.code === "operation_in_progress" ||
+          error.code === "idempotency_conflict"
+        ) {
           return errorJson(c, 409, error.code);
         }
-        if (error.code === "invalid_request" || error.code === "invalid_expiration") return errorJson(c, 400, error.code);
+        if (error.code === "governance_blocked")
+          return errorJson(c, 409, "governance_blocked");
+        if (
+          error.code === "invalid_request" ||
+          error.code === "invalid_expiration"
+        )
+          return errorJson(c, 400, error.code);
         return errorJson(c, 409, "version_not_ready");
       }
       throw error;
     }
   });
 
-  app.patch("/api/artifacts/:artifactId/publications/:publicationId", async (c) => {
-    const ownerId = await ownerUserId(c.req.raw.headers);
-    if (!ownerId) return errorJson(c, 401, "unauthenticated");
-    const parsed = updatePublicationSchema.safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success) return errorJson(c, 400, "invalid_request");
-    try {
-      await dependencies.service.updateExpiration(
-        ownerId,
-        c.req.param("artifactId"),
-        c.req.param("publicationId"),
-        parsed.data.expiration.kind === "exact"
-          ? { kind: "exact", expiresAt: new Date(parsed.data.expiration.expiresAt) }
-          : { kind: "permanent" }
+  app.patch(
+    "/api/artifacts/:artifactId/publications/:publicationId",
+    async (c) => {
+      const ownerId = await ownerUserId(c.req.raw.headers);
+      if (!ownerId) return errorJson(c, 401, "unauthenticated");
+      const parsed = updatePublicationSchema.safeParse(
+        await c.req.json().catch(() => null),
       );
-      const artifact = await dependencies.management.get(ownerId, c.req.param("artifactId"));
-      c.header("X-Request-Id", requestId(c));
-      return c.json({ artifact });
-    } catch (error) {
-      if (error instanceof PublicationViewerError) {
-        if (error.code === "invalid_expiration") return errorJson(c, 400, "invalid_expiration");
-        return errorJson(c, 404, "artifact_not_found");
+      if (!parsed.success) return errorJson(c, 400, "invalid_request");
+      try {
+        await dependencies.service.updateExpiration(
+          ownerId,
+          c.req.param("artifactId"),
+          c.req.param("publicationId"),
+          parsed.data.expiration.kind === "exact"
+            ? {
+                kind: "exact",
+                expiresAt: new Date(parsed.data.expiration.expiresAt),
+              }
+            : { kind: "permanent" },
+        );
+        const artifact = await dependencies.management.get(
+          ownerId,
+          c.req.param("artifactId"),
+        );
+        c.header("X-Request-Id", requestId(c));
+        return c.json({ artifact });
+      } catch (error) {
+        if (error instanceof PublicationViewerError) {
+          if (error.code === "invalid_expiration")
+            return errorJson(c, 400, "invalid_expiration");
+          return errorJson(c, 404, "artifact_not_found");
+        }
+        throw error;
       }
-      throw error;
-    }
-  });
+    },
+  );
 
-  app.delete("/api/artifacts/:artifactId/publications/:publicationId", async (c) => {
-    const ownerId = await ownerUserId(c.req.raw.headers);
-    if (!ownerId) {
-      return errorJson(c, 401, "unauthenticated");
-    }
-    try {
-      await dependencies.service.unpublish(
-        ownerId,
-        c.req.param("artifactId"),
-        c.req.param("publicationId")
-      );
-      c.header("X-Request-Id", requestId(c));
-      return c.body(null, 204);
-    } catch (error) {
-      if (error instanceof PublicationViewerError) {
-        return errorJson(c, 404, "artifact_not_found");
+  app.delete(
+    "/api/artifacts/:artifactId/publications/:publicationId",
+    async (c) => {
+      const ownerId = await ownerUserId(c.req.raw.headers);
+      if (!ownerId) {
+        return errorJson(c, 401, "unauthenticated");
       }
-      throw error;
-    }
-  });
+      try {
+        await dependencies.service.unpublish(
+          ownerId,
+          c.req.param("artifactId"),
+          c.req.param("publicationId"),
+        );
+        c.header("X-Request-Id", requestId(c));
+        return c.body(null, 204);
+      } catch (error) {
+        if (error instanceof PublicationViewerError) {
+          return errorJson(c, 404, "artifact_not_found");
+        }
+        throw error;
+      }
+    },
+  );
 
   async function viewer(c: Context, rawPath: string, contentMode = false) {
     try {
-      const result = await dependencies.service.resolveViewer(c.req.param("shareSlug") ?? "", rawPath);
+      const result = await dependencies.service.resolveViewer(
+        c.req.param("shareSlug") ?? "",
+        rawPath,
+      );
       if (!("objectKey" in result)) {
         return statePage(result.kind, dependencies.managementOrigin);
       }
       if (rawPath === "" && !contentMode) {
         return viewerPlayerPage(c.req.param("shareSlug") ?? "");
       }
-      const object = await dependencies.storage.readCommittedObject(result.objectKey);
+      const object = await dependencies.storage.readCommittedObject(
+        result.objectKey,
+      );
       return assetResponse(result, object.body);
     } catch (error) {
       if (error instanceof PublicationViewerError) {
@@ -441,9 +583,11 @@ export function publicationViewerRoutes(
     }
   }
 
-  app.get("/a/:shareSlug/", (c) => viewer(c, "", c.req.query("contentMode") === "true"));
+  app.get("/a/:shareSlug/", (c) =>
+    viewer(c, "", c.req.query("contentMode") === "true"),
+  );
   app.get("/a/:shareSlug/*", (c) =>
-    viewer(c, wildcardPath(c, `/a/${c.req.param("shareSlug") ?? ""}/`))
+    viewer(c, wildcardPath(c, `/a/${c.req.param("shareSlug") ?? ""}/`)),
   );
 
   return app;

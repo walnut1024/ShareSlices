@@ -259,6 +259,95 @@ pub struct ReadyVersion {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GalleryPermissionGrant {
+    pub version: String,
+    #[serde(alias = "text")]
+    pub exact_text: String,
+    #[serde(default)]
+    pub text_digest: Option<String>,
+    pub permissions: Vec<String>,
+    #[serde(default)]
+    pub requires_renewal_on_next_proposal: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GalleryPermissionEvidence {
+    pub grant_version: String,
+    pub accepted_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GalleryMetadata {
+    pub title: String,
+    pub description: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GalleryCommittedRevision {
+    pub revision: u64,
+    pub version_id: String,
+    pub metadata: GalleryMetadata,
+    pub created_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GalleryProposedRevision {
+    pub id: String,
+    pub state: String,
+    pub base_listing_revision: u64,
+    pub version_id: String,
+    pub metadata: GalleryMetadata,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GalleryListingResource {
+    pub id: String,
+    pub artifact_id: String,
+    pub lifecycle: String,
+    pub review_state: String,
+    pub closure_reason: Option<String>,
+    pub revision: u64,
+    pub committed: Option<GalleryCommittedRevision>,
+    pub proposal: Option<GalleryProposedRevision>,
+    #[serde(default)]
+    pub current_grant_evidence: Option<GalleryPermissionEvidence>,
+    #[serde(default)]
+    pub historical_grant_evidence: Vec<GalleryPermissionEvidence>,
+    pub effective_access: GalleryEffectiveAccess,
+    #[serde(default)]
+    pub allowed_actions: Vec<String>,
+    pub public_url: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GalleryEffectiveAccess {
+    pub accessible: bool,
+    #[serde(default)]
+    pub restrictions: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GalleryViewResult {
+    pub artifact_id: String,
+    pub listing: Option<GalleryListingResource>,
+    pub current_grant: Option<GalleryPermissionGrant>,
+    pub historical_grant_evidence: Vec<GalleryPermissionEvidence>,
+    pub grant_availability: String,
+    #[serde(default)]
+    pub profile_requirement: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ArtifactFailure {
     pub code: String,
     pub message: String,
@@ -279,6 +368,10 @@ pub struct UploadPolicy {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ArtifactError {
+    #[error("Accept the exact current Gallery permission terms with --accept-permission.")]
+    PermissionAcceptanceRequired,
+    #[error("This irreversible operation requires its explicit confirmation flag.")]
+    ConfirmationRequired,
     #[error("Not signed in. Run shareslices auth login.")]
     Unauthenticated,
     #[error("Unsupported JSON field: {0}")]

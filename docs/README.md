@@ -13,6 +13,7 @@ Each durable fact has one owner. Other documents link to that owner. Scoped guid
 | Root and scoped `AGENTS.md` files | Repository-wide and subtree-specific engineering discipline | durable |
 | `docs/agents/` | Repository adapters for issue, triage, and domain-document skills | durable |
 | `docs/design/` | Current and target architecture: modules, seams, interface sketches, with status markers | evolving |
+| `docs/operations/` | Operator runbooks for secure bootstrap, rollout, rollback, and recovery | evolving |
 | `api/openapi/` | The HTTP contract: built behavior plus behavior the active change builds | evolving |
 | `openspec/specs/` | Implemented requirements per capability | living |
 | `openspec/changes/` | One change: proposal, design, tasks, delta specs | disposable |

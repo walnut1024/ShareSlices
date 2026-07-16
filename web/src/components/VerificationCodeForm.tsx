@@ -64,7 +64,7 @@ export function VerificationCodeForm({
     <>
       <header>
         <h1 className="m-0 text-[26px] font-semibold tracking-[-0.02em]">Check your email</h1>
-        <p className="mb-7 mt-1.5 text-sm leading-[1.45] text-neutral-500">
+        <p className="mb-7 mt-1.5 text-sm leading-[1.45] text-muted-foreground">
           Enter the 6-digit code sent to {destination}.
         </p>
       </header>
@@ -84,11 +84,11 @@ export function VerificationCodeForm({
         </Field>
         <Button type="submit" className="w-full" disabled={pending}>{buttonLabel}</Button>
       </form>
-      <div className="mt-5 flex items-center justify-between text-[13px]">
-        <button className="text-neutral-500 hover:text-neutral-950 disabled:text-neutral-400" type="button" disabled={pending || remaining > 0} onClick={resend}>
+      <div className="mt-5 flex items-center justify-between gap-3">
+        <Button variant="link" size="sm" type="button" disabled={pending || remaining > 0} onClick={resend}>
           {remaining > 0 ? `Send again in ${remaining}s` : "Send another code"}
-        </button>
-        <button className="font-medium text-neutral-950 hover:underline" type="button" onClick={onChangeEmail}>Use a different email</button>
+        </Button>
+        <Button variant="link" size="sm" type="button" onClick={onChangeEmail}>Use a different email</Button>
       </div>
     </>
   );

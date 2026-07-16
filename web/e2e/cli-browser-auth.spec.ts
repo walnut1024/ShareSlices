@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type APIRequestContext } from "@playwright/test";
 
 const cliHeaders = {
   "ShareSlices-CLI-Version": "0.1.0",
@@ -14,7 +14,8 @@ test("sign in, compare the code, approve, and complete CLI authorization", async
   const registration = await request.post("http://127.0.0.1:7456/api/users", {
     data: { name: "CLI Browser Tester", email, password }
   });
-  expect(registration.status()).toBe(201);
+  expect(registration.status()).toBe(202);
+  await verifyRegistration(request, registration, email);
 
   const started = await request.post("http://127.0.0.1:7456/api/cli-authorizations", {
     headers: cliHeaders,
@@ -55,7 +56,8 @@ test("deny CLI authorization without creating a session", async ({ page, request
   const registration = await request.post("http://127.0.0.1:7456/api/users", {
     data: { name: "CLI Denial Tester", email, password }
   });
-  expect(registration.status()).toBe(201);
+  expect(registration.status()).toBe(202);
+  await verifyRegistration(request, registration, email);
   const started = await request.post("http://127.0.0.1:7456/api/cli-authorizations", {
     headers: cliHeaders,
     data: { clientId: "shareslices-cli" }
@@ -76,3 +78,24 @@ test("deny CLI authorization without creating a session", async ({ page, request
   expect(exchanged.status()).toBe(400);
   await expect(exchanged.json()).resolves.toMatchObject({ error: { code: "access_denied" } });
 });
+
+async function verifyRegistration(
+  request: APIRequestContext,
+  registration: import("@playwright/test").APIResponse,
+  email: string,
+) {
+  const body = await registration.json() as { verification: { id: string } };
+  let verificationCode = "";
+  await expect.poll(async () => {
+    const response = await request.get("http://127.0.0.1:8025/api/v1/search", {
+      params: { query: `to:\"${email}\"` },
+    });
+    const body = await response.json() as { messages: Array<{ Snippet: string }> };
+    verificationCode = body.messages[0]?.Snippet.match(/\b\d{6}\b/)?.[0] ?? "";
+    return verificationCode;
+  }, { timeout: 30_000 }).toMatch(/^\d{6}$/);
+  const verified = await request.post(`http://127.0.0.1:7456/api/email-verifications/${body.verification.id}/verify`, {
+    data: { code: verificationCode },
+  });
+  expect(verified.status()).toBe(200);
+}

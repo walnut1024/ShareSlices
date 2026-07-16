@@ -5,6 +5,7 @@ use crate::{
     ArtifactListArgs, ArtifactPublicationCommand, ArtifactPublicationEditArgs,
     ArtifactPublicationViewArgs, ArtifactPublishArgs, ArtifactUnpublishArgs, ArtifactUploadArgs,
     CredentialStore, ExpirationPolicy, PublicationStatus, ReadyArtifactVersion,
+    run_gallery_command,
 };
 use serde_json::{Map, Value};
 use std::collections::HashMap;
@@ -69,6 +70,9 @@ pub async fn run_artifact_command_with_interaction(
     diagnostics: &mut dyn Write,
 ) -> Result<(), ArtifactError> {
     match command {
+        ArtifactCommand::Gallery { command } => {
+            run_gallery_command(command, api, store, output).await
+        }
         ArtifactCommand::List(args) => run_artifact_list(&args, api, store, output).await,
         ArtifactCommand::Upload(args) => run_artifact_upload_with_interaction(
             &args,

@@ -3,9 +3,11 @@ import {
   createApiLogger,
   createLogRecord,
   exceptionAttributes,
+  galleryLogIdentifiers,
   parseTraceParent,
   severityNumbers
 } from "../src/logging/index.js";
+import { httpRouteTemplate } from "../src/logging/http-route-template.js";
 
 describe("API structured logging", () => {
   it("builds the OpenTelemetry-compatible logical record", () => {
@@ -96,6 +98,34 @@ describe("API structured logging", () => {
       eventName: "shareslices.api.http.request_failed",
       resource: { "service.name": "shareslices-api" },
       attributes: { "shareslices.request.id": "req_1" }
+    });
+  });
+
+  it("redacts every Gallery slug, credential, case, operation, and asset segment", () => {
+    expect(httpRouteTemplate("/gallery/secret-listing/download")).toBe("/gallery/{gallerySlug}/download");
+    expect(httpRouteTemplate("/api/gallery/secret-listing/copy-operations")).toBe("/api/gallery/{gallerySlug}/copy-operations");
+    expect(httpRouteTemplate("/api/admin/gallery/cases/secret-case/decisions")).toBe("/api/admin/gallery/cases/{caseId}/decisions");
+    expect(httpRouteTemplate("/gallery-content/public/secret-token/private/path.js")).toBe("/gallery-content/public/{playerAuthorization}/{assetPath}");
+    expect(httpRouteTemplate("/gallery-content/review/secret-review/private/path.js")).toBe("/gallery-content/review/{reviewAuthorization}/{assetPath}");
+  });
+
+  it("uses the executable stable Gallery identifier schema without slug or credential fields", () => {
+    expect(galleryLogIdentifiers({
+      listingId: "glisting_1",
+      proposalId: "gproposal_1",
+      copyJobId: "gcopy_1",
+      reportId: "greport_1",
+      decisionId: "gdecision_1",
+      requestId: "request_1",
+      attemptId: "attempt_1",
+    })).toEqual({
+      "shareslices.gallery.listing.id": "glisting_1",
+      "shareslices.gallery.proposal.id": "gproposal_1",
+      "shareslices.gallery.copy_job.id": "gcopy_1",
+      "shareslices.gallery.report.id": "greport_1",
+      "shareslices.gallery.decision.id": "gdecision_1",
+      "shareslices.request.id": "request_1",
+      "shareslices.attempt.id": "attempt_1",
     });
   });
 });

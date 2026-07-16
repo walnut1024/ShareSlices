@@ -27,6 +27,14 @@ run = "docker compose -f compose.yaml -f compose.dev.yaml run --rm --no-deps wor
 description = "Build and run the full stack in containers"
 run = "docker compose build && docker compose up -d --force-recreate"
 
+[tasks.dev-gallery]
+description = "Build and run the opt-in isolated local Gallery stack"
+run = "docker compose -f compose.yaml -f compose.gallery-local.yaml up -d --build --force-recreate --wait"
+
+[tasks.gallery-bootstrap]
+description = "Install approved local Gallery policies and grant an explicit Administrator"
+run = "node --env-file=.env.example --env-file-if-exists=.env api/node_modules/tsx/dist/cli.mjs api/src/operations/gallery-local-bootstrap.ts"
+
 [tasks.dev-down]
 description = "Stop local development and production-simulation containers"
 run = "docker compose down"

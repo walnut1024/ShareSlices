@@ -1027,3 +1027,130 @@ export const artifactPublicationRelations = relations(artifactPublication, ({ on
 export const artifactIdempotencyRecordRelations = relations(artifactIdempotencyRecord, ({ one }) => ({
   owner: one(user, { fields: [artifactIdempotencyRecord.ownerUserId], references: [user.id] })
 }));
+
+export const galleryCreatorProfile = pgTable("gallery_creator_profile", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "restrict" }).unique(),
+  opaqueSlug: text("opaque_slug").notNull().unique(),
+  displayName: text("display_name").notNull(),
+  biography: text("biography"),
+  avatarObjectKey: text("avatar_object_key"),
+  avatarContentType: text("avatar_content_type"),
+  avatarWidth: integer("avatar_width"),
+  avatarHeight: integer("avatar_height"),
+  revision: bigint("revision", { mode: "number" }).default(1).notNull(),
+  publicAt: timestamp("public_at", { withTimezone: true }),
+  retiredAt: timestamp("retired_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
+});
+
+export const galleryListing = pgTable("gallery_listing", {
+  id: text("id").primaryKey(),
+  artifactId: text("artifact_id").notNull().references(() => artifact.id, { onDelete: "restrict" }),
+  ownerUserId: text("owner_user_id").notNull().references(() => user.id, { onDelete: "restrict" }),
+  creatorProfileId: text("creator_profile_id").notNull().references(() => galleryCreatorProfile.id, { onDelete: "restrict" }),
+  opaqueSlug: text("opaque_slug").notNull().unique(),
+  lifecycleState: text("lifecycle_state").default("pending").notNull(),
+  reviewState: text("review_state").default("clear").notNull(),
+  closureReason: text("closure_reason"),
+  listingRevision: bigint("listing_revision", { mode: "number" }).default(1).notNull(),
+  currentRevisionId: text("current_revision_id"),
+  predecessorListingId: text("predecessor_listing_id"),
+  restorationForfeitedAt: timestamp("restoration_forfeited_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  closedAt: timestamp("closed_at", { withTimezone: true })
+}, (table) => [
+  uniqueIndex("gallery_listing_one_open_per_artifact_idx").on(table.artifactId)
+    .where(sql`${table.lifecycleState} in ('pending', 'listed')`)
+]);
+
+export const galleryPermissionGrantAcceptance = pgTable("gallery_permission_grant_acceptance", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "restrict" }),
+  listingId: text("listing_id").notNull().references(() => galleryListing.id, { onDelete: "restrict" }),
+  grantVersion: text("grant_version").notNull(),
+  grantTextDigest: text("grant_text_digest").notNull(),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }).defaultNow().notNull()
+});
+
+export const galleryListingRevision = pgTable("gallery_listing_revision", {
+  id: text("id").primaryKey(),
+  listingId: text("listing_id").notNull().references(() => galleryListing.id, { onDelete: "restrict" }),
+  revision: bigint("revision", { mode: "number" }).notNull(),
+  versionId: text("version_id").notNull().references(() => artifactVersion.id, { onDelete: "restrict" }),
+  permissionAcceptanceId: text("permission_acceptance_id").notNull().references(() => galleryPermissionGrantAcceptance.id, { onDelete: "restrict" }),
+  publicTitle: text("public_title").notNull(),
+  publicDescription: text("public_description"),
+  tags: text("tags").array().notNull(),
+  coverId: text("cover_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+});
+
+export const galleryListingProposal = pgTable("gallery_listing_proposal", {
+  id: text("id").primaryKey(),
+  listingId: text("listing_id").notNull().references(() => galleryListing.id, { onDelete: "restrict" }),
+  baseListingRevision: bigint("base_listing_revision", { mode: "number" }).notNull(),
+  versionId: text("version_id").notNull().references(() => artifactVersion.id, { onDelete: "restrict" }),
+  permissionAcceptanceId: text("permission_acceptance_id").notNull().references(() => galleryPermissionGrantAcceptance.id, { onDelete: "restrict" }),
+  publicTitle: text("public_title").notNull(),
+  publicDescription: text("public_description"),
+  tags: text("tags").array().notNull(),
+  state: text("state").default("open").notNull(),
+  safetyEvidenceDigest: text("safety_evidence_digest"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  closedAt: timestamp("closed_at", { withTimezone: true })
+});
+
+export const galleryGovernanceCase = pgTable("gallery_governance_case", {
+  id: text("id").primaryKey(),
+  caseKind: text("case_kind").notNull(),
+  listingId: text("listing_id").references(() => galleryListing.id, { onDelete: "restrict" }),
+  artifactId: text("artifact_id").references(() => artifact.id, { onDelete: "restrict" }),
+  proposalId: text("proposal_id").references(() => galleryListingProposal.id, { onDelete: "restrict" }),
+  state: text("state").default("open").notNull(),
+  evidenceSnapshot: jsonb("evidence_snapshot").$type<Record<string, unknown>>().notNull(),
+  evidenceDigest: text("evidence_digest").notNull(),
+  openedAt: timestamp("opened_at", { withTimezone: true }).defaultNow().notNull(),
+  closedAt: timestamp("closed_at", { withTimezone: true })
+});
+
+export const galleryGovernanceDecision = pgTable("gallery_governance_decision", {
+  id: text("id").primaryKey(),
+  caseId: text("case_id").notNull().references(() => galleryGovernanceCase.id, { onDelete: "restrict" }),
+  actorUserId: text("actor_user_id").notNull().references(() => user.id, { onDelete: "restrict" }),
+  decisionKind: text("decision_kind").notNull(),
+  ruleCode: text("rule_code").notNull(),
+  rationale: text("rationale").notNull(),
+  evidenceDigest: text("evidence_digest").notNull(),
+  baseListingRevision: bigint("base_listing_revision", { mode: "number" }),
+  committedListingRevision: bigint("committed_listing_revision", { mode: "number" }),
+  appealPolicyVersion: text("appeal_policy_version"),
+  appealDeadlineAt: timestamp("appeal_deadline_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+});
+
+export const galleryCopyJob = pgTable("gallery_copy_job", {
+  id: text("id").primaryKey(),
+  copierUserId: text("copier_user_id").notNull().references(() => user.id, { onDelete: "restrict" }),
+  sourceListingId: text("source_listing_id").notNull().references(() => galleryListing.id, { onDelete: "restrict" }),
+  sourceListingRevision: bigint("source_listing_revision", { mode: "number" }).notNull(),
+  sourceVersionId: text("source_version_id").notNull().references(() => artifactVersion.id, { onDelete: "restrict" }),
+  sourceKind: text("source_kind").default("server_gallery_copy").notNull(),
+  destinationArtifactId: text("destination_artifact_id").notNull(),
+  destinationVersionId: text("destination_version_id").notNull(),
+  destinationTitle: text("destination_title").notNull(),
+  quotaReservationId: text("quota_reservation_id").notNull(),
+  contractVersion: text("contract_version").notNull(),
+  inputSnapshot: jsonb("input_snapshot").$type<Record<string, unknown>>().notNull(),
+  inputSnapshotDigest: text("input_snapshot_digest").notNull(),
+  state: text("state").default("accepted").notNull(),
+  terminalFailureCode: text("terminal_failure_code"),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }).defaultNow().notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  leaseOwner: text("lease_owner"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  fenceToken: bigint("fence_token", { mode: "number" }).default(0).notNull()
+});

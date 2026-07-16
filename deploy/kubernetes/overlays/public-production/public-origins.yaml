@@ -6,6 +6,20 @@ data:
   WEB_ORIGIN: https://app.shareslices.example.com
   API_ORIGIN: https://api.shareslices.example.com
   VIEWER_ORIGIN: https://view.shareslices.example.com
+  GALLERY_ENABLED: "true"
+  GALLERY_CONTENT_ORIGIN: https://content.shareslices-cdn.net
+  GALLERY_CONTENT_REGISTRABLE_SITE: shareslices-cdn.net
+  GALLERY_MANAGEMENT_COOKIE_DOMAIN: shareslices.example.com
+  GALLERY_NETWORK_POLICY: deny_external
+  GALLERY_GRANT_REVISION: gallery-grant-v1
+  GALLERY_APPEAL_POLICY_REVISION: gallery-appeal-v1
+  GALLERY_CHALLENGE_VERIFIER_READY: "false"
+  GALLERY_ADMINISTRATOR_AUTHORITY_READY: "false"
+  GALLERY_REPORTING_READY: "false"
+  GALLERY_NOTIFICATION_READY: "false"
+  GALLERY_APPEAL_READY: "false"
+  GALLERY_GOVERNANCE_READY: "false"
+  GALLERY_ISOLATED_CONTENT_READY: "false"
   BETTER_AUTH_URL: https://api.shareslices.example.com
   Caddyfile: |
     :8080 {

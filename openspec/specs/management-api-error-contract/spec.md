@@ -1,8 +1,11 @@
 # management-api-error-contract Specification
 
 ## Purpose
+
 TBD - created by archiving change add-resumable-agent-cli-protocol. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Return one stable language-neutral error envelope
 
 Every JSON management API failure SHALL return an `error` object containing a stable lower-snake-case `code`, a non-empty sanitized `message`, and a `requestId`. The response SHALL include the same identifier in `X-Request-Id`.
@@ -118,4 +121,3 @@ Contract tests SHALL validate the status, headers, error-envelope schema, stable
 
 - **WHEN** an actual Management API error does not conform to its checked OpenAPI response schema
 - **THEN** the contract test fails before release
-

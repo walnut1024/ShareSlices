@@ -11,6 +11,9 @@ use runtime::{
 };
 use shareslices_worker::{
     content_fingerprint::{FingerprintError, FingerprintKey},
+    gallery_copy_job::run_gallery_copy_loop,
+    gallery_cover_job::run_gallery_cover_loop,
+    gallery_safety_job::run_gallery_safety_loop,
     health::{DEFAULT_READY_FILE, ReadyFile},
     job_store::{ContentBundleIntegrity, ContentBundleStore, PostgresJobStore},
     logging::{LogConfig, SanitizedException, Severity, WorkerEvent},
@@ -154,6 +157,13 @@ async fn run(config: WorkerConfig) -> Result<(), Box<dyn std::error::Error>> {
         current_fingerprint_key,
         shutdown_receiver.clone(),
     ));
+    let safety_task = spawn_gallery_safety(&pool, &storage, &config, &shutdown_receiver);
+    let cover_task = tokio::spawn(run_gallery_cover_loop(
+        pool.clone(),
+        config.poll_interval,
+        shutdown_receiver.clone(),
+    ));
+    let copy_task = spawn_gallery_copy(&pool, &storage, &config, &shutdown_receiver);
     let (thumbnail_exit_sender, thumbnail_exit_receiver) = tokio::sync::oneshot::channel();
     let thumbnail_pool = pool.clone();
     let thumbnail_task = tokio::spawn(async move {
@@ -188,11 +198,46 @@ async fn run(config: WorkerConfig) -> Result<(), Box<dyn std::error::Error>> {
         .await;
     thumbnail_task.await?;
     alias_reindex_task.await?;
+    safety_task.await?;
+    cover_task.await?;
+    copy_task.await?;
     if thumbnail_stopped_unexpectedly.load(std::sync::atomic::Ordering::Relaxed) {
         return Err("thumbnail loop stopped unexpectedly".into());
     }
     pool.close().await;
     Ok(())
+}
+
+fn spawn_gallery_safety(
+    pool: &PgPool,
+    storage: &AwsS3ObjectStorage,
+    config: &WorkerConfig,
+    shutdown: &tokio::sync::watch::Receiver<bool>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(run_gallery_safety_loop(
+        pool.clone(),
+        Arc::new(storage.clone()),
+        format!("gallery-safety-worker-{}", Uuid::new_v4()),
+        config.lease_duration,
+        config.poll_interval,
+        shutdown.clone(),
+    ))
+}
+
+fn spawn_gallery_copy(
+    pool: &PgPool,
+    storage: &AwsS3ObjectStorage,
+    config: &WorkerConfig,
+    shutdown: &tokio::sync::watch::Receiver<bool>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(run_gallery_copy_loop(
+        pool.clone(),
+        Arc::new(storage.clone()),
+        format!("gallery-copy-worker-{}", Uuid::new_v4()),
+        config.lease_duration,
+        config.poll_interval,
+        shutdown.clone(),
+    ))
 }
 
 fn processing_input_source(

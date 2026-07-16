@@ -88,6 +88,11 @@ pub enum AuthCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum ArtifactCommand {
+    /// Share an Artifact to the public Gallery or manage its Gallery listing.
+    Gallery {
+        #[command(subcommand)]
+        command: ArtifactGalleryCommand,
+    },
     /// List owned Artifacts with publication and processing filters.
     #[command(
         after_long_help = "EXAMPLES:\n  shareslices artifact list\n  shareslices artifact list --publication published --processing ready --limit 50\n  shareslices artifact list --json id,name,processingState --jq '.[].id'"
@@ -132,6 +137,76 @@ pub enum ArtifactCommand {
         after_long_help = "EXAMPLES:\n  shareslices artifact export artifact_123\n  shareslices artifact export artifact_123 --version version_456 --output report.zip\n  shareslices artifact export artifact_123 --output report.zip --clobber --no-progress\n  shareslices artifact export artifact_123 --json artifactId,path --jq '.path'"
     )]
     Export(ArtifactExportArgs),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ArtifactGalleryCommand {
+    /// Show Gallery state, current permission terms, and historical evidence.
+    View(ArtifactGalleryViewArgs),
+    /// Share one ready Version to Gallery.
+    Share(ArtifactGalleryMutationArgs),
+    /// Submit an update proposal for the current Gallery listing.
+    Update(ArtifactGalleryMutationArgs),
+    /// Permanently withdraw the current Gallery listing.
+    Withdraw(ArtifactGalleryWithdrawArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct ArtifactGalleryViewArgs {
+    #[arg(value_name = "ARTIFACT_ID")]
+    pub artifact: String,
+    #[arg(skip)]
+    pub agent_mode: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ArtifactGalleryMutationArgs {
+    #[arg(value_name = "ARTIFACT_ID")]
+    pub artifact: String,
+    #[arg(long, value_name = "VERSION_ID")]
+    pub version: String,
+    #[arg(long)]
+    pub title: String,
+    #[arg(long)]
+    pub description: Option<String>,
+    #[arg(long, value_delimiter = ',')]
+    pub tags: Vec<String>,
+    #[arg(long)]
+    pub display_name: String,
+    #[arg(long)]
+    pub biography: Option<String>,
+    #[arg(long)]
+    pub profile_revision: Option<u64>,
+    #[arg(long)]
+    pub listing_id: Option<String>,
+    #[arg(long)]
+    pub listing_revision: Option<u64>,
+    #[arg(long)]
+    pub grant_version: String,
+    #[arg(long)]
+    pub accept_permission: bool,
+    #[arg(long)]
+    pub confirm_replacement: bool,
+    #[arg(long)]
+    pub idempotency_key: String,
+    #[arg(skip)]
+    pub agent_mode: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ArtifactGalleryWithdrawArgs {
+    #[arg(value_name = "ARTIFACT_ID")]
+    pub artifact: String,
+    #[arg(long)]
+    pub listing_id: String,
+    #[arg(long)]
+    pub listing_revision: u64,
+    #[arg(long)]
+    pub confirm_withdraw: bool,
+    #[arg(long)]
+    pub idempotency_key: String,
+    #[arg(skip)]
+    pub agent_mode: bool,
 }
 
 #[derive(Debug, Args)]

@@ -1,0 +1,6 @@
+{
+  "version": "gallery-appeal-v1",
+  "deadlineSeconds": 1209600,
+  "exactNotice": "You may appeal this decision within 14 days of the Server decision time. The notice identifies the affected category, rule, effect, Appeal path, and exact deadline. Reporter identity is never disclosed.",
+  "acceptedStates": ["pending", "upheld", "reversed", "moot"]
+}

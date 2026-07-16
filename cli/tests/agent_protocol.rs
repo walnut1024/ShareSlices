@@ -164,6 +164,7 @@ async fn unsupported_agent_protocol_fails_locally_with_supported_versions() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn operational_agent_commands_match_capabilities() {
     let commands: &[(&[&str], &str)] = &[
         (
@@ -203,6 +204,70 @@ fn operational_agent_commands_match_capabilities() {
             "artifact.publication.edit",
         ),
         (&["artifact", "export", "artifact_123"], "artifact.export"),
+        (
+            &["artifact", "gallery", "view", "artifact_123"],
+            "artifact.gallery.view",
+        ),
+        (
+            &[
+                "artifact",
+                "gallery",
+                "share",
+                "artifact_123",
+                "--version",
+                "version_1",
+                "--title",
+                "Report",
+                "--display-name",
+                "Ada",
+                "--grant-version",
+                "grant_1",
+                "--accept-permission",
+                "--idempotency-key",
+                "op_1",
+            ],
+            "artifact.gallery.share",
+        ),
+        (
+            &[
+                "artifact",
+                "gallery",
+                "update",
+                "artifact_123",
+                "--version",
+                "version_1",
+                "--title",
+                "Report",
+                "--display-name",
+                "Ada",
+                "--listing-id",
+                "listing_1",
+                "--listing-revision",
+                "1",
+                "--grant-version",
+                "grant_1",
+                "--accept-permission",
+                "--idempotency-key",
+                "op_2",
+            ],
+            "artifact.gallery.update",
+        ),
+        (
+            &[
+                "artifact",
+                "gallery",
+                "withdraw",
+                "artifact_123",
+                "--listing-id",
+                "listing_1",
+                "--listing-revision",
+                "1",
+                "--confirm-withdraw",
+                "--idempotency-key",
+                "op_3",
+            ],
+            "artifact.gallery.withdraw",
+        ),
     ];
     let mut parsed_operations = BTreeSet::from(["capabilities"]);
 

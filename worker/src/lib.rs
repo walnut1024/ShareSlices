@@ -1,6 +1,11 @@
 pub mod archive_validation;
 pub mod content_fingerprint;
 pub mod format_rules;
+pub mod gallery_copy_job;
+pub mod gallery_cover_job;
+pub mod gallery_job_contract;
+pub mod gallery_safety;
+pub mod gallery_safety_job;
 pub mod health;
 pub mod job_store;
 pub mod logging;

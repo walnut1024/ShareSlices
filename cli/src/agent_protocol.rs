@@ -26,6 +26,7 @@ pub const AGENT_ACTION_KINDS: &[&str] = &[
     "inspect_state",
     "retry_later",
     "contact_support",
+    "accept_permission",
 ];
 pub const AGENT_OPERATIONS: &[&str] = &[
     "capabilities",
@@ -41,6 +42,10 @@ pub const AGENT_OPERATIONS: &[&str] = &[
     "artifact.publication.view",
     "artifact.publication.edit",
     "artifact.export",
+    "artifact.gallery.view",
+    "artifact.gallery.share",
+    "artifact.gallery.update",
+    "artifact.gallery.withdraw",
 ];
 
 #[derive(Debug, Serialize)]
@@ -91,6 +96,7 @@ pub enum AgentActionKind {
     InspectState,
     RetryLater,
     ContactSupport,
+    AcceptPermission,
 }
 
 #[derive(Debug, Serialize)]

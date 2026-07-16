@@ -9,7 +9,7 @@ Engineering rules that constrain all designs live in `AGENTS.md`. Product behavi
 
 ## Top-level seams
 
-Status: current for the runtime seams, CLI authentication and Artifact commands, Agent protocol v1, official Skill entry, thumbnail generation and reads, and Publication management.
+Status: current for the runtime seams, CLI authentication and Artifact commands, Agent protocol v1, official Skill entry, thumbnail generation and reads, Publication management, and Gallery.
 
 | Seam | Status | Interface owner | Production Adapter | Test Adapter |
 | --- | --- | --- | --- | --- |
@@ -23,6 +23,8 @@ Status: current for the runtime seams, CLI authentication and Artifact commands,
 | Thumbnail job handoff | current | `db/migrations/` schema plus thumbnail job Interfaces | ready-Version enqueue and SQLx claim Adapter | Local PostgreSQL and fake Adapters |
 | Agent intent into CLI | current | `skill/shareslices/` invocation contract | Official ShareSlices Skill | Fake CLI plus behavior, contract, and trigger evaluations |
 | CLI commands into ShareSlices | current for human and Agent protocol v1 surfaces | `cli/` command Interface | Rust CLI with operating-system credential and continuation stores | In-memory credential/continuation and fake HTTP Adapters |
+| Gallery trusted API and isolated content | current | `api/src/application/gallery/` and `api/src/content/` | PostgreSQL, private object storage, and content-only Hono runtime | Focused application, route, migration, and content-runtime tests |
+| Gallery safety, cover, and copy jobs | current | checked contracts in `db/contracts/` | Rust Worker with fenced PostgreSQL leases | N/N-1 fixtures and focused Worker tests |
 
 ## Official Skill entry
 
@@ -64,6 +66,16 @@ Status: mixed. Account entry remains a thin current HTTP/Auth/DB path. Artifact,
 - `UserModule` remains target. Current account entry intentionally stays in `api/src/http/account-routes.ts`, Better Auth, and focused account queries until another caller or implementation requires extraction.
 - `AdministrationModule` is a roadmap Module for user search, deactivation, reactivation, soft deletion, forced sign out, session revocation, email verification policy, and administrative audit. It stays separate because the actor and permissions differ from user-managed flows.
 - `AuthenticationEmailDelivery` is current. Account routes persist encrypted delivery payloads and return without contacting SMTP; the API-runtime dispatcher leases pending rows, renders fixed authentication templates, sends through `api/src/email/`, records bounded retry outcomes, and removes terminal payloads. SMTP outages do not affect API readiness.
+
+## Gallery Modules
+
+Status: current, disabled by default until every deployment and live-readiness gate passes.
+
+- `api/src/application/gallery/` owns independent listing/proposal transitions, Creator profiles, permission evidence, discovery, Download, Save-a-copy admission, reports, governance, provenance, retention, and reconciliation. Publication remains a separate aggregate.
+- `api/src/http/gallery-routes.ts` is the trusted owner, discovery, interaction, and Administrator HTTP Adapter. `api/src/content/` is a separate content-only Hono application with only credential-bound manifest reads and private-object streaming; it has no management auth or mutation dependency.
+- `web/src/screens/GalleryPage.tsx`, `GalleryListingPage.tsx`, and `CreatorPage.tsx` are public trusted pages. `ArtifactGalleryDialog.tsx` owns owner share/update/withdraw interaction, while `GalleryAdministrationPage.tsx` owns the minimal authorized governance queue and notification surface.
+- `worker/src/gallery_safety_job.rs`, `gallery_cover_job.rs`, and `gallery_copy_job.rs` consume the checked language-neutral contracts. API policy owns admission and terminal state; Worker results cannot mutate policy directly.
+- `cli/src/gallery_commands.rs` exposes the four owner operations through the same checked HTTP client and Agent protocol used by the official Skill. It never implements Gallery policy locally.
 
 ## Web Artifact player
 

@@ -25,7 +25,11 @@
         "artifact.delete",
         "artifact.publication.view",
         "artifact.publication.edit",
-        "artifact.export"
+        "artifact.export",
+        "artifact.gallery.view",
+        "artifact.gallery.share",
+        "artifact.gallery.update",
+        "artifact.gallery.withdraw"
       ]
     },
     "outcome": {
@@ -48,7 +52,8 @@
         "change_local_input",
         "inspect_state",
         "retry_later",
-        "contact_support"
+        "contact_support",
+        "accept_permission"
       ]
     },
     "capabilities": {
@@ -86,8 +91,8 @@
         "actionKinds": {
           "type": "array",
           "items": { "$ref": "#/$defs/actionKind" },
-          "minItems": 8,
-          "maxItems": 8,
+          "minItems": 9,
+          "maxItems": 9,
           "uniqueItems": true
         },
         "processingWaitSeconds": {
@@ -98,8 +103,8 @@
         "operations": {
           "type": "array",
           "items": { "$ref": "#/$defs/operation" },
-          "minItems": 13,
-          "maxItems": 13,
+          "minItems": 17,
+          "maxItems": 17,
           "uniqueItems": true
         }
       },

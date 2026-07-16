@@ -738,6 +738,60 @@ describe("Artifact repository adapters", () => {
     });
   });
 
+  it("retains a non-public Gallery tombstone without treating history as an object hold", async () => {
+    await databasePool.query(
+      "insert into artifact(id,owner_user_id,name) values('artifact-gallery-delete','owner-1','Gallery delete')",
+    );
+    await databasePool.query(
+      "insert into artifact_share_link(id,artifact_id,slug) values('link-gallery-delete','artifact-gallery-delete','share-slug-gallery-delete')",
+    );
+    await databasePool.query(
+      `insert into artifact_upload_session(
+        id,artifact_id,owner_user_id,policy_revision,archive_size_bytes,expanded_size_bytes,
+        file_count,single_file_size_bytes,formats,raw_object_key,raw_size_bytes,state)
+       values('upload-gallery-delete','artifact-gallery-delete','owner-1','v0.0.1-default',10,10,1,10,'[]',
+        'raw/artifact-gallery-delete/input.zip',10,'committed')`,
+    );
+    await databasePool.query(
+      "insert into gallery_creator_profile(id,user_id,opaque_slug,display_name) values('profile-gallery-delete','owner-1','creator_gallery_delete','Owner')",
+    );
+    await databasePool.query(
+      `insert into gallery_listing(id,artifact_id,owner_user_id,creator_profile_id,opaque_slug)
+       values('glisting_gallery_delete','artifact-gallery-delete','owner-1','profile-gallery-delete','opaque_gallery_delete')`,
+    );
+
+    await expect(
+      repositories.artifacts.deleteOwned("owner-1", "artifact-gallery-delete"),
+    ).resolves.toEqual({
+      kind: "cleanup",
+      record: {
+        objectKeys: ["raw/artifact-gallery-delete/input.zip"],
+        stagingPrefixes: [],
+      },
+    });
+    await repositories.artifacts.completeDeletion(
+      "owner-1",
+      "artifact-gallery-delete",
+    );
+
+    await expect(
+      repositories.artifacts.findOwned("owner-1", "artifact-gallery-delete"),
+    ).resolves.toBeNull();
+    const state = await databasePool.query(
+      `select
+        (select count(*)::int from artifact where id='artifact-gallery-delete') artifacts,
+        (select count(*)::int from artifact_share_link where artifact_id='artifact-gallery-delete') links,
+        (select lifecycle_state from gallery_listing where id='glisting_gallery_delete') lifecycle,
+        (select last_error_code from artifact_deletion_cleanup where artifact_id='artifact-gallery-delete') cleanup_state`,
+    );
+    expect(state.rows[0]).toEqual({
+      artifacts: 1,
+      links: 0,
+      lifecycle: "withdrawn",
+      cleanup_state: "gallery_tombstone_retained",
+    });
+  });
+
   it("keeps a shared bundle ready until its final Version reference is deleted", async () => {
     await databasePool.query(`insert into artifact (id, owner_user_id, name) values
       ('artifact-shared-a', 'owner-1', 'Shared A'), ('artifact-shared-b', 'owner-1', 'Shared B')`);

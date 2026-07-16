@@ -16,6 +16,34 @@ export type TraceContext = {
   spanId: string;
 };
 
+export type GalleryLogIdentifierInput = Readonly<{
+  listingId?: string;
+  proposalId?: string;
+  copyJobId?: string;
+  reportId?: string;
+  decisionId?: string;
+  requestId?: string;
+  attemptId?: string;
+}>;
+
+/** Emits only stable internal identifiers; public slugs and credentials have no accepted key. */
+export function galleryLogIdentifiers(input: GalleryLogIdentifierInput): LogAttributes {
+  const attributes: LogAttributes = {};
+  for (const [field, key] of [
+    ["listingId", "shareslices.gallery.listing.id"],
+    ["proposalId", "shareslices.gallery.proposal.id"],
+    ["copyJobId", "shareslices.gallery.copy_job.id"],
+    ["reportId", "shareslices.gallery.report.id"],
+    ["decisionId", "shareslices.gallery.decision.id"],
+    ["requestId", "shareslices.request.id"],
+    ["attemptId", "shareslices.attempt.id"],
+  ] as const) {
+    const value = input[field];
+    if (value) attributes[key] = value;
+  }
+  return attributes;
+}
+
 export type LogRecordInput = {
   severity: SeverityText;
   body: string;
@@ -25,7 +53,7 @@ export type LogRecordInput = {
 };
 
 export type LogResource = {
-  serviceName: "shareslices-api";
+  serviceName: "shareslices-api" | "shareslices-gallery-content";
   serviceVersion: string;
   deploymentEnvironment: string;
 };

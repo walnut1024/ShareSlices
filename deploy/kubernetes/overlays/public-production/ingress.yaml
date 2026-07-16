@@ -41,3 +41,13 @@ spec:
                 name: shareslices-api
                 port:
                   name: http
+    - host: content.shareslices-cdn.net
+      http:
+        paths:
+          - path: /gallery-content
+            pathType: Prefix
+            backend:
+              service:
+                name: shareslices-content
+                port:
+                  name: http

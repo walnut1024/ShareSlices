@@ -1,3 +1,4 @@
+# cspell:ignore VITE
 FROM node:26.4.0-bookworm-slim AS build
 
 WORKDIR /workspace
@@ -10,7 +11,8 @@ RUN pnpm install --frozen-lockfile --filter @shareslices/web...
 
 COPY tsconfig.base.json ./
 COPY web/ web/
-RUN pnpm --dir web run build
+ARG VITE_GALLERY_TURNSTILE_PUBLIC_SITE_ID=""
+RUN VITE_GALLERY_TURNSTILE_SITE_KEY="$VITE_GALLERY_TURNSTILE_PUBLIC_SITE_ID" pnpm --dir web run build
 
 FROM caddy:2.10.2-alpine AS runtime
 

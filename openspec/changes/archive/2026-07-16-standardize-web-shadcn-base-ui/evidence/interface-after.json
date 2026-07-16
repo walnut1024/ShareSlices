@@ -1,0 +1,55 @@
+{
+  "generatedAt": "2026-07-16T06:45:35.637Z",
+  "node": "v26.5.0",
+  "assets": [
+    {
+      "name": "archive-preflight.worker-7A6fqOLs.js",
+      "type": "javascript",
+      "rawBytes": 18178,
+      "gzipBytes": 7247
+    },
+    {
+      "name": "index-BeTOQ2Da.js",
+      "type": "javascript",
+      "rawBytes": 713778,
+      "gzipBytes": 222001
+    },
+    {
+      "name": "index-BuAUIlQb.css",
+      "type": "css",
+      "rawBytes": 93779,
+      "gzipBytes": 15893
+    }
+  ],
+  "totals": {
+    "javascript": {
+      "rawBytes": 731956,
+      "gzipBytes": 229248
+    },
+    "css": {
+      "rawBytes": 93779,
+      "gzipBytes": 15893
+    }
+  },
+  "browser": {
+    "status": "passed-after-only-acceptance",
+    "note": "No valid pre-presentation browser timing capture exists. The checked evidence records post-change deterministic acceptance without inventing a comparison baseline.",
+    "viewport": "1440x900 with targeted 1280x720 smoke coverage",
+    "suite": {
+      "command": "mise run web-e2e",
+      "passed": 18,
+      "failed": 0,
+      "durationSeconds": 13
+    },
+    "scenarios": [
+      "gallery-report",
+      "gallery-administration",
+      "creator-profile",
+      "account-verification",
+      "device-authorization",
+      "artifact-action-menu"
+    ],
+    "requestEvidence": "Focused unit and browser tests lock request order, payloads, duplicate prevention, and deterministic mocked fixtures.",
+    "horizontalOverflow": false
+  }
+}

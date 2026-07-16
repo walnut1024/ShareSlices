@@ -1,0 +1,42 @@
+x-gallery-local-environment: &gallery-local-environment
+  BETTER_AUTH_URL: http://app.localhost:5173
+  WEB_ORIGIN: http://app.localhost:5173
+  API_ORIGIN: http://app.localhost:5173
+  VIEWER_ORIGIN: http://app.localhost:5173
+  GALLERY_ENABLED: "true"
+  GALLERY_CONTENT_ORIGIN: http://content.localhost:7460
+  GALLERY_CONTENT_REGISTRABLE_SITE: content.localhost
+  GALLERY_MANAGEMENT_COOKIE_DOMAIN: ""
+  GALLERY_NETWORK_POLICY: deny_external
+  GALLERY_GRANT_REVISION: gallery-grant-v1
+  GALLERY_APPEAL_POLICY_REVISION: gallery-appeal-v1
+  GALLERY_CHALLENGE_VERIFIER_READY: "true"
+  GALLERY_ADMINISTRATOR_AUTHORITY_READY: "true"
+  GALLERY_REPORTING_READY: "true"
+  GALLERY_NOTIFICATION_READY: "true"
+  GALLERY_APPEAL_READY: "true"
+  GALLERY_GOVERNANCE_READY: "true"
+  GALLERY_ISOLATED_CONTENT_READY: "true"
+  # Cloudflare's documented always-pass test secret. Never use this profile in production.
+  GALLERY_TURNSTILE_SECRET: 1x0000000000000000000000000000000AA
+
+# cspell:ignore VITE
+
+services:
+  migrate:
+    environment: *gallery-local-environment
+
+  api:
+    environment: *gallery-local-environment
+
+  gallery-content:
+    environment: *gallery-local-environment
+    networks:
+      default:
+        aliases:
+          - content.localhost
+
+  web:
+    build:
+      args:
+        VITE_GALLERY_TURNSTILE_PUBLIC_SITE_ID: 1x00000000000000000000AA

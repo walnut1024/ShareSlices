@@ -11,7 +11,7 @@ import type {
 
 type ManagementRepositories = Pick<
   ArtifactRepositories,
-  "artifacts" | "shareLinks" | "uploadSessions" | "versions" | "publications"
+  "artifacts" | "shareLinks" | "uploadSessions" | "versions" | "publications" | "publicSharingRestrictions"
 >;
 
 type ArtifactManagementOptions = {
@@ -53,6 +53,7 @@ export type ArtifactManagementState = {
   } | null;
   failure: { code: string; message: string; recoverable: boolean } | null;
   validationReport: ValidationReport | null;
+  publicSharingRestriction: { state: "restricted" } | null;
   allowedActions: ArtifactAction[];
 };
 
@@ -91,15 +92,20 @@ function processingState(session: UploadSessionRecord | null, version: VersionRe
 function actions(
   state: ArtifactManagementState["processingState"],
   session: UploadSessionRecord | null,
-  publication: PublicationRecord | null
+  publication: PublicationRecord | null,
+  restricted: boolean
 ): ArtifactAction[] {
   const result: ArtifactAction[] = ["rename"];
   const publicationStatus = statusOf(publication);
-  if (publicationStatus === "published") result.push("manage_publication", "copy_share_link", "unpublish");
+  if (publicationStatus === "published") {
+    result.push("manage_publication", "unpublish");
+    if (!restricted) result.push("copy_share_link");
+  }
   if (state === "failed") {
     result.push(session?.retryable ? "retry" : "replace_file");
   } else if (state === "ready") {
-    result.push("preview", "publish");
+    result.push("preview");
+    if (!restricted) result.push("publish");
   }
   if (state === "ready") result.push("export");
   if (state === "ready" || state === "failed") result.push("delete");
@@ -143,22 +149,25 @@ export class ArtifactManagementService {
     const hasMore = candidates.length > options.pageSize;
     const page = candidates.slice(0, options.pageSize);
     const artifactIds = page.map(({ id }) => id);
-    const [shareLinks, uploadSessions, versions, publications] = await Promise.all([
+    const [shareLinks, uploadSessions, versions, publications, restrictedIds] = await Promise.all([
       this.#repositories.shareLinks.findActiveByArtifacts(artifactIds),
       this.#repositories.uploadSessions.findCurrentByArtifacts(artifactIds),
       this.#repositories.versions.findReadyByArtifacts(artifactIds),
-      this.#repositories.publications.findLatestByArtifacts(artifactIds)
+      this.#repositories.publications.findLatestByArtifacts(artifactIds),
+      this.#repositories.publicSharingRestrictions.findRestrictedByArtifacts(artifactIds)
     ]);
     const shareByArtifact = new Map(shareLinks.map((value) => [value.artifactId, value]));
     const sessionByArtifact = new Map(uploadSessions.map((value) => [value.artifactId, value]));
     const versionByArtifact = new Map(versions.map((value) => [value.artifactId, value]));
     const publicationByArtifact = new Map(publications.map((value) => [value.artifactId, value]));
+    const restricted = new Set(restrictedIds);
     const artifacts = page.map((artifact) => this.#projectState(
       artifact,
       shareByArtifact.get(artifact.id) ?? null,
       sessionByArtifact.get(artifact.id) ?? null,
       versionByArtifact.get(artifact.id) ?? null,
-      publicationByArtifact.get(artifact.id) ?? null
+      publicationByArtifact.get(artifact.id) ?? null,
+      restricted.has(artifact.id)
     ));
     const last = page.at(-1);
     return {
@@ -229,13 +238,14 @@ export class ArtifactManagementService {
   }
 
   async #state(artifact: ArtifactRecord): Promise<ArtifactManagementState> {
-    const [shareLink, uploadSession, version, publication] = await Promise.all([
+    const [shareLink, uploadSession, version, publication, restrictedIds] = await Promise.all([
       this.#repositories.shareLinks.findActiveByArtifact(artifact.id),
       this.#repositories.uploadSessions.findCurrent(artifact.id),
       this.#repositories.versions.findReadyByArtifact(artifact.id),
-      this.#repositories.publications.findLatest(artifact.id)
+      this.#repositories.publications.findLatest(artifact.id),
+      this.#repositories.publicSharingRestrictions.findRestrictedByArtifacts([artifact.id])
     ]);
-    return this.#projectState(artifact, shareLink, uploadSession, version, publication);
+    return this.#projectState(artifact, shareLink, uploadSession, version, publication, restrictedIds.length > 0);
   }
 
   #projectState(
@@ -243,7 +253,8 @@ export class ArtifactManagementService {
     shareLink: ShareLinkRecord | null,
     uploadSession: UploadSessionRecord | null,
     version: VersionRecord | null,
-    publication: PublicationRecord | null
+    publication: PublicationRecord | null,
+    restricted: boolean
   ): ArtifactManagementState {
     const state = processingState(uploadSession, version);
     const message = uploadSession ? failureMessage(uploadSession) : null;
@@ -277,7 +288,8 @@ export class ArtifactManagementService {
             }
           : null,
       validationReport: uploadSession?.validationReport ?? null,
-      allowedActions: actions(state, uploadSession, publication)
+      publicSharingRestriction: restricted ? { state: "restricted" } : null,
+      allowedActions: actions(state, uploadSession, publication, restricted)
     };
   }
 

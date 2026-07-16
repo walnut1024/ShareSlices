@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shareslices.local/contracts/gallery-jobs/gallery-job.schema.json",
+  "title": "ShareSlices Gallery job envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractVersion", "jobKind", "jobId", "attempt", "input", "result"],
+  "properties": {
+    "contractVersion": { "enum": ["gallery-job/v0", "gallery-job/v1"] },
+    "jobKind": { "enum": ["cover", "safety", "copy"] },
+    "jobId": { "type": "string", "minLength": 1 },
+    "attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attemptId", "attemptNumber", "fenceToken", "leaseExpiresAt"],
+      "properties": {
+        "attemptId": { "type": "string", "minLength": 1 },
+        "attemptNumber": { "type": "integer", "minimum": 1 },
+        "fenceToken": { "type": "integer", "minimum": 1 },
+        "leaseExpiresAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["snapshotDigest", "listingId", "listingRevision", "versionId", "objectLayoutRevision", "policyRevision"],
+      "properties": {
+        "snapshotDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "listingId": { "type": "string", "minLength": 1 },
+        "listingRevision": { "type": "integer", "minimum": 1 },
+        "versionId": { "type": "string", "minLength": 1 },
+        "objectLayoutRevision": { "type": "string", "minLength": 1 },
+        "policyRevision": { "type": "string", "minLength": 1 },
+        "destinationOwnerUserId": { "type": "string", "minLength": 1 },
+        "destinationArtifactId": { "type": "string", "minLength": 1 },
+        "reservedArtifactCount": { "type": "integer", "minimum": 0 },
+        "reservedStorageBytes": { "type": "integer", "minimum": 0 },
+        "sourceRetentionReferenceId": { "type": "string", "minLength": 1 }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "terminalResult", "failureCode", "outputObjectKey", "evidenceDigest", "quotaEffect", "sourceRetentionEffect"],
+      "properties": {
+        "state": { "enum": ["queued", "running", "succeeded", "failed", "cancelled", "indeterminate"] },
+        "terminalResult": { "enum": [null, "cover_ready", "safety_pass", "safety_reject", "safety_review", "copy_ready"] },
+        "failureCode": { "enum": [null, "invalid_input", "policy_rejected", "render_failed", "source_unavailable", "quota_unavailable", "incompatible_contract", "lease_lost", "cancelled", "internal_failure"] },
+        "outputObjectKey": { "type": ["string", "null"] },
+        "evidenceDigest": { "type": ["string", "null"] },
+        "quotaEffect": { "enum": ["none", "hold", "commit", "release"] },
+        "sourceRetentionEffect": { "enum": ["none", "hold", "release"] }
+      }
+    }
+  },
+  "$comment": "API owns immutable input, admission, quota reservation, source retention, and business transitions. Worker owns attempts, heartbeats, checked outputs, and terminal execution evidence. Additive optional fields are compatible; removing or changing meaning requires a new contract version. Consumers accept N and N-1 only."
+}

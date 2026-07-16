@@ -1,4 +1,4 @@
-import { and, desc, eq, exists, inArray, isNotNull, isNull, lt, not, or, sql } from "drizzle-orm";
+import { and, desc, eq, exists, inArray, isNotNull, isNull, lt, not, notExists, or, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import { z } from "zod";
 import type {
@@ -312,7 +312,8 @@ export function createArtifactRepositories(
             eq(schema.artifact.ownerUserId, input.ownerUserId),
             publicationCondition,
             processingCondition,
-            cursorCondition
+            cursorCondition,
+            notExists(database.select({id:schema.artifactDeletionCleanup.artifactId}).from(schema.artifactDeletionCleanup).where(eq(schema.artifactDeletionCleanup.artifactId,schema.artifact.id)))
           ),
           orderBy: [desc(schema.artifact.updatedAt), desc(schema.artifact.id)],
           limit: input.limit
@@ -321,7 +322,8 @@ export function createArtifactRepositories(
       },
       async findOwned(ownerUserId, artifactId) {
         const row = await database.query.artifact.findFirst({
-          where: and(eq(schema.artifact.ownerUserId, ownerUserId), eq(schema.artifact.id, artifactId))
+          where: and(eq(schema.artifact.ownerUserId, ownerUserId), eq(schema.artifact.id, artifactId),
+            notExists(database.select({id:schema.artifactDeletionCleanup.artifactId}).from(schema.artifactDeletionCleanup).where(eq(schema.artifactDeletionCleanup.artifactId,schema.artifact.id))))
         });
         return row ? artifactRecord(row) : null;
       },
@@ -369,6 +371,56 @@ export function createArtifactRepositories(
             )
             .for("update");
           if (activeUploads.length > 0) return { kind: "invalid_state" } as const;
+          const galleryReference = await transaction.execute<{ held: boolean }>(sql`
+            select exists(select 1 from gallery_listing where artifact_id=${artifactId}) as held
+          `);
+          const activeGalleryHold = await transaction.execute<{ held: boolean }>(sql`
+            select exists(
+              select 1 from gallery_governance_evidence_hold hold
+              join gallery_governance_case governance_case on governance_case.id=hold.case_id
+              where governance_case.artifact_id=${artifactId} and hold.released_at is null
+              union all
+              select 1 from gallery_copy_source_retention retention
+              join artifact_version version on version.id=retention.source_version_id
+              where version.artifact_id=${artifactId} and retention.released_at is null
+              union all
+              select 1 from gallery_download_source_lease lease
+              join artifact_version version on version.id=lease.version_id
+              where version.artifact_id=${artifactId} and lease.state='active' and lease.expires_at>now()
+            ) as held
+          `);
+          await transaction.execute(sql`
+            insert into gallery_listing_lifecycle_event(id,listing_id,from_lifecycle_state,to_lifecycle_state,closure_reason,base_listing_revision,committed_listing_revision,actor_kind,actor_id)
+            select 'glevent_' || replace(gen_random_uuid()::text,'-',''),listing.id,listing.lifecycle_state,'withdrawn','artifact_deleted',listing.listing_revision,listing.listing_revision+1,'system',null
+            from gallery_listing listing where listing.artifact_id=${artifactId}
+              and (listing.lifecycle_state in ('pending','listed') or (listing.lifecycle_state='removed' and listing.closure_reason='administrator_removal'))
+          `);
+          await transaction.execute(sql`
+            update gallery_listing
+            set lifecycle_state = 'withdrawn', closure_reason = 'artifact_deleted',
+                listing_revision = listing_revision + 1, closed_at = now(), updated_at = now()
+            where artifact_id = ${artifactId}
+              and (lifecycle_state in ('pending','listed')
+                or (lifecycle_state = 'removed' and closure_reason = 'administrator_removal'))
+          `);
+          await transaction.execute(sql`
+            update gallery_listing_proposal proposal set state = 'closed', closed_at = now()
+            from gallery_listing listing
+            where proposal.listing_id = listing.id and listing.artifact_id = ${artifactId} and proposal.state = 'open'
+          `);
+          await transaction.execute(sql`
+            update gallery_appeal appeal set state = 'moot', resolved_at = now()
+            from gallery_governance_decision decision
+            join gallery_governance_case governance_case on governance_case.id = decision.case_id
+            join gallery_listing listing on listing.id = governance_case.listing_id
+            where appeal.decision_id = decision.id and appeal.state = 'pending' and listing.artifact_id = ${artifactId}
+          `);
+          await transaction.execute(sql`
+            insert into gallery_listing_closure_tombstone(listing_id,opaque_slug,was_ever_public,terminal_lifecycle_state,closure_reason,source_deleted_at,permanently_non_restorable_at)
+            select listing.id,listing.opaque_slug,listing.current_revision_id is not null,'withdrawn','artifact_deleted',now(),now()
+            from gallery_listing listing where listing.artifact_id=${artifactId} and listing.lifecycle_state='withdrawn' and listing.closure_reason='artifact_deleted'
+            on conflict(listing_id) do update set terminal_lifecycle_state='withdrawn',closure_reason='artifact_deleted',source_deleted_at=now(),permanently_non_restorable_at=now()
+          `);
           const referencedBundles = await transaction
             .selectDistinct({ id: schema.artifactVersion.contentBundleId })
             .from(schema.artifactVersion)
@@ -409,6 +461,9 @@ export function createArtifactRepositories(
             ownerUserId,
             ...record
           });
+          if (activeGalleryHold.rows[0]?.held) {
+            return { kind: "cleanup", record } as const;
+          }
           for (const bundle of bundleRows) {
             const [otherReference] = await transaction
               .select({ id: schema.artifactVersion.id })
@@ -514,6 +569,19 @@ export function createArtifactRepositories(
               })
               .where(eq(schema.contentBundle.id, bundle.id));
           }
+          if (galleryReference.rows[0]?.held) {
+            await transaction
+              .update(schema.artifactVersion)
+              .set({ contentBundleId: null })
+              .where(eq(schema.artifactVersion.artifactId, artifactId));
+            await transaction
+              .delete(schema.artifactPublication)
+              .where(eq(schema.artifactPublication.artifactId, artifactId));
+            await transaction
+              .delete(schema.artifactShareLink)
+              .where(eq(schema.artifactShareLink.artifactId, artifactId));
+            return { kind: "cleanup", record } as const;
+          }
           await transaction.delete(schema.artifactPublication).where(eq(schema.artifactPublication.artifactId, artifactId));
           await transaction.delete(schema.artifactVersion).where(eq(schema.artifactVersion.artifactId, artifactId));
           await transaction.delete(schema.artifactIdempotencyRecord).where(eq(schema.artifactIdempotencyRecord.targetResourceId, artifactId));
@@ -522,6 +590,24 @@ export function createArtifactRepositories(
         });
       },
       async completeDeletion(ownerUserId, artifactId) {
+        const held = await database.execute<{held:boolean}>(sql`select exists(
+          select 1 from gallery_governance_evidence_hold hold join gallery_governance_case governance_case on governance_case.id=hold.case_id where governance_case.artifact_id=${artifactId} and hold.released_at is null
+          union all select 1 from gallery_copy_source_retention retention join artifact_version version on version.id=retention.source_version_id where version.artifact_id=${artifactId} and retention.released_at is null
+          union all select 1 from gallery_download_source_lease lease join artifact_version version on version.id=lease.version_id where version.artifact_id=${artifactId} and lease.state='active' and lease.expires_at>now()
+        ) as held`);
+        if (held.rows[0]?.held) return;
+        const galleryReference = await database.execute<{held:boolean}>(sql`
+          select exists(select 1 from gallery_listing where artifact_id=${artifactId}) as held
+        `);
+        if (galleryReference.rows[0]?.held) {
+          await database.execute(sql`
+            update artifact_deletion_cleanup
+            set lease_owner=null, lease_expires_at=null, next_attempt_at='infinity',
+                last_error_code='gallery_tombstone_retained'
+            where artifact_id=${artifactId} and owner_user_id=${ownerUserId}
+          `);
+          return;
+        }
         await database
           .delete(schema.artifactDeletionCleanup)
           .where(
@@ -702,6 +788,25 @@ export function createArtifactRepositories(
           if (!latest.has(row.artifactId)) latest.set(row.artifactId, publicationRecord(row));
         }
         return [...latest.values()];
+      }
+    },
+    publicSharingRestrictions: {
+      async findRestrictedByArtifacts(artifactIds) {
+        if (artifactIds.length === 0) return [];
+        const values = sql.join(artifactIds.map((artifactId) => sql`${artifactId}`), sql`, `);
+        const { rows } = await database.execute<{ artifact_id: string }>(sql`
+          select distinct artifact_id
+          from (
+            select artifact_id
+            from gallery_public_sharing_restriction
+            where state = 'active' and artifact_id in (${values})
+            union all
+            select artifact_id
+            from gallery_artifact_takedown
+            where state = 'active' and artifact_id in (${values})
+          ) active_public_restrictions
+        `);
+        return rows.map(({ artifact_id }) => artifact_id);
       }
     },
     idempotency: {

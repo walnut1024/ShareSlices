@@ -189,6 +189,22 @@ export function createReconciliationRepository(
           where created_at < ${createdBefore}
             and next_attempt_at <= now()
             and (lease_expires_at is null or lease_expires_at <= now())
+            and not exists (
+              select 1 from gallery_governance_evidence_hold hold
+              join gallery_governance_case governance_case on governance_case.id=hold.case_id
+              where governance_case.artifact_id=artifact_deletion_cleanup.artifact_id
+                and hold.released_at is null
+              union all
+              select 1 from gallery_copy_source_retention retention
+              join artifact_version version on version.id=retention.source_version_id
+              where version.artifact_id=artifact_deletion_cleanup.artifact_id
+                and retention.released_at is null
+              union all
+              select 1 from gallery_download_source_lease lease
+              join artifact_version version on version.id=lease.version_id
+              where version.artifact_id=artifact_deletion_cleanup.artifact_id
+                and lease.state='active' and lease.expires_at>now()
+            )
           order by next_attempt_at, created_at, artifact_id
           for update skip locked
           limit ${limit}
@@ -210,10 +226,104 @@ export function createReconciliationRepository(
     },
 
     async completeArtifactDeletionCleanup(artifactId, leaseToken) {
-      await database
-        .delete(schema.artifactDeletionCleanup)
-        .where(sql`${schema.artifactDeletionCleanup.artifactId} = ${artifactId}
-          and ${schema.artifactDeletionCleanup.leaseOwner} = ${leaseToken}`);
+      await database.transaction(async (transaction) => {
+        const galleryReference = await transaction.execute<{ held: boolean }>(sql`
+          select exists(select 1 from gallery_listing where artifact_id=${artifactId}) as held
+        `);
+        if (!galleryReference.rows[0]?.held) {
+          await transaction
+            .delete(schema.artifactDeletionCleanup)
+            .where(sql`${schema.artifactDeletionCleanup.artifactId} = ${artifactId}
+              and ${schema.artifactDeletionCleanup.leaseOwner} = ${leaseToken}`);
+          return;
+        }
+
+        const cleanup = await transaction.execute(sql`
+          select 1 from artifact_deletion_cleanup
+          where artifact_id=${artifactId} and lease_owner=${leaseToken}
+          for update
+        `);
+        if (cleanup.rowCount !== 1) return;
+
+        await transaction.execute(sql`
+          insert into content_bundle_cleanup(bundle_id,owner_user_id,object_prefixes,quiesce_after)
+          select bundle.id,bundle.owner_user_id,
+            jsonb_build_array('content-bundles/' || bundle.id || '/') ||
+              coalesce((
+                select jsonb_agg(distinct attempt.object_prefix)
+                from artifact_processing_attempt attempt
+                where attempt.id in (bundle.creator_attempt_id,bundle.winning_attempt_id)
+                  and attempt.object_prefix is not null
+              ), '[]'::jsonb),
+            greatest(
+              now() + interval '1 minute',
+              coalesce((
+                select max(attempt.write_deadline_at)
+                from artifact_processing_attempt attempt
+                where attempt.id in (bundle.creator_attempt_id,bundle.winning_attempt_id)
+              ), now()) + interval '1 minute'
+            )
+          from content_bundle bundle
+          where bundle.id in (
+            select version.content_bundle_id from artifact_version version
+            where version.artifact_id=${artifactId} and version.content_bundle_id is not null
+          ) and not exists (
+            select 1 from artifact_version other
+            where other.content_bundle_id=bundle.id and other.artifact_id<>${artifactId}
+          )
+          on conflict(bundle_id) do nothing
+        `);
+        await transaction.execute(sql`
+          update content_bundle_fingerprint_alias alias set retired_at=now()
+          where alias.bundle_id in (
+            select version.content_bundle_id from artifact_version version
+            where version.artifact_id=${artifactId} and version.content_bundle_id is not null
+          ) and alias.retired_at is null
+        `);
+        await transaction.execute(sql`
+          update raw_input_fingerprint_alias alias set retired_at=now()
+          where alias.bundle_id in (
+            select version.content_bundle_id from artifact_version version
+            where version.artifact_id=${artifactId} and version.content_bundle_id is not null
+          ) and alias.retired_at is null
+        `);
+        await transaction.execute(sql`
+          update content_bundle_thumbnail_job job
+          set state='cancelled',lease_owner=null,lease_expires_at=null,
+              heartbeat_at=null,updated_at=now()
+          where job.bundle_id in (
+            select version.content_bundle_id from artifact_version version
+            where version.artifact_id=${artifactId} and version.content_bundle_id is not null
+          ) and job.state in ('queued','running')
+        `);
+        await transaction.execute(sql`
+          update content_bundle bundle
+          set lifecycle_state='deleting',creator_attempt_id=null,winning_attempt_id=null,
+              deleting_at=now(),updated_at=now()
+          where bundle.id in (
+            select version.content_bundle_id from artifact_version version
+            where version.artifact_id=${artifactId} and version.content_bundle_id is not null
+          ) and not exists (
+            select 1 from artifact_version other
+            where other.content_bundle_id=bundle.id and other.artifact_id<>${artifactId}
+          )
+        `);
+        await transaction.execute(sql`
+          update artifact_version set content_bundle_id=null where artifact_id=${artifactId}
+        `);
+        await transaction.execute(sql`
+          delete from artifact_publication where artifact_id=${artifactId}
+        `);
+        await transaction.execute(sql`
+          delete from artifact_share_link where artifact_id=${artifactId}
+        `);
+        await transaction.execute(sql`
+          update artifact_deletion_cleanup
+          set lease_owner=null,lease_expires_at=null,next_attempt_at='infinity',
+              last_error_code='gallery_tombstone_retained'
+          where artifact_id=${artifactId} and lease_owner=${leaseToken}
+        `);
+      });
     },
 
     async failArtifactDeletionCleanup(artifactId, leaseToken, nextAttemptAt, errorCode) {

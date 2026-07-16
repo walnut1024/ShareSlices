@@ -1,0 +1,3 @@
+# Require isolated self-contained Gallery content
+
+ShareSlices enables Gallery only when Artifact execution uses a content-only Origin and browser registrable site outside every management credential boundary. Content Security Policy, manifest-only routing, and the runtime network boundary contain network access; an opaque iframe and response sandbox plus Permissions Policy constrain browser capabilities, including when a content URL opens directly. This trades compatibility with externally connected Artifacts for a defensible public-execution boundary; the [product contract](../../PRODUCT.md) owns enablement policy and the [glossary](../../CONTEXT.md) owns the boundary terms.

@@ -40,7 +40,9 @@ export type PublishedView = {
   shareLink: ShareLinkView;
 };
 
-export type ShareLinkAccessRecord = Omit<ShareLinkView, "url"> & { shareSlug: string };
+export type ShareLinkAccessRecord = Omit<ShareLinkView, "url"> & {
+  shareSlug: string;
+};
 
 export type PublicationExpiration =
   | { kind: "permanent" }
@@ -52,22 +54,36 @@ export type ShareResolution =
   | { kind: "expired" }
   | { kind: "retired" }
   | { kind: "unpublished" }
+  | { kind: "restricted" }
   | { kind: "published"; versionId: string };
 
-export type ViewerResolution = Exclude<ShareResolution, { kind: "published" }> | ContentAsset;
+export type ViewerResolution =
+  | Exclude<ShareResolution, { kind: "published" }>
+  | ContentAsset;
 
 export type PublishResult =
-  | { kind: "published"; publication: PublicationView; shareLink: ShareLinkAccessRecord }
+  | {
+      kind: "published";
+      publication: PublicationView;
+      shareLink: ShareLinkAccessRecord;
+    }
   | { kind: "artifact_not_found" }
   | { kind: "version_not_ready" }
   | { kind: "operation_in_progress" }
-  | { kind: "idempotency_conflict" };
+  | { kind: "idempotency_conflict" }
+  | { kind: "governance_blocked" };
 
 export interface PublicationContentRepository {
-  findOwnedReadyVersion(ownerUserId: string, versionId: string): Promise<ReadyVersionAccess | null>;
+  findOwnedReadyVersion(
+    ownerUserId: string,
+    versionId: string,
+  ): Promise<ReadyVersionAccess | null>;
   findAsset(versionId: string, path: string): Promise<ContentAsset | null>;
   findEntryAsset(versionId: string): Promise<ContentAsset | null>;
-  findOwnedVersionExport(ownerUserId: string, versionId: string): Promise<VersionExport | null>;
+  findOwnedVersionExport(
+    ownerUserId: string,
+    versionId: string,
+  ): Promise<VersionExport | null>;
   publish(input: {
     id: string;
     ownerUserId: string;
@@ -82,9 +98,13 @@ export interface PublicationContentRepository {
     ownerUserId: string,
     artifactId: string,
     publicationId: string,
-    expiration: Exclude<PublicationExpiration, { kind: "duration" }>
+    expiration: Exclude<PublicationExpiration, { kind: "duration" }>,
   ): Promise<PublicationView | null>;
-  unpublish(ownerUserId: string, artifactId: string, publicationId: string): Promise<boolean>;
+  unpublish(
+    ownerUserId: string,
+    artifactId: string,
+    publicationId: string,
+  ): Promise<boolean>;
   resolveShareSlug(shareSlug: string): Promise<ShareResolution>;
 }
 
@@ -96,7 +116,8 @@ export type PublicationViewerErrorCode =
   | "operation_in_progress"
   | "idempotency_conflict"
   | "invalid_request"
-  | "invalid_expiration";
+  | "invalid_expiration"
+  | "governance_blocked";
 
 export class PublicationViewerError extends Error {
   constructor(readonly code: PublicationViewerErrorCode) {
@@ -108,9 +129,11 @@ function publishRequestHash(
   artifactId: string,
   versionId: string,
   expiration: PublicationExpiration,
-  link: { mode: "reuse" | "replace"; confirmRetire: boolean }
+  link: { mode: "reuse" | "replace"; confirmRetire: boolean },
 ): string {
-  return createHash("sha256").update(JSON.stringify({ artifactId, versionId, expiration, link })).digest("hex");
+  return createHash("sha256")
+    .update(JSON.stringify({ artifactId, versionId, expiration, link }))
+    .digest("hex");
 }
 
 export function normalizeContentPath(rawPath: string): string | null {
@@ -120,11 +143,21 @@ export function normalizeContentPath(rawPath: string): string | null {
   } catch {
     return null;
   }
-  if (path.length === 0 || path.startsWith("/") || path.endsWith("/") || path.includes("\\") || path.includes("\0")) {
+  if (
+    path.length === 0 ||
+    path.startsWith("/") ||
+    path.endsWith("/") ||
+    path.includes("\\") ||
+    path.includes("\0")
+  ) {
     return null;
   }
   const segments = path.split("/");
-  if (segments.some((segment) => segment.length === 0 || segment === "." || segment === "..")) {
+  if (
+    segments.some(
+      (segment) => segment.length === 0 || segment === "." || segment === "..",
+    )
+  ) {
     return null;
   }
   return segments.join("/");
@@ -133,11 +166,18 @@ export function normalizeContentPath(rawPath: string): string | null {
 export class PublicationViewerService {
   constructor(
     private readonly repository: PublicationContentRepository,
-    private readonly viewerOrigin: string
+    private readonly viewerOrigin: string,
   ) {}
 
-  async preview(ownerUserId: string, versionId: string, rawPath: string): Promise<ContentAsset> {
-    const version = await this.repository.findOwnedReadyVersion(ownerUserId, versionId);
+  async preview(
+    ownerUserId: string,
+    versionId: string,
+    rawPath: string,
+  ): Promise<ContentAsset> {
+    const version = await this.repository.findOwnedReadyVersion(
+      ownerUserId,
+      versionId,
+    );
     if (!version) {
       throw new PublicationViewerError("version_not_found");
     }
@@ -154,9 +194,19 @@ export class PublicationViewerService {
     return asset;
   }
 
-  async exportVersion(ownerUserId: string, versionId: string, artifactId?: string): Promise<VersionExport> {
-    const exported = await this.repository.findOwnedVersionExport(ownerUserId, versionId);
-    if (!exported || (artifactId !== undefined && exported.artifactId !== artifactId)) {
+  async exportVersion(
+    ownerUserId: string,
+    versionId: string,
+    artifactId?: string,
+  ): Promise<VersionExport> {
+    const exported = await this.repository.findOwnedVersionExport(
+      ownerUserId,
+      versionId,
+    );
+    if (
+      !exported ||
+      (artifactId !== undefined && exported.artifactId !== artifactId)
+    ) {
       throw new PublicationViewerError("version_not_found");
     }
     return exported;
@@ -174,15 +224,22 @@ export class PublicationViewerService {
       throw new PublicationViewerError("invalid_request");
     }
     if (
-      (input.expiration.kind === "duration" && input.expiration.durationSeconds <= 0) ||
-      (input.expiration.kind === "exact" && input.expiration.expiresAt <= new Date())
+      (input.expiration.kind === "duration" &&
+        input.expiration.durationSeconds <= 0) ||
+      (input.expiration.kind === "exact" &&
+        input.expiration.expiresAt <= new Date())
     ) {
       throw new PublicationViewerError("invalid_expiration");
     }
     const result = await this.repository.publish({
       id: `pub_${randomUUID().replaceAll("-", "")}`,
       ...input,
-      requestHash: publishRequestHash(input.artifactId, input.versionId, input.expiration, input.link)
+      requestHash: publishRequestHash(
+        input.artifactId,
+        input.versionId,
+        input.expiration,
+        input.link,
+      ),
     });
     if (result.kind !== "published") {
       throw new PublicationViewerError(result.kind);
@@ -190,9 +247,12 @@ export class PublicationViewerService {
     return {
       publication: result.publication,
       shareLink: {
-        url: new URL(`/a/${result.shareLink.shareSlug}/`, this.viewerOrigin).toString(),
-        state: result.shareLink.state
-      }
+        url: new URL(
+          `/a/${result.shareLink.shareSlug}/`,
+          this.viewerOrigin,
+        ).toString(),
+        state: result.shareLink.state,
+      },
     };
   }
 
@@ -200,23 +260,37 @@ export class PublicationViewerService {
     ownerUserId: string,
     artifactId: string,
     publicationId: string,
-    expiration: Exclude<PublicationExpiration, { kind: "duration" }>
+    expiration: Exclude<PublicationExpiration, { kind: "duration" }>,
   ): Promise<PublicationView> {
     if (expiration.kind === "exact" && expiration.expiresAt <= new Date()) {
       throw new PublicationViewerError("invalid_expiration");
     }
-    const publication = await this.repository.updateExpiration(ownerUserId, artifactId, publicationId, expiration);
+    const publication = await this.repository.updateExpiration(
+      ownerUserId,
+      artifactId,
+      publicationId,
+      expiration,
+    );
     if (!publication) throw new PublicationViewerError("artifact_not_found");
     return publication;
   }
 
-  async unpublish(ownerUserId: string, artifactId: string, publicationId: string): Promise<void> {
-    if (!(await this.repository.unpublish(ownerUserId, artifactId, publicationId))) {
+  async unpublish(
+    ownerUserId: string,
+    artifactId: string,
+    publicationId: string,
+  ): Promise<void> {
+    if (
+      !(await this.repository.unpublish(ownerUserId, artifactId, publicationId))
+    ) {
       throw new PublicationViewerError("artifact_not_found");
     }
   }
 
-  async resolveViewer(shareSlug: string, rawPath: string): Promise<ViewerResolution> {
+  async resolveViewer(
+    shareSlug: string,
+    rawPath: string,
+  ): Promise<ViewerResolution> {
     const resolution = await this.repository.resolveShareSlug(shareSlug);
     if (resolution.kind !== "published") {
       return resolution;

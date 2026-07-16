@@ -1,6 +1,7 @@
 import { Maximize, Minimize } from "lucide-react";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { cn } from "../lib/utils";
+import { Alert, AlertDescription } from "./ui/alert";
 import { Button } from "./ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
@@ -9,13 +10,19 @@ export function ArtifactPlayer({
   className,
   fullscreenTargetRef,
   onFullscreenExit,
-  onFullscreenError
+  onFullscreenError,
+  sandbox,
+  allowChildFullscreen = true,
+  contentTitle = "Artifact content"
 }: {
   contentUrl: string;
   className?: string;
   fullscreenTargetRef?: RefObject<HTMLElement | null>;
   onFullscreenExit?: () => void;
   onFullscreenError?: (message: string) => void;
+  sandbox?: string;
+  allowChildFullscreen?: boolean;
+  contentTitle?: string;
 }) {
   const playerRef = useRef<HTMLDivElement>(null);
   const targetRef = fullscreenTargetRef ?? playerRef;
@@ -67,10 +74,11 @@ export function ArtifactPlayer({
       data-testid="artifact-player"
     >
       <iframe
-        allow="fullscreen"
+        allow={allowChildFullscreen ? "fullscreen" : undefined}
         className="block size-full border-0 bg-neutral-950"
+        sandbox={sandbox}
         src={contentUrl}
-        title="Artifact content"
+        title={contentTitle}
       />
       <div className="absolute top-3 right-3 z-10">
         <Tooltip>
@@ -92,9 +100,7 @@ export function ArtifactPlayer({
         </Tooltip>
       </div>
       {error ? (
-        <p className="absolute top-14 right-3 z-10 rounded-lg bg-red-900/95 px-3 py-2 text-sm text-red-50" role="status">
-          {error}
-        </p>
+        <Alert className="absolute top-14 right-3 z-10 w-auto max-w-sm" variant="destructive" role="status"><AlertDescription>{error}</AlertDescription></Alert>
       ) : null}
     </div>
   );

@@ -2,20 +2,35 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { env } from "../env.js";
-import { apiLogger, exceptionAttributes, parseTraceParent } from "../logging/index.js";
-import { accountRoutes, type AccountRouteDependencies } from "./account-routes.js";
+import {
+  apiLogger,
+  exceptionAttributes,
+  parseTraceParent,
+} from "../logging/index.js";
+import { httpRouteTemplate } from "../logging/http-route-template.js";
+import {
+  accountRoutes,
+  type AccountRouteDependencies,
+} from "./account-routes.js";
 import {
   checkCliCompatibility,
   cliAuthRoutes,
-  type CliAuthDependencies
+  type CliAuthDependencies,
 } from "./cli-auth-routes.js";
-import { artifactRoutes, type ArtifactRouteDependencies } from "./artifact-routes.js";
+import {
+  artifactRoutes,
+  type ArtifactRouteDependencies,
+} from "./artifact-routes.js";
 import { errorJson, requestId } from "./http-error.js";
 import {
   publicationViewerRoutes,
-  type PublicationViewerRouteDependencies
+  type PublicationViewerRouteDependencies,
 } from "./publication-viewer-routes.js";
 import { systemRoutes, type SystemRouteDependencies } from "./system-routes.js";
+import {
+  galleryRoutes,
+  type GalleryRouteDependencies,
+} from "./gallery-routes.js";
 
 export type AppDependencies = {
   account?: Partial<AccountRouteDependencies>;
@@ -23,6 +38,7 @@ export type AppDependencies = {
   artifact?: Partial<ArtifactRouteDependencies>;
   publicationViewer?: Partial<PublicationViewerRouteDependencies>;
   system?: Partial<SystemRouteDependencies>;
+  gallery?: Partial<GalleryRouteDependencies>;
 };
 
 export function buildApp(dependencies: AppDependencies = {}): Hono {
@@ -38,10 +54,10 @@ export function buildApp(dependencies: AppDependencies = {}): Hono {
       attributes: {
         "shareslices.request.id": id,
         "http.request.method": c.req.method,
-        "url.path": new URL(c.req.url).pathname,
-        ...exceptionAttributes(error)
+        "url.path": httpRouteTemplate(new URL(c.req.url).pathname),
+        ...exceptionAttributes(error),
       },
-      ...(trace ? { trace } : {})
+      ...(trace ? { trace } : {}),
     });
     return errorJson(c, 500, "internal_error");
   });
@@ -51,14 +67,24 @@ export function buildApp(dependencies: AppDependencies = {}): Hono {
     cors({
       origin: env.WEB_ORIGIN,
       credentials: true,
-      allowHeaders: ["Content-Type", "Authorization", "Idempotency-Key", "Traceparent", "X-Request-Id"],
-      allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
-    })
+      allowHeaders: [
+        "Content-Type",
+        "Authorization",
+        "Idempotency-Key",
+        "If-Match",
+        "Traceparent",
+        "X-Request-Id",
+      ],
+      allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    }),
   );
 
   app.use("/api/*", async (c, next) => {
     if (c.req.header("authorization")?.toLowerCase().startsWith("bearer ")) {
-      const incompatible = checkCliCompatibility(c, dependencies.cliAuth?.minimumCliVersion ?? env.MINIMUM_CLI_VERSION);
+      const incompatible = checkCliCompatibility(
+        c,
+        dependencies.cliAuth?.minimumCliVersion ?? env.MINIMUM_CLI_VERSION,
+      );
       if (incompatible) return incompatible;
     }
     await next();
@@ -69,6 +95,7 @@ export function buildApp(dependencies: AppDependencies = {}): Hono {
   app.route("/", cliAuthRoutes(dependencies.cliAuth));
   app.route("/", artifactRoutes(dependencies.artifact));
   app.route("/", publicationViewerRoutes(dependencies.publicationViewer));
+  app.route("/", galleryRoutes(dependencies.gallery));
 
   return app;
 }

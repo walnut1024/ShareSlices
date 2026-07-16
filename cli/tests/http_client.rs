@@ -119,6 +119,145 @@ async fn artifact_requests_preserve_actionable_upgrade_details() {
 }
 
 #[tokio::test]
+async fn gallery_view_preserves_owner_projection_and_stable_no_current_grant() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/artifacts/artifact-1/gallery-listing"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({"listing": null})),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/gallery/permission-grant"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"grant": null})))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/gallery/profile"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({"profile": null})),
+        )
+        .mount(&server)
+        .await;
+    let view = ApiClient::new(&server.uri())
+        .expect("client")
+        .gallery_view("secret", "artifact-1")
+        .await
+        .expect("view");
+    assert!(view.listing.is_none());
+    assert!(view.current_grant.is_none());
+    assert_eq!(view.grant_availability, "no_current_grant");
+    assert_eq!(
+        view.profile_requirement.as_deref(),
+        Some("confirm_display_name")
+    );
+    assert!(view.historical_grant_evidence.is_empty());
+}
+
+#[tokio::test]
+async fn gallery_mutations_send_revision_idempotency_and_preserve_conflict_evidence() {
+    let server = MockServer::start().await;
+    Mock::given(method("PATCH")).and(path("/api/gallery-listings/listing-1"))
+        .and(header("authorization", "Bearer secret")).and(header("idempotency-key", "operation-1"))
+        .and(header("if-match", "\"7\""))
+        .respond_with(ResponseTemplate::new(409).set_body_json(serde_json::json!({"error": {
+            "code": "listing_revision_conflict", "message": "Listing changed.", "requestId": "req-1",
+            "details": {"currentRevision": 8, "allowedActions": ["update_gallery"]}
+        }}))).mount(&server).await;
+    let error = ApiClient::new(&server.uri())
+        .expect("client")
+        .gallery_mutate(
+            "secret",
+            reqwest::Method::PATCH,
+            "/api/gallery-listings/listing-1",
+            Some(&serde_json::json!({"metadata": {}})),
+            "operation-1",
+            Some(7),
+        )
+        .await
+        .expect_err("conflict");
+    let ArtifactError::ServerEvidence(evidence) = error else {
+        panic!("evidenced error")
+    };
+    assert_eq!(evidence.code, "listing_revision_conflict");
+    assert_eq!(evidence.request_id.as_deref(), Some("req-1"));
+    assert_eq!(
+        evidence
+            .details
+            .as_ref()
+            .and_then(|value| value["currentRevision"].as_u64()),
+        Some(8)
+    );
+}
+
+#[tokio::test]
+async fn gallery_view_preserves_listing_evidence_when_current_grant_is_absent() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET")).and(path("/api/artifacts/artifact-1/gallery-listing"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"listing": {
+            "id": "listing-1", "artifactId": "artifact-1", "lifecycle": "withdrawn", "reviewState": "clear",
+            "closureReason": "owner_withdrawal", "revision": 4, "committed": null, "proposal": null,
+            "currentGrantEvidence": null, "historicalGrantEvidence": [{"grantVersion":"grant-1","acceptedAt":"2026-07-16T00:00:00Z"}],
+            "effectiveAccess": {"accessible":false,"restrictions":["not_listed"]}, "allowedActions":["share_to_gallery"], "publicUrl":null
+        }}))).mount(&server).await;
+    Mock::given(method("GET"))
+        .and(path("/api/gallery/permission-grant"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"grant":null})))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/gallery/profile"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"profile":null})))
+        .mount(&server)
+        .await;
+    let view = ApiClient::new(&server.uri())
+        .expect("client")
+        .gallery_view("secret", "artifact-1")
+        .await
+        .expect("view");
+    assert_eq!(view.grant_availability, "no_current_grant");
+    assert_eq!(
+        view.profile_requirement.as_deref(),
+        Some("confirm_display_name")
+    );
+    assert_eq!(view.historical_grant_evidence.len(), 1);
+    assert_eq!(
+        view.listing.expect("listing").closure_reason.as_deref(),
+        Some("owner_withdrawal")
+    );
+}
+
+#[tokio::test]
+async fn gallery_mutations_send_idempotency_and_revision_evidence_and_preserve_conflicts() {
+    let server = MockServer::start().await;
+    Mock::given(method("PATCH")).and(path("/api/gallery-listings/listing-1"))
+        .and(header("idempotency-key", "operation-1")).and(header("if-match", "\"7\""))
+        .respond_with(ResponseTemplate::new(409).set_body_json(serde_json::json!({"error": {
+            "code":"listing_revision_conflict", "message":"Refresh the listing.", "requestId":"req-gallery",
+            "details":{"currentRevision":8}, "action":"refresh_gallery_view"
+        }}))).mount(&server).await;
+    let error = ApiClient::new(&server.uri())
+        .expect("client")
+        .gallery_mutate(
+            "secret",
+            reqwest::Method::PATCH,
+            "/api/gallery-listings/listing-1",
+            Some(&serde_json::json!({"metadata":{}})),
+            "operation-1",
+            Some(7),
+        )
+        .await
+        .expect_err("conflict");
+    let ArtifactError::ServerEvidence(evidence) = error else {
+        panic!("expected evidence")
+    };
+    assert_eq!(evidence.code, "listing_revision_conflict");
+    assert_eq!(evidence.request_id.as_deref(), Some("req-gallery"));
+    assert_eq!(evidence.action.as_deref(), Some("refresh_gallery_view"));
+}
+
+#[tokio::test]
 async fn upload_replays_uncertain_acceptance_with_one_idempotency_key() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))

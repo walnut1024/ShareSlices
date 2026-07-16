@@ -1,0 +1,8 @@
+{
+  "version": "gallery-notice-retention-v1",
+  "decisionNoticeTemplate": "Category: {category}\nRule: {rule}\nEffect: {effect}\nAppeal path: {appealPath}\nDeadline: {appealDeadline}",
+  "nonAppealableNoticeTemplate": "Category: {category}\nRule: {rule}\nEffect: {effect}\nThis decision is not appealable.",
+  "viewerSignalMaximumDays": 30,
+  "governanceRetentionRule": "Evidence remains held until the case and every accepted Appeal are terminal, every applicable snapshotted Appeal deadline and the approved governance-retention deadline have passed, and no other legal or job reference remains.",
+  "rendering": "bounded_escaped_plain_text"
+}

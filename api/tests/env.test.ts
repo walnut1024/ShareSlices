@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { readEnv } from "../src/env.js";
+import { galleryConfigurationFromEnv } from "../src/application/gallery/configuration.js";
 
 const validEnv = {
   DATABASE_URL: "postgres://shareslices:shareslices@127.0.0.1:5432/shareslices",
@@ -42,6 +43,37 @@ afterEach(() => {
 });
 
 describe("API environment", () => {
+  it("keeps Gallery disabled with fail-closed capability defaults", () => {
+    const gallery = galleryConfigurationFromEnv(readEnv(validEnv));
+    expect(gallery).toMatchObject({
+      enabled: false,
+      contentOrigin: null,
+      grantRevision: null,
+      appealPolicyRevision: null,
+      networkPolicy: "deny_external",
+      readiness: {
+        currentGrant: false,
+        challengeVerifier: false,
+        administratorAuthority: false,
+        reporting: false,
+        notification: false,
+        appeal: false,
+        governance: false,
+        isolatedContent: false
+      }
+    });
+  });
+
+  it("requires explicit content topology when Gallery is enabled", () => {
+    expect(() => readEnv({...validEnv, GALLERY_ENABLED: "true"})).toThrow("explicit content Origin");
+    const enabled = galleryConfigurationFromEnv(readEnv({
+      ...validEnv,
+      GALLERY_ENABLED: "true",
+      GALLERY_CONTENT_ORIGIN: "https://content.example-cdn.test",
+      GALLERY_CONTENT_REGISTRABLE_SITE: "example-cdn.test"
+    }));
+    expect(enabled.enabled).toBe(true);
+  });
   it("accepts IP-and-port deployment addresses and typed storage/job settings", () => {
     expect(readEnv(validEnv)).toMatchObject({
       API_ORIGIN: "http://127.0.0.1:7456",

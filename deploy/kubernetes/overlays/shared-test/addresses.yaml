@@ -3,6 +3,7 @@ kind: ConfigMap
 metadata:
   name: shareslices-config
 data:
+  GALLERY_ENABLED: "false"
   WEB_ORIGIN: http://10.0.10.10:30080
   API_ORIGIN: http://10.0.10.10:30080
   VIEWER_ORIGIN: http://10.0.10.10:30080

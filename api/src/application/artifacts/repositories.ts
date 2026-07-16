@@ -236,6 +236,10 @@ export interface PublicationRepository {
   findLatestByArtifacts(artifactIds: string[]): Promise<PublicationRecord[]>;
 }
 
+export interface PublicSharingRestrictionRepository {
+  findRestrictedByArtifacts(artifactIds: string[]): Promise<string[]>;
+}
+
 export interface IdempotencyRepository {
   find(
     ownerUserId: string,
@@ -269,6 +273,7 @@ export type ArtifactRepositories = {
   processingJobs: ProcessingJobRepository;
   versions: VersionRepository;
   publications: PublicationRepository;
+  publicSharingRestrictions: PublicSharingRestrictionRepository;
   idempotency: IdempotencyRepository;
   intake: ArtifactIntakeRepository;
   recovery: ArtifactRecoveryRepository;

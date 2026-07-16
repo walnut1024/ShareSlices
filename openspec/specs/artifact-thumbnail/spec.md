@@ -3,7 +3,9 @@
 ## Purpose
 
 TBD - created by archiving change add-artifact-thumbnails. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Generate a non-blocking Version thumbnail
 
 The system SHALL arrange independent thumbnail work after committing a ready Version. Versions that reference the same Content bundle and pin the same renderer revision SHALL share one thumbnail job and result. Thumbnail pending, retry, reuse, or terminal failure MUST NOT delay or change Version readiness, Preview, Publication, Share-link behavior, or processing-job completion.
@@ -97,4 +99,3 @@ The Artifacts Page grid card SHALL reserve a 16:9 preview region independent fro
 
 - **WHEN** the card renders its Artifact name and modified time
 - **THEN** the metadata footer uses its independent reserved region without reducing or overlapping the 16:9 preview
-

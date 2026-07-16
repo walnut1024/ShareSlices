@@ -6,3 +6,4 @@ resources:
   - web.yaml
   - api.yaml
   - worker.yaml
+  - content.yaml

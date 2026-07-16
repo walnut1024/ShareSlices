@@ -1,0 +1,8 @@
+{
+  "contractVersion": "gallery-job/v0",
+  "jobKind": "safety",
+  "jobId": "gallery-safety-job-legacy",
+  "attempt": {"attemptId": "attempt-legacy", "attemptNumber": 1, "fenceToken": 2, "leaseExpiresAt": "2026-07-16T01:00:00Z"},
+  "input": {"snapshotDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "listingId": "listing-legacy", "listingRevision": 1, "versionId": "version-legacy", "objectLayoutRevision": "gallery-objects/v0", "policyRevision": "gallery-safety/v0"},
+  "result": {"state": "succeeded", "terminalResult": "safety_pass", "failureCode": null, "outputObjectKey": null, "evidenceDigest": "sha256:legacy-evidence", "quotaEffect": "none", "sourceRetentionEffect": "none"}
+}

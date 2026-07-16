@@ -1,6 +1,6 @@
 ---
 name: shareslices
-description: Publish, upload, inspect, export, or manage local static artifacts through the installed ShareSlices CLI. Use for ShareSlices Artifact, Version, Publication, Share-link, authentication, export, delete, or local static-content sharing requests. Preserve Upload-only versus Publish intent, and do not use this skill for deploying an app, merely building or archiving local files, developing/debugging ShareSlices itself, or implementing a direct HTTP API integration.
+description: Publish, upload, inspect, export, or manage local static artifacts through the installed ShareSlices CLI. Use for ShareSlices Artifact, Version, Publication, Share-link, Gallery sharing, authentication, export, delete, or local static-content sharing requests. Preserve Upload-only, Share-with-link, and Share-to-Gallery intent.
 ---
 
 # ShareSlices
@@ -27,6 +27,17 @@ API, database, or object storage directly.
   `artifact.upload`; never turn it into Publish.
 - Publish or share-link intent means publish. Choose the high-level local Publish operation unless
   the user explicitly asks to review the uploaded Version first.
+- Share to Gallery is a distinct public-community operation. Use `artifact.gallery.view` first,
+  then `artifact.gallery.share`, `artifact.gallery.update`, or `artifact.gallery.withdraw` exactly
+  as requested. Ambiguous “share” wording must be resolved before choosing link or Gallery.
+- For Gallery Share or Update, choose a ready Version deterministically or ask, collect the first
+  public display name and optional biography without deriving either from email, present the exact
+  current permission grant, and pass `--accept-permission` only after current acceptance. A missing
+  current grant is unavailable, never inferred from historical evidence. Metadata-only updates may
+  still require renewed acceptance.
+- Require current confirmation for permanent Gallery withdrawal and for an irreversible replacement
+  after reversed Administrator Removal. Permission acceptance is a separate `accept_permission`
+  action and never satisfies an irreversible confirmation.
 - Existing-Artifact, Publication, Export, Delete, authentication, and inspection requests map to
   their matching advertised operation. Do not widen one management request into another.
 
@@ -62,7 +73,8 @@ working conversation, and invoke `auth login --continue` as a new Agent operatio
 approves. Then reconstruct the original business command from current user intent and workspace
 state; a continuation never stores or replays it.
 
-Require the user's current confirmation for permanent Delete and Share-link replacement. Explicit
+Require the user's current confirmation for permanent Delete, Gallery withdrawal, Gallery replacement,
+and Share-link replacement. Explicit
 Publish and Unpublish need no redundant confirmation. For `install_or_upgrade`,
 `resolve_ambiguity`, `confirm_irreversible`, or `contact_support`, stop and tell the user what to do.
 Follow `change_local_input`, `inspect_state`, or `retry_later` only when the action is safe,

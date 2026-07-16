@@ -1,0 +1,39 @@
+{
+  "generatedAt": "2026-07-16T06:36:32.761Z",
+  "node": "v26.5.0",
+  "assets": [
+    {
+      "name": "archive-preflight.worker-7A6fqOLs.js",
+      "type": "javascript",
+      "rawBytes": 18178,
+      "gzipBytes": 7247
+    },
+    {
+      "name": "index-C7dLofOs.css",
+      "type": "css",
+      "rawBytes": 95381,
+      "gzipBytes": 16218
+    },
+    {
+      "name": "index-lTorYNXf.js",
+      "type": "javascript",
+      "rawBytes": 711153,
+      "gzipBytes": 221490
+    }
+  ],
+  "totals": {
+    "javascript": {
+      "rawBytes": 729331,
+      "gzipBytes": 228737
+    },
+    "css": {
+      "rawBytes": 95381,
+      "gzipBytes": 16218
+    }
+  },
+  "browser": {
+    "status": "not-captured-before-presentation-edits",
+    "scenarios": [],
+    "note": "The build totals above are genuine pre-edit evidence. Browser timings and screenshots were not captured before presentation editing and cannot be reconstructed honestly."
+  }
+}

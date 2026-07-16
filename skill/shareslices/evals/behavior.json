@@ -74,6 +74,104 @@
       "expectedOperation": "artifact.publish_local",
       "argv": ["--agent", "--agent-protocol", "1", "publish", "dist", "--name", "dist"],
       "assertions": ["preserve_durable_resources", "inspect_before_replay", "no_unsupported_success"]
+    },
+    {
+      "id": "ambiguous-share-channel",
+      "prompt": "Share artifact_123.",
+      "expectedOperation": null,
+      "argv": [],
+      "assertions": ["resolve_link_or_gallery", "no_mutation_before_choice"]
+    },
+    {
+      "id": "gallery-view-no-current-grant",
+      "prompt": "Check whether artifact_123 can be shared to Gallery.",
+      "expectedOperation": "artifact.gallery.view",
+      "argv": ["--agent", "--agent-protocol", "1", "artifact", "gallery", "view", "artifact_123"],
+      "assertions": ["surface_grant_absence", "preserve_historical_evidence"]
+    },
+    {
+      "id": "gallery-share",
+      "prompt": "Share version_7 of artifact_123 to Gallery as Report after I accept grant_1.",
+      "expectedOperation": "artifact.gallery.share",
+      "argv": ["--agent", "--agent-protocol", "1", "artifact", "gallery", "share", "artifact_123", "--version", "version_7", "--title", "Report", "--display-name", "Ada", "--grant-version", "grant_1", "--accept-permission", "--idempotency-key", "op_1"],
+      "assertions": ["permission_accepted", "no_link_publication"]
+    },
+    {
+      "id": "gallery-metadata-renewal",
+      "prompt": "Update Gallery metadata after accepting the renewed terms.",
+      "expectedOperation": "artifact.gallery.update",
+      "argv": ["--agent", "--agent-protocol", "1", "artifact", "gallery", "update", "artifact_123", "--version", "version_7", "--title", "New Report", "--display-name", "Ada", "--listing-id", "listing_1", "--listing-revision", "2", "--grant-version", "grant_2", "--accept-permission", "--idempotency-key", "op_2"],
+      "assertions": ["metadata_renewal_acceptance", "revision_checked"]
+    },
+    {
+      "id": "gallery-withdraw-unconfirmed",
+      "prompt": "Remove artifact_123 from Gallery.",
+      "expectedOperation": null,
+      "argv": [],
+      "assertions": ["confirm_irreversible", "no_withdraw_before_confirmation"]
+    },
+    {
+      "id": "gallery-withdraw-confirmed",
+      "prompt": "I confirm permanent Gallery withdrawal for artifact_123.",
+      "expectedOperation": "artifact.gallery.withdraw",
+      "argv": ["--agent", "--agent-protocol", "1", "artifact", "gallery", "withdraw", "artifact_123", "--listing-id", "listing_1", "--listing-revision", "3", "--confirm-withdraw", "--idempotency-key", "op_3"],
+      "assertions": ["current_confirmation", "no_link_side_effect"]
+    },
+    {
+      "id": "gallery-profile-required",
+      "prompt": "Share artifact_123 to Gallery, but no Creator profile exists and I have not chosen a display name.",
+      "expectedOperation": null,
+      "argv": [],
+      "assertions": ["collect_explicit_display_name", "never_derive_email"]
+    },
+    {
+      "id": "gallery-eligible-removed-history",
+      "prompt": "The previous listing was rejected by the initial policy and the correction is ready; share version_8 as a fresh Gallery listing.",
+      "expectedOperation": "artifact.gallery.share",
+      "argv": ["--agent", "--agent-protocol", "1", "artifact", "gallery", "share", "artifact_123", "--version", "version_8", "--title", "Corrected report", "--display-name", "Ada", "--grant-version", "grant_2", "--accept-permission", "--idempotency-key", "op_4"],
+      "assertions": ["eligible_removed_history", "fresh_listing_not_update"]
+    },
+    {
+      "id": "gallery-replacement-unconfirmed",
+      "prompt": "Replace the reversed administrator-removed listing with a new Gallery URL.",
+      "expectedOperation": null,
+      "argv": [],
+      "assertions": ["confirm_irreversible_forfeiture", "no_replacement_before_confirmation"]
+    },
+    {
+      "id": "gallery-replacement-confirmed",
+      "prompt": "I confirm forfeiting restoration of the reversed removed listing; share version_8 as its permanent replacement.",
+      "expectedOperation": "artifact.gallery.share",
+      "argv": ["--agent", "--agent-protocol", "1", "artifact", "gallery", "share", "artifact_123", "--version", "version_8", "--title", "Replacement", "--display-name", "Ada", "--grant-version", "grant_2", "--accept-permission", "--confirm-replacement", "--idempotency-key", "op_5"],
+      "assertions": ["current_irreversible_confirmation", "replacement_is_new_listing"]
+    },
+    {
+      "id": "gallery-proposal-review",
+      "prompt": "My Gallery update is under review. Apply it again.",
+      "expectedOperation": "artifact.gallery.view",
+      "argv": ["--agent", "--agent-protocol", "1", "artifact", "gallery", "view", "artifact_123"],
+      "assertions": ["inspect_open_proposal", "no_duplicate_mutation"]
+    },
+    {
+      "id": "gallery-revision-conflict",
+      "prompt": "The Gallery update returned a listing revision conflict. Retry it automatically.",
+      "expectedOperation": "artifact.gallery.view",
+      "argv": ["--agent", "--agent-protocol", "1", "artifact", "gallery", "view", "artifact_123"],
+      "assertions": ["inspect_current_revision", "no_blind_replay"]
+    },
+    {
+      "id": "gallery-indeterminate",
+      "prompt": "Share to Gallery returned an indeterminate outcome; submit it again with a new key.",
+      "expectedOperation": "artifact.gallery.view",
+      "argv": ["--agent", "--agent-protocol", "1", "artifact", "gallery", "view", "artifact_123"],
+      "assertions": ["recover_or_inspect_same_operation", "no_new_idempotency_key"]
+    },
+    {
+      "id": "gallery-capability-unsupported",
+      "prompt": "Share artifact_123 to Gallery, but capability discovery does not advertise artifact.gallery.share.",
+      "expectedOperation": null,
+      "argv": [],
+      "assertions": ["fail_closed", "no_rest_or_human_fallback"]
     }
   ]
 }

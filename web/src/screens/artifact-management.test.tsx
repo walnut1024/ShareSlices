@@ -40,6 +40,8 @@ describe("Artifact management", () => {
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Artifacts" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Gallery" })).toHaveAttribute("href", "/gallery");
+    expect(screen.queryByRole("link", { name: "Admin" })).not.toBeInTheDocument();
     expect(await screen.findByRole("link", { name: "Report" })).toHaveAttribute("href", "/artifacts/artifact-1");
     expect(screen.getByText("Processing")).toBeInTheDocument();
   });
@@ -205,6 +207,18 @@ describe("Artifact management", () => {
     await interaction.click(screen.getByRole("button", { name: "More actions for Report" }));
     expect(await screen.findByRole("menuitem", { name: "Info" })).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: "Rename" })).not.toBeInTheDocument();
+  });
+
+  it("keeps Share with link and Share to Gallery as separate actions", async () => {
+    window.history.replaceState(null, "", "/artifacts");
+    stubFetch([
+      json({ user }),
+      json({ artifacts: [artifact({ processingState: "ready", readyVersion: { id: "version-1", state: "ready" }, allowedActions: ["publish"] })] })
+    ]);
+
+    render(<App />);
+    expect(await screen.findByRole("button", { name: "Share with link Report" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Share Report to Gallery" })).toBeInTheDocument();
   });
 
   it("shows the current identity and Sign out in the avatar menu", async () => {
@@ -421,7 +435,7 @@ describe("Artifact management", () => {
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "Select" }));
     await interaction.click(screen.getByRole("button", { name: "Select all 2" }));
-    await interaction.click(screen.getByRole("button", { name: "Publish" }));
+    await interaction.click(screen.getByRole("button", { name: "Share with link" }));
 
     expect(await screen.findByText(/1 selected artifact cannot be published/i)).toBeInTheDocument();
     expect(screen.getByText(/still processing/i)).toBeInTheDocument();
@@ -440,7 +454,7 @@ describe("Artifact management", () => {
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "Select" }));
     await interaction.click(screen.getByRole("checkbox", { name: "Select Incomplete" }));
-    await interaction.click(screen.getByRole("button", { name: "Publish" }));
+    await interaction.click(screen.getByRole("button", { name: "Share with link" }));
 
     expect(await screen.findByText(/has no ready Version/i)).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -478,12 +492,12 @@ describe("Artifact management", () => {
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "Select" }));
     await interaction.click(screen.getByRole("button", { name: "Select all 2" }));
-    await interaction.click(screen.getByRole("button", { name: "Publish" }));
-    expect(await screen.findByRole("heading", { name: "Publish 2 artifacts" })).toBeInTheDocument();
+    await interaction.click(screen.getByRole("button", { name: "Share with link" }));
+    expect(await screen.findByRole("heading", { name: "Share 2 Artifacts with links" })).toBeInTheDocument();
     expect(screen.queryByLabelText("Generate a new Share link")).not.toBeInTheDocument();
     await interaction.click(screen.getByRole("combobox", { name: "Access period" }));
     await interaction.click(await screen.findByRole("option", { name: "7 days" }));
-    await interaction.click(screen.getByRole("button", { name: "Publish 2 artifacts" }));
+    await interaction.click(screen.getByRole("button", { name: "Share 2 with links" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
       "/api/artifacts/artifact-alpha/publications",
@@ -519,8 +533,8 @@ describe("Artifact management", () => {
     await interaction.click(screen.getByRole("button", { name: "Select all 2" }));
     await interaction.click(screen.getByRole("button", { name: "Delete" }));
 
-    expect(await screen.findByRole("heading", { name: "Delete 2 artifacts?" })).toBeInTheDocument();
-    expect(screen.getByText(/Versions, Publications, Share links, and stored files/i)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Delete 2 Artifacts?" })).toBeInTheDocument();
+    expect(screen.getByText(/Share links, Gallery proposals, and Gallery URLs/i)).toBeInTheDocument();
     await interaction.click(screen.getByRole("button", { name: "Delete 2 artifacts" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/artifacts/artifact-alpha", expect.objectContaining({ method: "DELETE" })));
@@ -555,9 +569,9 @@ describe("Artifact management", () => {
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Report" })).toBeInTheDocument();
-    expect(screen.getByText("Not published")).toHaveAttribute("data-slot", "badge");
+    expect(screen.getByText("Not active")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Preview" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Publish" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Share with link" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Unpublish" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
   });
@@ -879,9 +893,37 @@ describe("Artifact management", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Published")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Manage publication" })).toBeEnabled();
-    expect(screen.queryByRole("button", { name: "Publish" })).not.toBeInTheDocument();
+    expect(await screen.findByText("Active")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Manage link" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Share with link" })).not.toBeInTheDocument();
+  });
+
+  it("shows Restricted independently and keeps only non-expanding sharing management", async () => {
+    const interaction = userEvent.setup();
+    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    stubFetch([
+      json({ user }),
+      json({
+        artifact: artifact({
+          processingState: "ready",
+          readyVersion: { id: "version-1", state: "ready" },
+          publication: publication(),
+          publicationStatus: "published",
+          publicSharingRestriction: { state: "restricted" },
+          allowedActions: ["rename", "preview", "manage_publication", "unpublish", "export", "delete"]
+        })
+      })
+    ]);
+
+    render(<App />);
+
+    expect(await screen.findByText("Restricted")).toBeInTheDocument();
+    expect(screen.getByText("Active")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy Share link" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Share with link" })).not.toBeInTheDocument();
+    await interaction.click(screen.getByRole("button", { name: "Manage link" }));
+    expect(screen.getByRole("button", { name: "Unpublish" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Save link settings" })).not.toBeInTheDocument();
   });
 
   it("shows a failed upload summary and only its allowed recovery action", async () => {
@@ -956,9 +998,9 @@ describe("Artifact management", () => {
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "Refresh status" }));
 
-    expect(await screen.findByText("Not published")).toBeInTheDocument();
+    expect(await screen.findByText("Not active")).toBeInTheDocument();
     expect(screen.getByText("Status refreshed.").closest('[data-slot="alert"]')).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Publish" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Share with link" })).toBeEnabled();
   });
 
   it("retries a recoverable failure against its current Upload session", async () => {
@@ -1106,7 +1148,7 @@ describe("Artifact management", () => {
     expect(screen.getByText("The only root HTML file was selected as the entry file.")).toBeInTheDocument();
     expect(screen.getByText("report.html")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Preview" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Publish" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Share with link" })).toBeEnabled();
   });
 
   it("blocks replacement before upload when ZIP preflight finds a primary issue", async () => {
@@ -1203,13 +1245,13 @@ describe("Artifact management", () => {
     window.history.replaceState(null, "", "/artifacts/artifact-1");
 
     render(<App />);
-    await interaction.click(await screen.findByRole("button", { name: "Publish" }));
-    await interaction.click(screen.getByRole("button", { name: "Publish" }));
-    expect(screen.getByRole("button", { name: "LoadingPublish" })).toBeDisabled();
+    await interaction.click(await screen.findByRole("button", { name: "Share with link" }));
+    await interaction.click(screen.getByRole("button", { name: "Share with link" }));
+    expect(screen.getByRole("button", { name: "LoadingShare with link" })).toBeDisabled();
     resolvePublication(json({ error: { code: "version_not_ready", message: "Version is not ready." } }, 409));
 
     expect(await screen.findByText("Version is not ready.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Publish" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Share with link" })).toBeEnabled();
   });
 
   it("copies the stable Share link and reports clipboard failure", async () => {
@@ -1245,8 +1287,8 @@ describe("Artifact management", () => {
     ]);
 
     render(<App />);
-    await interaction.click(await screen.findByRole("button", { name: "Publish" }));
-    await interaction.click(screen.getByRole("button", { name: "Publish" }));
+    await interaction.click(await screen.findByRole("button", { name: "Share with link" }));
+    await interaction.click(screen.getByRole("button", { name: "Share with link" }));
 
     expect(await screen.findByRole("heading", { name: "Log in" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/");
@@ -1285,15 +1327,15 @@ describe("Artifact management", () => {
 
     render(<App />);
     expect(await screen.findByText("Created when published")).toBeInTheDocument();
-    await interaction.click(screen.getByRole("button", { name: "Publish" }));
-    expect(await screen.findByRole("heading", { name: "Publish artifact" })).toBeInTheDocument();
+    await interaction.click(screen.getByRole("button", { name: "Share with link" }));
+    expect(await screen.findByRole("heading", { name: "Share with link" })).toBeInTheDocument();
     expect(screen.getByLabelText("Share link")).toHaveValue("Available after publishing");
     expect(screen.getByRole("button", { name: "Copy Share link" })).toBeDisabled();
     expect(screen.getByRole("combobox", { name: "Access period" })).toHaveAttribute("data-slot", "select-trigger");
-    await interaction.click(screen.getByRole("button", { name: "Publish" }));
+    await interaction.click(screen.getByRole("button", { name: "Share with link" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/artifacts/artifact-1/publications", expect.objectContaining({ method: "POST", body: JSON.stringify({ versionId: "version-1", expiration: { kind: "permanent" }, link: { mode: "reuse" } }) })));
-    expect(await screen.findByRole("heading", { name: "Artifact published" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Link sharing active" })).toBeInTheDocument();
     expect(screen.getByLabelText("Share link")).toHaveValue("https://view.example.test/a/new-link/");
     expect(screen.getByRole("button", { name: "Copy Share link" })).toBeEnabled();
   });
@@ -1310,7 +1352,7 @@ describe("Artifact management", () => {
     const fetchMock = stubFetch([json({ user }), json({ artifact: ready })]);
 
     render(<App />);
-    await interaction.click(await screen.findByRole("button", { name: "Publish" }));
+    await interaction.click(await screen.findByRole("button", { name: "Share with link" }));
     await interaction.click(screen.getByRole("combobox", { name: "Access period" }));
     await interaction.click(await screen.findByRole("option", { name: "Custom date and time" }));
 
@@ -1319,7 +1361,7 @@ describe("Artifact management", () => {
     await interaction.click(screen.getByRole("button", { name: "Choose date" }));
     expect(document.querySelector('[data-slot="calendar"]')).toBeInTheDocument();
     await interaction.keyboard("{Escape}");
-    await interaction.click(screen.getByRole("button", { name: "Publish" }));
+    await interaction.click(screen.getByRole("button", { name: "Share with link" }));
 
     expect(await screen.findByText("Choose a future expiration date and time. Use Unpublish to end access now.")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -1331,9 +1373,9 @@ describe("Artifact management", () => {
     const fetchMock = stubFetch([json({ user }), json({ artifact: artifact({ processingState: "ready", readyVersion: { id: "version-1", state: "ready" }, publicationStatus: "expired", publication: publication(), allowedActions: ["publish"] }) })]);
 
     render(<App />);
-    await interaction.click(await screen.findByRole("button", { name: "Publish" }));
+    await interaction.click(await screen.findByRole("button", { name: "Share with link" }));
     await interaction.click(screen.getByRole("checkbox", { name: "Generate a new Share link" }));
-    await interaction.click(screen.getByRole("button", { name: "Publish" }));
+    await interaction.click(screen.getByRole("button", { name: "Share with link" }));
 
     expect(await screen.findByText("Confirm that the previous link will permanently stop working.")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -1347,14 +1389,14 @@ describe("Artifact management", () => {
     const fetchMock = stubFetch([json({ user }), json({ artifact: published }), new Response(null, { status: 204 }), json({ artifact: unpublished })]);
 
     render(<App />);
-    await interaction.click(await screen.findByRole("button", { name: "Manage publication" }));
+    await interaction.click(await screen.findByRole("button", { name: "Manage link" }));
     expect(screen.getByRole("button", { name: "Copy Share link" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: /^Save$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save link settings" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Done$/ })).not.toBeInTheDocument();
     await interaction.click(screen.getByRole("button", { name: "Unpublish" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/artifacts/artifact-1/publications/publication-1", expect.objectContaining({ method: "DELETE" })));
-    expect(await screen.findByText("Unpublished")).toBeInTheDocument();
+    expect(await screen.findByText("Stopped")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("button", { name: "Copy Share link" })).not.toBeInTheDocument());
   });
 });
@@ -1376,6 +1418,7 @@ function artifact(overrides: Record<string, unknown> = {}) {
     publicationStatus: "not_published",
     failure: null,
     validationReport: null,
+    publicSharingRestriction: null,
     allowedActions: ["rename", "copy_share_link"],
     ...overrides
   };

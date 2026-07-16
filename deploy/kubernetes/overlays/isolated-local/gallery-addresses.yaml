@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shareslices-config
+data:
+  NODE_ENV: test
+  WEB_ORIGIN: https://app.shareslices.test
+  API_ORIGIN: https://api.shareslices.test
+  VIEWER_ORIGIN: https://view.shareslices.test
+  BETTER_AUTH_URL: https://api.shareslices.test
+  GALLERY_ENABLED: "true"
+  GALLERY_CONTENT_ORIGIN: https://content.slices-content.test
+  GALLERY_CONTENT_REGISTRABLE_SITE: slices-content.test
+  GALLERY_MANAGEMENT_COOKIE_DOMAIN: shareslices.test
+  GALLERY_NETWORK_POLICY: deny_external
+  GALLERY_GRANT_REVISION: gallery-grant-v1
+  GALLERY_APPEAL_POLICY_REVISION: gallery-appeal-v1
+  GALLERY_CHALLENGE_VERIFIER_READY: "true"
+  GALLERY_ADMINISTRATOR_AUTHORITY_READY: "true"
+  GALLERY_REPORTING_READY: "true"
+  GALLERY_NOTIFICATION_READY: "true"
+  GALLERY_APPEAL_READY: "true"
+  GALLERY_GOVERNANCE_READY: "true"
+  GALLERY_ISOLATED_CONTENT_READY: "true"

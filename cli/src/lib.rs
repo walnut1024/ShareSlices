@@ -6,6 +6,7 @@ mod auth_continuation;
 mod cli_runner;
 mod command_line;
 mod credential_store;
+mod gallery_commands;
 mod model;
 mod packaging;
 
@@ -31,15 +32,20 @@ pub use auth_continuation::{
 };
 pub use cli_runner::{agent_operation_id, run_cli_process};
 pub use command_line::{
-    ArtifactCommand, ArtifactDeleteArgs, ArtifactExportArgs, ArtifactListArgs,
-    ArtifactPublicationCommand, ArtifactPublicationEditArgs, ArtifactPublicationViewArgs,
-    ArtifactPublishArgs, ArtifactUnpublishArgs, ArtifactUploadArgs, AuthCommand, Cli, Command,
-    ProcessingFilter, PublicationFilter, PublishArgs,
+    ArtifactCommand, ArtifactDeleteArgs, ArtifactExportArgs, ArtifactGalleryCommand,
+    ArtifactGalleryMutationArgs, ArtifactGalleryViewArgs, ArtifactGalleryWithdrawArgs,
+    ArtifactListArgs, ArtifactPublicationCommand, ArtifactPublicationEditArgs,
+    ArtifactPublicationViewArgs, ArtifactPublishArgs, ArtifactUnpublishArgs, ArtifactUploadArgs,
+    AuthCommand, Cli, Command, ProcessingFilter, PublicationFilter, PublishArgs,
 };
 pub use credential_store::KeyringCredentialStore;
+pub use gallery_commands::run_gallery_command;
 pub use model::{
     ApiErrorEvidence, Artifact, ArtifactAccepted, ArtifactDetail, ArtifactError, ArtifactFailure,
-    ArtifactPublication, ArtifactShareLink, ArtifactState, ExpirationPolicy, PublicationResult,
-    PublicationStatus, PublishedResult, ReadyArtifactVersion, ReadyVersion, UploadPolicy,
+    ArtifactPublication, ArtifactShareLink, ArtifactState, ExpirationPolicy,
+    GalleryCommittedRevision, GalleryEffectiveAccess, GalleryListingResource, GalleryMetadata,
+    GalleryPermissionEvidence, GalleryPermissionGrant, GalleryProposedRevision, GalleryViewResult,
+    PublicationResult, PublicationStatus, PublishedResult, ReadyArtifactVersion, ReadyVersion,
+    UploadPolicy,
 };
 pub use model::{AuthApi, AuthError, Authorization, CredentialStore, Exchange, User};

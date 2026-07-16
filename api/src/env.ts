@@ -23,6 +23,22 @@ const envSchema = z
     WEB_ORIGIN: z.string().url(),
     API_ORIGIN: z.string().url(),
     VIEWER_ORIGIN: z.string().url(),
+    GALLERY_ENABLED: booleanString.default(false),
+    GALLERY_CONTENT_ORIGIN: z.preprocess((value) => value === "" ? undefined : value, z.string().url().optional()),
+    GALLERY_CONTENT_REGISTRABLE_SITE: z.preprocess((value) => value === "" ? undefined : value, z.string().min(1).optional()),
+    GALLERY_CONTENT_PORT: z.coerce.number().int().positive().default(7460),
+    GALLERY_MANAGEMENT_COOKIE_DOMAIN: z.preprocess((value) => value === "" ? undefined : value, z.string().min(1).optional()),
+    GALLERY_NETWORK_POLICY: z.enum(["deny_external"]).default("deny_external"),
+    GALLERY_GRANT_REVISION: z.preprocess((value) => value === "" ? undefined : value, revision.optional()),
+    GALLERY_APPEAL_POLICY_REVISION: z.preprocess((value) => value === "" ? undefined : value, revision.optional()),
+    GALLERY_CHALLENGE_VERIFIER_READY: booleanString.default(false),
+    GALLERY_TURNSTILE_SECRET: optionalSecret(16),
+    GALLERY_ADMINISTRATOR_AUTHORITY_READY: booleanString.default(false),
+    GALLERY_REPORTING_READY: booleanString.default(false),
+    GALLERY_NOTIFICATION_READY: booleanString.default(false),
+    GALLERY_APPEAL_READY: booleanString.default(false),
+    GALLERY_GOVERNANCE_READY: booleanString.default(false),
+    GALLERY_ISOLATED_CONTENT_READY: booleanString.default(false),
     S3_ENDPOINT: z.string().url(),
     S3_REGION: z.string().min(1),
     S3_BUCKET: z.string().regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/),
@@ -86,6 +102,16 @@ const envSchema = z
         path: ["WORKER_JOB_HEARTBEAT_SECONDS"],
         message: "Worker heartbeat must be shorter than the job lease."
       });
+    }
+    if (value.GALLERY_ENABLED && (!value.GALLERY_CONTENT_ORIGIN || !value.GALLERY_CONTENT_REGISTRABLE_SITE)) {
+      context.addIssue({
+        code: "custom",
+        path: ["GALLERY_CONTENT_ORIGIN"],
+        message: "Enabled Gallery requires an explicit content Origin and registrable site."
+      });
+    }
+    if (value.GALLERY_CHALLENGE_VERIFIER_READY && !value.GALLERY_TURNSTILE_SECRET) {
+      context.addIssue({code:"custom",path:["GALLERY_TURNSTILE_SECRET"],message:"Challenge-verifier readiness requires a configured Turnstile secret."});
     }
     const smtpUrl = new URL(value.AUTH_EMAIL_SMTP_URL);
     if (!(["smtp:", "smtps:"] as const).includes(smtpUrl.protocol as "smtp:" | "smtps:")) {

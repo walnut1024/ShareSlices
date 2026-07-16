@@ -47,6 +47,8 @@ describe("account entry screens", () => {
 
     expect(await screen.findByRole("heading", { name: "Check your email" })).toBeInTheDocument();
     expect(screen.getByText(/a\*\*\*@example.com/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Send again in/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Use a different email" })).toHaveAttribute("type", "button");
     await user.type(screen.getByLabelText("Verification code"), "123 456");
     await user.click(screen.getByRole("button", { name: "Verify email" }));
     expect(await screen.findByRole("heading", { name: "Email verified" })).toBeInTheDocument();

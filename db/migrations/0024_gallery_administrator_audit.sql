@@ -1,0 +1,2 @@
+create table gallery_administrator_audit_event(id text primary key,actor_user_id text references "user"(id) on delete restrict,subject_user_id text references "user"(id) on delete restrict,action text not null check(action in ('grant','revoke','queue_read','case_read','decision','appeal_read','featured_change')),resource_id text,created_at timestamptz not null default now());
+create index gallery_administrator_audit_actor_idx on gallery_administrator_audit_event(actor_user_id,created_at desc);

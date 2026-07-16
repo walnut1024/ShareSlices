@@ -1,7 +1,7 @@
 use crate::{
     ApiErrorEvidence, Artifact, ArtifactAccepted, ArtifactDetail, ArtifactError, ArtifactState,
-    AuthApi, AuthError, Authorization, Exchange, ExpirationPolicy, ProcessingFilter,
-    PublicationFilter, PublishedResult, ReadyArtifactVersion, UploadPolicy, User,
+    AuthApi, AuthError, Authorization, Exchange, ExpirationPolicy, GalleryViewResult,
+    ProcessingFilter, PublicationFilter, PublishedResult, ReadyArtifactVersion, UploadPolicy, User,
 };
 use async_trait::async_trait;
 use reqwest::{Client, Response, StatusCode};
@@ -37,6 +37,101 @@ struct ErrorBody {
 }
 
 impl ApiClient {
+    /// Reads owner Gallery state together with current permission availability.
+    ///
+    /// # Errors
+    /// Returns an Artifact error for authentication, transport, or invalid Server responses.
+    pub async fn gallery_view(
+        &self,
+        token: &str,
+        artifact_id: &str,
+    ) -> Result<GalleryViewResult, ArtifactError> {
+        let listing = self
+            .gallery_json(
+                self.request(
+                    reqwest::Method::GET,
+                    &format!("/api/artifacts/{artifact_id}/gallery-listing"),
+                )
+                .bearer_auth(token),
+            )
+            .await?;
+        let grant = self
+            .gallery_json(
+                self.request(reqwest::Method::GET, "/api/gallery/permission-grant")
+                    .bearer_auth(token),
+            )
+            .await;
+        let profile = self
+            .gallery_json(
+                self.request(reqwest::Method::GET, "/api/gallery/profile")
+                    .bearer_auth(token),
+            )
+            .await?;
+        let current_grant = grant
+            .ok()
+            .and_then(|value| value.get("grant").cloned())
+            .filter(|value| !value.is_null());
+        let listing = listing
+            .get("listing")
+            .or_else(|| listing.get("gallery"))
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        let historical = listing
+            .get("historicalGrantEvidence")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!([]));
+        let grant_available = current_grant.is_some();
+        serde_json::from_value(serde_json::json!({
+            "artifactId": artifact_id,
+            "listing": listing,
+            "currentGrant": current_grant,
+            "historicalGrantEvidence": historical,
+            "grantAvailability": if grant_available { "available" } else { "no_current_grant" },
+            "profileRequirement": if profile.get("profile").is_none_or(serde_json::Value::is_null) { Some("confirm_display_name") } else { None::<&str> }
+        }))
+        .map_err(|_| ArtifactError::Server)
+    }
+
+    /// Sends one idempotent, revision-checked Gallery owner mutation.
+    ///
+    /// # Errors
+    /// Returns an Artifact error for authorization, conflicts, transport, or invalid responses.
+    pub async fn gallery_mutate(
+        &self,
+        token: &str,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<&serde_json::Value>,
+        idempotency_key: &str,
+        listing_revision: Option<u64>,
+    ) -> Result<serde_json::Value, ArtifactError> {
+        let mut request = self
+            .request(method, path)
+            .bearer_auth(token)
+            .header("Idempotency-Key", idempotency_key);
+        if let Some(revision) = listing_revision {
+            request = request.header("If-Match", format!("\"{revision}\""));
+        }
+        if let Some(body) = body {
+            request = request.json(body);
+        }
+        self.gallery_json(request).await
+    }
+
+    async fn gallery_json(
+        &self,
+        request: reqwest::RequestBuilder,
+    ) -> Result<serde_json::Value, ArtifactError> {
+        let response = request
+            .send()
+            .await
+            .map_err(|error| ArtifactError::Network(error.to_string()))?;
+        if !response.status().is_success() {
+            return Err(Self::artifact_error(response).await);
+        }
+        response.json().await.map_err(|_| ArtifactError::Server)
+    }
+
     /// Downloads one owned ready Version as a normalized ZIP.
     ///
     /// # Errors

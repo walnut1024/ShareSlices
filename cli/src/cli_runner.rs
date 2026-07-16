@@ -194,6 +194,18 @@ fn infer_agent_operation(arguments: &[OsString]) -> &'static str {
             "artifact.publication.view"
         };
     }
+    if values.contains(&"gallery") {
+        if values.contains(&"share") {
+            return "artifact.gallery.share";
+        }
+        if values.contains(&"update") {
+            return "artifact.gallery.update";
+        }
+        if values.contains(&"withdraw") {
+            return "artifact.gallery.withdraw";
+        }
+        return "artifact.gallery.view";
+    }
     for (name, operation) in [
         ("upload", "artifact.upload"),
         ("publish", "artifact.publish"),
@@ -748,6 +760,12 @@ fn artifact_id_for_command(command: &ArtifactCommand) -> Option<String> {
         ArtifactCommand::Unpublish(args) => args.artifact.clone(),
         ArtifactCommand::Delete(args) => args.artifact.clone(),
         ArtifactCommand::Export(args) => args.artifact.clone(),
+        ArtifactCommand::Gallery { command } => Some(match command {
+            crate::ArtifactGalleryCommand::View(args) => args.artifact.clone(),
+            crate::ArtifactGalleryCommand::Share(args)
+            | crate::ArtifactGalleryCommand::Update(args) => args.artifact.clone(),
+            crate::ArtifactGalleryCommand::Withdraw(args) => args.artifact.clone(),
+        }),
         ArtifactCommand::Publication { command } => match command {
             ArtifactPublicationCommand::View(args) => args.artifact.clone(),
             ArtifactPublicationCommand::Edit(args) => args.artifact.clone(),
@@ -819,6 +837,12 @@ fn force_agent_presentation(command: &mut ArtifactCommand) {
                 "artifactId,versionId,publicationState,expiresAt,url,copyEligible",
             ),
         },
+        ArtifactCommand::Gallery { command } => match command {
+            crate::ArtifactGalleryCommand::View(args) => args.agent_mode = true,
+            crate::ArtifactGalleryCommand::Share(args)
+            | crate::ArtifactGalleryCommand::Update(args) => args.agent_mode = true,
+            crate::ArtifactGalleryCommand::Withdraw(args) => args.agent_mode = true,
+        },
         ArtifactCommand::Delete(_) => {}
     }
 }
@@ -829,6 +853,31 @@ fn agent_resources(operation: &str, value: &serde_json::Value) -> serde_json::Va
     }
     if operation == "artifact.list" {
         return serde_json::json!({});
+    }
+    if operation.starts_with("artifact.gallery.") {
+        let listing = value
+            .get("listing")
+            .filter(|listing| !listing.is_null())
+            .cloned()
+            .or_else(|| {
+                value
+                    .get("current")
+                    .filter(|current| !current.is_null())
+                    .cloned()
+            });
+        let proposal = value
+            .get("current")
+            .and_then(|current| current.get("proposal"))
+            .filter(|proposal| !proposal.is_null())
+            .cloned();
+        let mut resources = serde_json::Map::new();
+        if let Some(listing) = listing {
+            resources.insert("listing".to_owned(), listing);
+        }
+        if let Some(proposal) = proposal {
+            resources.insert("proposal".to_owned(), proposal);
+        }
+        return serde_json::Value::Object(resources);
     }
     let mut resources = serde_json::Map::new();
     if let Some(id) = value.get("artifactId") {
@@ -1168,7 +1217,7 @@ const fn has_agent_presentation_conflict(command: &Command) -> bool {
     match command {
         Command::Capabilities | Command::Publish(_) | Command::Auth { .. } => false,
         Command::Artifact { command } => match command {
-            ArtifactCommand::Delete(_) => false,
+            ArtifactCommand::Delete(_) | ArtifactCommand::Gallery { .. } => false,
             ArtifactCommand::List(args) => {
                 args.json.is_some() || args.jq.is_some() || args.template.is_some()
             }
@@ -1217,6 +1266,12 @@ pub const fn agent_operation_id(command: &Command) -> &'static str {
                 ArtifactPublicationCommand::Edit(_) => "artifact.publication.edit",
             },
             ArtifactCommand::Export(_) => "artifact.export",
+            ArtifactCommand::Gallery { command } => match command {
+                crate::ArtifactGalleryCommand::View(_) => "artifact.gallery.view",
+                crate::ArtifactGalleryCommand::Share(_) => "artifact.gallery.share",
+                crate::ArtifactGalleryCommand::Update(_) => "artifact.gallery.update",
+                crate::ArtifactGalleryCommand::Withdraw(_) => "artifact.gallery.withdraw",
+            },
         },
     }
 }
@@ -1265,5 +1320,31 @@ const fn auth_exit_code(error: &AuthError) -> i32 {
         4
     } else {
         1
+    }
+}
+
+#[cfg(test)]
+mod gallery_agent_resource_tests {
+    use super::agent_resources;
+
+    #[test]
+    fn view_preserves_gallery_evidence_without_inventing_publication_resources() {
+        let value = serde_json::json!({"listing": {"id":"listing-1","effectiveAccess":{"accessible":false,"restrictions":["not_listed"]},
+          "closureReason":"owner_withdrawal","allowedActions":["share_to_gallery"]}, "currentGrant":null,
+          "historicalGrantEvidence":[{"grantVersion":"grant-1","acceptedAt":"2026-07-16T00:00:00Z"}]});
+        let resources = agent_resources("artifact.gallery.view", &value);
+        assert_eq!(resources["listing"]["closureReason"], "owner_withdrawal");
+        assert!(resources.get("publication").is_none());
+        assert!(resources.get("shareLink").is_none());
+    }
+
+    #[test]
+    fn mutation_resources_include_only_confirmed_listing_and_proposal_ids() {
+        let value = serde_json::json!({"historicalOutcome":{"operationId":"goperation-1"},"current":{"id":"listing-1","revision":4,"lifecycle":"pending",
+          "proposal":{"id":"proposal-1"},"publicationId":"must-not-project"}});
+        let resources = agent_resources("artifact.gallery.share", &value);
+        assert_eq!(resources["listing"]["id"], "listing-1");
+        assert_eq!(resources["proposal"]["id"], "proposal-1");
+        assert!(resources.get("publication").is_none());
     }
 }

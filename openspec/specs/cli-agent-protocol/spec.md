@@ -1,8 +1,11 @@
 # cli-agent-protocol Specification
 
 ## Purpose
+
 TBD - created by archiving change add-resumable-agent-cli-protocol. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Opt into a separate Agent protocol
 
 The CLI SHALL expose `--agent` as a global opt-in mode for executable commands. Every operational Agent invocation MUST also supply `--agent-protocol <version>` selected from capability discovery. `shareslices --agent capabilities` SHALL omit that selector and use a permanently additive version 1 discovery shape. Invocations without `--agent` MUST preserve their existing human-readable output, prompts, progress, formatting flags, and exit behavior.
@@ -53,13 +56,17 @@ The version 1 operation set SHALL use these canonical identifiers:
 - `artifact.publication.view`
 - `artifact.publication.edit`
 - `artifact.export`
+- `artifact.gallery.view`
+- `artifact.gallery.share`
+- `artifact.gallery.update`
+- `artifact.gallery.withdraw`
 
-The advertised operation set MUST equal the Agent-enabled executable command set in the production parser.
+The advertised operation set MUST equal the Agent-enabled executable command set in the production parser. It MUST NOT advertise public Gallery browse, Save a copy, Download, Report, moderation, or Featured operations in protocol version 1.
 
 #### Scenario: Discover capabilities offline
 
 - **WHEN** an unauthenticated caller runs `shareslices --agent capabilities` while the Server is unreachable
-- **THEN** the CLI returns a completed capability result containing the complete deterministic local protocol and operation set
+- **THEN** the CLI returns a completed capability result containing the complete deterministic local protocol and operation set, including the four owner Gallery operations
 
 #### Scenario: Detect incomplete command coverage
 
@@ -75,6 +82,16 @@ The advertised operation set MUST equal the Agent-enabled executable command set
 
 - **WHEN** a caller reads Agent capabilities
 - **THEN** it receives the fixed processing wait budget that Upload and high-level Publish will use after Server acceptance
+
+#### Scenario: Discover the Gallery permission action
+
+- **WHEN** a caller reads the advertised Agent action kinds
+- **THEN** it finds `accept_permission` as the canonical action for accepting an evidenced Gallery permission grant
+
+#### Scenario: Public Gallery operation is not advertised
+
+- **WHEN** a caller inspects Agent capabilities for the first Gallery release
+- **THEN** it finds owner Gallery view, share, update, and withdraw but no public browse, copy, download, report, moderation, or Featured operation
 
 ### Requirement: Emit one versioned outcome envelope
 
@@ -147,9 +164,11 @@ The process SHALL exit with code `0` for `completed`, `2` for `cancelled`, `4` f
 
 ### Requirement: Preserve evidence without inventing facts
 
-`resources` SHALL contain only Server-accepted or durable Artifact, Upload session, Version, Publication, and Share-link resources known to exist. `data` SHALL contain only operation-specific facts known by the CLI. An error SHALL preserve the stable Server error code, sanitized message, request identifier, field errors, typed details, validation report, recoverability, allowed actions, and retry timing when those facts are present.
+`resources` SHALL contain only Server-accepted or durable Artifact, Upload session, Version, Publication, Share-link, Gallery-listing, and related management resources known to exist. `data` SHALL contain only operation-specific facts known by the CLI. An error SHALL preserve the stable Server error code, sanitized message, request identifier, field errors, typed details, validation report, recoverability, allowed actions, and retry timing when those facts are present.
 
-The CLI MUST NOT fabricate missing Server facts, infer a successful resource from intent, or treat an error message as a machine code. When optional evidence is unavailable, the CLI SHALL omit it and choose a conservative outcome or next action. Agent output MUST NOT expose credentials, cookies, raw device codes, Session secrets, object-storage locations, or raw exception evidence.
+For Gallery operations, the CLI SHALL distinguish an intended listing from a confirmed listing and a non-public proposal from a committed public revision. It SHALL preserve only known committed and proposed fixed-Version, lifecycle, review, effective-access status and stable blocking category, current terminal closure reason, URL, listing revision, proposal identity, proposal state, base revision, permission-grant, and allowed-action evidence. Whenever permission acceptance is required and a current grant exists, the Agent envelope SHALL preserve the exact current permission-grant revision and exact grant text as structured evidence and MAY also preserve its stable digest. If no current grant exists, it SHALL preserve the stable unavailable result plus any historical accepted-grant evidence and MUST NOT fabricate current terms or an `accept_permission` action. It MUST NOT infer, summarize, or substitute permission evidence, infer a Gallery listing from a Publication, infer a Publication from a Gallery listing, or infer proposal acceptance, public promotion, withdrawal, or another transition from the requested intent.
+
+The CLI MUST NOT fabricate missing Server facts, infer a successful resource from intent, or treat an error message as a machine code. When optional evidence is unavailable, the CLI SHALL omit it and choose a conservative outcome or next action. Agent output MUST NOT expose credentials, cookies, raw device codes, Session secrets, object-storage locations, raw governance evidence, reporter identity, or raw exception evidence.
 
 #### Scenario: Server returns validation evidence
 
@@ -163,14 +182,41 @@ The CLI MUST NOT fabricate missing Server facts, infer a successful resource fro
 
 #### Scenario: Durable resource is not confirmed
 
-- **WHEN** the CLI cannot prove that an intended Artifact, Version, Publication, or Share link exists
+- **WHEN** the CLI cannot prove that an intended Artifact, Version, Publication, Share link, or Gallery listing exists
 - **THEN** it excludes that resource and does not report it as completed
+
+#### Scenario: Gallery update is indeterminate
+
+- **WHEN** a Gallery update was transmitted but the CLI cannot confirm proposal acceptance or public promotion
+- **THEN** the outcome preserves the previously known committed listing and Version, reports indeterminate, and directs state inspection without claiming either transition
+
+#### Scenario: Gallery proposal remains active
+
+- **WHEN** the Server confirms a durable initial or update proposal whose checks or review have not reached a terminal decision
+- **THEN** the outcome is `in_progress`, preserves the listing and proposal as distinct resources, and directs structured state inspection or delayed retry
+- **AND** it does not report the proposed revision as committed or public
+
+#### Scenario: Gallery withdraw is indeterminate
+
+- **WHEN** a Gallery withdrawal may have reached the Server but URL retirement cannot be confirmed
+- **THEN** the outcome preserves the known listing identity, does not report Withdrawn, and directs read-only inspection before any replay
+
+#### Scenario: Gallery permission acceptance is required
+
+- **WHEN** an Agent Gallery operation requires acceptance of the current permission grant
+- **THEN** the envelope preserves the exact grant revision and exact text from authoritative evidence and may also preserve its stable digest
+- **AND** it does not replace that evidence with display prose or an inferred permission
+
+#### Scenario: Current Gallery permission is unavailable
+
+- **WHEN** the Server reports that no current Gallery permission grant is configured
+- **THEN** the envelope preserves stable unavailability and any historical accepted-grant evidence without a current grant, fabricated text, or `accept_permission` next action
 
 ### Requirement: Return one standardized next action
 
-When an outcome has an actionable continuation, `nextAction.kind` SHALL be one of `authorize`, `resolve_ambiguity`, `confirm_irreversible`, `install_or_upgrade`, `change_local_input`, `inspect_state`, `retry_later`, or `contact_support`. The next action SHALL include a concise instruction and only the structured parameters supported by authoritative evidence and the current command contract.
+When an outcome has an actionable continuation, `nextAction.kind` SHALL be one of `authorize`, `resolve_ambiguity`, `accept_permission`, `confirm_irreversible`, `install_or_upgrade`, `change_local_input`, `inspect_state`, `retry_later`, or `contact_support`. The next action SHALL include a concise instruction and only the structured parameters supported by authoritative evidence and the current command contract.
 
-An `action_required` outcome MUST contain a next action. `indeterminate` MUST direct state inspection rather than blind mutation replay. Retry timing MUST NOT by itself grant permission to retry a non-idempotent or uncertain operation.
+An `accept_permission` next action SHALL identify the target operation and resource, the exact current permission-grant revision, and the exact grant text, and MAY also include its stable digest. It MUST NOT be represented as `confirm_irreversible`, and `confirm_irreversible` MUST remain reserved for an operation whose consequences are actually irreversible. An `action_required` outcome MUST contain a next action. `indeterminate` MUST direct state inspection rather than blind mutation replay. Retry timing MUST NOT by itself grant permission to retry a non-idempotent or uncertain operation.
 
 #### Scenario: Authentication is missing
 
@@ -186,6 +232,22 @@ An `action_required` outcome MUST contain a next action. `indeterminate` MUST di
 
 - **WHEN** local selection or Server state produces multiple reasonable Entry files, Artifacts, Versions, or targets and no deterministic rule selects one
 - **THEN** the CLI returns `action_required` with `resolve_ambiguity` and performs no mutation
+
+#### Scenario: Gallery permission must be accepted
+
+- **WHEN** Gallery share or a Gallery update with a Version change or policy-required renewal requires acceptance of the current permission grant
+- **THEN** the CLI returns `action_required` with `accept_permission`, the target operation and resource, the exact grant revision, and exact grant text, with an optional stable digest
+- **AND** it performs no mutation and does not return `confirm_irreversible` for that permission decision
+
+#### Scenario: Irreversible Gallery withdrawal must be confirmed
+
+- **WHEN** Gallery withdrawal lacks confirmation of permanent URL retirement
+- **THEN** the CLI returns `action_required` with `confirm_irreversible` and performs no mutation
+
+#### Scenario: Irreversible Gallery replacement must be confirmed
+
+- **WHEN** Gallery share would permanently forfeit restoration of a previously public `administrator_removal` listing and lacks that confirmation
+- **THEN** the CLI returns `action_required` with `confirm_irreversible`, the affected predecessor, and the permanent URL, identity, counter, and restoration consequences without performing a mutation
 
 #### Scenario: No reliable automated recovery exists
 
@@ -205,4 +267,3 @@ Every operation advertised by Agent capabilities MUST use the common envelope fo
 
 - **WHEN** release validation finds an official Skill operation without version 1 Agent coverage
 - **THEN** the revised Agent-mode Skill is not released
-

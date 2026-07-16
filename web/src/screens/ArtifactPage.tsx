@@ -1,4 +1,15 @@
-import { CheckCircle2, Clipboard, Eye, Pencil, RefreshCw, Rocket, Settings2, Upload } from "lucide-react";
+import {
+  CheckCircle2,
+  Clipboard,
+  Eye,
+  Globe2,
+  Pencil,
+  RefreshCw,
+  Rocket,
+  Settings2,
+  TriangleAlert,
+  Upload,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   type Artifact,
@@ -8,9 +19,13 @@ import {
   getUploadPolicy,
   replaceArtifactFile,
   retryUploadSession,
-  updateArtifactName
+  updateArtifactName,
 } from "../api/artifacts";
 import { ArtifactShareDialog } from "./ArtifactShareDialog";
+import { ArtifactGalleryDialog } from "./ArtifactGalleryDialog";
+import {
+  type OwnerGalleryListing,
+} from "../api/gallery";
 import { preflightArtifactZip } from "../artifacts/archive-preflight-client";
 import { artifactPreviewUrl } from "../artifacts/preview";
 import { ArtifactStatus } from "../components/ArtifactStatus";
@@ -22,13 +37,20 @@ import { Input } from "../components/ui/input";
 import { Separator } from "../components/ui/separator";
 import { Spinner } from "../components/ui/spinner";
 
-type PendingAction = "refresh" | "retry" | "replace_file" | "preview" | "publish" | "unpublish" | "copy_share_link";
+type PendingAction =
+  | "refresh"
+  | "retry"
+  | "replace_file"
+  | "preview"
+  | "publish"
+  | "unpublish"
+  | "copy_share_link";
 type ActionFeedback = { kind: "success" | "error"; message: string };
 type IdempotentAction = "retry" | "replace_file" | "publish";
 
 export function ArtifactPage({
   artifactId,
-  onSessionExpired
+  onSessionExpired,
 }: {
   artifactId: string;
   onSessionExpired: () => void;
@@ -38,11 +60,22 @@ export function ArtifactPage({
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
-  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
-  const [actionFeedback, setActionFeedback] = useState<ActionFeedback | null>(null);
-  const [publicationDialog, setPublicationDialog] = useState<"publish" | "manage" | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(
+    null,
+  );
+  const [actionFeedback, setActionFeedback] = useState<ActionFeedback | null>(
+    null,
+  );
+  const [publicationDialog, setPublicationDialog] = useState<
+    "publish" | "manage" | null
+  >(null);
+  const [galleryDialog, setGalleryDialog] = useState(false);
+  const [galleryListing, setGalleryListing] =
+    useState<OwnerGalleryListing | null>(null);
   const [preflightWarning, setPreflightWarning] = useState<string | null>(null);
-  const [preflightIssue, setPreflightIssue] = useState<ValidationNotice | null>(null);
+  const [preflightIssue, setPreflightIssue] = useState<ValidationNotice | null>(
+    null,
+  );
   const replacementInput = useRef<HTMLInputElement>(null);
   const replacementFingerprint = useRef<string | null>(null);
   const idempotencyKeys = useRef<Partial<Record<IdempotentAction, string>>>({});
@@ -63,7 +96,11 @@ export function ArtifactPage({
           onSessionExpired();
           return;
         }
-        setError(reason instanceof Error ? reason.message : "Artifact could not be loaded.");
+        setError(
+          reason instanceof Error
+            ? reason.message
+            : "Artifact could not be loaded.",
+        );
       });
     return () => {
       active = false;
@@ -86,7 +123,12 @@ export function ArtifactPage({
       setName(updated.name);
       setEditing(false);
     } catch (reason) {
-      handleRequestError(reason, "The name could not be updated.", setError, onSessionExpired);
+      handleRequestError(
+        reason,
+        "The name could not be updated.",
+        setError,
+        onSessionExpired,
+      );
     } finally {
       setSaving(false);
     }
@@ -109,17 +151,27 @@ export function ArtifactPage({
 
   async function retry() {
     if (!artifact?.uploadSessionId) {
-      setActionFeedback({ kind: "error", message: "The failed upload session is unavailable. Refresh and try again." });
+      setActionFeedback({
+        kind: "error",
+        message:
+          "The failed upload session is unavailable. Refresh and try again.",
+      });
       return;
     }
     await runMutation("retry", "Retry queued.", async () => {
-      await retryUploadSession(artifact.uploadSessionId!, idempotencyKey("retry"));
+      await retryUploadSession(
+        artifact.uploadSessionId!,
+        idempotencyKey("retry"),
+      );
     });
   }
 
   async function replaceFile(file: File) {
     if (file.size === 0 || !file.name.toLowerCase().endsWith(".zip")) {
-      setActionFeedback({ kind: "error", message: "Choose a non-empty file with a .zip extension." });
+      setActionFeedback({
+        kind: "error",
+        message: "Choose a non-empty file with a .zip extension.",
+      });
       return;
     }
     const fingerprint = `${file.name}:${file.size}:${file.lastModified}`;
@@ -135,21 +187,36 @@ export function ArtifactPage({
       const policy = await getUploadPolicy();
       const controller = new AbortController();
       preflightController.current = controller;
-      const report = await preflightArtifactZip(file, policy, controller.signal);
+      const report = await preflightArtifactZip(
+        file,
+        policy,
+        controller.signal,
+      );
       if (report.primaryIssue) {
         setPreflightIssue(report.primaryIssue);
         return;
       }
     } catch (reason) {
-      if (reason instanceof DOMException && reason.name === "AbortError") return;
-      setPreflightWarning("ZIP preflight is unavailable. Server validation still applies.");
+      if (reason instanceof DOMException && reason.name === "AbortError")
+        return;
+      setPreflightWarning(
+        "ZIP preflight is unavailable. Server validation still applies.",
+      );
     } finally {
       preflightController.current = null;
       setPendingAction(null);
     }
-    await runMutation("replace_file", "Replacement uploaded and queued.", async () => {
-      await replaceArtifactFile(artifactId, file, idempotencyKey("replace_file"));
-    });
+    await runMutation(
+      "replace_file",
+      "Replacement uploaded and queued.",
+      async () => {
+        await replaceArtifactFile(
+          artifactId,
+          file,
+          idempotencyKey("replace_file"),
+        );
+      },
+    );
   }
 
   async function preview() {
@@ -159,32 +226,52 @@ export function ArtifactPage({
     await Promise.resolve();
     try {
       const previewWindow = window.open("about:blank", "_blank");
-      if (!previewWindow) throw new Error("Preview was blocked by the browser.");
+      if (!previewWindow)
+        throw new Error("Preview was blocked by the browser.");
       previewWindow.opener = null;
-      previewWindow.location.replace(artifactPreviewUrl(artifact.id, artifact.readyVersion.id));
-      setActionFeedback({ kind: "success", message: "Preview opened in a new tab." });
+      previewWindow.location.replace(
+        artifactPreviewUrl(artifact.id, artifact.readyVersion.id),
+      );
+      setActionFeedback({
+        kind: "success",
+        message: "Preview opened in a new tab.",
+      });
     } catch (reason) {
-      setActionFeedback({ kind: "error", message: reason instanceof Error ? reason.message : "Preview could not be opened." });
+      setActionFeedback({
+        kind: "error",
+        message:
+          reason instanceof Error
+            ? reason.message
+            : "Preview could not be opened.",
+      });
     } finally {
       setPendingAction(null);
     }
   }
 
   async function copyShareLink() {
-    if (!artifact?.shareLink || artifact.publicationStatus !== "published") return;
+    if (!artifact?.shareLink || artifact.publicationStatus !== "published")
+      return;
     setPendingAction("copy_share_link");
     setActionFeedback(null);
     try {
       await navigator.clipboard.writeText(artifact.shareLink.url);
       setActionFeedback({ kind: "success", message: "Share link copied." });
     } catch {
-      setActionFeedback({ kind: "error", message: "The Share link could not be copied." });
+      setActionFeedback({
+        kind: "error",
+        message: "The Share link could not be copied.",
+      });
     } finally {
       setPendingAction(null);
     }
   }
 
-  async function runMutation(action: PendingAction, successMessage: string, mutation: () => Promise<void>) {
+  async function runMutation(
+    action: PendingAction,
+    successMessage: string,
+    mutation: () => Promise<void>,
+  ) {
     setPendingAction(action);
     setActionFeedback(null);
     try {
@@ -193,7 +280,11 @@ export function ArtifactPage({
       setArtifact(updated);
       setName(updated.name);
       setActionFeedback({ kind: "success", message: successMessage });
-      if (action === "retry" || action === "replace_file" || action === "publish") {
+      if (
+        action === "retry" ||
+        action === "replace_file" ||
+        action === "publish"
+      ) {
         delete idempotencyKeys.current[action];
       }
       if (action === "replace_file") replacementFingerprint.current = null;
@@ -209,16 +300,22 @@ export function ArtifactPage({
       onSessionExpired();
       return;
     }
-    if (reason instanceof ArtifactApiError && (reason.action || reason.details)) {
+    if (
+      reason instanceof ArtifactApiError &&
+      (reason.action || reason.details)
+    ) {
       setPreflightIssue({
         code: reason.code,
         message: reason.message,
         action: reason.action ?? null,
-        details: reason.details ?? {}
+        details: reason.details ?? {},
       });
       return;
     }
-    setActionFeedback({ kind: "error", message: reason instanceof Error ? reason.message : fallback });
+    setActionFeedback({
+      kind: "error",
+      message: reason instanceof Error ? reason.message : fallback,
+    });
   }
 
   function idempotencyKey(action: IdempotentAction): string {
@@ -230,26 +327,42 @@ export function ArtifactPage({
   }
 
   if (error && !artifact) {
-    return <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>;
+    return (
+      <Alert variant="destructive">
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
+    );
   }
   if (!artifact) {
-    return <div className="flex items-center gap-2 text-sm text-muted-foreground"><Spinner />Loading artifact...</div>;
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Spinner />
+        Loading artifact...
+      </div>
+    );
   }
 
   const actionPending = pendingAction !== null;
 
   return (
     <div className="flex flex-col gap-8">
-      <a className="text-sm text-neutral-500 hover:text-neutral-950" href="/artifacts">
+      <a
+        className="text-sm text-muted-foreground hover:text-foreground"
+        href="/artifacts"
+      >
         Back to artifacts
       </a>
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="break-words text-2xl font-semibold text-neutral-950">{artifact.name}</h1>
+            <h1 className="break-words text-2xl font-semibold text-foreground">
+              {artifact.name}
+            </h1>
             <ArtifactStatus artifact={artifact} />
           </div>
-          <p className="mt-2 break-all font-mono text-xs text-neutral-500">{artifact.id}</p>
+          <p className="mt-2 break-all font-mono text-xs text-muted-foreground">
+            {artifact.id}
+          </p>
         </div>
         {artifact.allowedActions.includes("rename") ? (
           <Button
@@ -264,16 +377,51 @@ export function ArtifactPage({
       </header>
       <Separator />
 
-      {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
+      {error ? (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+      {artifact.publicSharingRestriction ? (
+        <Alert>
+          <TriangleAlert />
+          <AlertTitle>Restricted</AlertTitle>
+          <AlertDescription>
+            Public access is temporarily restricted. Link sharing and Gallery keep their underlying states, but copying links and other public-expanding changes are unavailable. You can still review settings or stop sharing.
+          </AlertDescription>
+        </Alert>
+      ) : null}
       {editing ? (
         <form className="max-w-xl" onSubmit={saveName}>
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor="artifact-name">Artifact name</FieldLabel>
               <div className="flex gap-2">
-                <Input id="artifact-name" maxLength={120} value={name} onChange={(event) => setName(event.target.value)} />
-                <Button type="submit" disabled={saving}>{saving ? <><Spinner aria-hidden="true" role="presentation" data-icon="inline-start" />Saving...</> : "Save name"}</Button>
-                <Button type="button" variant="secondary" onClick={() => setEditing(false)}>
+                <Input
+                  id="artifact-name"
+                  maxLength={120}
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                />
+                <Button type="submit" disabled={saving}>
+                  {saving ? (
+                    <>
+                      <Spinner
+                        aria-hidden="true"
+                        role="presentation"
+                        data-icon="inline-start"
+                      />
+                      Saving...
+                    </>
+                  ) : (
+                    "Save name"
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setEditing(false)}
+                >
                   Cancel
                 </Button>
               </div>
@@ -282,55 +430,106 @@ export function ArtifactPage({
         </form>
       ) : null}
 
-      <section aria-labelledby="artifact-state" className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(260px,0.7fr)]">
+      <section
+        aria-labelledby="artifact-state"
+        className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(260px,0.7fr)]"
+      >
         <div>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 id="artifact-state" className="text-sm font-semibold text-neutral-950">Current state</h2>
-            {artifact.processingState === "accepted" || artifact.processingState === "processing" ? (
+            <h2
+              id="artifact-state"
+              className="text-sm font-semibold text-foreground"
+            >
+              Current state
+            </h2>
+            {artifact.processingState === "accepted" ||
+            artifact.processingState === "processing" ? (
               <Button
                 type="button"
                 variant="secondary"
                 disabled={actionPending}
                 onClick={refresh}
               >
-                {pendingAction === "refresh" ? <Spinner aria-hidden="true" role="presentation" data-icon="inline-start" /> : <RefreshCw aria-hidden="true" data-icon="inline-start" />}
-                {pendingAction === "refresh" ? "Refreshing..." : "Refresh status"}
+                {pendingAction === "refresh" ? (
+                  <Spinner
+                    aria-hidden="true"
+                    role="presentation"
+                    data-icon="inline-start"
+                  />
+                ) : (
+                  <RefreshCw aria-hidden="true" data-icon="inline-start" />
+                )}
+                {pendingAction === "refresh"
+                  ? "Refreshing..."
+                  : "Refresh status"}
               </Button>
             ) : null}
           </div>
-          <p className="mt-2 text-sm leading-6 text-neutral-600">{stateDescription(artifact)}</p>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            {stateDescription(artifact)}
+          </p>
           {artifact.validationReport?.primaryIssue ? (
             <div className="mt-4">
-              <ArtifactValidationReport notices={[artifact.validationReport.primaryIssue, ...artifact.validationReport.issues]} destructive />
+              <ArtifactValidationReport
+                notices={[
+                  artifact.validationReport.primaryIssue,
+                  ...artifact.validationReport.issues,
+                ]}
+                destructive
+              />
             </div>
           ) : artifact.failure ? (
             <Alert className="mt-4" variant="destructive">
               <AlertTitle>{artifact.failure.message}</AlertTitle>
               <AlertDescription>
                 <span>{failureAction(artifact)}</span>
-                <span className="mt-2 block font-mono text-xs">{artifact.failure.code}</span>
+                <span className="mt-2 block font-mono text-xs">
+                  {artifact.failure.code}
+                </span>
               </AlertDescription>
             </Alert>
           ) : null}
           {artifact.validationReport?.warnings.length ? (
             <div className="mt-4">
-              <ArtifactValidationReport notices={artifact.validationReport.warnings} />
+              <ArtifactValidationReport
+                notices={artifact.validationReport.warnings}
+              />
             </div>
           ) : null}
         </div>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-          <dt className="text-neutral-500">Share link</dt>
-          <dd className="min-w-0 truncate text-right text-neutral-900">{artifact.publicationStatus === "not_published" ? "Created when published" : artifact.shareLink?.url ?? "Unavailable"}</dd>
-          <dt className="text-neutral-500">Publication</dt>
-          <dd className="text-right capitalize text-neutral-900">{artifact.publicationStatus.replace("_", " ")}</dd>
-          <dt className="text-neutral-500">Version</dt>
-          <dd className="truncate text-right font-mono text-xs text-neutral-900">{artifact.readyVersion?.id ?? "Not ready"}</dd>
+          <dt className="text-muted-foreground">Share link</dt>
+          <dd className="min-w-0 truncate text-right text-foreground">
+            {artifact.publicationStatus === "not_published"
+              ? "Created when published"
+              : (artifact.shareLink?.url ?? "Unavailable")}
+          </dd>
+          <dt className="text-muted-foreground">Link sharing</dt>
+          <dd className="text-right text-foreground">
+            {
+              {
+                not_published: "Not active",
+                published: "Active",
+                expired: "Expired",
+                unpublished: "Stopped",
+              }[artifact.publicationStatus]
+            }
+          </dd>
+          <dt className="text-muted-foreground">Version</dt>
+          <dd className="truncate text-right font-mono text-xs text-foreground">
+            {artifact.readyVersion?.id ?? "Not ready"}
+          </dd>
         </dl>
       </section>
       <Separator />
 
       <section aria-labelledby="artifact-actions" aria-busy={actionPending}>
-        <h2 id="artifact-actions" className="text-sm font-semibold text-neutral-950">Actions</h2>
+        <h2
+          id="artifact-actions"
+          className="text-sm font-semibold text-foreground"
+        >
+          Actions
+        </h2>
         <div className="mt-3 flex min-h-10 flex-wrap gap-2">
           {artifact.allowedActions.includes("retry") ? (
             <ActionButton
@@ -358,7 +557,11 @@ export function ArtifactPage({
               />
               <ActionButton
                 icon={Upload}
-                label={pendingAction === "replace_file" ? "Uploading..." : "Replace file"}
+                label={
+                  pendingAction === "replace_file"
+                    ? "Uploading..."
+                    : "Replace file"
+                }
                 pending={pendingAction === "replace_file"}
                 disabled={actionPending}
                 onClick={() => replacementInput.current?.click()}
@@ -377,7 +580,9 @@ export function ArtifactPage({
           {artifact.allowedActions.includes("publish") ? (
             <ActionButton
               icon={Rocket}
-              label={pendingAction === "publish" ? "Publishing..." : "Publish"}
+              label={
+                pendingAction === "publish" ? "Sharing..." : "Share with link"
+              }
               pending={pendingAction === "publish"}
               disabled={actionPending}
               onClick={() => setPublicationDialog("publish")}
@@ -386,16 +591,31 @@ export function ArtifactPage({
           {artifact.allowedActions.includes("manage_publication") ? (
             <ActionButton
               icon={Settings2}
-              label="Manage publication"
+              label="Manage link"
               pending={false}
               disabled={actionPending}
               onClick={() => setPublicationDialog("manage")}
             />
           ) : null}
-          {artifact.allowedActions.includes("copy_share_link") && artifact.publicationStatus === "published" && artifact.shareLink ? (
+          {artifact.readyVersion ? (
+            <ActionButton
+              icon={Globe2}
+              label={artifact.publicSharingRestriction ? "Manage Gallery" : galleryActionLabel(galleryListing)}
+              pending={false}
+              disabled={actionPending}
+              onClick={() => setGalleryDialog(true)}
+            />
+          ) : null}
+          {artifact.allowedActions.includes("copy_share_link") &&
+          artifact.publicationStatus === "published" &&
+          artifact.shareLink ? (
             <ActionButton
               icon={Clipboard}
-              label={pendingAction === "copy_share_link" ? "Copying..." : "Copy Share link"}
+              label={
+                pendingAction === "copy_share_link"
+                  ? "Copying..."
+                  : "Copy Share link"
+              }
               pending={pendingAction === "copy_share_link"}
               disabled={actionPending}
               onClick={copyShareLink}
@@ -404,7 +624,9 @@ export function ArtifactPage({
         </div>
         <div className="mt-3 min-h-10" aria-live="polite">
           {actionFeedback?.kind === "error" ? (
-            <Alert variant="destructive"><AlertDescription>{actionFeedback.message}</AlertDescription></Alert>
+            <Alert variant="destructive">
+              <AlertDescription>{actionFeedback.message}</AlertDescription>
+            </Alert>
           ) : actionFeedback ? (
             <Alert role="status">
               <CheckCircle2 aria-hidden="true" />
@@ -414,12 +636,46 @@ export function ArtifactPage({
           {preflightIssue ? (
             <ArtifactValidationReport notices={[preflightIssue]} destructive />
           ) : null}
-          {preflightWarning ? <Alert><AlertDescription>{preflightWarning}</AlertDescription></Alert> : null}
+          {preflightWarning ? (
+            <Alert>
+              <AlertDescription>{preflightWarning}</AlertDescription>
+            </Alert>
+          ) : null}
         </div>
       </section>
-      <ArtifactShareDialog artifact={publicationDialog ? artifact : null} mode={publicationDialog ?? "publish"} onOpenChange={(open) => !open && setPublicationDialog(null)} onUpdated={(updated) => { setArtifact(updated); setName(updated.name); }} onSessionExpired={onSessionExpired} />
+      <ArtifactShareDialog
+        artifact={publicationDialog ? artifact : null}
+        mode={publicationDialog ?? "publish"}
+        onOpenChange={(open) => !open && setPublicationDialog(null)}
+        onUpdated={(updated) => {
+          setArtifact(updated);
+          setName(updated.name);
+        }}
+        onSessionExpired={onSessionExpired}
+      />
+      <ArtifactGalleryDialog
+        artifact={artifact}
+        open={galleryDialog}
+        onOpenChange={setGalleryDialog}
+        onListingChange={setGalleryListing}
+      />
     </div>
   );
+}
+
+function galleryActionLabel(listing: OwnerGalleryListing | null): string {
+  if (!listing || listing.lifecycle === "withdrawn") return "Share to Gallery";
+  if (
+    listing.lifecycle === "removed" &&
+    [
+      "initial_policy_rejection",
+      "initial_governance_block",
+      "administrator_removal",
+    ].includes(listing.closureReason ?? "") &&
+    listing.reviewState === "clear"
+  )
+    return "Share to Gallery";
+  return "Manage Gallery";
 }
 
 function ActionButton({
@@ -427,10 +683,22 @@ function ActionButton({
   label,
   pending,
   ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { icon: typeof Eye; label: string; pending: boolean }) {
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  icon: typeof Eye;
+  label: string;
+  pending: boolean;
+}) {
   return (
     <Button {...props} type="button" variant="secondary">
-      {pending ? <Spinner aria-hidden="true" role="presentation" data-icon="inline-start" /> : <Icon aria-hidden="true" data-icon="inline-start" />}
+      {pending ? (
+        <Spinner
+          aria-hidden="true"
+          role="presentation"
+          data-icon="inline-start"
+        />
+      ) : (
+        <Icon aria-hidden="true" data-icon="inline-start" />
+      )}
       {label}
     </Button>
   );
@@ -443,12 +711,18 @@ function failureAction(artifact: Artifact): string {
 }
 
 function stateDescription(artifact: Artifact): string {
-  if (artifact.processingState === "accepted") return "The upload was accepted and is waiting for processing.";
-  if (artifact.processingState === "processing") return "The uploaded files are being validated and prepared.";
-  if (artifact.processingState === "failed") return "Processing stopped. Use the available recovery action to continue.";
-  if (artifact.publicationStatus === "published") return "This artifact is published at its active Share link.";
-  if (artifact.publicationStatus === "expired") return "This publication expired. Publish again to restore access using the same link by default.";
-  if (artifact.publicationStatus === "unpublished") return "This publication was ended early. Publish again to restore access using the same link by default.";
+  if (artifact.processingState === "accepted")
+    return "The upload was accepted and is waiting for processing.";
+  if (artifact.processingState === "processing")
+    return "The uploaded files are being validated and prepared.";
+  if (artifact.processingState === "failed")
+    return "Processing stopped. Use the available recovery action to continue.";
+  if (artifact.publicationStatus === "published")
+    return "This Artifact is shared at its active Share link.";
+  if (artifact.publicationStatus === "expired")
+    return "Link sharing expired. Share with link again to reactivate the same link by default.";
+  if (artifact.publicationStatus === "unpublished")
+    return "Link sharing was stopped. Share with link again to reactivate the same link by default.";
   return "The artifact is ready and has not been published.";
 }
 
@@ -456,7 +730,7 @@ function handleRequestError(
   reason: unknown,
   fallback: string,
   setError: (message: string) => void,
-  onSessionExpired: () => void
+  onSessionExpired: () => void,
 ) {
   if (reason instanceof ArtifactApiError && reason.status === 401) {
     onSessionExpired();

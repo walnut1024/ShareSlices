@@ -76,7 +76,7 @@ export function SignUpPage() {
         {verified ? (
           <>
             <header><h1 className="m-0 text-[26px] font-semibold tracking-[-0.02em]">Email verified</h1></header>
-            <p className="mb-6 mt-2 text-sm text-neutral-500">Your email is verified. Log in to continue.</p>
+            <p className="mb-6 mt-2 text-sm text-muted-foreground">Your email is verified. Log in to continue.</p>
             <a className={buttonVariants({ className: "w-full" })} href="/?view=login">Log in</a>
           </>
         ) : (
@@ -100,7 +100,7 @@ export function SignUpPage() {
     <AuthLayout>
       <header>
         <h1 className="m-0 text-[26px] font-semibold tracking-[-0.02em]">Sign up</h1>
-        <p className="mb-[26px] mt-1.5 text-sm leading-[1.45] text-neutral-500">
+        <p className="mb-[26px] mt-1.5 text-sm leading-[1.45] text-muted-foreground">
           Free to start — no card required.
         </p>
       </header>
@@ -122,11 +122,11 @@ export function SignUpPage() {
             {errors.password ? <FieldError>{errors.password}</FieldError> : null}
             <div className="mt-0.5 flex items-center gap-2" aria-hidden="true">
               <div className="flex flex-1 gap-1">
-                <span className="h-1 flex-1 rounded-sm bg-neutral-200" />
-                <span className="h-1 flex-1 rounded-sm bg-neutral-200" />
-                <span className="h-1 flex-1 rounded-sm bg-neutral-200" />
+                <span className="h-1 flex-1 rounded-sm bg-muted" />
+                <span className="h-1 flex-1 rounded-sm bg-muted" />
+                <span className="h-1 flex-1 rounded-sm bg-muted" />
               </div>
-              <span className="flex-none text-xs text-neutral-400">8+ characters</span>
+              <span className="flex-none text-xs text-muted-foreground">8+ characters</span>
             </div>
           </Field>
         </FieldGroup>
@@ -136,11 +136,11 @@ export function SignUpPage() {
           Sign up
         </Button>
       </form>
-      <p className="mb-0 mt-3.5 max-w-[300px] text-xs leading-normal text-neutral-400">
-        By signing up you agree to our <span className="text-neutral-500">Terms</span> and <span className="text-neutral-500">Privacy Policy</span>.
+      <p className="mb-0 mt-3.5 max-w-[300px] text-xs leading-normal text-muted-foreground">
+        By signing up you agree to our <span className="text-foreground">Terms</span> and <span className="text-foreground">Privacy Policy</span>.
       </p>
-      <p className="mb-0 mt-[18px] text-[13.5px] text-neutral-500">
-        Already have an account? <a className="font-medium text-neutral-950 hover:underline" href="/?view=login">Log in</a>
+      <p className="mb-0 mt-[18px] text-[13.5px] text-muted-foreground">
+        Already have an account? <a className="font-medium text-foreground hover:underline" href="/?view=login">Log in</a>
       </p>
     </AuthLayout>
   );

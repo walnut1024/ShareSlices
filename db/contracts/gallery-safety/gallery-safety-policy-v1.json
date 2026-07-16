@@ -1,0 +1,14 @@
+{
+  "policyRevision": "gallery-safety/v1",
+  "maxFileCount": 1000,
+  "maxTotalBytes": 209715200,
+  "maxSingleFileBytes": 52428800,
+  "findingDecisions": {
+    "external_resource_dependency": "reject",
+    "external_programmatic_request": "reject",
+    "external_form_action": "reject",
+    "executable_dynamic_construction": "review"
+  },
+  "evidenceDigestAlgorithm": "sha256",
+  "replayRequiresExactPolicyRevision": true
+}

@@ -1,0 +1,7 @@
+{
+  "version": "gallery-grant-v1",
+  "permissions": ["view", "gallery_download", "save_a_copy"],
+  "exactText": "By sharing this Version to Gallery, you authorize ShareSlices to let anyone view it, download its normalized ZIP, and save an independently owned copy. These permissions are one bundle and remain evidenced for this listing revision even if the current terms later change.",
+  "requiresRenewalOnNextProposal": true,
+  "digestAlgorithm": "sha256"
+}

@@ -1,0 +1,8 @@
+{
+  "contractVersion": "gallery-job/v1",
+  "jobKind": "copy",
+  "jobId": "gallery-copy-job-1",
+  "attempt": {"attemptId": "attempt-1", "attemptNumber": 1, "fenceToken": 7, "leaseExpiresAt": "2026-07-16T01:00:00Z"},
+  "input": {"snapshotDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "listingId": "listing-1", "listingRevision": 4, "versionId": "version-1", "objectLayoutRevision": "gallery-objects/v1", "policyRevision": "gallery-copy/v1", "destinationOwnerUserId": "user-2", "destinationArtifactId": "artifact-2", "reservedArtifactCount": 1, "reservedStorageBytes": 4096, "sourceRetentionReferenceId": "retention-1"},
+  "result": {"state": "running", "terminalResult": null, "failureCode": null, "outputObjectKey": null, "evidenceDigest": null, "quotaEffect": "hold", "sourceRetentionEffect": "hold"}
+}

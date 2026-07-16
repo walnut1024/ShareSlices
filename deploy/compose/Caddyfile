@@ -11,6 +11,23 @@
 		reverse_proxy {$API_UPSTREAM}
 	}
 
+	@galleryDownload path_regexp galleryDownload ^/gallery/[^/]+/download$
+	handle @galleryDownload {
+		reverse_proxy {$API_UPSTREAM}
+	}
+
+	@galleryJson {
+		path /gallery /gallery/*
+		header Accept application/json*
+	}
+	handle @galleryJson {
+		reverse_proxy {$API_UPSTREAM}
+	}
+
+	handle /gallery-media/* {
+		reverse_proxy {$API_UPSTREAM}
+	}
+
 	handle /health {
 		reverse_proxy {$API_UPSTREAM}
 	}

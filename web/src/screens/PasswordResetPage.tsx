@@ -75,7 +75,7 @@ export function PasswordResetPage() {
     return (
       <AuthLayout>
         <h1 className="m-0 text-[26px] font-semibold tracking-[-0.02em]">Password reset</h1>
-        <p className="mb-6 mt-2 text-sm text-neutral-500">Your password has been changed. Log in with your new password.</p>
+        <p className="mb-6 mt-2 text-sm text-muted-foreground">Your password has been changed. Log in with your new password.</p>
         <a className={buttonVariants({ className: "w-full" })} href="/?view=login">Log in</a>
       </AuthLayout>
     );
@@ -83,7 +83,7 @@ export function PasswordResetPage() {
 
   return (
     <AuthLayout>
-      <header><h1 className="m-0 text-[26px] font-semibold tracking-[-0.02em]">Reset your password</h1><p className="mb-7 mt-1.5 text-sm text-neutral-500">Enter your account email to receive a verification code.</p></header>
+      <header><h1 className="m-0 text-[26px] font-semibold tracking-[-0.02em]">Reset your password</h1><p className="mb-7 mt-1.5 text-sm text-muted-foreground">Enter your account email to receive a verification code.</p></header>
       <form className="flex flex-col gap-6" onSubmit={async (event) => {
         event.preventDefault();
         const email = String(new FormData(event.currentTarget).get("email") ?? "").trim();

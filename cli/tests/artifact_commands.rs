@@ -2049,9 +2049,22 @@ async fn missing_upload_target_fails_before_any_request_without_a_terminal() {
     };
     let api = ApiClient::new("http://127.0.0.1:1").expect("client");
     let store = Store(Mutex::new(Some("secret".into())));
-    let error = run_artifact_upload(&args, &api, &store, &mut Vec::new(), &mut Vec::new())
-        .await
-        .expect_err("selection unavailable");
+    let mut input = Cursor::new(Vec::<u8>::new());
+    let mut interaction = ArtifactInteraction {
+        prompts_enabled: true,
+        is_terminal: false,
+        input: &mut input,
+    };
+    let error = run_artifact_command_with_interaction(
+        ArtifactCommand::Upload(args),
+        &api,
+        &store,
+        &mut interaction,
+        &mut Vec::new(),
+        &mut Vec::new(),
+    )
+    .await
+    .expect_err("selection unavailable");
     assert!(error.to_string().contains("--name or --artifact"));
 }
 

@@ -3,7 +3,9 @@
 ## Purpose
 
 TBD - created by archiving change cli-browser-auth. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Start browser authorization
 
 The system SHALL let an unauthenticated ShareSlices CLI start a short-lived device authorization for the fixed `shareslices-cli` client. The response MUST include an opaque device code, a human-readable user code, a verification URL, a code-complete verification URL, an expiry, and a minimum polling interval. The server MUST reject unrecognized client identifiers.
@@ -160,7 +162,7 @@ The CLI MUST store the Bearer credential only in the operating system credential
 - **WHEN** the server issues a CLI credential and the operating system credential store accepts it
 - **THEN** the CLI stores it for the selected API origin and reports the signed-in account without printing the credential
 
-#### Scenario: Credential storage fails
+#### Scenario: Initial authorization credential storage fails
 
 - **WHEN** the server issues a CLI credential but the operating system credential store rejects it
 - **THEN** the CLI attempts to revoke the new CLI Session, stores no plaintext fallback, and returns actionable failure output without the credential
@@ -400,4 +402,3 @@ Agent-mode login, status, and logout SHALL use the common Agent envelope. Signed
 
 - **WHEN** revocation fails because of a transient network or Server error
 - **THEN** Agent logout returns `failed`, retains the local credential, and supplies a safe delayed-retry action
-

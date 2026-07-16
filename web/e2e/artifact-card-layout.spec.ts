@@ -87,13 +87,20 @@ test("keeps Artifact cards readable across desktop CSS widths and Retina density
       expect(footerBox?.height).toBe(64);
       expect(cardBox!.height).toBeCloseTo(previewBox!.height + footerBox!.height, 0);
       await expect(card.getByRole("button", { name: "Enter full screen for Artifact 1" })).toBeVisible();
-      await expect(card.getByRole("button", { name: "Publish Artifact 1" })).toBeVisible();
+      await expect(card.getByRole("button", { name: "Share with link Artifact 1" })).toBeVisible();
+      await expect(card.getByRole("button", { name: "Share Artifact 1 to Gallery" })).toBeVisible();
       await expect(page.getByTitle(longArtifactName)).toBeVisible();
       await expect(page.getByRole("link", { name: "Artifact 2" }).locator('xpath=ancestor::*[@data-slot="card"]//img')).toHaveCount(0);
       await page.screenshot({
         path: `../output/playwright/artifact-card-layout-${testCase.name}.png`,
         fullPage: true
       });
+      if (testCase.name === "1440x900-dpr1" || testCase.name === "1280x720-dpr1") {
+        await page.screenshot({
+          path: `../output/playwright/artifact-grid-loaded-after-${testCase.width}x${testCase.height}.png`,
+          fullPage: true
+        });
+      }
       if (testCase.name === "1440x900-dpr1") {
         await page.getByRole("button", { name: "Select" }).click();
         await page.getByRole("checkbox", { name: "Select Artifact 1" }).click();

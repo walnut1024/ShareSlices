@@ -11,6 +11,7 @@ function harness(options: {
   failureSummary?: string;
   validationReport?: ValidationReport | null;
   publicationExpired?: boolean;
+  restricted?: boolean;
 } = {}) {
   const artifact = {
     id: "artifact-1",
@@ -134,10 +135,13 @@ function harness(options: {
             }]
           : []
       )
+    },
+    publicSharingRestrictions: {
+      findRestrictedByArtifacts: vi.fn().mockResolvedValue(options.restricted ? ["artifact-1"] : [])
     }
   } as unknown as Pick<
     ArtifactRepositories,
-    "artifacts" | "shareLinks" | "uploadSessions" | "versions" | "publications"
+    "artifacts" | "shareLinks" | "uploadSessions" | "versions" | "publications" | "publicSharingRestrictions"
   >;
   const storage = { deleteObject: vi.fn(), removeStagingPrefix: vi.fn() };
   return {
@@ -195,7 +199,19 @@ describe("ArtifactManagementService", () => {
       publication: null,
       failure: null,
       validationReport: null,
+      publicSharingRestriction: null,
       allowedActions: ["rename", "preview", "publish", "export", "delete"]
+    });
+  });
+
+  it("projects public restriction independently without hiding existing link state or private management", async () => {
+    const { service } = harness({ ready: true, published: true, restricted: true });
+
+    await expect(service.get("owner-1", "artifact-1")).resolves.toMatchObject({
+      publicationStatus: "published",
+      shareLink: { state: "active" },
+      publicSharingRestriction: { state: "restricted" },
+      allowedActions: ["rename", "manage_publication", "unpublish", "preview", "export", "delete"]
     });
   });
 

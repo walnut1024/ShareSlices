@@ -14,17 +14,23 @@ describe("Publication content repository", () => {
   const admin = new Client({ connectionString: process.env.DATABASE_URL });
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    options: `-c search_path=${schemaName}`
+    options: `-c search_path=${schemaName}`,
   });
-  const repository = createPublicationContentRepository(drizzle(pool, { schema }));
+  const repository = createPublicationContentRepository(
+    drizzle(pool, { schema }),
+  );
 
   beforeAll(async () => {
     await admin.connect();
     await admin.query(`create schema "${schemaName}"`);
     const migrationsDirectory = resolve(process.cwd(), "../db/migrations");
-    const migrations = (await readdir(migrationsDirectory)).filter((file) => file.endsWith(".sql")).sort();
+    const migrations = (await readdir(migrationsDirectory))
+      .filter((file) => file.endsWith(".sql"))
+      .sort();
     for (const migration of migrations) {
-      await pool.query(await readFile(resolve(migrationsDirectory, migration), "utf8"));
+      await pool.query(
+        await readFile(resolve(migrationsDirectory, migration), "utf8"),
+      );
     }
     await pool.query(`insert into "user" (id, name, email) values
       ('owner-1', 'Owner', 'owner@example.com'),
@@ -41,17 +47,17 @@ describe("Publication content repository", () => {
           raw_size_bytes, state
         ) values ($1, 'artifact-1', 'owner-1', 'v0.0.1-default', 52428800, 209715200,
           1000, 52428800, '[]'::jsonb, $2, 10, 'committed')`,
-        [`upload-${number}`, `raw/artifact-1/upload-${number}.zip`]
+        [`upload-${number}`, `raw/artifact-1/upload-${number}.zip`],
       );
       await pool.query(
         `insert into artifact_version (id, artifact_id, upload_session_id, version_number, state)
          values ($1, 'artifact-1', $2, $3, 'ready')`,
-        [`version-${number}`, `upload-${number}`, number]
+        [`version-${number}`, `upload-${number}`, number],
       );
     }
     await pool.query(
       `insert into artifact_processing_job (id, upload_session_id, state, attempt_count, max_attempts)
-       values ('bundle-job-1', 'upload-1', 'completed', 1, 3)`
+       values ('bundle-job-1', 'upload-1', 'completed', 1, 3)`,
     );
     await pool.query(
       `insert into artifact_processing_attempt (
@@ -63,7 +69,7 @@ describe("Publication content repository", () => {
          'staging/upload-1/bundle-attempt-1/',
          'content-bundles/bundle-1/attempts/bundle-attempt-1/',
          now(), now(), 'cleaned', now(), now(), now()
-       )`
+       )`,
     );
     await pool.query(
       `insert into content_bundle (
@@ -72,17 +78,17 @@ describe("Publication content repository", () => {
        ) values (
          'bundle-1', 'owner-1', 'identity-v1', 'ready', 'healthy',
          'bundle-attempt-1', 'bundle-attempt-1', now()
-       )`
+       )`,
     );
     await pool.query(
       `update artifact_version
        set owner_user_id = 'owner-1', content_bundle_id = 'bundle-1', renderer_revision = 'renderer-v1'
-       where id = 'version-1'`
+       where id = 'version-1'`,
     );
     await pool.query(
       `insert into content_bundle_asset (bundle_id, owner_user_id, path, object_key, size_bytes, content_type)
        values ('bundle-1', 'owner-1', '腾讯文档盘点分析报告.html', 'content-bundles/bundle-1/index.html', 14, 'text/html'),
-              ('bundle-1', 'owner-1', 'assets/app.js', 'content-bundles/bundle-1/assets/app.js', 10, 'text/javascript')`
+              ('bundle-1', 'owner-1', 'assets/app.js', 'content-bundles/bundle-1/assets/app.js', 10, 'text/javascript')`,
     );
     await pool.query(
       `insert into content_bundle_manifest (
@@ -90,7 +96,7 @@ describe("Publication content repository", () => {
        ) values (
          'bundle-1', 'owner-1', '腾讯文档盘点分析报告.html',
          'content-bundles/bundle-1/manifest.json', 2, 24
-       )`
+       )`,
     );
   });
 
@@ -101,27 +107,45 @@ describe("Publication content repository", () => {
   });
 
   it("scopes ready Preview versions to the owner and manifest", async () => {
-    await expect(repository.findOwnedReadyVersion("owner-1", "version-1")).resolves.toEqual({
+    await expect(
+      repository.findOwnedReadyVersion("owner-1", "version-1"),
+    ).resolves.toEqual({
       id: "version-1",
-      artifactId: "artifact-1"
+      artifactId: "artifact-1",
     });
-    await expect(repository.findOwnedReadyVersion("other-1", "version-1")).resolves.toBeNull();
-    await expect(repository.findEntryAsset("version-1")).resolves.toMatchObject({
-      path: "腾讯文档盘点分析报告.html",
-      objectKey: "content-bundles/bundle-1/index.html",
-      contentType: "text/html"
-    });
-    await expect(repository.findAsset("version-1", "assets/app.js")).resolves.toMatchObject({
+    await expect(
+      repository.findOwnedReadyVersion("other-1", "version-1"),
+    ).resolves.toBeNull();
+    await expect(repository.findEntryAsset("version-1")).resolves.toMatchObject(
+      {
+        path: "腾讯文档盘点分析报告.html",
+        objectKey: "content-bundles/bundle-1/index.html",
+        contentType: "text/html",
+      },
+    );
+    await expect(
+      repository.findAsset("version-1", "assets/app.js"),
+    ).resolves.toMatchObject({
       versionId: "version-1",
-      objectKey: "content-bundles/bundle-1/assets/app.js"
+      objectKey: "content-bundles/bundle-1/assets/app.js",
     });
-    await expect(repository.findAsset("version-1", "missing.js")).resolves.toBeNull();
-    await expect(repository.findOwnedVersionExport("owner-1", "version-1")).resolves.toMatchObject({
+    await expect(
+      repository.findAsset("version-1", "missing.js"),
+    ).resolves.toBeNull();
+    await expect(
+      repository.findOwnedVersionExport("owner-1", "version-1"),
+    ).resolves.toMatchObject({
       artifactId: "artifact-1",
       assets: [
-        { versionId: "version-1", objectKey: "content-bundles/bundle-1/assets/app.js" },
-        { versionId: "version-1", objectKey: "content-bundles/bundle-1/index.html" }
-      ]
+        {
+          versionId: "version-1",
+          objectKey: "content-bundles/bundle-1/assets/app.js",
+        },
+        {
+          versionId: "version-1",
+          objectKey: "content-bundles/bundle-1/index.html",
+        },
+      ],
     });
   });
 
@@ -134,53 +158,66 @@ describe("Publication content repository", () => {
       idempotencyKey: "publish-key",
       requestHash: "b".repeat(64),
       expiration: { kind: "permanent" } as const,
-      link: { mode: "reuse", confirmRetire: false } as const
+      link: { mode: "reuse", confirmRetire: false } as const,
     };
     const first = await repository.publish(input);
-    const replay = await repository.publish({ ...input, id: "publication-ignored" });
+    const replay = await repository.publish({
+      ...input,
+      id: "publication-ignored",
+    });
 
     await expect(
       repository.publish({
         ...input,
         id: "publication-other-owner",
         ownerUserId: "other-1",
-        idempotencyKey: "other-owner-key"
-      })
+        idempotencyKey: "other-owner-key",
+      }),
     ).resolves.toEqual({ kind: "artifact_not_found" });
 
     expect(first).toMatchObject({
       kind: "published",
       publication: { id: "publication-1" },
-      shareLink: { shareSlug: "stable-share-slug", state: "active" }
+      shareLink: { shareSlug: "stable-share-slug", state: "active" },
     });
     expect(replay).toMatchObject({
       kind: "published",
       publication: { id: "publication-1" },
-      shareLink: { shareSlug: "stable-share-slug", state: "active" }
+      shareLink: { shareSlug: "stable-share-slug", state: "active" },
     });
     await expect(
       repository.publish({
         ...input,
         id: "publication-conflict",
         versionId: "version-2",
-        requestHash: "c".repeat(64)
-      })
+        requestHash: "c".repeat(64),
+      }),
     ).resolves.toEqual({ kind: "idempotency_conflict" });
     const current = await pool.query(
-      "select id from artifact_publication where artifact_id = 'artifact-1' and ended_at is null"
+      "select id from artifact_publication where artifact_id = 'artifact-1' and ended_at is null",
     );
     expect(current.rows).toEqual([{ id: "publication-1" }]);
-    await expect(repository.resolveShareSlug("stable-share-slug")).resolves.toEqual({
+    await expect(
+      repository.resolveShareSlug("stable-share-slug"),
+    ).resolves.toEqual({
       kind: "published",
-      versionId: "version-1"
+      versionId: "version-1",
     });
   });
 
   it("supports idempotent Unpublish without changing the Share link and permits republish", async () => {
-    await expect(repository.unpublish("other-1", "artifact-1", "publication-1")).resolves.toBe(false);
-    await expect(repository.unpublish("owner-1", "artifact-1", "publication-1")).resolves.toBe(true);
-    await expect(repository.unpublish("owner-1", "artifact-1", "publication-1")).resolves.toBe(true);
-    await expect(repository.resolveShareSlug("stable-share-slug")).resolves.toEqual({ kind: "unpublished" });
+    await expect(
+      repository.unpublish("other-1", "artifact-1", "publication-1"),
+    ).resolves.toBe(false);
+    await expect(
+      repository.unpublish("owner-1", "artifact-1", "publication-1"),
+    ).resolves.toBe(true);
+    await expect(
+      repository.unpublish("owner-1", "artifact-1", "publication-1"),
+    ).resolves.toBe(true);
+    await expect(
+      repository.resolveShareSlug("stable-share-slug"),
+    ).resolves.toEqual({ kind: "unpublished" });
 
     await expect(
       repository.publish({
@@ -191,22 +228,102 @@ describe("Publication content repository", () => {
         idempotencyKey: "republish-key",
         requestHash: "d".repeat(64),
         expiration: { kind: "permanent" },
-        link: { mode: "reuse", confirmRetire: false }
-      })
-    ).resolves.toMatchObject({ kind: "published", publication: { id: "publication-2" } });
-    const link = await pool.query("select id, slug from artifact_share_link where artifact_id = 'artifact-1'");
+        link: { mode: "reuse", confirmRetire: false },
+      }),
+    ).resolves.toMatchObject({
+      kind: "published",
+      publication: { id: "publication-2" },
+    });
+    const link = await pool.query(
+      "select id, slug from artifact_share_link where artifact_id = 'artifact-1'",
+    );
     expect(link.rows).toEqual([{ id: "link-1", slug: "stable-share-slug" }]);
+  });
+
+  it("blocks public expansion and Viewer access while preserving recovery and Stop sharing", async () => {
+    await pool.query(
+      "insert into gallery_administrator_authority(user_id,granted_by_user_id) values('owner-1','owner-1')",
+    );
+    await pool.query(
+      "insert into gallery_governance_case(id,case_kind,artifact_id,state,evidence_snapshot,evidence_digest,closed_at) values('case-public-restrict','restriction','artifact-1','decided','{}','public-restrict',now())",
+    );
+    await pool.query(`insert into gallery_governance_decision
+      (id,case_id,actor_user_id,decision_kind,rule_code,rationale,evidence_digest,idempotency_key_digest,input_fingerprint)
+      values('decision-public-restrict','case-public-restrict','owner-1','restrict','test_rule','Test restriction','public-restrict','restrict-key','restrict-input')`);
+    await pool.query(
+      "insert into gallery_public_sharing_restriction(id,artifact_id,source_decision_id,source_root_decision_id,rule_code) values('restriction-public','artifact-1','decision-public-restrict','decision-public-restrict','test_rule')",
+    );
+    await expect(
+      repository.resolveShareSlug("stable-share-slug"),
+    ).resolves.toEqual({ kind: "restricted" });
+    await expect(
+      repository.publish({
+        id: "publication-blocked",
+        ownerUserId: "owner-1",
+        artifactId: "artifact-1",
+        versionId: "version-1",
+        idempotencyKey: "blocked-publish",
+        requestHash: "e".repeat(64),
+        expiration: { kind: "permanent" },
+        link: { mode: "reuse", confirmRetire: false },
+      }),
+    ).resolves.toEqual({ kind: "governance_blocked" });
+    await expect(
+      repository.publish({
+        id: "publication-recovered",
+        ownerUserId: "owner-1",
+        artifactId: "artifact-1",
+        versionId: "version-1",
+        idempotencyKey: "republish-key",
+        requestHash: "d".repeat(64),
+        expiration: { kind: "permanent" },
+        link: { mode: "reuse", confirmRetire: false },
+      }),
+    ).resolves.toMatchObject({
+      kind: "published",
+      publication: { id: "publication-2" },
+    });
+    await expect(
+      repository.unpublish("owner-1", "artifact-1", "publication-2"),
+    ).resolves.toBe(true);
+    await pool.query(`insert into gallery_governance_decision
+      (id,case_id,actor_user_id,decision_kind,rule_code,rationale,evidence_digest,idempotency_key_digest,input_fingerprint)
+      values('decision-public-clear','case-public-restrict','owner-1','clear_restriction','cleared','Restriction cleared','public-restrict','clear-key','clear-input')`);
+    await pool.query(
+      "update gallery_public_sharing_restriction set state='cleared',ended_at=now(),ending_decision_id='decision-public-clear' where id='restriction-public'",
+    );
+    await expect(
+      repository.publish({
+        id: "publication-3",
+        ownerUserId: "owner-1",
+        artifactId: "artifact-1",
+        versionId: "version-1",
+        idempotencyKey: "publish-after-clear",
+        requestHash: "f".repeat(64),
+        expiration: { kind: "permanent" },
+        link: { mode: "reuse", confirmRetire: false },
+      }),
+    ).resolves.toMatchObject({
+      kind: "published",
+      publication: { id: "publication-3" },
+    });
   });
 
   it("distinguishes expired, retired, and unknown links", async () => {
     await pool.query(
-      "update artifact_publication set expiration_kind = 'exact', expires_at = now() - interval '1 second' where id = 'publication-2'"
+      "update artifact_publication set expiration_kind = 'exact', expires_at = now() - interval '1 second' where id = 'publication-3'",
     );
-    await expect(repository.resolveShareSlug("stable-share-slug")).resolves.toEqual({ kind: "expired" });
+    await expect(
+      repository.resolveShareSlug("stable-share-slug"),
+    ).resolves.toEqual({ kind: "expired" });
     await pool.query(
-      "update artifact_share_link set status = 'retired', retired_at = now() where id = 'link-1'"
+      "update artifact_share_link set status = 'retired', retired_at = now() where id = 'link-1'",
     );
-    await expect(repository.resolveShareSlug("stable-share-slug")).resolves.toEqual({ kind: "retired" });
-    await expect(repository.resolveShareSlug("missing-slug")).resolves.toEqual({ kind: "unknown" });
+    await expect(
+      repository.resolveShareSlug("stable-share-slug"),
+    ).resolves.toEqual({ kind: "retired" });
+    await expect(repository.resolveShareSlug("missing-slug")).resolves.toEqual({
+      kind: "unknown",
+    });
   });
 });

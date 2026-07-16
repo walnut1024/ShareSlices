@@ -9,13 +9,17 @@ const skill = readFileSync(new URL("SKILL.md", root), "utf8");
 const behavior = JSON.parse(readFileSync(new URL("evals/behavior.json", root), "utf8"));
 const triggers = JSON.parse(readFileSync(new URL("evals/triggers.json", root), "utf8"));
 
-assert.equal(behavior.cases.length, 10);
+assert.ok(behavior.cases.length >= 24);
 assert.deepEqual(behavior.cases.slice(0, 3).map(({id}) => id), ["upload-only", "explicit-publish", "ambiguous-entry"]);
 assert.equal(triggers.length, 20);
 assert.equal(triggers.filter(({shouldTrigger}) => shouldTrigger).length, 10);
 assert.equal(triggers.filter(({shouldTrigger}) => !shouldTrigger).length, 10);
 for (const phrase of ["--agent capabilities", "--agent --agent-protocol 1", "Do not parse human output", "Never call the ShareSlices HTTP", "never turn it into Publish", "inspect durable state before any replay"]) {
   assert.ok(skill.includes(phrase), `missing Skill contract: ${phrase}`);
+}
+for (const phrase of ["artifact.gallery.share", "artifact.gallery.update", "artifact.gallery.withdraw", "accept_permission", "without deriving either from email"]) assert.ok(skill.includes(phrase), `missing Gallery Skill contract: ${phrase}`);
+for (const id of ["gallery-profile-required", "gallery-eligible-removed-history", "gallery-replacement-unconfirmed", "gallery-replacement-confirmed", "gallery-proposal-review", "gallery-revision-conflict", "gallery-indeterminate", "gallery-capability-unsupported"]) {
+  assert.ok(behavior.cases.some((testCase) => testCase.id === id), `missing Gallery safety evaluation: ${id}`);
 }
 for (const testCase of behavior.cases) {
   assert.ok(testCase.assertions.length >= 2, `${testCase.id} needs safety assertions`);

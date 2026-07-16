@@ -48,6 +48,7 @@ export type ErrorCode =
   | "version_not_ready"
   | "operation_in_progress"
   | "idempotency_conflict"
+  | "governance_blocked"
   | "invalid_artifact_state"
   | "archive_too_large"
   | "cli_upgrade_required"
@@ -78,6 +79,7 @@ const messages: Record<ErrorCode, string> = {
   version_not_ready: "Version is not ready.",
   operation_in_progress: "Operation is still in progress.",
   idempotency_conflict: "Idempotency key was used with different input.",
+  governance_blocked: "Public sharing is restricted for this Artifact.",
   invalid_artifact_state: "Artifact state does not allow this operation.",
   archive_too_large: "ZIP exceeds the upload limit.",
   cli_upgrade_required: "Update ShareSlices CLI to continue.",
