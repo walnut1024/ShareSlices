@@ -71,6 +71,7 @@ test("normalize a macOS named-entry ZIP, Preview, Share with link, and open the 
   await preview.waitForURL(/\/artifacts\/.+\/preview\?versionId=/);
   const previewShell = await preview.request.get(preview.url());
   expect(previewShell.headers()["cache-control"]).toBe("no-store");
+  await expect(preview.getByTestId("artifact-player")).toHaveCSS("height", "900px");
   const previewContent = preview.frameLocator('iframe[title="Artifact content"]');
   await expect(previewContent.getByRole("heading", { name: "Published artifact" })).toBeVisible();
   await expect(previewContent.locator("body")).toHaveAttribute("data-ready", "true");
@@ -284,6 +285,34 @@ test("sign out the current browser Session", async ({ page }, testInfo) => {
 
   await page.goto("/artifacts");
   await expect(page.getByRole("heading", { name: "Log in" })).toBeVisible();
+});
+
+test("reject an occupied email on Signup before verification", async ({ page }, testInfo) => {
+  const runId = `${testInfo.project.name}-${Date.now()}`.replaceAll(/[^a-z0-9-]/gi, "-").toLowerCase();
+  const email = `occupied-${runId}@example.test`;
+  const password = "occupied-password-001";
+
+  await page.goto("/");
+  await page.getByLabel("Name").fill("Occupied Email Tester");
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Sign up" }).click();
+  await verifyEmailFromMailpit(page, email);
+
+  await page.goto("/?view=signup");
+  await page.getByLabel("Name").fill("Occupied Email Tester Again");
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill(password);
+  await page.getByRole("button", { name: "Sign up" }).click();
+
+  await expect(page.getByRole("heading", { name: "Sign up" })).toBeVisible();
+  await expect(page.getByLabel("Email")).toHaveAttribute("aria-invalid", "true");
+  await expect(page.getByText("This email address is already in use. Use a different email.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Check your email" })).not.toBeVisible();
+  await page.screenshot({
+    path: "../output/playwright/signup-occupied-email-1440x900.png",
+    fullPage: true
+  });
 });
 
 async function assertNoHorizontalOverflow(page: import("@playwright/test").Page): Promise<void> {

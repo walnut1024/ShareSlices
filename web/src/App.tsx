@@ -175,10 +175,14 @@ export default function App() {
       {location === "/admin/gallery" ? <GalleryAdministrationPage /> : location === "/settings/gallery-profile" ? <GalleryProfilePage /> : detailArtifactId ? (
         <ArtifactPage
           artifactId={decodeURIComponent(detailArtifactId)}
+          creatorDisplayName={user.name}
           onSessionExpired={onSessionExpired}
         />
       ) : (
-        <ArtifactsPage onAccepted={() => navigate("/artifacts")} />
+        <ArtifactsPage
+          creatorDisplayName={user.name}
+          onAccepted={() => navigate("/artifacts")}
+        />
       )}
     </ManagementShell>
   );

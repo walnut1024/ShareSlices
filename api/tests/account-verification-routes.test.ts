@@ -70,6 +70,28 @@ describe("account verification routes", () => {
     expect(account.authApi.sendVerificationOTP).toHaveBeenCalled();
   });
 
+  it.each([
+    ["verified", true],
+    ["unverified", false]
+  ])("rejects an occupied %s email before creating verification work", async (_state, emailVerified) => {
+    const account = dependencies();
+    account.findUserByEmail.mockResolvedValue({ id: "user-1", emailVerified });
+    const app = buildTestApp({ account });
+    const response = await app.request("/api/users", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Ada Again", email: "ada@example.com", password: "password123" })
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "email_already_registered" }
+    });
+    expect(account.authApi.signUpEmail).not.toHaveBeenCalled();
+    expect(account.createVerificationAttempt).not.toHaveBeenCalled();
+    expect(account.authApi.sendVerificationOTP).not.toHaveBeenCalled();
+  });
+
   it("verifies a registration code without creating a Session", async () => {
     const account = dependencies();
     const app = buildTestApp({ account });

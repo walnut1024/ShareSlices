@@ -149,6 +149,36 @@ describe("account entry screens", () => {
     expect(screen.queryByText("Invalid request.")).not.toBeInTheDocument();
   });
 
+  it("keeps Signup open and marks an occupied email", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              code: "email_already_registered",
+              message: "An account already exists for this email.",
+              requestId: "req_occupied"
+            }
+          }),
+          { status: 409, headers: { "content-type": "application/json" } }
+        )
+      )
+    );
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.type(screen.getByLabelText("Name"), "Ada Again");
+    await user.type(screen.getByLabelText("Email"), "ada@example.com");
+    await user.type(screen.getByLabelText("Password"), "password123");
+    await user.click(screen.getByRole("button", { name: "Sign up" }));
+
+    expect(await screen.findByText("This email address is already in use. Use a different email.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Email")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByRole("heading", { name: "Sign up" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Check your email" })).not.toBeInTheDocument();
+  });
+
   it("shows neutral feedback for failed login", async () => {
     window.history.replaceState(null, "", "/?view=login");
     vi.stubGlobal(

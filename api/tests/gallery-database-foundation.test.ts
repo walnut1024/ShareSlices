@@ -1,10 +1,11 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { GalleryQuotaAccounting } from "../src/application/gallery/quota-accounting.js";
 import { GalleryGovernanceService } from "../src/application/gallery/governance.js";
+import { GalleryOwnerOperations } from "../src/application/gallery/owner-operations.js";
 import { GalleryReconciliation } from "../src/application/gallery/reconciliation.js";
 
 const { Client } = pg;
@@ -29,18 +30,105 @@ describe("Gallery database invariants", () => {
       options: `-c search_path=${schemaName}`,
     });
     await client.query(`insert into "user" (id, name, email) values
-      ('owner-1', 'Owner One', 'one@example.test'), ('owner-2', 'Owner Two', 'two@example.test')`);
+      ('owner-1', 'Owner One', 'one@example.test'), ('owner-2', 'Owner Two', 'two@example.test'),
+      ('owner-3', 'Owner Three', 'three@example.test')`);
     await client.query(`insert into artifact (id, owner_user_id, name) values
-      ('artifact-1', 'owner-1', 'Artifact One'), ('artifact-2', 'owner-2', 'Artifact Two')`);
+      ('artifact-1', 'owner-1', 'Artifact One'), ('artifact-2', 'owner-2', 'Artifact Two'),
+      ('artifact-3', 'owner-3', 'Artifact Three')`);
     await client.query(`insert into gallery_creator_profile (id, user_id, opaque_slug, display_name) values
       ('profile-1', 'owner-1', 'creator_one', 'Creator One'),
-      ('profile-2', 'owner-2', 'creator_two', 'Creator Two')`);
+      ('profile-2', 'owner-2', 'creator_two', 'Creator Two'),
+      ('profile-3', 'owner-3', 'creator_three', 'Creator Three')`);
   });
 
   afterAll(async () => {
     await client.query(`drop schema if exists "${schemaName}" cascade`);
     await client.end();
     await quotaPool.end();
+  });
+
+  it("loads the owner Gallery projection through PostgreSQL", async () => {
+    const ownerOperations = new GalleryOwnerOperations(
+      quotaPool,
+      { policyRevision: "gallery-safety/v1" },
+      "gallery-renderer/v1",
+    );
+
+    await expect(ownerOperations.view("owner-1", "artifact-1")).resolves.toBeNull();
+  });
+
+  it("accepts a Gallery proposal without public tags", async () => {
+    const grantText = "Anyone may view, download, and save an independent copy.";
+    await client.query(
+      `insert into gallery_permission_grant(version,exact_text,text_digest,permissions,active)
+       values('gallery-grant-v1',$1,$2,array['view','gallery_download','save_a_copy'],true)`,
+      [grantText, createHash("sha256").update(grantText).digest("hex")],
+    );
+    await client.query(`insert into artifact_upload_session
+      (id, artifact_id, policy_revision, archive_size_bytes, expanded_size_bytes, file_count,
+       single_file_size_bytes, formats, raw_object_key, raw_size_bytes, state, owner_user_id)
+      values ('upload-3', 'artifact-3', 'policy/v1', 1000, 2000, 10, 1000, '[]',
+       'raw/upload-3', 100, 'committed', 'owner-3')`);
+    await client.query(
+      "insert into artifact_version (id, artifact_id, upload_session_id, version_number, state) values ('version-3', 'artifact-3', 'upload-3', 1, 'ready')",
+    );
+    const ownerOperations = new GalleryOwnerOperations(
+      quotaPool,
+      { policyRevision: "gallery-safety/v1" },
+      "gallery-renderer/v1",
+    );
+
+    const outcome = await ownerOperations.share({
+      ownerUserId: "owner-3",
+      artifactId: "artifact-3",
+      versionId: "version-3",
+      idempotencyKey: "share-without-tags",
+      profile: {
+        displayName: "Creator Three",
+        biography: null,
+        avatar: null,
+        expectedRevision: 1,
+      },
+      permission: { grantVersion: "gallery-grant-v1", accepted: true },
+      metadata: { title: "Artifact Three", description: null, tags: [] },
+    });
+
+    expect(outcome).toMatchObject({
+      artifactId: "artifact-3",
+      lifecycle: "pending",
+    });
+    expect(
+      (
+        await client.query(
+          "select public_title,tags from gallery_listing_proposal where id=$1",
+          [outcome.proposalId],
+        )
+      ).rows[0],
+    ).toEqual({ public_title: "Artifact Three", tags: [] });
+
+    await ownerOperations.withdraw({
+      ownerUserId: "owner-3",
+      listingId: outcome.listingId,
+      expectedListingRevision: outcome.listingRevision,
+      idempotencyKey: "withdraw-before-sharing-again",
+    });
+
+    await expect(
+      ownerOperations.share({
+        ownerUserId: "owner-3",
+        artifactId: "artifact-3",
+        versionId: "version-3",
+        idempotencyKey: "share-again-after-withdrawal",
+        profile: {
+          displayName: "Creator Three",
+          biography: null,
+          avatar: null,
+          expectedRevision: 1,
+        },
+        permission: { grantVersion: "gallery-grant-v1", accepted: true },
+        metadata: { title: "Artifact Three", description: null, tags: [] },
+      }),
+    ).resolves.toMatchObject({ lifecycle: "pending" });
   });
 
   it("enforces one profile per User and one open listing per Artifact", async () => {

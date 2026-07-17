@@ -37,6 +37,9 @@ services:
           - content.localhost
 
   web:
+    environment:
+      WEB_ORIGIN: http://app.localhost:5173
+      WEB_CANONICAL_HOST: app.localhost
     build:
       args:
         VITE_GALLERY_TURNSTILE_PUBLIC_SITE_ID: 1x00000000000000000000AA

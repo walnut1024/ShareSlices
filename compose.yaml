@@ -70,10 +70,10 @@ services:
     environment: &api-environment
       DATABASE_URL: postgres://shareslices:shareslices@postgres:5432/shareslices
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-local-development-secret-at-least-32-bytes}
-      BETTER_AUTH_URL: http://127.0.0.1:5173
-      WEB_ORIGIN: http://127.0.0.1:5173
-      API_ORIGIN: http://127.0.0.1:7456
-      VIEWER_ORIGIN: http://127.0.0.1:5173
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://127.0.0.1:5173}
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://127.0.0.1:5173}
+      API_ORIGIN: ${API_ORIGIN:-http://127.0.0.1:7456}
+      VIEWER_ORIGIN: ${VIEWER_ORIGIN:-http://127.0.0.1:5173}
       GALLERY_ENABLED: "false"
       GALLERY_CONTENT_ORIGIN: ""
       GALLERY_CONTENT_REGISTRABLE_SITE: ""
@@ -230,6 +230,8 @@ services:
       dockerfile: web/Dockerfile
     environment:
       API_UPSTREAM: api:7456
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://127.0.0.1:5173}
+      WEB_CANONICAL_HOST: ${WEB_CANONICAL_HOST:-127.0.0.1}
     ports:
       - "5173:8080"
     volumes:
@@ -240,7 +242,7 @@ services:
       gallery-content:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/"]
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/web-health"]
       interval: 2s
       timeout: 5s
       retries: 30

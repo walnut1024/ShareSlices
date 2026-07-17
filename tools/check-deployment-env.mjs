@@ -83,7 +83,7 @@ async function checkRepository() {
   const kubernetes = matches(kubernetesText, /^\s+(?:- name:\s+)?([A-Z][A-Z0-9_]+):/gm);
   const deployment = union(compose, kubernetes);
   const runtimeOnly = new Set(["AUTH_EMAIL_SMTP_CHECK_TO", "AUTH_EMAIL_SMTP_URL_FILE"]);
-  const deploymentOnly = new Set(["API_UPSTREAM", "MINIO_ROOT_PASSWORD", "MINIO_ROOT_USER", "POSTGRES_DB", "POSTGRES_PASSWORD", "POSTGRES_USER"]);
+  const deploymentOnly = new Set(["API_UPSTREAM", "MINIO_ROOT_PASSWORD", "MINIO_ROOT_USER", "POSTGRES_DB", "POSTGRES_PASSWORD", "POSTGRES_USER", "WEB_CANONICAL_HOST"]);
   validateDeploymentConfiguration({
     catalog,
     runtime,

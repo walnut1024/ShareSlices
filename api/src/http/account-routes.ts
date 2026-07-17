@@ -180,30 +180,32 @@ export function accountRoutes(overrides: Partial<AccountRouteDependencies> = {})
 
     if (dependencies.requireEmailVerification) {
       const existing = await dependencies.findUserByEmail(parsed.data.email);
-      if (!existing) {
-        try {
-          await dependencies.authApi.signUpEmail({
-            body: parsed.data
-          });
-        } catch (error) {
-          if (!(error instanceof APIError && error.statusCode === 422)) throw error;
+      if (existing) {
+        return errorJson(c, 409, "email_already_registered");
+      }
+      try {
+        await dependencies.authApi.signUpEmail({
+          body: parsed.data
+        });
+      } catch (error) {
+        if (error instanceof APIError && error.statusCode === 422) {
+          return errorJson(c, 409, "email_already_registered");
         }
+        throw error;
       }
       const attempt = await dependencies.createVerificationAttempt({
         email: parsed.data.email,
         purpose: "registration",
-        synthetic: existing?.emailVerified ?? false
+        synthetic: false
       });
-      if (!existing?.emailVerified) {
-        try {
-          await dependencies.authApi.sendVerificationOTP({
-            body: { email: parsed.data.email, type: "email-verification" },
-            headers: authHeaders(c)
-          });
-        } catch (error) {
-          const response = verificationError(c, error);
-          if (response) return response;
-        }
+      try {
+        await dependencies.authApi.sendVerificationOTP({
+          body: { email: parsed.data.email, type: "email-verification" },
+          headers: authHeaders(c)
+        });
+      } catch (error) {
+        const response = verificationError(c, error);
+        if (response) return response;
       }
       return verificationResponse(c, attempt);
     }

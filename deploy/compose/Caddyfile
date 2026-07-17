@@ -1,4 +1,15 @@
+# cspell:words redir
 :8080 {
+	handle /web-health {
+		respond 204
+	}
+
+	@nonCanonical {
+		not host {$WEB_CANONICAL_HOST}
+		not path /web-health
+	}
+	redir @nonCanonical {$WEB_ORIGIN}{uri} 308
+
 	handle /internal/* {
 		respond 404
 	}

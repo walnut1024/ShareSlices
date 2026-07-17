@@ -54,6 +54,10 @@ export function SignUpPage() {
         setCreatedName(result.user.name);
       }
     } catch (error) {
+      if (error instanceof AccountApiError && error.code === "email_already_registered") {
+        setErrors({ email: "This email address is already in use. Use a different email." });
+        return;
+      }
       if (error instanceof AccountApiError && error.fields.length > 0) {
         const fieldErrors: Errors = {};
         for (const field of error.fields) {

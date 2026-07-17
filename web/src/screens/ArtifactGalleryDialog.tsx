@@ -32,6 +32,7 @@ import { Field, FieldLabel } from "../components/ui/field";
 import { Input } from "../components/ui/input";
 import { Spinner } from "../components/ui/spinner";
 import { Textarea } from "../components/ui/textarea";
+import { cn } from "../lib/utils";
 import {
   Select,
   SelectContent,
@@ -43,11 +44,13 @@ import {
 
 export function ArtifactGalleryDialog({
   artifact,
+  creatorDisplayName,
   open,
   onOpenChange,
   onListingChange,
 }: {
   artifact: Artifact;
+  creatorDisplayName: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onListingChange?: (listing: OwnerGalleryListing | null) => void;
@@ -60,8 +63,7 @@ export function ArtifactGalleryDialog({
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<string | null>(null);
-  const [displayName, setDisplayName] = useState("");
+  const [displayName, setDisplayName] = useState(creatorDisplayName);
   const [biography, setBiography] = useState("");
   const [title, setTitle] = useState(artifact.name);
   const [description, setDescription] = useState("");
@@ -76,7 +78,6 @@ export function ArtifactGalleryDialog({
     let active = true;
     setLoading(true);
     setError(null);
-    setResult(null);
     setAccepted(false);
     setConfirmWithdraw(false);
     Promise.all([
@@ -93,7 +94,7 @@ export function ArtifactGalleryDialog({
         setGrant(currentGrant);
         setVersions(readyVersions);
         setVersionId(artifact.readyVersion?.id ?? readyVersions[0]?.id ?? "");
-        setDisplayName(ownerProfile?.displayName ?? "");
+        setDisplayName(ownerProfile?.displayName ?? creatorDisplayName);
         setBiography(ownerProfile?.biography ?? "");
       })
       .catch(
@@ -112,7 +113,7 @@ export function ArtifactGalleryDialog({
     return () => {
       active = false;
     };
-  }, [artifact.id, open]);
+  }, [artifact.id, creatorDisplayName, open]);
 
   const restricted = Boolean(artifact.publicSharingRestriction);
   const canUpdate = !restricted && listing?.lifecycle === "listed";
@@ -129,25 +130,31 @@ export function ArtifactGalleryDialog({
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!versionId || !grant || !accepted) return;
+    if (!versionId || !grant || (canUpdate && !accepted)) return;
     setPending(true);
     setError(null);
     const input = {
       versionId,
       profile: {
-        displayName,
-        biography: biography.trim() || null,
+        displayName: canUpdate
+          ? displayName
+          : (profile?.displayName ?? creatorDisplayName),
+        biography: canUpdate
+          ? biography.trim() || null
+          : (profile?.biography ?? null),
         avatar: null as null,
         expectedRevision: profile?.revision ?? null,
       },
       permission: { grantVersion: grant.version, accepted: true as const },
       metadata: {
-        title,
-        description: description.trim() || null,
-        tags: tags
-          .split(",")
-          .map((tag) => tag.trim())
-          .filter(Boolean),
+        title: canUpdate ? title : artifact.name,
+        description: canUpdate ? description.trim() || null : null,
+        tags: canUpdate
+          ? tags
+              .split(",")
+              .map((tag) => tag.trim())
+              .filter(Boolean)
+          : [],
       },
       ...(listing?.closureReason === "administrator_removal"
         ? { confirmedReplacement: confirmReplacement }
@@ -166,11 +173,6 @@ export function ArtifactGalleryDialog({
       const updated = await getOwnerGalleryListing(artifact.id);
       setListing(updated);
       onListingChange?.(updated);
-      setResult(
-        canUpdate
-          ? "Update proposal accepted. The approved Gallery revision remains public until the complete proposal is promoted."
-          : "Gallery proposal accepted. The cover may use a placeholder while review and rendering finish.",
-      );
       operationKey.current = crypto.randomUUID();
       setAccepted(false);
     } catch (reason) {
@@ -193,7 +195,6 @@ export function ArtifactGalleryDialog({
       const updated = await getOwnerGalleryListing(artifact.id);
       setListing(updated);
       onListingChange?.(updated);
-      setResult("Gallery sharing withdrawn. Its public URL is permanently retired.");
       operationKey.current = crypto.randomUUID();
     } catch (reason) {
       setError(
@@ -208,7 +209,12 @@ export function ArtifactGalleryDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent
+        className={cn(
+          "max-h-[88vh] overflow-y-auto",
+          canFreshShare && !canUpdate ? "sm:max-w-lg" : "sm:max-w-2xl",
+        )}
+      >
         <DialogHeader>
           <DialogTitle>
             {canUpdate ||
@@ -218,8 +224,9 @@ export function ArtifactGalleryDialog({
               : "Share to Gallery"}
           </DialogTitle>
           <DialogDescription>
-            Gallery is a public community collection. Share with link remains a
-            separate channel.
+            {canFreshShare && !canUpdate
+              ? `Share “${artifact.name}” publicly in Gallery.`
+              : "Gallery is a public community collection. Share with link remains a separate channel."}
           </DialogDescription>
         </DialogHeader>
         {loading ? (
@@ -232,12 +239,6 @@ export function ArtifactGalleryDialog({
             {error ? (
               <Alert variant="destructive">
                 <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            ) : null}
-            {result ? (
-              <Alert role="status">
-                <AlertTitle>Gallery state updated</AlertTitle>
-                <AlertDescription>{result}</AlertDescription>
               </Alert>
             ) : null}
             {restricted ? (
@@ -274,7 +275,7 @@ export function ArtifactGalleryDialog({
                 </AlertDescription>
               </Alert>
             ) : null}
-            {(canUpdate || canFreshShare) && grant ? (
+            {canUpdate && grant ? (
               <Alert>
                 <ImagePlus />
                 <AlertTitle>Version-specific cover</AlertTitle>
@@ -284,7 +285,7 @@ export function ArtifactGalleryDialog({
                 </AlertDescription>
               </Alert>
             ) : null}
-            {!profile ? (
+            {canUpdate && !profile ? (
               <Alert>
                 <ImagePlus />
                 <AlertTitle>Confirm your public Creator profile</AlertTitle>
@@ -294,7 +295,65 @@ export function ArtifactGalleryDialog({
                 </AlertDescription>
               </Alert>
             ) : null}
-            {(canUpdate || canFreshShare) && grant ? (
+            {canFreshShare && !canUpdate && grant ? (
+              <>
+                <div className="rounded-lg border bg-muted/35 p-5">
+                  <p className="font-medium text-foreground">
+                    Anyone will be able to view this Artifact.
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    People can also download it and save an independently owned
+                    copy. Share with link remains unchanged.
+                  </p>
+                </div>
+                {listing?.closureReason === "administrator_removal" ? (
+                  <label className="flex items-start gap-3 rounded-md border border-destructive/40 p-4 text-sm">
+                    <Checkbox
+                      checked={confirmReplacement}
+                      onCheckedChange={(value) =>
+                        setConfirmReplacement(value === true)
+                      }
+                    />
+                    <span>
+                      <strong className="block">
+                        Create an irreversible replacement
+                      </strong>
+                      This permanently forfeits restoration of the removed
+                      listing and its prior URL.
+                    </span>
+                  </label>
+                ) : null}
+                <DialogFooter>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => onOpenChange(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={
+                      pending ||
+                      !versionId ||
+                      !creatorDisplayName.trim() ||
+                      (listing?.closureReason === "administrator_removal" &&
+                        !confirmReplacement)
+                    }
+                  >
+                    {pending ? (
+                      <>
+                        <Spinner />
+                        Sharing…
+                      </>
+                    ) : (
+                      "Share to Gallery"
+                    )}
+                  </Button>
+                </DialogFooter>
+              </>
+            ) : null}
+            {canUpdate && grant ? (
               <>
                 <Field>
                   <FieldLabel htmlFor="gallery-version">Version</FieldLabel>

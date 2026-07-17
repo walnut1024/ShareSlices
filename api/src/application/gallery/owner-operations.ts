@@ -34,11 +34,11 @@ export class GalleryOwnerOperations {
 
   async view(ownerUserId: string, artifactId: string): Promise<Readonly<Record<string, unknown>> | null> {
     const {rows} = await this.pool.query(`select listing.*, proposal.id proposal_id, proposal.state proposal_state,
-      grant.version grant_version, grant.exact_text grant_text, grant.text_digest grant_text_digest,
-      grant.requires_renewal_on_next_proposal grant_requires_renewal
+      permission_grant.version grant_version, permission_grant.exact_text grant_text, permission_grant.text_digest grant_text_digest,
+      permission_grant.requires_renewal_on_next_proposal grant_requires_renewal
       from artifact left join gallery_listing listing on listing.artifact_id=artifact.id and listing.owner_user_id=artifact.owner_user_id
       left join gallery_listing_proposal proposal on proposal.listing_id=listing.id and proposal.state='open'
-      left join gallery_permission_grant grant on grant.active
+      left join gallery_permission_grant permission_grant on permission_grant.active
       where artifact.id=$2 and artifact.owner_user_id=$1 order by listing.created_at desc limit 1`, [ownerUserId, artifactId]);
     const row = rows[0];
     if (!row?.id) return null;
@@ -212,7 +212,7 @@ export class GalleryOwnerOperations {
   private async transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> { const client = await this.pool.connect(); try { await client.query("begin"); const value = await work(client); await client.query("commit"); return value; } catch (error) { await client.query("rollback"); throw error; } finally { client.release(); } }
 }
 
-function normalizeMetadata(input: GalleryCandidateMetadata): GalleryCandidateMetadata { const title=input.title.trim(); const description=input.description?.trim()||null; const tags=[...new Set(input.tags.map((tag)=>tag.trim().toLocaleLowerCase("en-US")))]; if(!title||title.length>200||(description?.length??0)>2000||tags.length<1||tags.length>5||tags.some((tag)=>!tag||tag.length>40)) throw new GalleryOwnerOperationError("invalid_gallery_metadata"); return {title,description,tags}; }
+function normalizeMetadata(input: GalleryCandidateMetadata): GalleryCandidateMetadata { const title=input.title.trim(); const description=input.description?.trim()||null; const tags=[...new Set(input.tags.map((tag)=>tag.trim().toLocaleLowerCase("en-US")))]; if(!title||title.length>200||(description?.length??0)>2000||tags.length>5||tags.some((tag)=>!tag||tag.length>40)) throw new GalleryOwnerOperationError("invalid_gallery_metadata"); return {title,description,tags}; }
 async function currentGrant(client: PoolClient): Promise<GalleryPermissionGrantRecord | null> { const row=(await client.query("select * from gallery_permission_grant where active for share")).rows[0]; return row?{version:row.version,exactText:row.exact_text,textDigest:row.text_digest,permissions:galleryPermissionBundle,requiresRenewalOnNextProposal:row.requires_renewal_on_next_proposal}:null; }
 async function stageProfile(client: PoolClient,userId:string,input:GalleryProfileFields&{expectedRevision:number|null}) { const fields=normalizeProfileFields(input); await client.query('select id from "user" where id=$1 for update',[userId]); const existing=(await client.query("select * from gallery_creator_profile where user_id=$1 for update",[userId])).rows[0]; if(existing){const same=existing.display_name===fields.displayName&&existing.biography===fields.biography; if(input.expectedRevision===null||Number(existing.revision)!==input.expectedRevision) throw new Error("profile_revision_conflict"); if(same)return existing; return (await client.query(`update gallery_creator_profile set display_name=$2,biography=$3,revision=revision+1,updated_at=now() where id=$1 returning *`,[existing.id,fields.displayName,fields.biography])).rows[0];} if(input.expectedRevision!==null) throw new Error("profile_revision_conflict"); return (await client.query(`insert into gallery_creator_profile(id,user_id,opaque_slug,display_name,biography) values($1,$2,$3,$4,$5) returning *`,[`gprofile_${randomUUID()}`,userId,opaque(16),fields.displayName,fields.biography])).rows[0]; }
 async function recover(client:PoolClient,userId:string,operation:string,key:string,fingerprint:string):Promise<GalleryOwnerOutcome|null>{const digest=digestText(key);const row=(await client.query("select input_fingerprint,historical_outcome from gallery_owner_operation where owner_user_id=$1 and operation=$2 and idempotency_key_digest=$3",[userId,operation,digest])).rows[0];if(!row)return null;if(row.input_fingerprint!==fingerprint)throw new GalleryOwnerOperationError("idempotency_conflict");return {...row.historical_outcome,recovered:true};}

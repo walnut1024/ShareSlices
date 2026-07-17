@@ -29,7 +29,7 @@ run = "docker compose build && docker compose up -d --force-recreate"
 
 [tasks.dev-gallery]
 description = "Build and run the opt-in isolated local Gallery stack"
-run = "docker compose -f compose.yaml -f compose.gallery-local.yaml up -d --build --force-recreate --wait"
+run = "node tools/check-gallery-local-config.mjs && docker compose -f compose.yaml -f compose.gallery-local.yaml up -d --build --force-recreate --wait"
 
 [tasks.gallery-bootstrap]
 description = "Install approved local Gallery policies and grant an explicit Administrator"

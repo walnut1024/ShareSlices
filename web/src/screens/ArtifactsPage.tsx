@@ -107,8 +107,10 @@ type BatchExpiration = "permanent" | "7d" | "30d" | "custom";
 const VIEW_STORAGE_KEY = "shareslices.artifacts.view.v1";
 
 export function ArtifactsPage({
+  creatorDisplayName,
   onAccepted,
 }: {
+  creatorDisplayName: string;
   onAccepted: (artifactId: string) => void;
 }) {
   const [artifacts, setArtifacts] = useState<Artifact[] | null>(null);
@@ -694,6 +696,7 @@ export function ArtifactsPage({
       {galleryArtifact ? (
         <ArtifactGalleryDialog
           artifact={galleryArtifact}
+          creatorDisplayName={creatorDisplayName}
           open
           onOpenChange={(open) => !open && setGalleryArtifact(null)}
         />

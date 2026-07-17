@@ -50,9 +50,11 @@ type IdempotentAction = "retry" | "replace_file" | "publish";
 
 export function ArtifactPage({
   artifactId,
+  creatorDisplayName,
   onSessionExpired,
 }: {
   artifactId: string;
+  creatorDisplayName: string;
   onSessionExpired: () => void;
 }) {
   const [artifact, setArtifact] = useState<Artifact | null>(null);
@@ -655,6 +657,7 @@ export function ArtifactPage({
       />
       <ArtifactGalleryDialog
         artifact={artifact}
+        creatorDisplayName={creatorDisplayName}
         open={galleryDialog}
         onOpenChange={setGalleryDialog}
         onListingChange={setGalleryListing}

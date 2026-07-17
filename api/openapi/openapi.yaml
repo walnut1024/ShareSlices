@@ -116,6 +116,8 @@ paths:
       summary: Register a ShareSlices user.
       description: >
         Creates a ShareSlices user account from name, email, and password.
+        A normalized email already owned by a verified or unverified account
+        is rejected with email_already_registered before verification work.
         Successful registration does not create signed-in state and must not
         set an authenticated session cookie.
       requestBody:
@@ -3419,7 +3421,7 @@ components:
       properties:
         title: {type: string, minLength: 1, maxLength: 200}
         description: {oneOf: [{type: string, maxLength: 2000}, {type: "null"}]}
-        tags: {type: array, minItems: 1, maxItems: 5, uniqueItems: true, items: {$ref: "#/components/schemas/GalleryTag"}}
+        tags: {type: array, minItems: 0, maxItems: 5, uniqueItems: true, items: {$ref: "#/components/schemas/GalleryTag"}}
     GalleryEffectiveAccess:
       type: object
       additionalProperties: false
