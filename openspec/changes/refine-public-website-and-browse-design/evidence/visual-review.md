@@ -2,7 +2,7 @@
 
 ## Reference limitation
 
-The approved in-app browser rejected direct `file://` navigation to both supplied `.dc.html` prototypes. No valid source screenshots could be captured through the approved browser path, so this implementation does not claim pixel-level fidelity. The review instead used the prototypes' inspectable structure as directional evidence and kept the checked product contract authoritative.
+The approved in-app browser rejected direct `file://` navigation to both supplied `.dc.html` prototypes. No valid source screenshots could be captured through the approved browser path, so this implementation does not claim pixel-level fidelity. The review instead used the prototypes' reviewable structure as directional evidence and kept the checked product contract authoritative.
 
 ## Rendered implementation
 

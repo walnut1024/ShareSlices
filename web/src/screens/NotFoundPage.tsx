@@ -4,7 +4,7 @@ import { buttonVariants } from "../components/ui/button";
 export function NotFoundPage() {
   return (
     <PublicSiteShell>
-      <main className="grid min-h-[calc(100vh-57px)] place-items-center px-8 py-20">
+      <main id="main-content" className="grid min-h-[calc(100vh-64px)] place-items-center px-6 py-20">
         <div className="max-w-md text-center">
           <p className="text-sm font-medium text-muted-foreground">404</p>
           <h1 className="mt-2 text-2xl font-semibold tracking-[-0.02em]">

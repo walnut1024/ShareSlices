@@ -66,7 +66,7 @@ export function GalleryListingPage({ slug }: { slug: string }) {
           kind: "listing",
           slug: result.slug,
           title: result.title,
-          indexable: true,
+          indexable: false,
         });
         return issueGalleryPlayer(slug);
       })
@@ -86,7 +86,7 @@ export function GalleryListingPage({ slug }: { slug: string }) {
   if (!listing)
     return (
       <PublicSiteShell>
-        <main className="grid min-h-[70vh] place-items-center">
+        <main id="main-content" className="grid min-h-[70vh] place-items-center">
           <span className="flex items-center gap-2 text-sm">
             <Spinner />
             Loading Artifact…
@@ -131,7 +131,7 @@ export function GalleryListingPage({ slug }: { slug: string }) {
 
   return (
     <PublicSiteShell>
-      <main className="mx-auto w-full max-w-[1920px] px-8 py-7">
+      <main id="main-content" className="mx-auto w-full max-w-[1200px] px-6 py-7">
         <a
           className="text-sm text-muted-foreground hover:text-foreground"
           href={destinations.browse()}
@@ -380,7 +380,7 @@ function GalleryListingState({ error }: { error: GalleryApiError }) {
   const unavailable = error.status === 503;
   return (
     <PublicSiteShell galleryAvailable={!unavailable}>
-      <main className="mx-auto max-w-[900px] px-8 py-20">
+      <main id="main-content" className="mx-auto w-full max-w-[900px] px-6 py-20">
         <Alert variant={unavailable ? "destructive" : "default"}>
           <AlertTitle>
           {gone

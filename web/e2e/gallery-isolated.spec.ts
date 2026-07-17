@@ -20,7 +20,8 @@ test("browses static Gallery cards with stable cursor and unsupported-device pre
   });
   await page.goto("/browse");
   await expect(page.getByRole("banner").getByRole("link", {name: "Sign in"})).toHaveAttribute("href", "/sign-in");
-  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", /\/browse$/);
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex,nofollow");
+  await expect(page.locator('link[rel="canonical"]')).toHaveCount(0);
   await expect(page.getByRole("heading", {name: card.title})).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await page.screenshot({path: "../output/playwright/gallery-listing-loaded-after-1440x900.png", fullPage: true});
@@ -49,7 +50,8 @@ test("keeps trusted actions outside a sandboxed isolated player", async ({page})
   await expect(page.getByRole("link", {name: "Download ZIP"})).toHaveAttribute("href", `/gallery/${card.slug}/download`);
   await expect(page.getByRole("button", {name: "Save a copy"})).toBeVisible();
   await expect(page.getByRole("button", {name: "Report"})).toBeVisible();
-  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", new RegExp(`/gallery/${card.slug}$`));
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex,nofollow");
+  await expect(page.locator('link[rel="canonical"]')).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
   await page.screenshot({path: "../output/playwright/gallery-detail-loaded-after-1440x900.png", fullPage: true});
   await page.setViewportSize({width: 1280, height: 720});

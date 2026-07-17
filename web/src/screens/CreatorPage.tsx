@@ -36,7 +36,7 @@ export function CreatorPage({ slug }: { slug: string }) {
           kind: "creator",
           slug: value.profile.slug,
           displayName: value.profile.displayName,
-          indexable: true,
+          indexable: false,
         });
       })
       .catch((reason: unknown) => {
@@ -59,7 +59,7 @@ export function CreatorPage({ slug }: { slug: string }) {
   if (error)
     return (
       <PublicSiteShell galleryAvailable={error.status !== 503}>
-        <main className="mx-auto w-full max-w-[1920px] px-8 py-7">
+        <main id="main-content" className="mx-auto w-full max-w-[1200px] px-6 py-7">
           <Alert variant={error.status === 503 ? "destructive" : "default"}>
             <AlertTitle>
               {error.status === 503 ? "Gallery is paused." : "Creator not found."}
@@ -72,7 +72,7 @@ export function CreatorPage({ slug }: { slug: string }) {
 
   return (
     <PublicSiteShell>
-      <main className="mx-auto w-full max-w-[1920px] px-8 py-7">
+      <main id="main-content" className="mx-auto w-full max-w-[1200px] px-6 py-7">
         {!creator ? (
           <div className="grid min-h-96 place-items-center">
             <span className="flex items-center gap-2 text-sm text-muted-foreground">

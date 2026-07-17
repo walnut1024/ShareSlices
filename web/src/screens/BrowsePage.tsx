@@ -21,6 +21,10 @@ export function BrowsePage() {
   const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
+    setQuery(browse.mode === "search" ? (browse.query ?? "") : "");
+  }, [browse.mode, browse.query]);
+
+  useEffect(() => {
     let active = true;
     setPage(null);
     setError(null);
@@ -28,14 +32,14 @@ export function BrowsePage() {
       .then((result) => {
         if (!active) return;
         setPage(result);
-        documentMetadataController.resolvePublic({ kind: "browse", indexable: true });
+        documentMetadataController.resolvePublic({ kind: "browse", indexable: false });
       })
       .catch((reason: unknown) => {
         if (!active) return;
         setError(asGalleryError(reason));
       });
     return () => { active = false; };
-  }, [browse.mode, browse.query]);
+  }, [browse.cursor, browse.mode, browse.query]);
 
   function search(event: React.FormEvent) {
     event.preventDefault();

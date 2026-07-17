@@ -51,6 +51,20 @@ describe("public Gallery pages", () => {
     expect(String(fetch.mock.calls[1]?.[0])).toContain("cursor=next-page");
   });
 
+  it("refreshes Browse when only the cursor changes", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(galleryResponse("one", null))
+      .mockResolvedValueOnce(galleryResponse("two", null));
+    const view = render(<BrowsePage />);
+    expect(await screen.findByRole("heading", { name: "Budget Map" })).toBeVisible();
+
+    window.history.pushState(null, "", "/browse?cursor=next-page");
+    view.rerender(<BrowsePage />);
+
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(String(fetch.mock.calls[1]?.[0])).toContain("cursor=next-page");
+  });
+
   it("keeps Browse context for empty and unavailable results", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify({ items: [], nextCursor: null }), { status: 200 }));
     const empty = render(<BrowsePage />);
@@ -151,6 +165,34 @@ describe("public Gallery pages", () => {
     expect(
       screen.getByRole("link", { name: "Original Maker" }),
     ).toHaveAttribute("href", "/creators/original-maker");
+  });
+
+  it("keeps failed player authorization out of search indexing", async () => {
+    const canonical = document.createElement("link");
+    canonical.rel = "canonical";
+    canonical.href = `${window.location.origin}/stale`;
+    document.head.append(canonical);
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (String(input).includes("player-authorizations")) {
+        return new Response(JSON.stringify({ error: { message: "Unavailable" } }), { status: 503 });
+      }
+      return new Response(JSON.stringify({
+        slug: "one",
+        title: "Budget Map",
+        description: null,
+        tags: [],
+        createdAt: "2026-01-01T00:00:00.000Z",
+        creator: { slug: "maker", displayName: "Maker" },
+        cover: { state: "placeholder", url: null },
+        sourceAttribution: null,
+      }), { status: 200 });
+    });
+
+    render(<GalleryListingPage slug="one" />);
+
+    expect(await screen.findByText("Temporarily unavailable")).toBeVisible();
+    expect(document.querySelector('meta[name="robots"]')).toHaveAttribute("content", "noindex,nofollow");
+    expect(document.querySelector('link[rel="canonical"]')).toBeNull();
   });
 
   it("shows the explicit unsupported-device experience after availability", async () => {
