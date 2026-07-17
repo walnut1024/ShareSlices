@@ -7,37 +7,29 @@ rust = "1.96.1"
 description = "Install workspace dependencies"
 run = "pnpm install"
 
-[tasks.dev-infra]
-description = "Start local PostgreSQL and object storage"
-run = "docker compose up -d --force-recreate --wait postgres object-storage mailpit && docker compose run --rm object-storage-init"
-
 [tasks.dev]
-description = "Run Web and API locally with infrastructure and Worker in containers"
-run = "node tools/dev.mjs"
+description = "Build, start, and verify the canonical local stack"
+run = "node tools/local-stack.mjs up"
 
-[tasks.dev-worker-build]
-description = "Rebuild and replace the local Worker container"
-run = "docker compose -f compose.yaml -f compose.dev.yaml build worker && docker compose -f compose.yaml -f compose.dev.yaml up -d --no-deps --force-recreate --wait worker"
-
-[tasks.dev-thumbnail-requeue]
+[tasks.ops-thumbnail-requeue]
 description = "Requeue terminal local thumbnail jobs after Chromium recovery"
-run = "docker compose -f compose.yaml -f compose.dev.yaml run --rm --no-deps worker requeue-failed-thumbnails"
+run = "docker compose -f compose.yaml -f compose.gallery-local.yaml run --rm --no-deps worker requeue-failed-thumbnails"
 
-[tasks.dev-compose]
-description = "Build and run the full stack in containers"
-run = "docker compose build && docker compose up -d --force-recreate"
-
-[tasks.dev-gallery]
-description = "Build and run the opt-in isolated local Gallery stack"
-run = "node tools/check-gallery-local-config.mjs && docker compose -f compose.yaml -f compose.gallery-local.yaml up -d --build --force-recreate --wait"
-
-[tasks.gallery-bootstrap]
+[tasks.ops-gallery-bootstrap]
 description = "Install approved local Gallery policies and grant an explicit Administrator"
 run = "node --env-file=.env.example --env-file-if-exists=.env api/node_modules/tsx/dist/cli.mjs api/src/operations/gallery-local-bootstrap.ts"
 
 [tasks.dev-down]
-description = "Stop local development and production-simulation containers"
-run = "docker compose down"
+description = "Stop the canonical local stack"
+run = "node tools/local-stack.mjs down"
+
+[tasks.dev-status]
+description = "Show and verify the canonical local stack"
+run = "node tools/local-stack.mjs status"
+
+[tasks.dev-logs]
+description = "Follow canonical local stack logs"
+run = "node tools/local-stack.mjs logs"
 
 [tasks.check]
 description = "Run the local quality gate"

@@ -38,8 +38,8 @@ The opt-in local Gallery profile uses `app.localhost` for trusted Web and API tr
 Start and bootstrap the local profile with an explicitly verified User ID:
 
 ```sh
-mise run dev-gallery
-mise run gallery-bootstrap -- --administrator-user-id <user-id>
+mise run dev
+mise run ops-gallery-bootstrap -- --administrator-user-id <user-id>
 ```
 
 The bootstrap command is development-only. It verifies and activates the checked permission grant and Appeal policy, grants the selected User Gallery Administrator authority, and records the grant audit event. It never selects a User by name or email. Open the Web at `http://app.localhost:5173`; the reconciler will make Gallery available only after its live content probe and every configured capability pass.

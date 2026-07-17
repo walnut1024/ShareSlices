@@ -71,7 +71,9 @@ export function ArtifactPage({
   const [publicationDialog, setPublicationDialog] = useState<
     "publish" | "manage" | null
   >(null);
-  const [galleryDialog, setGalleryDialog] = useState(false);
+  const [galleryDialog, setGalleryDialog] = useState(
+    () => new URLSearchParams(window.location.search).get("gallery") === "manage",
+  );
   const [galleryListing, setGalleryListing] =
     useState<OwnerGalleryListing | null>(null);
   const [preflightWarning, setPreflightWarning] = useState<string | null>(null);
@@ -659,7 +661,12 @@ export function ArtifactPage({
         artifact={artifact}
         creatorDisplayName={creatorDisplayName}
         open={galleryDialog}
-        onOpenChange={setGalleryDialog}
+        onOpenChange={(open) => {
+          setGalleryDialog(open);
+          if (!open && new URLSearchParams(window.location.search).has("gallery")) {
+            window.history.replaceState({}, "", window.location.pathname);
+          }
+        }}
         onListingChange={setGalleryListing}
       />
     </div>

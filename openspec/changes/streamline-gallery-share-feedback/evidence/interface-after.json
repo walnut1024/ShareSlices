@@ -1,0 +1,18 @@
+{
+  "generatedAt": "2026-07-17T02:17:37.383Z",
+  "node": "v26.5.0",
+  "totals": {
+    "javascript": {
+      "rawBytes": 739156,
+      "gzipBytes": 231395
+    },
+    "css": {
+      "rawBytes": 93912,
+      "gzipBytes": 15925
+    }
+  },
+  "browser": {
+    "status": "collected-by-interface-benchmark",
+    "scenarios": []
+  }
+}

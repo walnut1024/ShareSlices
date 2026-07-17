@@ -52,6 +52,7 @@ export type GalleryProfile = {
 };
 export type OwnerGalleryListing = {
   id: string;
+  artifactId: string;
   lifecycle: "pending" | "listed" | "withdrawn" | "removed";
   reviewState: "clear" | "reviewing" | "restricted";
   closureReason: string | null;
@@ -59,7 +60,13 @@ export type OwnerGalleryListing = {
   proposalId: string | null;
   proposalState: string | null;
   effectiveAccess: { accessible: boolean; restrictions: string[] };
+  publicUrl: string | null;
   allowedActions: string[];
+};
+
+export type GalleryListingOperationResponse = {
+  historicalOutcome: Record<string, unknown>;
+  current: OwnerGalleryListing;
 };
 
 export class GalleryApiError extends Error {
@@ -227,8 +234,13 @@ export async function getOwnerGalleryListing(
   );
   const row = result.listing ?? result.gallery;
   if (!row || !row.id) return null;
+  return ownerGalleryListing(row);
+}
+
+function ownerGalleryListing(row: Record<string, unknown>): OwnerGalleryListing {
   return {
     id: String(row.id),
+    artifactId: String(row.artifactId ?? row.artifact_id),
     lifecycle: String(row.lifecycle ?? row.lifecycle_state) as OwnerGalleryListing["lifecycle"],
     reviewState: String(row.reviewState ?? row.review_state) as OwnerGalleryListing["reviewState"],
     closureReason: row.closureReason ? String(row.closureReason) : row.closure_reason ? String(row.closure_reason) : null,
@@ -236,6 +248,7 @@ export async function getOwnerGalleryListing(
     proposalId: typeof row.proposal === "object" && row.proposal ? String((row.proposal as Record<string, unknown>).id) : row.proposal_id ? String(row.proposal_id) : null,
     proposalState: typeof row.proposal === "object" && row.proposal ? String((row.proposal as Record<string, unknown>).state) : row.proposal_state ? String(row.proposal_state) : null,
     effectiveAccess: (row.effectiveAccess as OwnerGalleryListing["effectiveAccess"] | undefined) ?? {accessible: true, restrictions: []},
+    publicUrl: row.publicUrl ? String(row.publicUrl) : row.public_url ? String(row.public_url) : null,
     allowedActions: Array.isArray(row.allowedActions) ? row.allowedActions.map(String) : [],
   };
 }
@@ -253,12 +266,15 @@ export type GalleryShareInput = {
   confirmedReplacement?: boolean;
 };
 
-export function shareArtifactToGallery(
+export async function shareArtifactToGallery(
   artifactId: string,
   input: GalleryShareInput,
   idempotencyKey: string,
-) {
-  return request<{ outcome: Record<string, unknown> }>(
+) : Promise<GalleryListingOperationResponse> {
+  const result = await request<{
+    historicalOutcome: Record<string, unknown>;
+    current: Record<string, unknown>;
+  }>(
     `/api/artifacts/${encodeURIComponent(artifactId)}/gallery-listing`,
     {
       method: "POST",
@@ -269,6 +285,10 @@ export function shareArtifactToGallery(
       body: JSON.stringify(input),
     },
   );
+  return {
+    historicalOutcome: result.historicalOutcome,
+    current: ownerGalleryListing(result.current),
+  };
 }
 
 export function updateArtifactGallery(

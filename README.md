@@ -208,11 +208,14 @@ mise run install
 mise run dev
 ```
 
-Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Values marked `required`
+Open [http://app.localhost:5173](http://app.localhost:5173). Mailpit is at
+[http://127.0.0.1:8025](http://127.0.0.1:8025). Values marked `required`
 in `.env.example` are development placeholders and must be replaced before a
 real deployment.
 
 ```sh
+mise run dev-status
+mise run dev-logs
 mise run dev-down
 ```
 
@@ -235,13 +238,17 @@ mise run dev-down
 Use repository tasks rather than invoking individual tools directly:
 
 ```bash
-mise run dev          # local development stack
-mise run dev-compose  # full-stack production simulation
-mise run check        # authoritative local quality gate
+mise run dev         # build, start, and verify the complete local stack
+mise run dev-status  # show containers and verify all local endpoints
+mise run dev-logs    # follow stack logs
+mise run dev-down    # stop the stack
+mise run check       # authoritative local quality gate
 ```
 
 Focused tasks such as `mise run web-test`, `mise run api-test`, and
-`mise run rust-check` are available while iterating. Start with
+`mise run rust-check` are available while iterating. API tests use their own
+Compose project and ports, so they can run without stopping the development
+stack. Administrative mutations remain explicit `ops-*` tasks. Start with
 [AGENTS.md](AGENTS.md), then read the scoped guidance for the surface you plan
 to change.
 

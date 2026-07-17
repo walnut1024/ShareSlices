@@ -169,7 +169,7 @@ async function main(): Promise<void> {
   const administratorUserId = flagIndex >= 0 ? process.argv[flagIndex + 1] : undefined;
   if (!administratorUserId) {
     throw new Error(
-      "Usage: mise run gallery-bootstrap -- --administrator-user-id <user-id>",
+      "Usage: mise run ops-gallery-bootstrap -- --administrator-user-id <user-id>",
     );
   }
   if (!process.env.DATABASE_URL) {

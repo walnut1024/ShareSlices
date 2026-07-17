@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 import { Toaster } from "./ui/sonner";
+import { GalleryShareFeedbackProvider } from "./GalleryShareFeedback";
 
 export function ManagementShell({
   user,
@@ -104,7 +105,11 @@ export function ManagementShell({
           </div>
         </div>
       </header>
-      <main className="w-full px-8 py-7">{children}</main>
+      <main className="w-full px-8 py-7">
+        <GalleryShareFeedbackProvider key={user.id} userId={user.id}>
+          {children}
+        </GalleryShareFeedbackProvider>
+      </main>
       <Toaster />
     </div>
   );

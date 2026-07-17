@@ -1,7 +1,61 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { listGalleryGovernanceCases } from "./gallery";
+import {
+  getOwnerGalleryListing,
+  listGalleryGovernanceCases,
+  shareArtifactToGallery,
+} from "./gallery";
 
 afterEach(() => vi.restoreAllMocks());
+
+describe("Gallery owner API", () => {
+  it("retains checked access and public URL fields from owner projections", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({
+      listing: ownerProjection,
+    }));
+
+    await expect(getOwnerGalleryListing("artifact-1")).resolves.toMatchObject({
+      id: "listing-1",
+      artifactId: "artifact-1",
+      lifecycle: "listed",
+      reviewState: "clear",
+      effectiveAccess: {accessible: true, restrictions: []},
+      publicUrl: "/gallery/public-1",
+    });
+  });
+
+  it("parses the current projection returned by an accepted share", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({
+      historicalOutcome: {status: "accepted"},
+      current: ownerProjection,
+    }, {status: 202}));
+
+    const result = await shareArtifactToGallery("artifact-1", {
+      versionId: "version-1",
+      profile: {displayName: "Ada", biography: null, avatar: null, expectedRevision: null},
+      permission: {grantVersion: "gallery-grant-v1", accepted: true},
+      metadata: {title: "Report", description: null, tags: []},
+    }, "operation-1");
+
+    expect(result.current).toMatchObject({
+      artifactId: "artifact-1",
+      listingRevision: 3,
+      publicUrl: "/gallery/public-1",
+    });
+  });
+});
+
+const ownerProjection = {
+  id: "listing-1",
+  artifactId: "artifact-1",
+  lifecycle: "listed",
+  reviewState: "clear",
+  closureReason: null,
+  revision: 3,
+  proposal: null,
+  effectiveAccess: {accessible: true, restrictions: []},
+  publicUrl: "/gallery/public-1",
+  allowedActions: ["update_gallery"],
+};
 
 describe("Gallery administration API", () => {
   it("follows queue pagination and bounds case-detail concurrency", async () => {

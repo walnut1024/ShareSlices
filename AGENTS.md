@@ -63,7 +63,7 @@ Scoped files inherit this file. When authoring scoped guidance, specialize only 
 ## Development and verification
 
 - Use `mise run <task>` as the documented entry point for repository development, build, test, validation, and local operations.
-- Use `mise run dev` for normal local development and `mise run dev-compose` for full-stack production simulation.
+- Use `mise run dev` for the one canonical local stack at `http://app.localhost:5173`. Use `mise run dev-status`, `mise run dev-logs`, and `mise run dev-down` for its lifecycle; do not add parallel startup paths.
 - `mise run check` is the authoritative local quality gate. `.mise.toml` and package scripts own its current contents; do not copy that list into durable documents.
 - Run focused `mise` tasks while iterating, then run `mise run check` before handing off code or durable-document changes.
 - Add a new gate to the relevant `mise` task in the same change as the behavior it checks.

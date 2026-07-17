@@ -1,8 +1,11 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { toast } from "sonner";
 import type { Artifact } from "../api/artifacts";
 import { ArtifactGalleryDialog } from "./ArtifactGalleryDialog";
+
+vi.mock("sonner", () => ({toast: {success: vi.fn()}}));
 
 const artifact: Artifact = {
   id: "artifact-1",
@@ -19,13 +22,16 @@ const artifact: Artifact = {
   allowedActions: [],
 };
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.clearAllMocks();
+});
 
 describe("Artifact Gallery management", () => {
   it("shows explicit no-current-grant unavailability without hiding Version history", async () => {
     mockGallery({listing: null, grant: null});
     render(<ArtifactGalleryDialog artifact={artifact} creatorDisplayName="Ada" open onOpenChange={vi.fn()} />);
-    expect(await screen.findByRole("heading", {name: "Share to Gallery"})).toBeVisible();
+    expect(await screen.findByRole("heading", {name: "Share “Report” to Gallery?"})).toBeVisible();
     expect(await screen.findByText(/no current Gallery permission terms/)).toBeVisible();
     expect(screen.queryByRole("button", {name: "Share to Gallery"})).not.toBeInTheDocument();
   });
@@ -37,9 +43,8 @@ describe("Artifact Gallery management", () => {
     mockGallery({listing: null, grant: permissionGrant, requests});
     render(<ArtifactGalleryDialog artifact={artifact} creatorDisplayName="Ada" open onOpenChange={onOpenChange} />);
 
-    expect(await screen.findByRole("heading", {name: "Share to Gallery"})).toBeVisible();
-    expect(screen.getByText("Anyone will be able to view this Artifact.")).toBeVisible();
-    expect(screen.getByText(/download it and save an independently owned copy/)).toBeVisible();
+    expect(await screen.findByRole("heading", {name: "Share “Report” to Gallery?"})).toBeVisible();
+    expect(screen.getByText("Anyone can view, download, and save a copy of this Artifact in Gallery. Your Share link won’t change.")).toBeVisible();
     expect(screen.queryByRole("combobox", {name: "Version"})).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
 
@@ -48,6 +53,10 @@ describe("Artifact Gallery management", () => {
 
     await user.click(screen.getByRole("button", {name: "Share to Gallery"}));
     await waitFor(() => expect(requests).toHaveLength(1));
+    expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    expect(toast.success).toHaveBeenCalledWith("Submitted to Gallery", {
+      description: "We’ll let you know when it’s live.",
+    });
     expect(screen.queryByText("Gallery state updated")).not.toBeInTheDocument();
     expect(JSON.parse(String(requests[0]?.body))).toEqual({
       versionId: "version-2",
@@ -65,8 +74,32 @@ describe("Artifact Gallery management", () => {
   it("offers the same simple confirmation for an eligible withdrawn listing", async () => {
     mockGallery({listing: ownerListing({lifecycle: "withdrawn", closureReason: "creator_withdrawal"}), grant: permissionGrant});
     render(<ArtifactGalleryDialog artifact={artifact} creatorDisplayName="Ada" open onOpenChange={vi.fn()} />);
-    expect(await screen.findByText("Anyone will be able to view this Artifact.")).toBeVisible();
+    expect(await screen.findByText("Anyone can view, download, and save a copy of this Artifact in Gallery. Your Share link won’t change.")).toBeVisible();
     expect(screen.queryByRole("combobox", {name: "Version"})).not.toBeInTheDocument();
+  });
+
+  it("keeps the confirmation open and hides raw internal failures", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    mockGallery({listing: null, grant: permissionGrant, postError: {status: 500, code: "internal_error", message: "internal error"}});
+    render(<ArtifactGalleryDialog artifact={artifact} creatorDisplayName="Ada" open onOpenChange={onOpenChange} />);
+
+    await user.click(await screen.findByRole("button", {name: "Share to Gallery"}));
+
+    expect(await screen.findByText("We couldn’t submit this Artifact to Gallery. Try again.")).toBeVisible();
+    expect(screen.queryByText("internal error")).not.toBeInTheDocument();
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it("uses stable recovery copy when Gallery is unavailable", async () => {
+    const user = userEvent.setup();
+    mockGallery({listing: null, grant: permissionGrant, postError: {status: 503, code: "gallery_unavailable", message: "Gallery disabled"}});
+    render(<ArtifactGalleryDialog artifact={artifact} creatorDisplayName="Ada" open onOpenChange={vi.fn()} />);
+
+    await user.click(await screen.findByRole("button", {name: "Share to Gallery"}));
+
+    expect(await screen.findByText("Gallery is temporarily unavailable. Try again later. Your Artifact has not changed.")).toBeVisible();
   });
 
   it("keeps a listed revision manageable while an update proposal is open", async () => {
@@ -102,12 +135,13 @@ function ownerListing(overrides: Record<string, unknown>) {
   };
 }
 
-function mockGallery(input: {listing: Record<string, unknown> | null; grant: Record<string, unknown> | null; requests?: RequestInit[]}) {
+function mockGallery(input: {listing: Record<string, unknown> | null; grant: Record<string, unknown> | null; requests?: RequestInit[]; postError?: {status: number; code: string; message: string}}) {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (request, init) => {
     const path = String(request);
     if (path.endsWith("/gallery-listing") && init?.method === "POST") {
       input.requests?.push(init);
-      return Response.json({outcome: {status: "accepted"}}, {status: 202});
+      if (input.postError) return Response.json({error: {code: input.postError.code, message: input.postError.message}}, {status: input.postError.status});
+      return Response.json({historicalOutcome: {status: "accepted"}, current: ownerListing({lifecycle: "pending", publicUrl: null})}, {status: 202});
     }
     if (path.endsWith("/gallery-listing")) return Response.json({listing: input.listing});
     if (path.endsWith("/gallery/profile")) return Response.json({profile: {id: "profile-1", opaqueSlug: "creator-1", displayName: "Ada", biography: null, revision: 1}});

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 from io import BytesIO
+import os
 from pathlib import Path
 import re
 import time
@@ -14,7 +15,7 @@ import yaml
 
 
 SPEC_PATH = Path(__file__).with_name("artifact-flow.yaml")
-MAILPIT_URL = "http://127.0.0.1:8025"
+MAILPIT_URL = os.environ.get("SHARESLICES_TEST_MAILPIT_URL", "http://127.0.0.1:8025")
 
 
 def read_path(data: Any, dotted_path: str) -> Any:
@@ -101,7 +102,7 @@ def run_contract(spec_path: Path = SPEC_PATH) -> None:
     with spec_path.open("r", encoding="utf-8") as handle:
         contract = yaml.safe_load(handle)
 
-    base_url = contract["base_url"]
+    base_url = os.environ.get("SHARESLICES_ARTIFACT_FLOW_URL", contract["base_url"])
     archives = {
         name: build_archive(entries) for name, entries in contract["archives"].items()
     }

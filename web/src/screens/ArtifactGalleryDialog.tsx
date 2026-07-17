@@ -1,5 +1,6 @@
 import { ImagePlus, TriangleAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   type Artifact,
   type ReadyArtifactVersion,
@@ -18,6 +19,7 @@ import {
   withdrawArtifactFromGallery,
 } from "../api/gallery";
 import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert";
+import { useGalleryShareFeedback } from "../components/GalleryShareFeedback";
 import { Button } from "../components/ui/button";
 import { Checkbox } from "../components/ui/checkbox";
 import {
@@ -72,6 +74,7 @@ export function ArtifactGalleryDialog({
   const [confirmReplacement, setConfirmReplacement] = useState(false);
   const [confirmWithdraw, setConfirmWithdraw] = useState(false);
   const operationKey = useRef(crypto.randomUUID());
+  const registerAcceptedShare = useGalleryShareFeedback();
 
   useEffect(() => {
     if (!open) return;
@@ -168,8 +171,17 @@ export function ArtifactGalleryDialog({
           listing.listingRevision,
           operationKey.current,
         );
-      else
-        await shareArtifactToGallery(artifact.id, input, operationKey.current);
+      else {
+        const result = await shareArtifactToGallery(artifact.id, input, operationKey.current);
+        registerAcceptedShare({id: artifact.id, name: artifact.name}, result.current);
+        onListingChange?.(result.current);
+        operationKey.current = crypto.randomUUID();
+        onOpenChange(false);
+        toast.success("Submitted to Gallery", {
+          description: "We’ll let you know when it’s live.",
+        });
+        return;
+      }
       const updated = await getOwnerGalleryListing(artifact.id);
       setListing(updated);
       onListingChange?.(updated);
@@ -221,11 +233,11 @@ export function ArtifactGalleryDialog({
             listing?.lifecycle === "pending" ||
             (listing?.lifecycle === "removed" && !canFreshShare)
               ? "Manage Gallery"
-              : "Share to Gallery"}
+              : `Share “${artifact.name}” to Gallery?`}
           </DialogTitle>
           <DialogDescription>
             {canFreshShare && !canUpdate
-              ? `Share “${artifact.name}” publicly in Gallery.`
+              ? "Anyone can view, download, and save a copy of this Artifact in Gallery. Your Share link won’t change."
               : "Gallery is a public community collection. Share with link remains a separate channel."}
           </DialogDescription>
         </DialogHeader>
@@ -297,15 +309,6 @@ export function ArtifactGalleryDialog({
             ) : null}
             {canFreshShare && !canUpdate && grant ? (
               <>
-                <div className="rounded-lg border bg-muted/35 p-5">
-                  <p className="font-medium text-foreground">
-                    Anyone will be able to view this Artifact.
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                    People can also download it and save an independently owned
-                    copy. Share with link remains unchanged.
-                  </p>
-                </div>
                 {listing?.closureReason === "administrator_removal" ? (
                   <label className="flex items-start gap-3 rounded-md border border-destructive/40 p-4 text-sm">
                     <Checkbox
@@ -341,14 +344,7 @@ export function ArtifactGalleryDialog({
                         !confirmReplacement)
                     }
                   >
-                    {pending ? (
-                      <>
-                        <Spinner />
-                        Sharing…
-                      </>
-                    ) : (
-                      "Share to Gallery"
-                    )}
+                    Share to Gallery
                   </Button>
                 </DialogFooter>
               </>
@@ -537,14 +533,16 @@ export function ArtifactGalleryDialog({
 
 function galleryMutationMessage(reason: unknown): string {
   if (reason instanceof GalleryApiError) {
+    if (reason.code === "gallery_unavailable" || reason.status === 503)
+      return "Gallery is temporarily unavailable. Try again later. Your Artifact has not changed.";
     if (reason.code === "listing_revision_conflict")
       return "Gallery changed since this dialog opened. Close it, review the current revision, and try again.";
     if (reason.code === "no_current_gallery_grant")
       return "There are no current Gallery permission terms to accept.";
     if (reason.code === "irreversible_replacement_confirmation_required")
       return "Confirm that the replacement permanently forfeits restoration of the removed listing.";
+    if (reason.code === "idempotency_conflict" || reason.code === "listing_already_open")
+      return "Gallery already has a share request for this Artifact. Close this dialog and review its current Gallery state.";
   }
-  return reason instanceof Error
-    ? reason.message
-    : "Gallery sharing could not be updated.";
+  return "We couldn’t submit this Artifact to Gallery. Try again.";
 }

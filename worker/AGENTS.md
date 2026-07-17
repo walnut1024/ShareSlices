@@ -29,4 +29,4 @@ Inherits [repository-wide guidance](../AGENTS.md) and owns rules specific to `wo
 ## Verification
 
 - Run `mise run rust-check` for Worker changes.
-- After changing the Worker binary or image, run `mise run dev-worker-build` before local integration checks.
+- After changing the Worker binary or image, run `mise run dev`; the canonical startup rebuilds and replaces the Worker before local integration checks.

@@ -19,6 +19,20 @@ SPEC_PATH = ROOT / "account-entry.yaml"
 PROJECT_ROOT = ROOT.parent.parent
 
 
+def runtime_setting(name: str, default: str) -> str:
+    return os.environ.get(name, default)
+
+
+def replace_string(value: Any, old: str, new: str) -> Any:
+    if isinstance(value, str):
+        return value.replace(old, new)
+    if isinstance(value, list):
+        return [replace_string(item, old, new) for item in value]
+    if isinstance(value, dict):
+        return {key: replace_string(item, old, new) for key, item in value.items()}
+    return value
+
+
 def read_path(data: dict[str, Any], dotted_path: str) -> Any:
     current: Any = data
     for part in dotted_path.split("."):
@@ -76,7 +90,15 @@ def contract() -> dict[str, Any]:
     with SPEC_PATH.open("r", encoding="utf-8") as handle:
         loaded = yaml.safe_load(handle)
     assert isinstance(loaded, dict)
-    return loaded
+    loaded["base_url"] = runtime_setting("SHARESLICES_ACCOUNT_DEFAULT_URL", loaded["base_url"])
+    loaded["failure_base_url"] = runtime_setting("SHARESLICES_ACCOUNT_FAILURE_URL", loaded["failure_base_url"])
+    loaded["smtp_base_url"] = runtime_setting("SHARESLICES_ACCOUNT_SMTP_URL", loaded["smtp_base_url"])
+    loaded["mailpit_url"] = runtime_setting("SHARESLICES_TEST_MAILPIT_URL", loaded["mailpit_url"])
+    return replace_string(
+        loaded,
+        "http://127.0.0.1:5173",
+        runtime_setting("SHARESLICES_TEST_WEB_ORIGIN", "http://127.0.0.1:5173"),
+    )
 
 
 @pytest.fixture(scope="session")
@@ -85,13 +107,13 @@ def failure_server(contract: dict[str, Any]) -> str:
     environment = os.environ.copy()
     environment.update(
         {
-            "DATABASE_URL": "postgres://shareslices:shareslices@127.0.0.1:5432/shareslices_test",
+            "DATABASE_URL": runtime_setting("SHARESLICES_TEST_DATABASE_URL", "postgres://shareslices:shareslices@127.0.0.1:5432/shareslices_test"),
             "BETTER_AUTH_SECRET": "contract-fixture-secret-at-least-32-bytes",
             "BETTER_AUTH_URL": base_url,
-            "WEB_ORIGIN": "http://127.0.0.1:5173",
+            "WEB_ORIGIN": runtime_setting("SHARESLICES_TEST_WEB_ORIGIN", "http://127.0.0.1:5173"),
             "API_ORIGIN": base_url,
             "VIEWER_ORIGIN": base_url,
-            "S3_ENDPOINT": "http://127.0.0.1:9000",
+            "S3_ENDPOINT": runtime_setting("SHARESLICES_TEST_S3_ENDPOINT", "http://127.0.0.1:9000"),
             "S3_REGION": "us-east-1",
             "S3_BUCKET": "shareslices-artifacts",
             "S3_ACCESS_KEY_ID": "shareslices",
@@ -111,7 +133,7 @@ def failure_server(contract: dict[str, Any]) -> str:
             "MINIMUM_CLI_VERSION": "0.1.0",
             "REQUIRE_EMAIL_VERIFICATION": "false",
             "AUTH_EMAIL_ENCRYPTION_KEY": "contract-email-encryption-key-at-least-32-bytes",
-            "AUTH_EMAIL_SMTP_URL": "smtp://127.0.0.1:1025",
+            "AUTH_EMAIL_SMTP_URL": runtime_setting("SHARESLICES_TEST_SMTP_URL", "smtp://127.0.0.1:1025"),
             "AUTH_EMAIL_FROM": "ShareSlices <no-reply@shareslices.local>",
             "AUTH_EMAIL_RETRY_DELAY_SECONDS": "1",
             "PORT": base_url.rsplit(":", 1)[1],
@@ -178,18 +200,19 @@ def live_servers(contract: dict[str, Any]) -> dict[str, str]:
     )
     processes: list[subprocess.Popen[str]] = []
 
-    for name, port, verification in [("default", 7460, "false"), ("smtp", 7462, "true")]:
+    for name, verification in [("default", "false"), ("smtp", "true")]:
         base_url = contract["base_url"] if name == "default" else contract["smtp_base_url"]
+        port = base_url.rsplit(":", 1)[1]
         environment = os.environ.copy()
         environment.update(
             {
-                "DATABASE_URL": "postgres://shareslices:shareslices@127.0.0.1:5432/shareslices_test",
+                "DATABASE_URL": runtime_setting("SHARESLICES_TEST_DATABASE_URL", "postgres://shareslices:shareslices@127.0.0.1:5432/shareslices_test"),
                 "BETTER_AUTH_SECRET": "contract-live-secret-at-least-32-bytes",
                 "BETTER_AUTH_URL": base_url,
-                "WEB_ORIGIN": "http://127.0.0.1:5173",
+                "WEB_ORIGIN": runtime_setting("SHARESLICES_TEST_WEB_ORIGIN", "http://127.0.0.1:5173"),
                 "API_ORIGIN": base_url,
                 "VIEWER_ORIGIN": base_url,
-                "S3_ENDPOINT": "http://127.0.0.1:9000",
+                "S3_ENDPOINT": runtime_setting("SHARESLICES_TEST_S3_ENDPOINT", "http://127.0.0.1:9000"),
                 "S3_REGION": "us-east-1",
                 "S3_BUCKET": "shareslices-artifacts",
                 "S3_ACCESS_KEY_ID": "shareslices",
@@ -209,10 +232,10 @@ def live_servers(contract: dict[str, Any]) -> dict[str, str]:
                 "MINIMUM_CLI_VERSION": "0.1.0",
                 "REQUIRE_EMAIL_VERIFICATION": verification,
                 "AUTH_EMAIL_ENCRYPTION_KEY": "contract-email-encryption-key-at-least-32-bytes",
-                "AUTH_EMAIL_SMTP_URL": "smtp://127.0.0.1:1025",
+                "AUTH_EMAIL_SMTP_URL": runtime_setting("SHARESLICES_TEST_SMTP_URL", "smtp://127.0.0.1:1025"),
                 "AUTH_EMAIL_FROM": "ShareSlices <no-reply@shareslices.local>",
                 "AUTH_EMAIL_RETRY_DELAY_SECONDS": "1",
-                "PORT": str(port),
+                "PORT": port,
                 "NODE_ENV": "test",
             }
         )
