@@ -19,6 +19,7 @@ import {
   EmptyTitle,
 } from "../components/ui/empty";
 import { Spinner } from "../components/ui/spinner";
+import { setDocumentMetadata } from "../document-metadata";
 
 export function CreatorPage({ slug }: { slug: string }) {
   const unsupported = useUnsupportedGalleryDevice();
@@ -28,7 +29,15 @@ export function CreatorPage({ slug }: { slug: string }) {
   useEffect(() => {
     let active = true;
     getGalleryCreator(slug)
-      .then((value) => active && setCreator(value))
+      .then((value) => {
+        if (!active) return;
+        setCreator(value);
+        setDocumentMetadata({
+          title: `${value.profile.displayName} · ShareSlices Gallery`,
+          robots: "index,follow",
+          canonicalPath: `/creators/${encodeURIComponent(value.profile.slug)}`,
+        });
+      })
       .catch((reason: unknown) => {
         if (!active) return;
         setError(
@@ -40,6 +49,10 @@ export function CreatorPage({ slug }: { slug: string }) {
                 503,
               ),
         );
+        setDocumentMetadata({
+          title: "Gallery Creator unavailable · ShareSlices",
+          robots: "noindex,nofollow",
+        });
       });
     return () => {
       active = false;

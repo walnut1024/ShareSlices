@@ -26,6 +26,7 @@ import {
 } from "../components/ui/input-group";
 import { Spinner } from "../components/ui/spinner";
 import { ToggleGroup, ToggleGroupItem } from "../components/ui/toggle-group";
+import { setDocumentMetadata } from "../document-metadata";
 
 type Collection = "default" | "newest" | "featured" | "search" | "tag";
 
@@ -52,8 +53,23 @@ export function GalleryPage() {
     setPage(null);
     setError(null);
     listGallery({ mode, query: tag ?? initialQuery })
-      .then((result) => active && setPage(result))
-      .catch((reason: unknown) => active && setError(asGalleryError(reason)));
+      .then((result) => {
+        if (!active) return;
+        setPage(result);
+        setDocumentMetadata({
+          title: "Gallery · ShareSlices",
+          robots: "index,follow",
+          canonicalPath: "/",
+        });
+      })
+      .catch((reason: unknown) => {
+        if (!active) return;
+        setError(asGalleryError(reason));
+        setDocumentMetadata({
+          title: "Gallery unavailable · ShareSlices",
+          robots: "noindex,nofollow",
+        });
+      });
     return () => {
       active = false;
     };
@@ -63,7 +79,7 @@ export function GalleryPage() {
     event.preventDefault();
     const value = query.trim();
     window.location.assign(
-      value ? `/gallery?q=${encodeURIComponent(value)}` : "/gallery",
+      value ? `/?q=${encodeURIComponent(value)}` : "/",
     );
   }
 
@@ -147,8 +163,8 @@ export function GalleryPage() {
               onValueChange={(value) => {
                 const next = value[0];
                 if (next === "newest" || next === "featured")
-                  window.location.assign(`/gallery?view=${next}`);
-                else if (next === "default") window.location.assign("/gallery");
+                  window.location.assign(`/?view=${next}`);
+                else if (next === "default") window.location.assign("/");
               }}
             >
               <ToggleGroupItem value="default">All</ToggleGroupItem>

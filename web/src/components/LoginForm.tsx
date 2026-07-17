@@ -6,7 +6,7 @@ import { Field, FieldGroup, FieldLabel } from "./ui/field";
 import { Input } from "./ui/input";
 
 export function LoginForm({
-  buttonLabel = "Log in",
+  buttonLabel = "Sign in",
   onSignedIn
   ,onVerificationRequired
 }: {

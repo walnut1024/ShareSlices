@@ -5,7 +5,7 @@ import { GalleryListingPage } from "./GalleryListingPage";
 import App from "../App";
 
 beforeEach(() => {
-  window.history.replaceState(null, "", "/gallery");
+  window.history.replaceState(null, "", "/");
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
     value: vi.fn().mockReturnValue({ matches: false, addListener: vi.fn(), removeListener: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn() }),
@@ -103,6 +103,13 @@ describe("public Gallery pages", () => {
   it("shows the explicit unsupported-device experience after availability", async () => {
     vi.mocked(window.matchMedia).mockReturnValue({
       matches: true,
+      media: "(max-width: 1023px)",
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
     } as MediaQueryList);
     const fetch = vi
       .spyOn(globalThis, "fetch")

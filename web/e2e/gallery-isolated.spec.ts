@@ -11,13 +11,16 @@ const card = {
 };
 
 test("browses static Gallery cards with stable cursor and unsupported-device precedence", async ({page}) => {
+  await mockSignedOutSession(page);
   const cursors: string[] = [];
   await page.route("**/gallery?*", async (route) => {
     const cursor = new URL(route.request().url()).searchParams.get("cursor");
     if (cursor) cursors.push(cursor);
     await route.fulfill({json: {items: cursor ? [{...card, slug: "opaque-gallery-listing-5678", title: "Second"}] : [card], nextCursor: cursor ? null : "stable-cursor"}});
   });
-  await page.goto("/gallery");
+  await page.goto("/");
+  await expect(page.getByRole("link", {name: "Sign in"})).toHaveAttribute("href", "/sign-in");
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", /\/$/);
   await expect(page.getByRole("heading", {name: card.title})).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await page.screenshot({path: "../output/playwright/gallery-listing-loaded-after-1440x900.png", fullPage: true});
@@ -55,9 +58,10 @@ test("keeps trusted actions outside a sandboxed isolated player", async ({page})
 });
 
 test("renders pre-lookup unavailability before unsupported-device state", async ({page}) => {
+  await mockSignedOutSession(page);
   await page.setViewportSize({width: 900, height: 800});
   await page.route("**/gallery?*", (route) => route.fulfill({status: 503, json: {error: {code: "gallery_unavailable", message: "Unavailable"}}}));
-  await page.goto("/gallery");
+  await page.goto("/");
   await expect(page.getByRole("heading", {name: "Gallery is temporarily unavailable."})).toBeVisible();
   await expect(page.getByRole("heading", {name: /larger canvas/})).toHaveCount(0);
 });
@@ -66,7 +70,22 @@ test("keeps signed-out copy as a trusted parent sign-in action while Download re
   await mockListing(page);
   await page.goto(`/gallery/${card.slug}`);
   await page.getByRole("button", {name: "Save a copy"}).click();
-  await expect(page).toHaveURL(new RegExp(`view=login.*returnTo=`));
+  await expect(page).toHaveURL(new RegExp(`/sign-in\\?returnTo=${encodeURIComponent(`/gallery/${card.slug}`)}`));
+});
+
+test("shows signed-in Gallery navigation without blocking public content", async ({page}) => {
+  await page.route("**/api/users/me", (route) => route.fulfill({json: {user: {id: "user-1", name: "Ada", email: "ada@example.test"}}}));
+  await page.route("**/gallery?*", (route) => route.fulfill({json: {items: [card], nextCursor: null}}));
+  await page.goto("/");
+  await expect(page.getByRole("heading", {name: card.title})).toBeVisible();
+  await expect(page.getByRole("link", {name: "My Artifacts"})).toHaveAttribute("href", "/artifacts");
+});
+
+test("rejects the removed Gallery index path", async ({page}) => {
+  await mockSignedOutSession(page);
+  await page.goto("/gallery");
+  await expect(page.getByRole("heading", {name: "Page not found"})).toBeVisible();
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex,nofollow");
 });
 
 test("renders public Creator identity without account email and keeps an empty listing collection", async ({page}) => {
@@ -99,13 +118,16 @@ async function mockListing(page: Page) {
     if (route.request().resourceType() === "fetch") await route.fulfill({json: {...card, sourceAttribution: null}});
     else await route.fallback();
   });
-  await page.route("**/api/auth/get-session", (route) => route.fulfill({status: 401, json: {}}));
-  await page.route("**/api/session", (route) => route.fulfill({status: 401, json: {}}));
+  await mockSignedOutSession(page);
   await page.route(`**/gallery/${card.slug}/player-authorizations`, (route) => {
     const origin = new URL(route.request().url()).origin;
     return route.fulfill({status: 201, json: {expiresAt: "2099-07-16T01:00:00.000Z", entryUrl: `${origin}/gallery-content/public/opaque-player/index.html`}});
   });
   await page.route("**/gallery-content/public/opaque-player/index.html", (route) => route.fulfill({contentType: "text/html", body: "<!doctype html><h1>Isolated content</h1>", headers: {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "Content-Security-Policy": "default-src 'none'; sandbox allow-scripts", "Permissions-Policy": "fullscreen=()"}}));
+}
+
+async function mockSignedOutSession(page: Page) {
+  await page.route("**/api/users/me", (route) => route.fulfill({status: 401, json: {error: {code: "unauthenticated", message: "Authentication required"}}}));
 }
 
 async function expectNoHorizontalOverflow(page: Page) {

@@ -26,8 +26,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1280, height: 720
 
   test(`account and device authorization remain reachable at ${suffix}`, async ({ page }) => {
     await page.setViewportSize(viewport)
-    await page.goto("/?view=login")
-    await expect(page.getByRole("heading", { name: "Log in" })).toBeVisible()
+    await page.route("**/api/users/me", (route) => route.fulfill({ status: 401, json: { error: { code: "unauthenticated" } } }))
+    await page.goto("/sign-in")
+    await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible()
     await assertFocusOrder(page, ["Email", "Password"])
     await assertNoOverflow(page)
     if (viewport.width === 1440) await page.screenshot({ path: "../output/playwright/account-login-after-1440x900.png", fullPage: true })
@@ -43,12 +44,13 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1280, height: 720
 }
 
 test("account verification preserves the current 202 workflow", async ({ page }) => {
+  await page.route("**/api/users/me", (route) => route.fulfill({ status: 401, json: { error: { code: "unauthenticated" } } }))
   await page.route("**/api/users", (route) => route.fulfill({ status: 202, json: { verification: { id: "verification-1", destination: "a***@example.test", expiresIn: 600, resendAvailableIn: 60 } } }))
-  await page.goto("/")
+  await page.goto("/sign-up")
   await page.getByLabel("Name").fill("Ada Lovelace")
   await page.getByLabel("Email").fill("ada@example.test")
   await page.getByLabel("Password").fill("correct horse battery staple")
-  await page.getByRole("button", { name: "Sign up" }).click()
+  await page.getByRole("button", { name: "Create account" }).click()
   await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible()
   await expect(page.getByRole("button", { name: /Send again in/ })).toBeDisabled()
   await assertNoOverflow(page)

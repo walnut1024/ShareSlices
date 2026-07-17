@@ -80,8 +80,8 @@ export function SignUpPage() {
         {verified ? (
           <>
             <header><h1 className="m-0 text-[26px] font-semibold tracking-[-0.02em]">Email verified</h1></header>
-            <p className="mb-6 mt-2 text-sm text-muted-foreground">Your email is verified. Log in to continue.</p>
-            <a className={buttonVariants({ className: "w-full" })} href="/?view=login">Log in</a>
+            <p className="mb-6 mt-2 text-sm text-muted-foreground">Your email is verified. Sign in to continue.</p>
+            <a className={buttonVariants({ className: "w-full" })} href="/sign-in">Sign in</a>
           </>
         ) : (
           <VerificationCodeForm
@@ -103,7 +103,7 @@ export function SignUpPage() {
   return (
     <AuthLayout>
       <header>
-        <h1 className="m-0 text-[26px] font-semibold tracking-[-0.02em]">Sign up</h1>
+        <h1 className="m-0 text-[26px] font-semibold tracking-[-0.02em]">Create account</h1>
         <p className="mb-[26px] mt-1.5 text-sm leading-[1.45] text-muted-foreground">
           Free to start — no card required.
         </p>
@@ -135,16 +135,16 @@ export function SignUpPage() {
           </Field>
         </FieldGroup>
         {errors.form ? <Alert variant="destructive"><AlertDescription>{errors.form}</AlertDescription></Alert> : null}
-        {createdName ? <Alert><AlertDescription>You’re signed up as {createdName}. Log in to continue.</AlertDescription></Alert> : null}
+        {createdName ? <Alert><AlertDescription>You’re signed up as {createdName}. Sign in to continue.</AlertDescription></Alert> : null}
         <Button type="submit" className="w-full">
-          Sign up
+          Create account
         </Button>
       </form>
       <p className="mb-0 mt-3.5 max-w-[300px] text-xs leading-normal text-muted-foreground">
         By signing up you agree to our <span className="text-foreground">Terms</span> and <span className="text-foreground">Privacy Policy</span>.
       </p>
       <p className="mb-0 mt-[18px] text-[13.5px] text-muted-foreground">
-        Already have an account? <a className="font-medium text-foreground hover:underline" href="/?view=login">Log in</a>
+        Already have an account? <a className="font-medium text-foreground hover:underline" href="/sign-in">Sign in</a>
       </p>
     </AuthLayout>
   );

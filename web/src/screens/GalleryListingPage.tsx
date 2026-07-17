@@ -1,6 +1,5 @@
 import { AlertTriangle, Copy, Download, Flag, UserRound } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getCurrentUser } from "../api/account";
 import {
   GalleryApiError,
   type GalleryListing,
@@ -15,6 +14,7 @@ import { GalleryArtifactPlayer } from "../components/GalleryArtifactPlayer";
 import {
   PublicGalleryShell,
   UnsupportedGalleryDevice,
+  usePublicGallerySession,
   useUnsupportedGalleryDevice,
 } from "../components/PublicGalleryShell";
 import { TurnstileWidget } from "../components/TurnstileWidget";
@@ -41,13 +41,14 @@ import {
 } from "../components/ui/select";
 import { Spinner } from "../components/ui/spinner";
 import { Textarea } from "../components/ui/textarea";
+import { setDocumentMetadata } from "../document-metadata";
 
 export function GalleryListingPage({ slug }: { slug: string }) {
   const unsupported = useUnsupportedGalleryDevice();
+  const { user, checking } = usePublicGallerySession();
   const [listing, setListing] = useState<GalleryListing | null>(null);
   const [contentUrl, setContentUrl] = useState<string | null>(null);
   const [error, setError] = useState<GalleryApiError | null>(null);
-  const [signedIn, setSignedIn] = useState(false);
   const [copyState, setCopyState] = useState<
     "idle" | "working" | "ready" | "failed"
   >("idle");
@@ -56,21 +57,30 @@ export function GalleryListingPage({ slug }: { slug: string }) {
 
   useEffect(() => {
     let active = true;
-    Promise.all([getGalleryListing(slug), getCurrentUser().catch(() => null)])
-      .then(([result, user]) => {
+    getGalleryListing(slug)
+      .then((result) => {
         if (!active) return;
         setListing(result);
-        setSignedIn(Boolean(user));
-        setDocumentDiscovery(result);
+        setDocumentMetadata({
+          title: `${result.title} · ShareSlices Gallery`,
+          robots: "index,follow",
+          canonicalPath: `/gallery/${encodeURIComponent(result.slug)}`,
+        });
         return issueGalleryPlayer(slug);
       })
       .then((issued) => {
         if (active && issued) setContentUrl(issued.entryUrl);
       })
-      .catch((reason: unknown) => active && setError(asGalleryError(reason)));
+      .catch((reason: unknown) => {
+        if (!active) return;
+        setError(asGalleryError(reason));
+        setDocumentMetadata({
+          title: "Gallery Artifact unavailable · ShareSlices",
+          robots: "noindex,nofollow",
+        });
+      });
     return () => {
       active = false;
-      clearDocumentDiscovery();
     };
   }, [slug]);
 
@@ -89,9 +99,9 @@ export function GalleryListingPage({ slug }: { slug: string }) {
   if (unsupported) return <UnsupportedGalleryDevice />;
 
   async function saveCopy() {
-    if (!signedIn) {
+    if (!user) {
       window.location.assign(
-        `/?view=login&returnTo=${encodeURIComponent(window.location.pathname)}`,
+        `/sign-in?returnTo=${encodeURIComponent(window.location.pathname)}`,
       );
       return;
     }
@@ -126,7 +136,7 @@ export function GalleryListingPage({ slug }: { slug: string }) {
       <main className="mx-auto w-full max-w-[1920px] px-8 py-7">
         <a
           className="text-sm text-muted-foreground hover:text-foreground"
-          href="/gallery"
+          href="/"
         >
           ← Back to Gallery
         </a>
@@ -153,7 +163,7 @@ export function GalleryListingPage({ slug }: { slug: string }) {
           <aside className="rounded-xl border bg-card p-6 shadow-sm">
             <div className="flex flex-wrap gap-2">
               {listing.tags.map((tag) => (
-                <Badge key={tag} variant="secondary" render={<a href={`/gallery?tag=${encodeURIComponent(tag)}`} />}>
+                <Badge key={tag} variant="secondary" render={<a href={`/?tag=${encodeURIComponent(tag)}`} />}>
                   {tag}
                 </Badge>
               ))}
@@ -192,7 +202,7 @@ export function GalleryListingPage({ slug }: { slug: string }) {
             <div className="mt-8 grid gap-2">
               <Button
                 onClick={saveCopy}
-                disabled={copyState === "working"}
+                disabled={checking || copyState === "working"}
               >
                 {copyState === "working" ? (
                   <>
@@ -236,7 +246,7 @@ export function GalleryListingPage({ slug }: { slug: string }) {
       <ReportDialog
         open={reportOpen}
         slug={slug}
-        signedIn={signedIn}
+        signedIn={Boolean(user)}
         onOpenChange={setReportOpen}
       />
     </PublicGalleryShell>
@@ -398,38 +408,11 @@ function GalleryListingState({ error }: { error: GalleryApiError }) {
         </Alert>
         <a
           className="mt-8 inline-block underline underline-offset-4"
-          href="/gallery"
+          href="/"
         >
           Browse Gallery
         </a>
       </main>
     </PublicGalleryShell>
   );
-}
-function setDocumentDiscovery(listing: GalleryListing) {
-  document.title = `${listing.title} · ShareSlices Gallery`;
-  let robots = document.querySelector<HTMLMetaElement>('meta[name="robots"]');
-  if (!robots) {
-    robots = document.createElement("meta");
-    robots.name = "robots";
-    document.head.append(robots);
-  }
-  robots.content = "index,follow";
-  let canonical = document.querySelector<HTMLLinkElement>(
-    'link[rel="canonical"]',
-  );
-  if (!canonical) {
-    canonical = document.createElement("link");
-    canonical.rel = "canonical";
-    document.head.append(canonical);
-  }
-  canonical.href = new URL(
-    `/gallery/${encodeURIComponent(listing.slug)}`,
-    window.location.origin,
-  ).toString();
-}
-function clearDocumentDiscovery() {
-  document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.remove();
-  const robots = document.querySelector<HTMLMetaElement>('meta[name="robots"]');
-  if (robots) robots.content = "noindex,nofollow";
 }

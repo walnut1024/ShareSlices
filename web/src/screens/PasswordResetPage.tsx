@@ -75,8 +75,8 @@ export function PasswordResetPage() {
     return (
       <AuthLayout>
         <h1 className="m-0 text-[26px] font-semibold tracking-[-0.02em]">Password reset</h1>
-        <p className="mb-6 mt-2 text-sm text-muted-foreground">Your password has been changed. Log in with your new password.</p>
-        <a className={buttonVariants({ className: "w-full" })} href="/?view=login">Log in</a>
+        <p className="mb-6 mt-2 text-sm text-muted-foreground">Your password has been changed. Sign in with your new password.</p>
+        <a className={buttonVariants({ className: "w-full" })} href="/sign-in">Sign in</a>
       </AuthLayout>
     );
   }
@@ -100,7 +100,7 @@ export function PasswordResetPage() {
         {message ? <Alert variant="destructive"><AlertDescription>{message}</AlertDescription></Alert> : null}
         <Button type="submit">Send verification code</Button>
       </form>
-      <p className="mt-5 text-[13px]"><a className="font-medium hover:underline" href="/?view=login">Return to login</a></p>
+      <p className="mt-5 text-[13px]"><a className="font-medium hover:underline" href="/sign-in">Return to sign in</a></p>
     </AuthLayout>
   );
 }

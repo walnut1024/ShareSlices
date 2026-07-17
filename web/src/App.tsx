@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   AccountApiError,
@@ -7,23 +7,33 @@ import {
   type User,
 } from "./api/account";
 import { ManagementShell } from "./components/ManagementShell";
+import { PublicGallerySessionProvider } from "./components/PublicGalleryShell";
 import { Spinner } from "./components/ui/spinner";
+import { setDocumentMetadata } from "./document-metadata";
+import {
+  classifyRoute,
+  isAccountRoute,
+  isManagementRoute,
+  isPublicRoute,
+  validateReturnTo,
+  type AppRoute,
+} from "./routing";
 import { ArtifactPage } from "./screens/ArtifactPage";
 import { ArtifactPreviewPage } from "./screens/ArtifactPreviewPage";
 import { ArtifactsPage } from "./screens/ArtifactsPage";
-import { DeviceAuthorizationPage } from "./screens/DeviceAuthorizationPage";
-import { LoginPage } from "./screens/LoginPage";
-import { SignUpPage } from "./screens/SignUpPage";
-import { PasswordResetPage } from "./screens/PasswordResetPage";
-import { GalleryPage } from "./screens/GalleryPage";
-import { GalleryListingPage } from "./screens/GalleryListingPage";
 import { CreatorPage } from "./screens/CreatorPage";
+import { DeviceAuthorizationPage } from "./screens/DeviceAuthorizationPage";
 import { GalleryAdministrationPage } from "./screens/GalleryAdministrationPage";
+import { GalleryListingPage } from "./screens/GalleryListingPage";
+import { GalleryPage } from "./screens/GalleryPage";
 import { GalleryProfilePage } from "./screens/GalleryProfilePage";
+import { LoginPage } from "./screens/LoginPage";
+import { NotFoundPage } from "./screens/NotFoundPage";
+import { PasswordResetPage } from "./screens/PasswordResetPage";
+import { SignUpPage } from "./screens/SignUpPage";
 
-function accountView(): "signup" | "login" | "reset" {
-  const view = new URLSearchParams(window.location.search).get("view");
-  return view === "login" || view === "reset" ? view : "signup";
+function currentLocation() {
+  return window.location.pathname + window.location.search + window.location.hash;
 }
 
 function navigate(path: string) {
@@ -36,44 +46,65 @@ function replaceLocation(path: string) {
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
+function signInLocation(returnTo: string) {
+  return `/sign-in?returnTo=${encodeURIComponent(returnTo)}`;
+}
+
 export default function App() {
-  const [location, setLocation] = useState(
-    () => window.location.pathname + window.location.search,
-  );
+  const initialRoute = classifyRoute(window.location.pathname);
+  const [location, setLocation] = useState(currentLocation);
   const [user, setUser] = useState<User | null>(null);
+  const [sessionResolved, setSessionResolved] = useState(false);
   const [checkingSession, setCheckingSession] = useState(
-    window.location.pathname.startsWith("/artifacts"),
+    isPublicRoute(initialRoute) ||
+      isAccountRoute(initialRoute) ||
+      isManagementRoute(initialRoute),
   );
   const [signingOut, setSigningOut] = useState(false);
   const signingOutRef = useRef(false);
-  const onSessionExpired = useCallback(() => navigate("/?view=login"), []);
+  const route = useMemo(
+    () =>
+      classifyRoute(new URL(location, window.location.origin).pathname),
+    [location],
+  );
+  const needsSession =
+    isPublicRoute(route) || isAccountRoute(route) || isManagementRoute(route);
+
+  const onSessionExpired = useCallback(() => {
+    const returnTo = currentLocation();
+    setUser(null);
+    setSessionResolved(true);
+    replaceLocation(signInLocation(returnTo));
+  }, []);
+
   const onSignedIn = useCallback((signedInUser: User) => {
     setUser(signedInUser);
-    const requested = new URLSearchParams(window.location.search).get(
-      "returnTo",
-    );
-    navigate(
-      requested?.startsWith("/") && !requested.startsWith("//")
-        ? requested
-        : "/artifacts",
-    );
+    setSessionResolved(true);
+    const requested = new URLSearchParams(window.location.search).get("returnTo");
+    navigate(validateReturnTo(requested) ?? "/artifacts");
   }, []);
+
   const onSignOut = useCallback(async () => {
     if (signingOutRef.current) return;
     signingOutRef.current = true;
     setSigningOut(true);
+    const remainOnPublicRoute = isPublicRoute(
+      classifyRoute(window.location.pathname),
+    );
 
     try {
       await deleteCurrentSession();
       setUser(null);
-      replaceLocation("/?view=login");
+      setSessionResolved(true);
+      if (!remainOnPublicRoute) replaceLocation("/");
     } catch (error) {
       if (
         error instanceof AccountApiError &&
         error.code === "unauthenticated"
       ) {
         setUser(null);
-        replaceLocation("/?view=login");
+        setSessionResolved(true);
+        if (!remainOnPublicRoute) replaceLocation("/");
       } else {
         toast.error("Could not sign out. Try again.");
       }
@@ -84,24 +115,29 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const onLocationChange = () =>
-      setLocation(window.location.pathname + window.location.search);
+    const onLocationChange = () => setLocation(currentLocation());
     window.addEventListener("popstate", onLocationChange);
     return () => window.removeEventListener("popstate", onLocationChange);
   }, []);
 
   useEffect(() => {
-    if (location === "/artifacts/new") navigate("/artifacts");
+    if (window.location.pathname === "/artifacts/new") navigate("/artifacts");
   }, [location]);
 
-  const managementRoute = location.startsWith("/artifacts") || location === "/admin/gallery" || location === "/settings/gallery-profile";
   useEffect(() => {
-    if (!managementRoute || user) return;
+    if (!needsSession || sessionResolved) return;
     let active = true;
     setCheckingSession(true);
     getCurrentUser()
       .then((value) => {
-        if (active) setUser(value);
+        if (!active) return;
+        setUser(value);
+        setSessionResolved(true);
+      })
+      .catch(() => {
+        if (!active) return;
+        setUser(null);
+        setSessionResolved(true);
       })
       .finally(() => {
         if (active) setCheckingSession(false);
@@ -109,81 +145,135 @@ export default function App() {
     return () => {
       active = false;
     };
-  }, [managementRoute, user]);
+  }, [needsSession, sessionResolved]);
 
-  if (location.startsWith("/device")) {
+  useEffect(() => {
+    if (!sessionResolved || checkingSession) return;
+    const requested = new URLSearchParams(window.location.search).get("returnTo");
+    if (isAccountRoute(route) && user) {
+      replaceLocation(validateReturnTo(requested) ?? "/artifacts");
+      return;
+    }
+    if (isManagementRoute(route) && !user) {
+      replaceLocation(signInLocation(currentLocation()));
+    }
+  }, [checkingSession, location, route, sessionResolved, user]);
+
+  useEffect(() => {
+    setRouteMetadata(route);
+  }, [location, route]);
+
+  if (route.kind === "device-authorization") {
     return <DeviceAuthorizationPage />;
   }
 
-  const galleryListingMatch =
-    window.location.pathname.match(/^\/gallery\/([^/]+)$/);
-  if (galleryListingMatch) {
+  if (isPublicRoute(route)) {
+    const page =
+      route.kind === "gallery-index" ? (
+        <GalleryPage />
+      ) : route.kind === "gallery-listing" ? (
+        <GalleryListingPage slug={route.slug} />
+      ) : (
+        <CreatorPage slug={route.slug} />
+      );
     return (
-      <GalleryListingPage slug={decodeURIComponent(galleryListingMatch[1]!)} />
-    );
-  }
-  if (window.location.pathname === "/gallery") {
-    return <GalleryPage />;
-  }
-  const creatorMatch = window.location.pathname.match(/^\/creators\/([^/]+)$/);
-  if (creatorMatch) {
-    return <CreatorPage slug={decodeURIComponent(creatorMatch[1]!)} />;
-  }
-
-  if (!managementRoute) {
-    const view = accountView();
-    if (view === "reset") return <PasswordResetPage />;
-    return view === "signup" ? (
-      <SignUpPage />
-    ) : (
-      <LoginPage onSignedIn={onSignedIn} />
+      <PublicGallerySessionProvider
+        value={{
+          user,
+          checking: checkingSession,
+          signingOut,
+          onSignOut,
+        }}
+      >
+        {page}
+      </PublicGallerySessionProvider>
     );
   }
 
-  if (checkingSession) {
-    return (
-      <main className="flex min-h-screen items-center justify-center gap-2 bg-muted/40 text-sm text-muted-foreground">
-        <Spinner />
-        Checking session...
-      </main>
-    );
-  }
-  if (!user) {
+  if (isAccountRoute(route)) {
+    if (checkingSession || (sessionResolved && user)) return <SessionCheck />;
+    if (route.kind === "reset-password") return <PasswordResetPage />;
+    if (route.kind === "sign-up") return <SignUpPage />;
     return <LoginPage onSignedIn={onSignedIn} />;
   }
 
-  const previewMatch = window.location.pathname.match(
-    /^\/artifacts\/[^/]+\/preview$/,
-  );
-  if (previewMatch) {
-    const versionId = new URLSearchParams(window.location.search).get(
-      "versionId",
-    );
-    return versionId ? (
-      <ArtifactPreviewPage versionId={versionId} />
-    ) : (
-      <main className="flex min-h-screen items-center justify-center bg-foreground text-sm text-background">
-        Preview Version is missing.
-      </main>
+  if (isManagementRoute(route)) {
+    if (checkingSession || !sessionResolved || !user) return <SessionCheck />;
+
+    if (route.kind === "artifact-preview") {
+      const versionId = new URLSearchParams(window.location.search).get(
+        "versionId",
+      );
+      return versionId ? (
+        <ArtifactPreviewPage versionId={versionId} />
+      ) : (
+        <main className="flex min-h-screen items-center justify-center bg-foreground text-sm text-background">
+          Preview Version is missing.
+        </main>
+      );
+    }
+
+    return (
+      <ManagementShell
+        user={user}
+        signingOut={signingOut}
+        onSignOut={onSignOut}
+      >
+        {route.kind === "gallery-administration" ? (
+          <GalleryAdministrationPage />
+        ) : route.kind === "gallery-profile" ? (
+          <GalleryProfilePage />
+        ) : route.kind === "artifact" ? (
+          <ArtifactPage
+            artifactId={route.artifactId}
+            creatorDisplayName={user.name}
+            onSessionExpired={onSessionExpired}
+          />
+        ) : (
+          <ArtifactsPage
+            creatorDisplayName={user.name}
+            onAccepted={() => navigate("/artifacts")}
+          />
+        )}
+      </ManagementShell>
     );
   }
 
-  const detailMatch = window.location.pathname.match(/^\/artifacts\/([^/]+)$/);
-  const detailArtifactId = detailMatch?.[1] === "new" ? null : detailMatch?.[1];
+  return <NotFoundPage />;
+}
+
+function SessionCheck() {
   return (
-    <ManagementShell user={user} signingOut={signingOut} onSignOut={onSignOut}>
-      {location === "/admin/gallery" ? <GalleryAdministrationPage /> : location === "/settings/gallery-profile" ? <GalleryProfilePage /> : detailArtifactId ? (
-        <ArtifactPage
-          artifactId={decodeURIComponent(detailArtifactId)}
-          creatorDisplayName={user.name}
-          onSessionExpired={onSessionExpired}
-        />
-      ) : (
-        <ArtifactsPage
-          creatorDisplayName={user.name}
-          onAccepted={() => navigate("/artifacts")}
-        />
-      )}
-    </ManagementShell>
+    <main className="flex min-h-screen items-center justify-center gap-2 bg-muted/40 text-sm text-muted-foreground">
+      <Spinner />
+      Checking session…
+    </main>
   );
+}
+
+function setRouteMetadata(route: AppRoute) {
+  if (route.kind === "gallery-index") {
+    setDocumentMetadata({
+      title: "Gallery · ShareSlices",
+      robots: "index,follow",
+      canonicalPath: "/",
+    });
+    return;
+  }
+
+  const title =
+    route.kind === "sign-in"
+      ? "Sign in · ShareSlices"
+      : route.kind === "sign-up"
+        ? "Sign up · ShareSlices"
+        : route.kind === "reset-password"
+          ? "Reset password · ShareSlices"
+          : route.kind === "not-found"
+            ? "Page not found · ShareSlices"
+            : route.kind === "gallery-listing"
+              ? "Gallery Artifact · ShareSlices"
+              : route.kind === "creator"
+                ? "Gallery Creator · ShareSlices"
+                : "ShareSlices";
+  setDocumentMetadata({ title, robots: "noindex,nofollow" });
 }

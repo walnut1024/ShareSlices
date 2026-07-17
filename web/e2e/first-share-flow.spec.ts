@@ -9,17 +9,17 @@ test("normalize a macOS named-entry ZIP, Preview, Share with link, and open the 
   const email = `smoke-${runId}@example.test`;
   const password = "smoke-password-001";
 
-  await page.goto("/");
+  await page.goto("/sign-up");
   await page.getByLabel("Name").fill("Smoke Tester");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Sign up" }).click();
+  await page.getByRole("button", { name: "Create account" }).click();
   await verifyEmailFromMailpit(page, email);
 
-  await page.getByRole("link", { name: "Log in" }).click();
+  await page.getByRole("link", { name: "Sign in" }).click();
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Log in" }).click();
+  await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: "Artifacts", exact: true })).toBeVisible();
 
   await page.locator('[data-slot="empty"]').getByRole("button", { name: "New artifact", exact: true }).click();
@@ -207,16 +207,16 @@ test("explain ambiguous root HTML candidates after processing fails", async ({ p
       }
     });
   });
-  await page.goto("/");
+  await page.goto("/sign-up");
   await page.getByLabel("Name").fill("Ambiguous ZIP Tester");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Sign up" }).click();
+  await page.getByRole("button", { name: "Create account" }).click();
   await verifyEmailFromMailpit(page, email);
-  await page.getByRole("link", { name: "Log in" }).click();
+  await page.getByRole("link", { name: "Sign in" }).click();
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Log in" }).click();
+  await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: "Artifacts", exact: true })).toBeVisible();
 
   await page.locator('[data-slot="empty"]').getByRole("button", { name: "New artifact", exact: true }).click();
@@ -263,28 +263,29 @@ test("sign out the current browser Session", async ({ page }, testInfo) => {
   const email = `sign-out-${runId}@example.test`;
   const password = "sign-out-password-001";
 
-  await page.goto("/");
+  await page.goto("/sign-up");
   await page.getByLabel("Name").fill("Sign Out Tester");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Sign up" }).click();
+  await page.getByRole("button", { name: "Create account" }).click();
   await verifyEmailFromMailpit(page, email);
 
-  await page.getByRole("link", { name: "Log in" }).click();
+  await page.getByRole("link", { name: "Sign in" }).click();
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Log in" }).click();
+  await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByRole("heading", { name: "Artifacts", exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Open account menu" }).click();
   await expect(page.getByText(email)).toBeVisible();
   await page.getByRole("menuitem", { name: "Sign out" }).click();
 
-  await expect(page).toHaveURL(/\/?\?view=login$/);
-  await expect(page.getByRole("heading", { name: "Log in" })).toBeVisible();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("link", { name: "Sign in" })).toBeVisible();
 
   await page.goto("/artifacts");
-  await expect(page.getByRole("heading", { name: "Log in" })).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/sign-in\\?returnTo=${encodeURIComponent("/artifacts")}$`));
+  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
 });
 
 test("reject an occupied email on Signup before verification", async ({ page }, testInfo) => {
@@ -292,20 +293,20 @@ test("reject an occupied email on Signup before verification", async ({ page }, 
   const email = `occupied-${runId}@example.test`;
   const password = "occupied-password-001";
 
-  await page.goto("/");
+  await page.goto("/sign-up");
   await page.getByLabel("Name").fill("Occupied Email Tester");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Sign up" }).click();
+  await page.getByRole("button", { name: "Create account" }).click();
   await verifyEmailFromMailpit(page, email);
 
-  await page.goto("/?view=signup");
+  await page.goto("/sign-up");
   await page.getByLabel("Name").fill("Occupied Email Tester Again");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Sign up" }).click();
+  await page.getByRole("button", { name: "Create account" }).click();
 
-  await expect(page.getByRole("heading", { name: "Sign up" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Create account" })).toBeVisible();
   await expect(page.getByLabel("Email")).toHaveAttribute("aria-invalid", "true");
   await expect(page.getByText("This email address is already in use. Use a different email.")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Check your email" })).not.toBeVisible();
@@ -336,13 +337,14 @@ async function verifyEmailFromMailpit(page: import("@playwright/test").Page, ema
   }, { timeout: 30_000 }).toMatch(/^\d{6}$/);
   await page.getByLabel("Verification code").fill(code);
   await page.getByRole("button", { name: "Verify email" }).click();
-  await expect(page.getByText("Your email is verified. Log in to continue.")).toBeVisible();
+  await expect(page.getByText("Your email is verified. Sign in to continue.")).toBeVisible();
 }
 
 function observePageDiagnostics(page: import("@playwright/test").Page): string[] {
   const diagnostics: string[] = [];
   page.on("console", (message) => {
     if (message.type() === "warning" || message.type() === "error") {
+      if (message.text() === "Failed to load resource: the server responded with a status of 401 (Unauthorized)") return;
       diagnostics.push(`console.${message.type()}: ${message.text()}`);
     }
   });

@@ -1,8 +1,45 @@
 import { LogIn } from "lucide-react";
-import type { ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
+import type { User } from "../api/account";
+import { AccountMenu } from "./AccountMenu";
 import { buttonVariants } from "./ui/button";
+import { Skeleton } from "./ui/skeleton";
+import { Toaster } from "./ui/sonner";
+
+type PublicGallerySession = {
+  user: User | null;
+  checking: boolean;
+  signingOut: boolean;
+  onSignOut: () => void;
+};
+
+const PublicGallerySessionContext = createContext<PublicGallerySession>({
+  user: null,
+  checking: false,
+  signingOut: false,
+  onSignOut: () => undefined,
+});
+
+export function PublicGallerySessionProvider({
+  value,
+  children,
+}: {
+  value: PublicGallerySession;
+  children: ReactNode;
+}) {
+  return (
+    <PublicGallerySessionContext.Provider value={value}>
+      {children}
+    </PublicGallerySessionContext.Provider>
+  );
+}
+
+export function usePublicGallerySession() {
+  return useContext(PublicGallerySessionContext);
+}
 
 export function PublicGalleryShell({ children }: { children: ReactNode }) {
+  const { user, checking, signingOut, onSignOut } = usePublicGallerySession();
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="h-[57px] border-b bg-background">
@@ -10,7 +47,7 @@ export function PublicGalleryShell({ children }: { children: ReactNode }) {
           <a
             aria-label="ShareSlices artifacts"
             className="flex shrink-0 items-center gap-[9px]"
-            href="/artifacts"
+            href="/"
           >
             <span
               aria-hidden="true"
@@ -28,27 +65,43 @@ export function PublicGalleryShell({ children }: { children: ReactNode }) {
             className="ml-2 flex min-w-0 flex-1 items-center gap-0.5"
             aria-label="Gallery"
           >
-            <a className={buttonVariants({ variant: "ghost" })} href="/artifacts">
-              Artifacts
-            </a>
             <a
               aria-current="page"
               className={buttonVariants({ variant: "secondary" })}
-              href="/gallery"
+              href="/"
             >
               Gallery
             </a>
           </nav>
-          <a
-            className={buttonVariants({ variant: "outline" })}
-            href="/?view=login"
-          >
-            <LogIn aria-hidden="true" data-icon="inline-start" />
-            Sign in
-          </a>
+          {checking ? (
+            <Skeleton aria-hidden="true" className="h-[38px] w-28 rounded-full" />
+          ) : user ? (
+            <div className="flex items-center gap-2">
+              <a
+                className={buttonVariants({ variant: "outline" })}
+                href="/artifacts"
+              >
+                My Artifacts
+              </a>
+              <AccountMenu
+                user={user}
+                signingOut={signingOut}
+                onSignOut={onSignOut}
+              />
+            </div>
+          ) : (
+            <a
+              className={buttonVariants({ variant: "outline" })}
+              href="/sign-in"
+            >
+              <LogIn aria-hidden="true" data-icon="inline-start" />
+              Sign in
+            </a>
+          )}
         </div>
       </header>
       {children}
+      <Toaster />
     </div>
   );
 }

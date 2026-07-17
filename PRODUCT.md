@@ -40,9 +40,11 @@ Browser authorization is the only resumable Agent operation in protocol version 
 
 Users sign up and sign in with email first. Product planning also includes phone, Google, and WeChat sign-in methods.
 
-After a successful Web sign-in, ShareSlices opens the signed-in user's Artifact list without requiring a separate confirmation action.
+The Web uses `/sign-in`, `/sign-up`, and `/reset-password` as the dedicated account-entry addresses. The root path does not use query-selected account-entry views.
 
-A signed-in user can sign out of the current browser Session from the Web account menu. Sign out leaves every other Session active; signing out all Sessions remains part of later account-management work.
+After a successful Web sign-in, ShareSlices follows a validated same-origin Gallery or management return destination when authentication originated there. Otherwise it opens the signed-in user's Artifact list without requiring a separate confirmation action.
+
+A signed-in user can sign out of the current browser Session from the Web account menu. Sign out keeps an accessible public Gallery or Creator page in place with signed-out navigation; signing out from authenticated management returns to the Gallery root. Sign out leaves every other Session active; signing out all Sessions remains part of later account-management work.
 
 The account identity is anchored by a ShareSlices user ID. Email, phone, Google identity, and WeChat identity are authentication methods attached to that user. ShareSlices maps a proven authentication method to one user instead of creating duplicate accounts for the same person.
 
@@ -215,7 +217,7 @@ Version 0.0.1 Viewer and Preview responses are not cached so Publish and Unpubli
 
 ## Gallery community
 
-Gallery is ShareSlices' public community surface for discovering Artifacts that Creators intentionally list. While Gallery is enabled and deployment-eligible, anyone can open `/gallery`, an eligible `/gallery/{opaqueSlug}` listing, or a `/creators/{opaqueSlug}` profile without signing in, and Gallery navigation remains visible before and after sign-in. When Gallery is unavailable, the Web does not present it as an available destination and direct public Gallery routes follow the generic `503` contract. `/artifacts` remains the authenticated personal management surface.
+Gallery is ShareSlices' public community surface and the Web homepage for discovering Artifacts that Creators intentionally list. While Gallery is enabled and deployment-eligible, anyone can open the canonical `/` Gallery index, an eligible `/gallery/{opaqueSlug}` listing, or a `/creators/{opaqueSlug}` profile without signing in, and Gallery navigation remains visible before and after sign-in. The former `/gallery` index and root query-selected account-entry addresses are not supported or redirected. When Gallery is unavailable, the Web does not present it as an available destination and `/` plus every direct public Gallery route follows the generic `503` contract. `/artifacts` remains the authenticated personal management surface.
 
 Gallery follows the same desktop-browser product boundary as the rest of the ShareSlices Web experience. Unsupported mobile and tablet clients receive an explicit unsupported message rather than an implied responsive-playback promise.
 

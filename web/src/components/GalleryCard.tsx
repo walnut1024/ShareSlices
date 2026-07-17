@@ -51,7 +51,7 @@ export function GalleryCard({ item }: { item: GalleryCardModel }) {
       </a>
       <CardFooter className="flex min-h-11 flex-wrap gap-1.5 border-t px-3 py-2">
         {item.tags.map((tag) => (
-          <Badge key={tag} variant="secondary" render={<a href={`/gallery?tag=${encodeURIComponent(tag)}`} />}>
+          <Badge key={tag} variant="secondary" render={<a href={`/?tag=${encodeURIComponent(tag)}`} />}>
             {tag}
           </Badge>
         ))}

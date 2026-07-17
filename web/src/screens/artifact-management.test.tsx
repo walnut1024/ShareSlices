@@ -40,7 +40,7 @@ describe("Artifact management", () => {
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Artifacts" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Gallery" })).toHaveAttribute("href", "/gallery");
+    expect(screen.getByRole("link", { name: "Gallery" })).toHaveAttribute("href", "/");
     expect(screen.queryByRole("link", { name: "Admin" })).not.toBeInTheDocument();
     expect(await screen.findByRole("link", { name: "Report" })).toHaveAttribute("href", "/artifacts/artifact-1");
     expect(screen.getByText("Processing")).toBeInTheDocument();
@@ -233,18 +233,23 @@ describe("Artifact management", () => {
     expect(await screen.findByRole("menuitem", { name: "Sign out" })).toBeInTheDocument();
   });
 
-  it("signs out and replaces the management location with Log in", async () => {
+  it("signs out and replaces the management location with Gallery", async () => {
     const interaction = userEvent.setup();
     window.history.replaceState(null, "", "/artifacts");
-    const fetchMock = stubFetch([json({ user }), json({ artifacts: [] }), new Response(null, { status: 204 })]);
+    const fetchMock = stubFetch([
+      json({ user }),
+      json({ artifacts: [] }),
+      new Response(null, { status: 204 }),
+      json({ items: [], nextCursor: null }),
+    ]);
 
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "Open account menu" }));
     await interaction.click(await screen.findByRole("menuitem", { name: "Sign out" }));
 
-    expect(await screen.findByRole("heading", { name: "Log in" })).toBeInTheDocument();
-    expect(window.location.pathname + window.location.search).toBe("/?view=login");
-    expect(fetchMock).toHaveBeenLastCalledWith(
+    expect(await screen.findByRole("heading", { name: "Gallery" })).toBeInTheDocument();
+    expect(window.location.pathname + window.location.search).toBe("/");
+    expect(fetchMock).toHaveBeenCalledWith(
       "/api/sessions/current",
       expect.objectContaining({ method: "DELETE", credentials: "include" })
     );
@@ -256,15 +261,16 @@ describe("Artifact management", () => {
     stubFetch([
       json({ user }),
       json({ artifacts: [] }),
-      json({ error: { code: "unauthenticated", message: "Sign in to continue." } }, 401)
+      json({ error: { code: "unauthenticated", message: "Sign in to continue." } }, 401),
+      json({ items: [], nextCursor: null }),
     ]);
 
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "Open account menu" }));
     await interaction.click(await screen.findByRole("menuitem", { name: "Sign out" }));
 
-    expect(await screen.findByRole("heading", { name: "Log in" })).toBeInTheDocument();
-    expect(window.location.pathname + window.location.search).toBe("/?view=login");
+    expect(await screen.findByRole("heading", { name: "Gallery" })).toBeInTheDocument();
+    expect(window.location.pathname + window.location.search).toBe("/");
   });
 
   it("keeps the user signed in and shows neutral feedback when sign out fails", async () => {
@@ -291,7 +297,12 @@ describe("Artifact management", () => {
     const pendingSignOut = new Promise<Response>((resolve) => {
       resolveSignOut = resolve;
     });
-    const responses: Array<Response | Promise<Response>> = [json({ user }), json({ artifacts: [] }), pendingSignOut];
+    const responses: Array<Response | Promise<Response>> = [
+      json({ user }),
+      json({ artifacts: [] }),
+      pendingSignOut,
+      json({ items: [], nextCursor: null }),
+    ];
     const fetchMock = vi.fn(async () => {
       const response = responses.shift();
       if (!response) throw new Error("Unexpected fetch call.");
@@ -308,7 +319,7 @@ describe("Artifact management", () => {
     expect(await screen.findByRole("menuitem", { name: "Sign out" })).toHaveAttribute("data-disabled");
     expect(fetchMock).toHaveBeenCalledTimes(3);
     resolveSignOut(new Response(null, { status: 204 }));
-    expect(await screen.findByRole("heading", { name: "Log in" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Gallery" })).toBeInTheDocument();
   });
 
   it("filters and searches the Artifact tile grid", async () => {
@@ -544,13 +555,15 @@ describe("Artifact management", () => {
     expect(screen.getByRole("checkbox", { name: "Select Beta" })).toBeChecked();
   });
 
-  it("sends an unauthenticated management visitor to log in", async () => {
+  it("sends an unauthenticated management visitor to sign in", async () => {
     window.history.replaceState(null, "", "/artifacts");
     stubFetch([json({ error: { code: "unauthenticated", message: "Sign in required.", requestId: "req-1" } }, 401)]);
 
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Log in" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/sign-in");
+    expect(new URLSearchParams(window.location.search).get("returnTo")).toBe("/artifacts");
   });
 
   it("shows detail state and only server-allowed actions", async () => {
@@ -1270,7 +1283,7 @@ describe("Artifact management", () => {
     expect(writeText).toHaveBeenCalledWith("https://view.example.test/a/share-1/");
   });
 
-  it("routes an expired action session to Log in", async () => {
+  it("routes an expired action session to Sign in", async () => {
     const interaction = userEvent.setup();
     window.history.replaceState(null, "", "/artifacts/artifact-1");
     stubFetch([
@@ -1290,8 +1303,9 @@ describe("Artifact management", () => {
     await interaction.click(await screen.findByRole("button", { name: "Share with link" }));
     await interaction.click(screen.getByRole("button", { name: "Share with link" }));
 
-    expect(await screen.findByRole("heading", { name: "Log in" })).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/");
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/sign-in");
+    expect(new URLSearchParams(window.location.search).get("returnTo")).toBe("/artifacts/artifact-1");
   });
 
   it("shows an ownership-safe not-found error without Artifact data", async () => {
