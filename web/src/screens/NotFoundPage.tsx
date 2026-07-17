@@ -1,9 +1,9 @@
-import { PublicGalleryShell } from "../components/PublicGalleryShell";
+import { PublicSiteShell } from "../components/PublicSiteShell";
 import { buttonVariants } from "../components/ui/button";
 
 export function NotFoundPage() {
   return (
-    <PublicGalleryShell>
+    <PublicSiteShell>
       <main className="grid min-h-[calc(100vh-57px)] place-items-center px-8 py-20">
         <div className="max-w-md text-center">
           <p className="text-sm font-medium text-muted-foreground">404</p>
@@ -14,10 +14,10 @@ export function NotFoundPage() {
             The address may be incorrect or the page is no longer available.
           </p>
           <a className={buttonVariants({ className: "mt-6" })} href="/">
-            Browse Gallery
+            Back to Website
           </a>
         </div>
       </main>
-    </PublicGalleryShell>
+    </PublicSiteShell>
   );
 }

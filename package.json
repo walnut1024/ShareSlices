@@ -8,7 +8,7 @@
     "spellcheck": "cspell .",
     "docs:refs": "node tools/check-doc-refs.mjs",
     "docs:links": "node tools/check-doc-links.mjs",
-    "config:check": "node tools/check-deployment-env.mjs && node --test tools/check-deployment-env.test.mjs tools/check-gallery-local-config.test.mjs tools/local-stack.test.mjs tools/run-api-tests.test.mjs tools/run-smtp-check.test.mjs",
+    "config:check": "node tools/check-deployment-env.mjs && node tools/check-preview-route-config.mjs && node --test tools/check-deployment-env.test.mjs tools/check-gallery-local-config.test.mjs tools/local-stack.test.mjs tools/run-api-tests.test.mjs tools/run-smtp-check.test.mjs",
     "specs:check": "openspec validate --all --no-interactive",
     "skill:package": "node skill/shareslices/package.mjs",
     "skill:test": "node skill/shareslices/evals/verify.mjs && node skill/shareslices/package.mjs --check",

@@ -18,9 +18,9 @@ test("browses static Gallery cards with stable cursor and unsupported-device pre
     if (cursor) cursors.push(cursor);
     await route.fulfill({json: {items: cursor ? [{...card, slug: "opaque-gallery-listing-5678", title: "Second"}] : [card], nextCursor: cursor ? null : "stable-cursor"}});
   });
-  await page.goto("/");
-  await expect(page.getByRole("link", {name: "Sign in"})).toHaveAttribute("href", "/sign-in");
-  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", /\/$/);
+  await page.goto("/browse");
+  await expect(page.getByRole("banner").getByRole("link", {name: "Sign in"})).toHaveAttribute("href", "/sign-in");
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", /\/browse$/);
   await expect(page.getByRole("heading", {name: card.title})).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await page.screenshot({path: "../output/playwright/gallery-listing-loaded-after-1440x900.png", fullPage: true});
@@ -61,7 +61,7 @@ test("renders pre-lookup unavailability before unsupported-device state", async 
   await mockSignedOutSession(page);
   await page.setViewportSize({width: 900, height: 800});
   await page.route("**/gallery?*", (route) => route.fulfill({status: 503, json: {error: {code: "gallery_unavailable", message: "Unavailable"}}}));
-  await page.goto("/");
+  await page.goto("/browse");
   await expect(page.getByRole("heading", {name: "Gallery is temporarily unavailable."})).toBeVisible();
   await expect(page.getByRole("heading", {name: /larger canvas/})).toHaveCount(0);
 });
@@ -76,9 +76,9 @@ test("keeps signed-out copy as a trusted parent sign-in action while Download re
 test("shows signed-in Gallery navigation without blocking public content", async ({page}) => {
   await page.route("**/api/users/me", (route) => route.fulfill({json: {user: {id: "user-1", name: "Ada", email: "ada@example.test"}}}));
   await page.route("**/gallery?*", (route) => route.fulfill({json: {items: [card], nextCursor: null}}));
-  await page.goto("/");
+  await page.goto("/browse");
   await expect(page.getByRole("heading", {name: card.title})).toBeVisible();
-  await expect(page.getByRole("link", {name: "My Artifacts"})).toHaveAttribute("href", "/artifacts");
+  await expect(page.getByRole("banner").getByRole("link", {name: "My Artifacts"})).toHaveAttribute("href", "/console");
 });
 
 test("rejects the removed Gallery index path", async ({page}) => {

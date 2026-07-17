@@ -15,6 +15,7 @@ import {
 } from "../api/gallery";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "./ui/alert";
 import { Button } from "./ui/button";
+import { destinations } from "../routing";
 
 type PendingShare = {
   artifactId: string;
@@ -229,7 +230,7 @@ function GalleryFeedbackAlert({notice, onDismiss}: {notice: GalleryNotice; onDis
               View in Gallery <ExternalLinkIcon aria-hidden="true" className="inline size-3" />
             </a>
           ) : (
-            <a href={`/artifacts/${encodeURIComponent(notice.artifactId)}?gallery=manage`} onClick={onDismiss}>Manage Gallery</a>
+            <a href={destinations.artifact(notice.artifactId, true)} onClick={onDismiss}>Manage Gallery</a>
           )}
         </span>
       </AlertDescription>

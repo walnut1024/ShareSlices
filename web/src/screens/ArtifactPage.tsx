@@ -36,6 +36,7 @@ import { Field, FieldGroup, FieldLabel } from "../components/ui/field";
 import { Input } from "../components/ui/input";
 import { Separator } from "../components/ui/separator";
 import { Spinner } from "../components/ui/spinner";
+import { destinations } from "../routing";
 
 type PendingAction =
   | "refresh"
@@ -352,7 +353,7 @@ export function ArtifactPage({
     <div className="flex flex-col gap-8">
       <a
         className="text-sm text-muted-foreground hover:text-foreground"
-        href="/artifacts"
+        href={destinations.console()}
       >
         Back to artifacts
       </a>

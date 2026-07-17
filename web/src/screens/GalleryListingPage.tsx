@@ -12,11 +12,11 @@ import {
 } from "../api/gallery";
 import { GalleryArtifactPlayer } from "../components/GalleryArtifactPlayer";
 import {
-  PublicGalleryShell,
-  UnsupportedGalleryDevice,
-  usePublicGallerySession,
-  useUnsupportedGalleryDevice,
-} from "../components/PublicGalleryShell";
+  PublicSiteShell,
+  UnsupportedPublicDevice,
+  usePublicSiteSession,
+  useUnsupportedPublicDevice,
+} from "../components/PublicSiteShell";
 import { TurnstileWidget } from "../components/TurnstileWidget";
 import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert";
 import { Badge } from "../components/ui/badge";
@@ -41,11 +41,12 @@ import {
 } from "../components/ui/select";
 import { Spinner } from "../components/ui/spinner";
 import { Textarea } from "../components/ui/textarea";
-import { setDocumentMetadata } from "../document-metadata";
+import { documentMetadataController } from "../document-metadata";
+import { destinations } from "../routing";
 
 export function GalleryListingPage({ slug }: { slug: string }) {
-  const unsupported = useUnsupportedGalleryDevice();
-  const { user, checking } = usePublicGallerySession();
+  const unsupported = useUnsupportedPublicDevice();
+  const { user, checking } = usePublicSiteSession();
   const [listing, setListing] = useState<GalleryListing | null>(null);
   const [contentUrl, setContentUrl] = useState<string | null>(null);
   const [error, setError] = useState<GalleryApiError | null>(null);
@@ -61,10 +62,11 @@ export function GalleryListingPage({ slug }: { slug: string }) {
       .then((result) => {
         if (!active) return;
         setListing(result);
-        setDocumentMetadata({
-          title: `${result.title} · ShareSlices Gallery`,
-          robots: "index,follow",
-          canonicalPath: `/gallery/${encodeURIComponent(result.slug)}`,
+        documentMetadataController.resolvePublic({
+          kind: "listing",
+          slug: result.slug,
+          title: result.title,
+          indexable: true,
         });
         return issueGalleryPlayer(slug);
       })
@@ -74,10 +76,6 @@ export function GalleryListingPage({ slug }: { slug: string }) {
       .catch((reason: unknown) => {
         if (!active) return;
         setError(asGalleryError(reason));
-        setDocumentMetadata({
-          title: "Gallery Artifact unavailable · ShareSlices",
-          robots: "noindex,nofollow",
-        });
       });
     return () => {
       active = false;
@@ -87,21 +85,21 @@ export function GalleryListingPage({ slug }: { slug: string }) {
   if (error) return <GalleryListingState error={error} />;
   if (!listing)
     return (
-      <PublicGalleryShell>
+      <PublicSiteShell>
         <main className="grid min-h-[70vh] place-items-center">
           <span className="flex items-center gap-2 text-sm">
             <Spinner />
             Loading Artifact…
           </span>
         </main>
-      </PublicGalleryShell>
+      </PublicSiteShell>
     );
-  if (unsupported) return <UnsupportedGalleryDevice />;
+  if (unsupported) return <UnsupportedPublicDevice />;
 
   async function saveCopy() {
     if (!user) {
       window.location.assign(
-        `/sign-in?returnTo=${encodeURIComponent(window.location.pathname)}`,
+        destinations.signIn(destinations.listing(slug)),
       );
       return;
     }
@@ -132,13 +130,13 @@ export function GalleryListingPage({ slug }: { slug: string }) {
   }
 
   return (
-    <PublicGalleryShell>
+    <PublicSiteShell>
       <main className="mx-auto w-full max-w-[1920px] px-8 py-7">
         <a
           className="text-sm text-muted-foreground hover:text-foreground"
-          href="/"
+          href={destinations.browse()}
         >
-          ← Back to Gallery
+          ← Back to Browse
         </a>
         <div className="mt-5 grid grid-cols-[minmax(0,1.55fr)_minmax(360px,0.65fr)] gap-8">
           <section>
@@ -163,7 +161,7 @@ export function GalleryListingPage({ slug }: { slug: string }) {
           <aside className="rounded-xl border bg-card p-6 shadow-sm">
             <div className="flex flex-wrap gap-2">
               {listing.tags.map((tag) => (
-                <Badge key={tag} variant="secondary" render={<a href={`/?tag=${encodeURIComponent(tag)}`} />}>
+                <Badge key={tag} variant="secondary" render={<a href={destinations.browse({ mode: "tag", query: tag })} />}>
                   {tag}
                 </Badge>
               ))}
@@ -173,7 +171,7 @@ export function GalleryListingPage({ slug }: { slug: string }) {
             </h1>
             <a
               className="mt-5 flex items-center gap-2 text-sm font-medium"
-              href={`/creators/${encodeURIComponent(listing.creator.slug)}`}
+              href={destinations.creator(listing.creator.slug)}
             >
               <UserRound />
               {listing.creator.displayName}
@@ -249,7 +247,7 @@ export function GalleryListingPage({ slug }: { slug: string }) {
         signedIn={Boolean(user)}
         onOpenChange={setReportOpen}
       />
-    </PublicGalleryShell>
+    </PublicSiteShell>
   );
 }
 
@@ -381,7 +379,7 @@ function GalleryListingState({ error }: { error: GalleryApiError }) {
   const gone = error.status === 410;
   const unavailable = error.status === 503;
   return (
-    <PublicGalleryShell>
+    <PublicSiteShell galleryAvailable={!unavailable}>
       <main className="mx-auto max-w-[900px] px-8 py-20">
         <Alert variant={unavailable ? "destructive" : "default"}>
           <AlertTitle>
@@ -408,11 +406,11 @@ function GalleryListingState({ error }: { error: GalleryApiError }) {
         </Alert>
         <a
           className="mt-8 inline-block underline underline-offset-4"
-          href="/"
+          href={unavailable ? destinations.website() : destinations.browse()}
         >
-          Browse Gallery
+          {unavailable ? "Back to Website" : "Browse Gallery"}
         </a>
       </main>
-    </PublicGalleryShell>
+    </PublicSiteShell>
   );
 }

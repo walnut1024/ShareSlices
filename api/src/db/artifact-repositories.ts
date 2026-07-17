@@ -572,7 +572,11 @@ export function createArtifactRepositories(
           if (galleryReference.rows[0]?.held) {
             await transaction
               .update(schema.artifactVersion)
-              .set({ contentBundleId: null })
+              .set({
+                ownerUserId: null,
+                contentBundleId: null,
+                rendererRevision: null
+              })
               .where(eq(schema.artifactVersion.artifactId, artifactId));
             await transaction
               .delete(schema.artifactPublication)

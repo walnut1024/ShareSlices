@@ -72,6 +72,14 @@ _Avoid_: Withdraw from Gallery, Delete
 An owner-only rendering of one ready Version. It does not change Publication or Gallery listing state or make content publicly available.
 _Avoid_: Private share, draft publication
 
+**Website**:
+The trusted public Web surface rooted at `/` where a visitor can understand ShareSlices and, while Gallery is available, discover public Gallery listings. Website includes trusted public metadata pages but not Console or executable Artifact content.
+_Avoid_: Gallery when referring to the whole public site, Console, Untrusted-content origin
+
+**Console**:
+The authenticated Web surface at `/console` where a User manages owned Artifacts and personal settings. Console is a navigation and presentation surface, not a domain resource, HTTP API namespace, or administration surface.
+_Avoid_: Gallery, Administration, Artifact API, dashboard
+
 **Share link**:
 The stable address through which Viewers reach an Artifact's current Publication. The address remains identifiable when no Publication is active and changes only when the Owner explicitly replaces it.
 _Avoid_: Gallery listing URL, Version link, upload link

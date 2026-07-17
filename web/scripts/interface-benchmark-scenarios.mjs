@@ -1,9 +1,10 @@
 // cspell:ignore WDJFXZPL
 export const interfaceBenchmarkScenarios = [
-  ["gallery-report", "/gallery", "Report this Artifact"],
+  ["website-home", "/", "The gallery for interactive Artifacts"],
+  ["gallery-browse", "/browse", "Browse Artifacts"],
+  ["console-artifacts", "/console", "Artifacts"],
+  ["owner-preview", "/console/artifacts/benchmark/preview?versionId=version-1", "Artifact content"],
   ["gallery-administration", "/admin/gallery", "Gallery administration"],
-  ["creator-profile", "/settings/gallery-profile", "Creator profile"],
-  ["account-verification", "/?view=login", "Check your email"],
+  ["account-entry", "/sign-in", "Sign in"],
   ["device-authorization", "/device?user_code=WDJFXZPL", "Authorize the ShareSlices CLI?"],
-  ["artifact-action-menu", "/artifacts", "Info"],
 ].map(([id, route, endName]) => ({ id, route, endName }))

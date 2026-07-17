@@ -49,7 +49,7 @@ describe("Gallery share feedback", () => {
       </GalleryShareFeedbackProvider>,
     );
     expect(screen.getByText("Gallery submission is under review.")).toBeVisible();
-    expect(screen.getByRole("link", {name: "Manage Gallery"})).toHaveAttribute("href", "/artifacts/artifact-1?gallery=manage");
+    expect(screen.getByRole("link", {name: "Manage Gallery"})).toHaveAttribute("href", "/console/artifacts/artifact-1?gallery=manage");
     expect(screen.queryByRole("link", {name: /View in Gallery/})).not.toBeInTheDocument();
 
     rerender(

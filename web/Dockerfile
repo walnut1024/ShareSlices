@@ -20,7 +20,7 @@ ENV XDG_CONFIG_HOME=/tmp/caddy/config
 ENV XDG_DATA_HOME=/tmp/caddy/data
 
 COPY --from=build --chown=10001:10001 /workspace/web/dist /srv
-RUN printf ':8080 {\n  handle /a/* {\n    reverse_proxy api:7456\n  }\n  handle /artifacts/*/preview {\n    root * /srv\n    rewrite * /index.html\n    header Cache-Control "no-store"\n    file_server\n  }\n  handle {\n    root * /srv\n    try_files {path} /index.html\n    file_server\n  }\n}\n' > /etc/caddy/Caddyfile
+RUN printf ':8080 {\n  handle /a/* {\n    reverse_proxy api:7456\n  }\n  @preview path /console/artifacts/*/preview /artifacts/*/preview\n  handle @preview {\n    root * /srv\n    rewrite * /index.html\n    header Cache-Control "no-store"\n    file_server\n  }\n  handle {\n    root * /srv\n    try_files {path} /index.html\n    file_server\n  }\n}\n' > /etc/caddy/Caddyfile
 
 USER 10001:10001
 EXPOSE 8080

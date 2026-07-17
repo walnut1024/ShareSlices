@@ -1,5 +1,7 @@
+import { destinations } from "../routing";
+
 export function artifactPreviewUrl(artifactId: string, versionId: string): string {
-  return `/artifacts/${encodeURIComponent(artifactId)}/preview?versionId=${encodeURIComponent(versionId)}`;
+  return destinations.preview(artifactId, versionId);
 }
 
 export function versionContentUrl(versionId: string): string {

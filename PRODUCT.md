@@ -42,9 +42,11 @@ Users sign up and sign in with email first. Product planning also includes phone
 
 The Web uses `/sign-in`, `/sign-up`, and `/reset-password` as the dedicated account-entry addresses. The root path does not use query-selected account-entry views.
 
-After a successful Web sign-in, ShareSlices follows a validated same-origin Gallery or management return destination when authentication originated there. Otherwise it opens the signed-in user's Artifact list without requiring a separate confirmation action.
+After a successful Web sign-in, ShareSlices follows a validated same-origin public Website, Console, or administration return destination when authentication originated there. Otherwise it opens Console at `/console`, whose initial page is the signed-in User's Artifact list, without requiring a separate confirmation action.
 
-A signed-in user can sign out of the current browser Session from the Web account menu. Sign out keeps an accessible public Gallery or Creator page in place with signed-out navigation; signing out from authenticated management returns to the Gallery root. Sign out leaves every other Session active; signing out all Sessions remains part of later account-management work.
+An ownership call to action on Website opens `/console` for a signed-in User. For a signed-out visitor, it opens `/sign-in` with `/console` as the validated return destination; it does not imply that Upload, Save a copy, or other ownership work is available anonymously. The signed-out public header exposes **Sign in** without a separate **Open app** action; after sign-in it exposes **My Artifacts** linked to `/console` plus the account menu.
+
+A signed-in user can sign out of the current browser Session from the Web account menu. Sign out keeps an accessible public Website, Gallery, or Creator page in place with signed-out navigation; signing out from Console or administration returns to `/`. Sign out leaves every other Session active; signing out all Sessions remains part of later account-management work.
 
 The account identity is anchored by a ShareSlices user ID. Email, phone, Google identity, and WeChat identity are authentication methods attached to that user. ShareSlices maps a proven authentication method to one user instead of creating duplicate accounts for the same person.
 
@@ -215,9 +217,13 @@ Non-content status pages do not expose the artifact name, owner, or historical c
 
 Version 0.0.1 Viewer and Preview responses are not cached so Publish and Unpublish state changes are visible immediately.
 
-## Gallery community
+## Public Website and Gallery community
 
-Gallery is ShareSlices' public community surface and the Web homepage for discovering Artifacts that Creators intentionally list. While Gallery is enabled and deployment-eligible, anyone can open the canonical `/` Gallery index, an eligible `/gallery/{opaqueSlug}` listing, or a `/creators/{opaqueSlug}` profile without signing in, and Gallery navigation remains visible before and after sign-in. The former `/gallery` index and root query-selected account-entry addresses are not supported or redirected. When Gallery is unavailable, the Web does not present it as an available destination and `/` plus every direct public Gallery route follows the generic `503` contract. `/artifacts` remains the authenticated personal management surface.
+The public Website at `/` is ShareSlices' canonical Web homepage. It explains the product and, while Gallery is enabled and deployment-eligible, requests the existing Featured collection with `limit=8`. If and only if that eligible Featured request succeeds with no listings, the homepage requests the existing Newest collection once with `limit=8`; it renders no more than eight Artifact cards, and every rendered card opens its trusted Gallery listing. Homepage search opens `/browse?q={encodedQuery}` rather than owning a second result surface. Anyone can open the full Gallery index at `/browse`, an eligible `/gallery/{opaqueSlug}` listing, or a `/creators/{opaqueSlug}` profile without signing in. `/browse` retains the existing default, Featured, Newest, search, exact-tag, and cursor-pagination behavior, and Gallery navigation remains visible before and after sign-in while Gallery is available.
+
+The Website homepage remains available when Gallery is disabled or deployment-ineligible. In that state public navigation does not present Gallery as an available destination and the homepage exposes no Gallery resource data. The Gallery data and content boundaries behind `/browse` and every direct public Gallery route return the generic pre-lookup `503`, and the client-rendered Web document presents the corresponding unavailable state without taking down `/`. `/console` remains the authenticated personal management surface and is independent from Gallery availability.
+
+Former `/artifacts` Web addresses are migration-only routes to their canonical `/console` destinations. Root Gallery-selection queries already generated by the current Web experience—`q`, `tag`, and `view=featured|newest`—migrate to the equivalent `/browse` query, while the former `/gallery` index and root query-selected account-entry addresses remain unsupported and are not redirected. HTTP Artifact interfaces remain under `/api/artifacts`.
 
 Gallery follows the same desktop-browser product boundary as the rest of the ShareSlices Web experience. Unsupported mobile and tablet clients receive an explicit unsupported message rather than an implied responsive-playback promise.
 

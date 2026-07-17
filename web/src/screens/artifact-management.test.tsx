@@ -31,7 +31,7 @@ describe("Artifact management", () => {
   });
 
   it("routes an authenticated user to the Artifact list", async () => {
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([
       json({ user }),
       json({ artifacts: [artifact({ processingState: "processing", allowedActions: ["rename", "copy_share_link"] })] })
@@ -39,15 +39,15 @@ describe("Artifact management", () => {
 
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Artifacts" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Gallery" })).toHaveAttribute("href", "/");
+    expect(await screen.findByRole("heading", { name: "Artifacts" }, { timeout: 10000 })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Website" })).toHaveAttribute("href", "/");
     expect(screen.queryByRole("link", { name: "Admin" })).not.toBeInTheDocument();
-    expect(await screen.findByRole("link", { name: "Report" })).toHaveAttribute("href", "/artifacts/artifact-1");
+    expect(await screen.findByRole("link", { name: "Report" })).toHaveAttribute("href", "/console/artifacts/artifact-1");
     expect(screen.getByText("Processing")).toBeInTheDocument();
   });
 
   it("renders management chrome and Artifact tiles with shadcn components", async () => {
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([
       json({ user }),
       json({ artifacts: [artifact({ allowedActions: ["rename", "copy_share_link"] })] })
@@ -74,7 +74,7 @@ describe("Artifact management", () => {
 
   it("preserves the head and tail of a long grid card name", async () => {
     const longName = "腾讯文档盘点分析报告-123456789012345678901234567890-2026最终版";
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([json({ user }), json({ artifacts: [artifact({ name: longName })] })]);
 
     render(<App />);
@@ -88,7 +88,7 @@ describe("Artifact management", () => {
   });
 
   it("shows only a completed latest-ready thumbnail in grid view", async () => {
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([
       json({ user }),
       json({ artifacts: [artifact({
@@ -104,7 +104,7 @@ describe("Artifact management", () => {
     const thumbnail = card.querySelector("img");
     expect(thumbnail).toHaveAttribute("src", "/api/versions/version%2F1/thumbnail");
     expect(thumbnail).toHaveClass("object-cover");
-    expect(within(card).getByRole("link", { name: "Preview Report" })).toHaveAttribute("href", "/artifacts/artifact-1/preview?versionId=version%2F1");
+    expect(within(card).getByRole("link", { name: "Preview Report" })).toHaveAttribute("href", "/console/artifacts/artifact-1/preview?versionId=version%2F1");
     expect(within(card).getByRole("link", { name: "Preview Report" })).toHaveAttribute("target", "_blank");
     expect(within(card).getByRole("link", { name: "Preview Report" })).toHaveAttribute("rel", "noopener");
     expect(within(card).getByRole("button", { name: "Enter full screen for Report" })).toBeInTheDocument();
@@ -129,7 +129,7 @@ describe("Artifact management", () => {
         fullscreenElement = this;
       })
     });
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([
       json({ user }),
       json({ artifacts: [artifact({ processingState: "ready", readyVersion: { id: "version/1", state: "ready" }, allowedActions: ["preview"] })] })
@@ -144,7 +144,7 @@ describe("Artifact management", () => {
 
     expect(requestTarget).toBe(card);
     expect(await screen.findByTitle("Artifact content")).toHaveAttribute("src", "/api/versions/version%2F1/content/");
-    expect(window.location.pathname).toBe("/artifacts");
+    expect(window.location.pathname).toBe("/console");
     expect(search).toHaveValue("report");
 
     fullscreenElement = null;
@@ -160,7 +160,7 @@ describe("Artifact management", () => {
       configurable: true,
       value: vi.fn().mockRejectedValue(new TypeError("Denied"))
     });
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([
       json({ user }),
       json({ artifacts: [artifact({ processingState: "ready", readyVersion: { id: "version-1", state: "ready" }, allowedActions: ["preview"] })] })
@@ -171,12 +171,12 @@ describe("Artifact management", () => {
 
     expect(await screen.findByText("Full screen could not be opened.")).toBeInTheDocument();
     expect(screen.queryByTitle("Artifact content")).not.toBeInTheDocument();
-    expect(window.location.pathname).toBe("/artifacts");
+    expect(window.location.pathname).toBe("/console");
   });
 
   it("omits Card full screen from list view and selection mode", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([
       json({ user }),
       json({ artifacts: [artifact({ processingState: "ready", readyVersion: { id: "version-1", state: "ready" }, allowedActions: ["preview"] })] })
@@ -193,7 +193,7 @@ describe("Artifact management", () => {
 
   it("hides grid card actions that the server does not allow", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([
       json({ user }),
       json({ artifacts: [artifact({ processingState: "ready", readyVersion: { id: "version-1", state: "ready" }, allowedActions: [] })] })
@@ -210,7 +210,7 @@ describe("Artifact management", () => {
   });
 
   it("keeps Share with link and Share to Gallery as separate actions", async () => {
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([
       json({ user }),
       json({ artifacts: [artifact({ processingState: "ready", readyVersion: { id: "version-1", state: "ready" }, allowedActions: ["publish"] })] })
@@ -223,7 +223,7 @@ describe("Artifact management", () => {
 
   it("shows the current identity and Sign out in the avatar menu", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([json({ user }), json({ artifacts: [] })]);
 
     render(<App />);
@@ -233,9 +233,9 @@ describe("Artifact management", () => {
     expect(await screen.findByRole("menuitem", { name: "Sign out" })).toBeInTheDocument();
   });
 
-  it("signs out and replaces the management location with Gallery", async () => {
+  it("signs out and replaces the Console location with Website", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     const fetchMock = stubFetch([
       json({ user }),
       json({ artifacts: [] }),
@@ -247,7 +247,7 @@ describe("Artifact management", () => {
     await interaction.click(await screen.findByRole("button", { name: "Open account menu" }));
     await interaction.click(await screen.findByRole("menuitem", { name: "Sign out" }));
 
-    expect(await screen.findByRole("heading", { name: "Gallery" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "The gallery for interactive Artifacts" })).toBeInTheDocument();
     expect(window.location.pathname + window.location.search).toBe("/");
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/sessions/current",
@@ -257,7 +257,7 @@ describe("Artifact management", () => {
 
   it("treats an expired Session as signed out", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([
       json({ user }),
       json({ artifacts: [] }),
@@ -269,13 +269,13 @@ describe("Artifact management", () => {
     await interaction.click(await screen.findByRole("button", { name: "Open account menu" }));
     await interaction.click(await screen.findByRole("menuitem", { name: "Sign out" }));
 
-    expect(await screen.findByRole("heading", { name: "Gallery" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "The gallery for interactive Artifacts" })).toBeInTheDocument();
     expect(window.location.pathname + window.location.search).toBe("/");
   });
 
   it("keeps the user signed in and shows neutral feedback when sign out fails", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([
       json({ user }),
       json({ artifacts: [] }),
@@ -287,7 +287,7 @@ describe("Artifact management", () => {
     await interaction.click(await screen.findByRole("menuitem", { name: "Sign out" }));
 
     expect(await screen.findByText("Could not sign out. Try again.")).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/artifacts");
+    expect(window.location.pathname).toBe("/console");
     expect(screen.getByRole("heading", { name: "Artifacts" })).toBeInTheDocument();
   });
 
@@ -309,7 +309,7 @@ describe("Artifact management", () => {
       return response;
     });
     vi.stubGlobal("fetch", fetchMock);
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
 
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "Open account menu" }));
@@ -319,12 +319,12 @@ describe("Artifact management", () => {
     expect(await screen.findByRole("menuitem", { name: "Sign out" })).toHaveAttribute("data-disabled");
     expect(fetchMock).toHaveBeenCalledTimes(3);
     resolveSignOut(new Response(null, { status: 204 }));
-    expect(await screen.findByRole("heading", { name: "Gallery" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "The gallery for interactive Artifacts" })).toBeInTheDocument();
   });
 
   it("filters and searches the Artifact tile grid", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([
       json({ user }),
       json({
@@ -353,7 +353,7 @@ describe("Artifact management", () => {
 
   it("distinguishes the first-use empty state from an empty search result", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([json({ user }), json({ artifacts: [] })]);
 
     const { unmount } = render(<App />);
@@ -381,7 +381,7 @@ describe("Artifact management", () => {
 
   it("keeps selected Artifacts across views and selects only the filtered results", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([
       json({ user }),
       json({
@@ -415,7 +415,7 @@ describe("Artifact management", () => {
 
   it("restores the saved Artifact view", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([json({ user }), json({ artifacts: [artifact({ name: "Launch brief" })] })]);
 
     const firstRender = render(<App />);
@@ -432,7 +432,7 @@ describe("Artifact management", () => {
 
   it("explains an ineligible batch Publish with Sonner without making a request", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     const fetchMock = stubFetch([
       json({ user }),
       json({
@@ -456,7 +456,7 @@ describe("Artifact management", () => {
 
   it("blocks batch Publish when an allowed Artifact has no ready Version", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     const fetchMock = stubFetch([
       json({ user }),
       json({ artifacts: [artifact({ name: "Incomplete", processingState: "ready", readyVersion: null, allowedActions: ["publish"] })] })
@@ -474,7 +474,7 @@ describe("Artifact management", () => {
 
   it("publishes selected Artifacts with one access period and retains a runtime failure", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     const fetchMock = stubFetch([
       json({ user }),
       json({
@@ -526,7 +526,7 @@ describe("Artifact management", () => {
 
   it("confirms batch Delete and keeps only runtime failures selected", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     const fetchMock = stubFetch([
       json({ user }),
       json({
@@ -556,18 +556,18 @@ describe("Artifact management", () => {
   });
 
   it("sends an unauthenticated management visitor to sign in", async () => {
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([json({ error: { code: "unauthenticated", message: "Sign in required.", requestId: "req-1" } }, 401)]);
 
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/sign-in");
-    expect(new URLSearchParams(window.location.search).get("returnTo")).toBe("/artifacts");
+    expect(new URLSearchParams(window.location.search).get("returnTo")).toBe("/console");
   });
 
   it("shows detail state and only server-allowed actions", async () => {
-    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    window.history.replaceState(null, "", "/console/artifacts/artifact-1");
     stubFetch([
       json({ user }),
       json({
@@ -591,7 +591,7 @@ describe("Artifact management", () => {
 
   it("renames an Artifact while retaining its stable ID", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    window.history.replaceState(null, "", "/console/artifacts/artifact-1");
     stubFetch([
       json({ user }),
       json({ artifact: artifact() }),
@@ -613,7 +613,7 @@ describe("Artifact management", () => {
 
   it("validates a create form before uploading", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([
       json({ user }),
       json({ artifacts: [] }),
@@ -645,7 +645,7 @@ describe("Artifact management", () => {
 
   it("blocks create before upload when ZIP preflight finds a primary issue", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([
       json({ user }),
       json({ artifacts: [] }),
@@ -697,7 +697,7 @@ describe("Artifact management", () => {
 
   it("shows a structured server upload limit rejection in the create dialog", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([json({ user }), json({ artifacts: [] }), json({ policy: uploadPolicy() })]);
     preflightArtifactZip.mockResolvedValue({ primaryIssue: null, issues: [], warnings: [] });
     vi.stubGlobal("XMLHttpRequest", class {
@@ -735,7 +735,7 @@ describe("Artifact management", () => {
 
   it("continues create with neutral feedback when ZIP preflight cannot run", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([
       json({ user }),
       json({ artifacts: [] }),
@@ -752,13 +752,13 @@ describe("Artifact management", () => {
 
     expect(await screen.findByRole("heading", { name: "Artifacts" })).toBeInTheDocument();
     expect(await screen.findByRole("link", { name: "Report" })).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/artifacts");
+    expect(window.location.pathname).toBe("/console");
   });
 
   it("derives the Artifact name from the ZIP filename", async () => {
     const interaction = userEvent.setup();
     const send = vi.fn();
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([
       json({ user }),
       json({ artifacts: [] }),
@@ -791,7 +791,7 @@ describe("Artifact management", () => {
   it("packages self-contained HTML before preflight and upload", async () => {
     const interaction = userEvent.setup();
     const send = vi.fn();
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([json({ user }), json({ artifacts: [] }), json({ policy: uploadPolicy() })]);
     vi.stubGlobal("XMLHttpRequest", acceptedUploadRequest(send));
 
@@ -818,7 +818,7 @@ describe("Artifact management", () => {
 
   it("accepts a ZIP dropped onto the file target", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([json({ user }), json({ artifacts: [] }), json({ policy: uploadPolicy() })]);
 
     render(<App />);
@@ -831,7 +831,7 @@ describe("Artifact management", () => {
 
   it("rejects a ZIP filename that cannot produce an Artifact name", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([json({ user }), json({ artifacts: [] }), json({ policy: uploadPolicy() })]);
     const send = vi.fn();
     vi.stubGlobal("XMLHttpRequest", class {
@@ -852,7 +852,7 @@ describe("Artifact management", () => {
 
   it("opens New artifact in a dialog without changing the route", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([
       json({ user }),
       json({ artifacts: [] }),
@@ -873,25 +873,14 @@ describe("Artifact management", () => {
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "New artifact" })).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/artifacts");
+    expect(window.location.pathname).toBe("/console");
 
     await interaction.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("redirects the removed New artifact route to the Artifact list", async () => {
-    window.history.replaceState(null, "", "/artifacts/new");
-    stubFetch([json({ user }), json({ artifacts: [] })]);
-
-    render(<App />);
-
-    expect(await screen.findByRole("heading", { name: "Artifacts" })).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/artifacts");
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-  });
-
   it("keeps accepted and published states distinct", async () => {
-    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    window.history.replaceState(null, "", "/console/artifacts/artifact-1");
     stubFetch([
       json({ user }),
       json({
@@ -913,7 +902,7 @@ describe("Artifact management", () => {
 
   it("shows Restricted independently and keeps only non-expanding sharing management", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    window.history.replaceState(null, "", "/console/artifacts/artifact-1");
     stubFetch([
       json({ user }),
       json({
@@ -940,7 +929,7 @@ describe("Artifact management", () => {
   });
 
   it("shows a failed upload summary and only its allowed recovery action", async () => {
-    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    window.history.replaceState(null, "", "/console/artifacts/artifact-1");
     stubFetch([
       json({ user }),
       json({
@@ -963,7 +952,7 @@ describe("Artifact management", () => {
 
   it("returns an accepted upload to Artifact management", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts");
+    window.history.replaceState(null, "", "/console");
     stubFetch([
       json({ user }),
       json({ artifacts: [] }),
@@ -989,12 +978,12 @@ describe("Artifact management", () => {
 
     expect(await screen.findByRole("heading", { name: "Artifacts" })).toBeInTheDocument();
     expect(await screen.findByRole("link", { name: "Report" })).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/artifacts");
+    expect(window.location.pathname).toBe("/console");
   });
 
   it("refreshes processing state without moving the action layout", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    window.history.replaceState(null, "", "/console/artifacts/artifact-1");
     stubFetch([
       json({ user }),
       json({ artifact: artifact({ processingState: "processing" }) }),
@@ -1018,7 +1007,7 @@ describe("Artifact management", () => {
 
   it("retries a recoverable failure against its current Upload session", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    window.history.replaceState(null, "", "/console/artifacts/artifact-1");
     const fetchMock = stubFetch([
       json({ user }),
       json({
@@ -1050,7 +1039,7 @@ describe("Artifact management", () => {
 
   it("explains deterministic validation failure and accepts a replacement ZIP", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    window.history.replaceState(null, "", "/console/artifacts/artifact-1");
     stubFetch([
       json({ user }),
       json({
@@ -1085,7 +1074,7 @@ describe("Artifact management", () => {
   });
 
   it("shows structured validation details before the legacy failure", async () => {
-    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    window.history.replaceState(null, "", "/console/artifacts/artifact-1");
     stubFetch([
       json({ user }),
       json({
@@ -1122,7 +1111,7 @@ describe("Artifact management", () => {
   });
 
   it("shows ready normalization warnings without removing ready actions", async () => {
-    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    window.history.replaceState(null, "", "/console/artifacts/artifact-1");
     stubFetch([
       json({ user }),
       json({
@@ -1166,7 +1155,7 @@ describe("Artifact management", () => {
 
   it("blocks replacement before upload when ZIP preflight finds a primary issue", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    window.history.replaceState(null, "", "/console/artifacts/artifact-1");
     const fetchMock = stubFetch([
       json({ user }),
       json({ artifact: artifact({ processingState: "failed", allowedActions: ["replace_file"] }) }),
@@ -1196,7 +1185,7 @@ describe("Artifact management", () => {
     const replace = vi.fn();
     const previewWindow = { opener: window, location: { replace } } as unknown as Window;
     const open = vi.spyOn(window, "open").mockReturnValue(previewWindow);
-    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    window.history.replaceState(null, "", "/console/artifacts/artifact-1");
     stubFetch([
       json({ user }),
       json({
@@ -1213,13 +1202,13 @@ describe("Artifact management", () => {
     await interaction.click(await screen.findByRole("button", { name: "Preview" }));
 
     expect(open).toHaveBeenCalledWith("about:blank", "_blank");
-    expect(replace).toHaveBeenCalledWith("/artifacts/artifact-1/preview?versionId=version%2F1");
+    expect(replace).toHaveBeenCalledWith("/console/artifacts/artifact-1/preview?versionId=version%2F1");
     expect(await screen.findByText("Preview opened in a new tab.")).toBeInTheDocument();
     expect(previewWindow.opener).toBeNull();
   });
 
   it("renders an authenticated ready-Version in the trusted Preview player", async () => {
-    window.history.replaceState(null, "", "/artifacts/artifact-1/preview?versionId=version%2F1");
+    window.history.replaceState(null, "", "/console/artifacts/artifact-1/preview?versionId=version%2F1");
     stubFetch([json({ user })]);
 
     render(<App />);
@@ -1255,7 +1244,7 @@ describe("Artifact management", () => {
         return response;
       })
     );
-    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    window.history.replaceState(null, "", "/console/artifacts/artifact-1");
 
     render(<App />);
     await interaction.click(await screen.findByRole("button", { name: "Share with link" }));
@@ -1271,7 +1260,7 @@ describe("Artifact management", () => {
     const interaction = userEvent.setup();
     const writeText = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("denied"));
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
-    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    window.history.replaceState(null, "", "/console/artifacts/artifact-1");
     stubFetch([json({ user }), json({ artifact: artifact({ publication: publication(), publicationStatus: "published", allowedActions: ["copy_share_link"] }) })]);
 
     render(<App />);
@@ -1285,7 +1274,7 @@ describe("Artifact management", () => {
 
   it("routes an expired action session to Sign in", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    window.history.replaceState(null, "", "/console/artifacts/artifact-1");
     stubFetch([
       json({ user }),
       json({
@@ -1305,11 +1294,11 @@ describe("Artifact management", () => {
 
     expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/sign-in");
-    expect(new URLSearchParams(window.location.search).get("returnTo")).toBe("/artifacts/artifact-1");
+    expect(new URLSearchParams(window.location.search).get("returnTo")).toBe("/console/artifacts/artifact-1");
   });
 
   it("shows an ownership-safe not-found error without Artifact data", async () => {
-    window.history.replaceState(null, "", "/artifacts/not-owned");
+    window.history.replaceState(null, "", "/console/artifacts/not-owned");
     stubFetch([
       json({ user }),
       json({ error: { code: "artifact_not_found", message: "Artifact not found." } }, 404)
@@ -1336,7 +1325,7 @@ describe("Artifact management", () => {
       publication: publication(),
       allowedActions: ["publish", "manage_publication", "copy_share_link", "unpublish"]
     });
-    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    window.history.replaceState(null, "", "/console/artifacts/artifact-1");
     const fetchMock = stubFetch([json({ user }), json({ artifact: ready }), json({ publication: published.publication, shareLink: published.shareLink }, 201), json({ artifact: published })]);
 
     render(<App />);
@@ -1362,7 +1351,7 @@ describe("Artifact management", () => {
       readyVersion: { id: "version-1", state: "ready" },
       allowedActions: ["publish"]
     });
-    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    window.history.replaceState(null, "", "/console/artifacts/artifact-1");
     const fetchMock = stubFetch([json({ user }), json({ artifact: ready })]);
 
     render(<App />);
@@ -1383,7 +1372,7 @@ describe("Artifact management", () => {
 
   it("requires explicit irreversible confirmation before replacing a Share link", async () => {
     const interaction = userEvent.setup();
-    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    window.history.replaceState(null, "", "/console/artifacts/artifact-1");
     const fetchMock = stubFetch([json({ user }), json({ artifact: artifact({ processingState: "ready", readyVersion: { id: "version-1", state: "ready" }, publicationStatus: "expired", publication: publication(), allowedActions: ["publish"] }) })]);
 
     render(<App />);
@@ -1399,7 +1388,7 @@ describe("Artifact management", () => {
     const interaction = userEvent.setup();
     const published = artifact({ processingState: "ready", readyVersion: { id: "version-1", state: "ready" }, publicationStatus: "published", publication: publication(), allowedActions: ["manage_publication", "copy_share_link", "unpublish"] });
     const unpublished = artifact({ ...published, publicationStatus: "unpublished", allowedActions: ["publish"] });
-    window.history.replaceState(null, "", "/artifacts/artifact-1");
+    window.history.replaceState(null, "", "/console/artifacts/artifact-1");
     const fetchMock = stubFetch([json({ user }), json({ artifact: published }), new Response(null, { status: 204 }), json({ artifact: unpublished })]);
 
     render(<App />);

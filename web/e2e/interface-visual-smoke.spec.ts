@@ -12,12 +12,12 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 1280, height: 720
 
     await page.goto("/admin/gallery")
     await expect(page.getByRole("heading", { name: "Gallery administration" })).toBeVisible()
-    await expect(page.getByRole("link", { name: "Admin" })).toHaveCount(0)
+    await expect(page.getByRole("navigation", { name: "Administration" }).getByRole("link", { name: "Gallery administration" })).toHaveAttribute("aria-current", "page")
     await expect(page.getByText("Deterministic report evidence")).toBeVisible()
     await assertNoOverflow(page)
     await page.screenshot({ path: `../output/playwright/gallery-admin-loaded-after-${suffix}.png`, fullPage: true })
 
-    await page.goto("/settings/gallery-profile")
+    await page.goto("/console/settings/gallery-profile")
     await expect(page.getByRole("heading", { name: "Creator profile" })).toBeVisible()
     await expect(page.getByLabel("Display name")).toHaveValue("Ada Lovelace")
     await assertNoOverflow(page)

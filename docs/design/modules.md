@@ -73,16 +73,25 @@ Status: current, disabled by default until every deployment and live-readiness g
 
 - `api/src/application/gallery/` owns independent listing/proposal transitions, Creator profiles, permission evidence, discovery, Download, Save-a-copy admission, reports, governance, provenance, retention, and reconciliation. Publication remains a separate aggregate.
 - `api/src/http/gallery-routes.ts` is the trusted owner, discovery, interaction, and Administrator HTTP Adapter. `api/src/content/` is a separate content-only Hono application with only credential-bound manifest reads and private-object streaming; it has no management auth or mutation dependency.
-- `web/src/screens/GalleryPage.tsx`, `GalleryListingPage.tsx`, and `CreatorPage.tsx` are public trusted pages. `ArtifactGalleryDialog.tsx` owns owner share/update/withdraw interaction, while `GalleryAdministrationPage.tsx` owns the minimal authorized governance queue and notification surface.
+- `web/src/screens/HomePage.tsx`, `BrowsePage.tsx`, `GalleryListingPage.tsx`, and `CreatorPage.tsx` are public trusted pages. Home owns resilient product content plus bounded Featured-to-Newest discovery; Browse owns the full Gallery collection query surface. `ArtifactGalleryDialog.tsx` owns owner share/update/withdraw interaction, while `GalleryAdministrationPage.tsx` owns the minimal authorized governance queue and notification surface outside Console.
 - `worker/src/gallery_safety_job.rs`, `gallery_cover_job.rs`, and `gallery_copy_job.rs` consume the checked language-neutral contracts. API policy owns admission and terminal state; Worker results cannot mutate policy directly.
 - `cli/src/gallery_commands.rs` exposes the four owner operations through the same checked HTTP client and Agent protocol used by the official Skill. It never implements Gallery policy locally.
+
+## Trusted Web surfaces
+
+Status: current
+
+- `web/src/routing.ts` owns canonical route classification, typed destination generation, route-owned query parsing, safe authentication returns, and pure legacy-location resolution. `web/src/main.tsx` applies that resolution synchronously before React, Session lookup, or page selection begins.
+- `PublicSiteShell` owns public Website navigation and non-blocking Session projection. `ConsoleShell` owns ordinary personal-management navigation, while `AdministrationShell` remains a distinct permission surface. `App.tsx` lazy-loads Website, account-entry, Console, owner Preview, and administration page groups without adding a second application or routing framework.
+- `web/src/document-metadata.ts` is the single hydrated-document metadata controller. Every route begins from `noindex,nofollow` with no canonical link; only a typed eligible public resolution upgrades indexing and canonical metadata. The client document does not claim route-specific HTTP status.
+- `/console` renders the existing `ArtifactsPage`; owned detail and Preview use `/console/artifacts/{artifactId}` descendants, Gallery profile settings use `/console/settings/gallery-profile`, and API adapters retain their resource-owned `/api/artifacts` and Gallery paths.
 
 ## Web Artifact player
 
 Status: current
 
 - `web/src/components/ArtifactPlayer.tsx` is the reusable owner player for the ordinary Preview page and Card full-screen mode. It owns the content iframe, accessible enter and exit controls, Fullscreen API event synchronization, and local failure feedback; it does not own Artifact, Version, or Publication policy.
-- The `/artifacts/{artifactId}/preview` route renders the player outside the management shell. `ArtifactsPage` keeps Card eligibility and management-state preservation local, while `ArtifactPage` and Card thumbnail navigation open the same trusted Preview route.
+- The canonical `/console/artifacts/{artifactId}/preview` route renders the player outside Console chrome. The legacy `/artifacts/{artifactId}/preview` document retains `no-store` only for replace-style migration. `ArtifactsPage` keeps Card eligibility and management-state preservation local, while `ArtifactPage` and Card thumbnail navigation open the canonical trusted Preview route.
 
 ## Rust worker Modules
 

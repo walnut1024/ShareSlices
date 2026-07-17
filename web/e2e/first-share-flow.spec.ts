@@ -39,7 +39,7 @@ test("normalize a macOS named-entry ZIP, Preview, Share with link, and open the 
     )
   });
   await page.getByRole("button", { name: "Upload" }).click();
-  await expect(page).toHaveURL(/\/artifacts$/);
+  await expect(page).toHaveURL(/\/console$/);
   await page.getByRole("button", { name: "More actions for First share flow" }).click();
   await page.getByRole("menuitem", { name: "Info" }).click();
   await expect(page.getByRole("heading", { name: "First share flow" })).toBeVisible();
@@ -68,7 +68,7 @@ test("normalize a macOS named-entry ZIP, Preview, Share with link, and open the 
   const previewPromise = page.waitForEvent("popup");
   await page.getByRole("button", { name: "Preview" }).click();
   const preview = await previewPromise;
-  await preview.waitForURL(/\/artifacts\/.+\/preview\?versionId=/);
+  await preview.waitForURL(/\/console\/artifacts\/.+\/preview\?versionId=/);
   const previewShell = await preview.request.get(preview.url());
   expect(previewShell.headers()["cache-control"]).toBe("no-store");
   await expect(preview.getByTestId("artifact-player")).toHaveCSS("height", "900px");
@@ -85,7 +85,7 @@ test("normalize a macOS named-entry ZIP, Preview, Share with link, and open the 
   await expect(preview.getByRole("button", { name: "Enter full screen" })).toBeVisible();
   await preview.close();
 
-  await page.goto("/artifacts");
+  await page.goto("/console");
   await expect(page.getByRole("heading", { name: "Artifacts", exact: true })).toBeVisible();
   const search = page.getByRole("textbox", { name: "Search artifacts" });
   await search.fill("First share flow");
@@ -136,7 +136,7 @@ test("normalize a macOS named-entry ZIP, Preview, Share with link, and open the 
   await expect(page.getByRole("button", { name: "Enter full screen" })).toHaveCount(0);
   expect((await page.request.get(shareLink!)).status()).toBe(200);
 
-  await page.goto(`/artifacts/${artifactId}`);
+  await page.goto(`/console/artifacts/${artifactId}`);
   await expect(page.getByLabel("Current state").getByText("Expired", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Share with link" }).click();
   await expect(page.getByRole("heading", { name: "Share with link again" })).toBeVisible();
@@ -237,7 +237,7 @@ test("explain ambiguous root HTML candidates after processing fails", async ({ p
     ambiguousArtifactId = body.artifacts[0]?.id ?? "";
     return ambiguousArtifactId;
   }).not.toBe("");
-  await page.goto(`/artifacts/${ambiguousArtifactId}`);
+  await page.goto(`/console/artifacts/${ambiguousArtifactId}`);
   await expect(page.getByRole("heading", { name: "Ambiguous entry" })).toBeVisible();
 
   for (let attempt = 0; attempt < 80; attempt += 1) {
@@ -281,10 +281,10 @@ test("sign out the current browser Session", async ({ page }, testInfo) => {
   await page.getByRole("menuitem", { name: "Sign out" }).click();
 
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole("link", { name: "Sign in" })).toBeVisible();
+  await expect(page.getByRole("banner").getByRole("link", { name: "Sign in" })).toBeVisible();
 
-  await page.goto("/artifacts");
-  await expect(page).toHaveURL(new RegExp(`/sign-in\\?returnTo=${encodeURIComponent("/artifacts")}$`));
+  await page.goto("/console");
+  await expect(page).toHaveURL(new RegExp(`/sign-in\\?returnTo=${encodeURIComponent("/console")}$`));
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
 });
 

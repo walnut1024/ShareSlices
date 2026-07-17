@@ -753,6 +753,13 @@ describe("Artifact repository adapters", () => {
         'raw/artifact-gallery-delete/input.zip',10,'committed')`,
     );
     await databasePool.query(
+      `insert into artifact_version(
+        id,artifact_id,owner_user_id,content_bundle_id,renderer_revision,
+        upload_session_id,version_number,state)
+       values('version-gallery-delete','artifact-gallery-delete','owner-1','bundle-1','renderer-v2',
+        'upload-gallery-delete',1,'ready')`,
+    );
+    await databasePool.query(
       "insert into gallery_creator_profile(id,user_id,opaque_slug,display_name) values('profile-gallery-delete','owner-1','creator_gallery_delete','Owner')",
     );
     await databasePool.query(
@@ -781,12 +788,18 @@ describe("Artifact repository adapters", () => {
       `select
         (select count(*)::int from artifact where id='artifact-gallery-delete') artifacts,
         (select count(*)::int from artifact_share_link where artifact_id='artifact-gallery-delete') links,
+        (select owner_user_id from artifact_version where id='version-gallery-delete') version_owner,
+        (select content_bundle_id from artifact_version where id='version-gallery-delete') version_bundle,
+        (select renderer_revision from artifact_version where id='version-gallery-delete') renderer_revision,
         (select lifecycle_state from gallery_listing where id='glisting_gallery_delete') lifecycle,
         (select last_error_code from artifact_deletion_cleanup where artifact_id='artifact-gallery-delete') cleanup_state`,
     );
     expect(state.rows[0]).toEqual({
       artifacts: 1,
       links: 0,
+      version_owner: null,
+      version_bundle: null,
+      renderer_revision: null,
       lifecycle: "withdrawn",
       cleanup_state: "gallery_tombstone_retained",
     });

@@ -268,8 +268,8 @@ describe("account entry screens", () => {
     await user.type(screen.getByLabelText("Password"), "correct horse battery staple");
     await user.click(await screen.findByRole("button", { name: "Sign in" }));
 
-    expect(await screen.findByRole("heading", { name: "Artifacts" })).toBeInTheDocument();
-    expect(window.location.pathname).toBe("/artifacts");
+    expect(await screen.findByRole("heading", { name: "Artifacts" }, { timeout: 3000 })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/console");
     expect(screen.queryByText(/signed in as/i)).not.toBeInTheDocument();
   });
 
@@ -299,7 +299,7 @@ describe("account entry screens", () => {
     await interaction.type(screen.getByLabelText("Password"), "password123");
     await interaction.click(screen.getByRole("button", { name: "Sign in" }));
 
-    expect(await screen.findByRole("heading", { name: "Gallery" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "The gallery for interactive Artifacts" })).toBeVisible();
     expect(window.location.pathname + window.location.search).toBe("/");
   });
 
@@ -334,7 +334,7 @@ describe("account entry screens", () => {
     await interaction.click(screen.getByRole("button", { name: "Sign in" }));
 
     expect(await screen.findByRole("heading", { name: "Artifacts" })).toBeVisible();
-    expect(window.location.pathname).toBe("/artifacts");
+    expect(window.location.pathname).toBe("/console");
   });
 });
 

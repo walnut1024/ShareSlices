@@ -1,0 +1,257 @@
+{
+  "generatedAt": "2026-07-17T12:34:11.187Z",
+  "node": "v26.4.0",
+  "assets": [
+    {
+      "name": "AdministrationRoutePage-ChsMQcT8.js",
+      "type": "javascript",
+      "rawBytes": 5804,
+      "gzipBytes": 2116
+    },
+    {
+      "name": "ArtifactPlayer-D3LdefQE.js",
+      "type": "javascript",
+      "rawBytes": 16656,
+      "gzipBytes": 6299
+    },
+    {
+      "name": "ArtifactPreviewPage-CWMQloH1.js",
+      "type": "javascript",
+      "rawBytes": 334,
+      "gzipBytes": 255
+    },
+    {
+      "name": "BrowsePage-D5fGo7Uz.js",
+      "type": "javascript",
+      "rawBytes": 4387,
+      "gzipBytes": 1917
+    },
+    {
+      "name": "ConsoleRoutePage-BWXzixA5.js",
+      "type": "javascript",
+      "rawBytes": 186608,
+      "gzipBytes": 58698
+    },
+    {
+      "name": "CreatorPage-hcz3ifvh.js",
+      "type": "javascript",
+      "rawBytes": 2554,
+      "gzipBytes": 1134
+    },
+    {
+      "name": "DeviceAuthorizationPage-T5caGyEt.js",
+      "type": "javascript",
+      "rawBytes": 6658,
+      "gzipBytes": 2333
+    },
+    {
+      "name": "GalleryCard-DmkHNe0w.js",
+      "type": "javascript",
+      "rawBytes": 1676,
+      "gzipBytes": 809
+    },
+    {
+      "name": "GalleryListingPage-DPxx1UQp.js",
+      "type": "javascript",
+      "rawBytes": 8420,
+      "gzipBytes": 3530
+    },
+    {
+      "name": "HomePage-yYXGdRh8.js",
+      "type": "javascript",
+      "rawBytes": 7833,
+      "gzipBytes": 2912
+    },
+    {
+      "name": "LoginForm-BSJufVYy.js",
+      "type": "javascript",
+      "rawBytes": 1188,
+      "gzipBytes": 611
+    },
+    {
+      "name": "LoginPage-BDCJeihb.js",
+      "type": "javascript",
+      "rawBytes": 1901,
+      "gzipBytes": 894
+    },
+    {
+      "name": "NotFoundPage-DGUm6l53.js",
+      "type": "javascript",
+      "rawBytes": 686,
+      "gzipBytes": 389
+    },
+    {
+      "name": "PasswordResetPage-DbWzqLAt.js",
+      "type": "javascript",
+      "rawBytes": 3381,
+      "gzipBytes": 1294
+    },
+    {
+      "name": "SignUpPage-DoWhUjcs.js",
+      "type": "javascript",
+      "rawBytes": 4353,
+      "gzipBytes": 1731
+    },
+    {
+      "name": "VerificationCodeForm-CSehpKON.js",
+      "type": "javascript",
+      "rawBytes": 3433,
+      "gzipBytes": 1534
+    },
+    {
+      "name": "alert-Czpw91G9.js",
+      "type": "javascript",
+      "rawBytes": 1359,
+      "gzipBytes": 586
+    },
+    {
+      "name": "archive-preflight.worker-7A6fqOLs.js",
+      "type": "javascript",
+      "rawBytes": 18178,
+      "gzipBytes": 7297
+    },
+    {
+      "name": "aspect-ratio-D7dvj4Ho.js",
+      "type": "javascript",
+      "rawBytes": 219,
+      "gzipBytes": 178
+    },
+    {
+      "name": "badge-BI7SP8W7.js",
+      "type": "javascript",
+      "rawBytes": 1409,
+      "gzipBytes": 652
+    },
+    {
+      "name": "card-DNpDAPgH.js",
+      "type": "javascript",
+      "rawBytes": 1588,
+      "gzipBytes": 580
+    },
+    {
+      "name": "empty-DbOnxwnW.js",
+      "type": "javascript",
+      "rawBytes": 807,
+      "gzipBytes": 369
+    },
+    {
+      "name": "field-DvGU__QZ.js",
+      "type": "javascript",
+      "rawBytes": 2881,
+      "gzipBytes": 1054
+    },
+    {
+      "name": "gallery-DAg--mLF.js",
+      "type": "javascript",
+      "rawBytes": 4577,
+      "gzipBytes": 1572
+    },
+    {
+      "name": "index-BQebUhVH.css",
+      "type": "css",
+      "rawBytes": 100136,
+      "gzipBytes": 16852
+    },
+    {
+      "name": "index-D7sjfmcu.js",
+      "type": "javascript",
+      "rawBytes": 422387,
+      "gzipBytes": 136166
+    },
+    {
+      "name": "input-CVi6lfUZ.js",
+      "type": "javascript",
+      "rawBytes": 2298,
+      "gzipBytes": 1179
+    },
+    {
+      "name": "input-group-TVZZgjUf.js",
+      "type": "javascript",
+      "rawBytes": 3240,
+      "gzipBytes": 1203
+    },
+    {
+      "name": "isElementDisabled-CwHw_lZC.js",
+      "type": "javascript",
+      "rawBytes": 110,
+      "gzipBytes": 107
+    },
+    {
+      "name": "preview-CXm-gwou.js",
+      "type": "javascript",
+      "rawBytes": 171,
+      "gzipBytes": 154
+    },
+    {
+      "name": "select-DN6_s1Nz.js",
+      "type": "javascript",
+      "rawBytes": 42534,
+      "gzipBytes": 14945
+    },
+    {
+      "name": "separator-B6ysnew1.js",
+      "type": "javascript",
+      "rawBytes": 316,
+      "gzipBytes": 224
+    },
+    {
+      "name": "textarea-DfkLd0eZ.js",
+      "type": "javascript",
+      "rawBytes": 701,
+      "gzipBytes": 379
+    },
+    {
+      "name": "toggle-group-Bwf88-7I.js",
+      "type": "javascript",
+      "rawBytes": 8786,
+      "gzipBytes": 3475
+    },
+    {
+      "name": "upload-CkDpsUW-.js",
+      "type": "javascript",
+      "rawBytes": 231,
+      "gzipBytes": 190
+    },
+    {
+      "name": "useRegisterFieldControl-DbFXHSy_.js",
+      "type": "javascript",
+      "rawBytes": 2630,
+      "gzipBytes": 1231
+    }
+  ],
+  "totals": {
+    "javascript": {
+      "rawBytes": 770294,
+      "gzipBytes": 257997
+    },
+    "css": {
+      "rawBytes": 100136,
+      "gzipBytes": 16852
+    }
+  },
+  "surfaceAssets": {
+    "website": [
+      "BrowsePage-D5fGo7Uz.js",
+      "HomePage-yYXGdRh8.js"
+    ],
+    "console": [
+      "ConsoleRoutePage-BWXzixA5.js"
+    ],
+    "preview": [
+      "ArtifactPreviewPage-CWMQloH1.js"
+    ],
+    "administration": [
+      "AdministrationRoutePage-ChsMQcT8.js"
+    ]
+  },
+  "browser": {
+    "status": "collected-by-interface-benchmark",
+    "scenarios": []
+  },
+  "delta": {
+    "javascriptRawBytes": 27479,
+    "javascriptGzipBytes": 24956,
+    "cssRawBytes": 6210,
+    "cssGzipBytes": 887
+  }
+}

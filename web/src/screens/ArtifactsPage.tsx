@@ -94,6 +94,7 @@ import { CreateArtifactDialog } from "./CreateArtifactDialog";
 import { artifactPreviewUrl, versionContentUrl } from "../artifacts/preview";
 import { ArtifactPlayer } from "../components/ArtifactPlayer";
 import { cn } from "../lib/utils";
+import { destinations } from "../routing";
 
 type ArtifactFilter =
   | "all"
@@ -755,7 +756,7 @@ function ArtifactTile({
   onDelete: () => void;
 }) {
   const ready = artifact.readyVersion !== null;
-  const detailUrl = `/artifacts/${encodeURIComponent(artifact.id)}`;
+  const detailUrl = destinations.artifact(artifact.id);
   const previewUrl = ready
     ? artifactPreviewUrl(artifact.id, artifact.readyVersion!.id)
     : null;
@@ -995,7 +996,7 @@ function ArtifactList({
         <TableBody>
           {artifacts.map((artifact) => {
             const selected = selectedIds.has(artifact.id);
-            const detailUrl = `/artifacts/${encodeURIComponent(artifact.id)}`;
+            const detailUrl = destinations.artifact(artifact.id);
             return (
               <TableRow
                 key={artifact.id}

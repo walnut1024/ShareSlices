@@ -26,7 +26,7 @@ test("keeps Artifact cards readable across desktop CSS widths and Retina density
     try {
       const page = await context.newPage();
       await mockManagement(page);
-      await page.goto("/artifacts");
+      await page.goto("/console");
       await expect(page.getByRole("heading", { name: "Artifacts", exact: true })).toBeVisible();
 
       const pageSurface = page.getByTestId("artifacts-page");

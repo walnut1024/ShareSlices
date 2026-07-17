@@ -18,7 +18,7 @@ const artifact = {
 test("confirms, acknowledges, and later completes a Gallery share at 1440x900", async ({page}) => {
   await page.setViewportSize({width: 1440, height: 900});
   await mockGalleryShare(page);
-  await page.goto("/artifacts/artifact-1");
+  await page.goto("/console/artifacts/artifact-1");
 
   await page.getByRole("button", {name: "Share to Gallery"}).click();
   await expect(page.getByRole("heading", {name: "Share “Quarterly report” to Gallery?"})).toBeVisible();

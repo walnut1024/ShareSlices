@@ -2,7 +2,7 @@
   "version": "0.2",
   "language": "en",
   "useGitignore": true,
-  "ignorePaths": ["node_modules", "dist", "target", "pnpm-lock.yaml", "docs/high-fidelity/**"],
+  "ignorePaths": ["node_modules", "dist", "target", "pnpm-lock.yaml", "docs/high-fidelity/**", "openspec/changes/*/evidence/interface-build.json"],
   "words": [
     "AAUAAA",
     "Auth",

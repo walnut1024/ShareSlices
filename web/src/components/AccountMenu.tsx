@@ -1,5 +1,6 @@
 import { LogOutIcon, UserRoundIcon } from "lucide-react";
 import type { User } from "../api/account";
+import { destinations } from "../routing";
 import { Avatar, AvatarFallback } from "./ui/avatar";
 import { Button } from "./ui/button";
 import {
@@ -48,7 +49,7 @@ export function AccountMenu({
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem render={<a href="/settings/gallery-profile" />}>
+          <DropdownMenuItem render={<a href={destinations.galleryProfile()} />}>
             <UserRoundIcon />
             Creator profile
           </DropdownMenuItem>

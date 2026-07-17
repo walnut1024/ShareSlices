@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  body { margin:0; background:#fff; }
+  a { color: inherit; text-decoration: none; }
+  a:hover { color: inherit; }
+  * { box-sizing: border-box; }
+</style>
+</helmet>
+<div style="font-family:'Geist',ui-sans-serif,system-ui,sans-serif;color:#0a0a0a;background:#fff;-webkit-font-smoothing:antialiased;">
+
+  <!-- NAV -->
+  <header style="position:sticky;top:0;z-index:50;height:64px;border-bottom:1px solid #e5e5e5;background:rgba(255,255,255,.82);backdrop-filter:blur(10px);">
+    <div style="max-width:1200px;margin:0 auto;height:100%;display:flex;align-items:center;gap:28px;padding:0 24px;">
+      <a href="ShareSlices Website.dc.html" style="display:flex;align-items:center;gap:9px;flex:none;">
+        <span style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;width:30px;height:30px;border-radius:8px;background:#0a0a0a;"><span style="height:2.5px;width:14px;border-radius:1px;background:#fff;"></span><span style="height:2.5px;width:14px;border-radius:1px;background:rgba(255,255,255,.55);"></span><span style="height:2.5px;width:14px;border-radius:1px;background:rgba(255,255,255,.3);"></span></span>
+        <span style="font-size:16px;font-weight:600;letter-spacing:-0.01em;">ShareSlices</span>
+      </a>
+      <nav style="flex:1;display:flex;align-items:center;gap:4px;">
+        <a href="#" style="height:34px;display:inline-flex;align-items:center;padding:0 12px;border-radius:9px;font-size:14px;font-weight:500;color:#171717;background:#f5f5f5;">Discover</a>
+        <a href="#" style="height:34px;display:inline-flex;align-items:center;padding:0 12px;border-radius:9px;font-size:14px;font-weight:500;color:#737373;">Categories</a>
+        <a href="#" style="height:34px;display:inline-flex;align-items:center;padding:0 12px;border-radius:9px;font-size:14px;font-weight:500;color:#737373;">Creators</a>
+        <a href="#" style="height:34px;display:inline-flex;align-items:center;padding:0 12px;border-radius:9px;font-size:14px;font-weight:500;color:#737373;">Publish</a>
+      </nav>
+      <div style="display:flex;align-items:center;gap:8px;flex:none;">
+        <a href="#" style="height:36px;display:inline-flex;align-items:center;padding:0 12px;border-radius:10px;font-size:14px;font-weight:500;color:#171717;">Sign in</a>
+        <a href="#" style="height:36px;display:inline-flex;align-items:center;gap:7px;padding:0 14px;border-radius:10px;background:#171717;color:#fafafa;font-size:14px;font-weight:500;">Open app<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></a>
+      </div>
+    </div>
+  </header>
+
+  <!-- PAGE HEADER -->
+  <section style="border-bottom:1px solid #f0f0f0;background:#fafafa;">
+    <div style="max-width:1200px;margin:0 auto;padding:36px 24px 30px;">
+      <nav style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:#a3a3a3;"><a href="ShareSlices Website.dc.html" style="color:#737373;">Home</a><span>/</span><span style="color:#171717;font-weight:500;">Browse</span></nav>
+      <div style="margin-top:12px;display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;">
+        <div>
+          <h1 style="margin:0;font-size:32px;font-weight:600;letter-spacing:-0.03em;">Browse all Artifacts</h1>
+          <p style="margin:8px 0 0;font-size:15px;color:#525252;"><strong style="font-weight:500;color:#171717;">12,400+</strong> playable Artifacts from the community — no login required.</p>
+        </div>
+        <div style="width:340px;max-width:100%;height:44px;display:flex;align-items:center;gap:10px;border:1px solid #e5e5e5;border-radius:12px;padding:0 14px;color:#a3a3a3;background:#fff;box-shadow:0 1px 2px rgba(9,9,11,.05);"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#737373" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><span style="font-size:14.5px;">Search Artifacts, creators, tags…</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BODY: filters + grid -->
+  <section style="max-width:1200px;margin:0 auto;padding:28px 24px 72px;display:grid;grid-template-columns:220px 1fr;gap:32px;align-items:start;">
+
+    <!-- filters -->
+    <aside style="position:sticky;top:88px;display:flex;flex-direction:column;gap:26px;">
+      <div>
+        <div style="font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#a3a3a3;margin-bottom:10px;">Category</div>
+        <div style="display:flex;flex-direction:column;gap:1px;">
+          <a href="#" style="height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-radius:9px;background:#f0f0f0;color:#171717;font-size:14px;font-weight:500;">All<span style="font-family:'Geist Mono',monospace;font-size:11px;color:#737373;">12.4k</span></a>
+          <a href="#" style="height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-radius:9px;color:#525252;font-size:14px;font-weight:500;">Prototypes<span style="font-family:'Geist Mono',monospace;font-size:11px;color:#a3a3a3;">3.2k</span></a>
+          <a href="#" style="height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-radius:9px;color:#525252;font-size:14px;font-weight:500;">Data viz<span style="font-family:'Geist Mono',monospace;font-size:11px;color:#a3a3a3;">1.9k</span></a>
+          <a href="#" style="height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-radius:9px;color:#525252;font-size:14px;font-weight:500;">Decks<span style="font-family:'Geist Mono',monospace;font-size:11px;color:#a3a3a3;">2.6k</span></a>
+          <a href="#" style="height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-radius:9px;color:#525252;font-size:14px;font-weight:500;">Design systems<span style="font-family:'Geist Mono',monospace;font-size:11px;color:#a3a3a3;">1.1k</span></a>
+          <a href="#" style="height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-radius:9px;color:#525252;font-size:14px;font-weight:500;">Games<span style="font-family:'Geist Mono',monospace;font-size:11px;color:#a3a3a3;">870</span></a>
+          <a href="#" style="height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-radius:9px;color:#525252;font-size:14px;font-weight:500;">Tools<span style="font-family:'Geist Mono',monospace;font-size:11px;color:#a3a3a3;">1.5k</span></a>
+          <a href="#" style="height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-radius:9px;color:#525252;font-size:14px;font-weight:500;">Mobile<span style="font-family:'Geist Mono',monospace;font-size:11px;color:#a3a3a3;">1.3k</span></a>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#a3a3a3;margin-bottom:10px;">Popular tags</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;">
+          <span style="height:26px;display:inline-flex;align-items:center;padding:0 10px;border-radius:9999px;border:1px solid #e5e5e5;font-size:12px;font-weight:500;color:#3f3f46;">ux</span>
+          <span style="height:26px;display:inline-flex;align-items:center;padding:0 10px;border-radius:9999px;border:1px solid #e5e5e5;font-size:12px;font-weight:500;color:#3f3f46;">charts</span>
+          <span style="height:26px;display:inline-flex;align-items:center;padding:0 10px;border-radius:9999px;border:1px solid #e5e5e5;font-size:12px;font-weight:500;color:#3f3f46;">finance</span>
+          <span style="height:26px;display:inline-flex;align-items:center;padding:0 10px;border-radius:9999px;border:1px solid #e5e5e5;font-size:12px;font-weight:500;color:#3f3f46;">canvas</span>
+          <span style="height:26px;display:inline-flex;align-items:center;padding:0 10px;border-radius:9999px;border:1px solid #e5e5e5;font-size:12px;font-weight:500;color:#3f3f46;">svg</span>
+          <span style="height:26px;display:inline-flex;align-items:center;padding:0 10px;border-radius:9999px;border:1px solid #e5e5e5;font-size:12px;font-weight:500;color:#3f3f46;">web</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- grid column -->
+    <div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px;">
+        <div style="display:flex;align-items:center;gap:2px;background:#f5f5f5;border-radius:11px;padding:3px;">
+          <a href="#" style="height:32px;display:inline-flex;align-items:center;padding:0 13px;border-radius:9px;background:#fff;color:#171717;font-size:13.5px;font-weight:500;box-shadow:0 1px 2px rgba(9,9,11,.06);">Featured</a>
+          <a href="#" style="height:32px;display:inline-flex;align-items:center;padding:0 13px;border-radius:9px;color:#737373;font-size:13.5px;font-weight:500;">Newest</a>
+          <a href="#" style="height:32px;display:inline-flex;align-items:center;padding:0 13px;border-radius:9px;color:#737373;font-size:13.5px;font-weight:500;">Trending</a>
+          <a href="#" style="height:32px;display:inline-flex;align-items:center;padding:0 13px;border-radius:9px;color:#737373;font-size:13.5px;font-weight:500;">Most played</a>
+        </div>
+        <span style="font-size:13px;color:#737373;">Showing <strong style="font-weight:500;color:#171717;">1–12</strong> of 12,400</span>
+      </div>
+      <ul style="list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(3,1fr);gap:20px;">
+        {{ cards }}
+      </ul>
+      <div style="margin-top:36px;display:flex;flex-direction:column;align-items:center;gap:14px;">
+        <button style="height:40px;padding:0 18px;display:inline-flex;align-items:center;gap:8px;border:1px solid #e5e5e5;border-radius:11px;background:#fff;font-size:14px;font-weight:500;color:#171717;font-family:inherit;cursor:pointer;box-shadow:0 1px 2px rgba(9,9,11,.05);">Load more Artifacts<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
+        <span style="font-size:12.5px;color:#a3a3a3;">You've seen 12 of 12,400</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer style="border-top:1px solid #e5e5e5;">
+    <div style="max-width:1200px;margin:0 auto;padding:40px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+      <a href="ShareSlices Website.dc.html" style="display:flex;align-items:center;gap:9px;"><span style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;width:28px;height:28px;border-radius:8px;background:#0a0a0a;"><span style="height:2px;width:13px;border-radius:1px;background:#fff;"></span><span style="height:2px;width:13px;border-radius:1px;background:rgba(255,255,255,.55);"></span><span style="height:2px;width:13px;border-radius:1px;background:rgba(255,255,255,.3);"></span></span><span style="font-size:15px;font-weight:600;">ShareSlices</span></a>
+      <span style="font-size:12.5px;color:#a3a3a3;">© 2026 ShareSlices. All rights reserved.</span>
+    </div>
+  </footer>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const stripes = {
+      cool: "#eceff3 0 8px,#f7f9fb 8px 16px",
+      warm: "#f2eeea 0 8px,#fbf8f5 8px 16px",
+      green: "#eaf3ed 0 8px,#f6faf7 8px 16px",
+      violet: "#efeef4 0 8px,#f8f7fb 8px 16px",
+    };
+    const data = [
+      ["Interactive Onboarding Flow", "Priya Nair", "prototype", "ux", "48.2k", "cool"],
+      ["Live Analytics Dashboard", "Sofia Ramos", "data", "charts", "31.6k", "warm"],
+      ["Pixel Runner Mini-Game", "Marcus Lee", "game", "canvas", "22.9k", "green"],
+      ["Mortgage Calculator Tool", "Sofia Ramos", "tool", "finance", "14.7k", "violet"],
+      ["Design System Tokens", "Marcus Lee", "design", "tokens", "12.1k", "green"],
+      ["Marketing Site Prototype", "Ada Lovelace", "web", "marketing", "9.4k", "violet"],
+      ["Q3 Board Review Deck", "Ada Lovelace", "finance", "deck", "6.8k", "cool"],
+      ["Icon Set — Outline", "Marcus Lee", "icons", "svg", "5.2k", "warm"],
+      ["Weather Forecast Widget", "Priya Nair", "tool", "api", "8.1k", "cool"],
+      ["Kanban Board Prototype", "Sofia Ramos", "prototype", "ux", "11.3k", "green"],
+      ["Portfolio Gallery Theme", "Ada Lovelace", "web", "design", "7.6k", "warm"],
+      ["Survey Builder Tool", "Marcus Lee", "tool", "forms", "4.9k", "violet"],
+    ];
+    const card = ([title, author, t1, t2, plays, key]) => `<li><div style="position:relative;border-radius:16px;background:#fff;box-shadow:0 1px 2px rgba(9,9,11,.05),0 0 0 1px #e5e5e5;overflow:hidden;height:100%;display:flex;flex-direction:column;"><div style="position:relative;aspect-ratio:16/11;display:flex;align-items:center;justify-content:center;background-image:repeating-linear-gradient(135deg,${stripes[key]});"><span style="width:42px;height:42px;border-radius:9999px;background:rgba(255,255,255,.95);box-shadow:0 4px 14px -4px rgba(9,9,11,.3);display:flex;align-items:center;justify-content:center;color:#171717;"><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5v14l11-7z"/></svg></span><span style="position:absolute;bottom:10px;right:10px;display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:8px;background:rgba(10,10,10,.6);color:#fff;font-size:11px;font-weight:500;"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5v14l11-7z"/></svg>${plays}</span></div><div style="border-top:1px solid #f0f0f0;padding:13px 15px 15px;display:flex;flex-direction:column;gap:9px;flex:1;"><div style="min-width:0;"><div style="font-size:14px;font-weight:600;letter-spacing:-0.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${title}</div><div style="margin-top:2px;font-size:13px;color:#737373;">by ${author}</div></div><div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:auto;"><span style="display:inline-flex;height:20px;align-items:center;padding:0 8px;border-radius:9999px;border:1px solid #e5e5e5;font-size:11px;font-weight:500;color:#3f3f46;">${t1}</span><span style="display:inline-flex;height:20px;align-items:center;padding:0 8px;border-radius:9999px;border:1px solid #e5e5e5;font-size:11px;font-weight:500;color:#3f3f46;">${t2}</span></div></div></div></li>`;
+    return { cards: React.createElement("div", { style: { display: "contents" }, dangerouslySetInnerHTML: { __html: data.map(card).join("") } }) };
+  }
+}
+</script>
+</body>
+</html>

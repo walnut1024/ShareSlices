@@ -6,10 +6,10 @@ import {
 } from "../api/gallery";
 import { GalleryCard } from "../components/GalleryCard";
 import {
-  PublicGalleryShell,
-  UnsupportedGalleryDevice,
-  useUnsupportedGalleryDevice,
-} from "../components/PublicGalleryShell";
+  PublicSiteShell,
+  UnsupportedPublicDevice,
+  useUnsupportedPublicDevice,
+} from "../components/PublicSiteShell";
 import { Alert, AlertTitle } from "../components/ui/alert";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import {
@@ -19,10 +19,10 @@ import {
   EmptyTitle,
 } from "../components/ui/empty";
 import { Spinner } from "../components/ui/spinner";
-import { setDocumentMetadata } from "../document-metadata";
+import { documentMetadataController } from "../document-metadata";
 
 export function CreatorPage({ slug }: { slug: string }) {
-  const unsupported = useUnsupportedGalleryDevice();
+  const unsupported = useUnsupportedPublicDevice();
   const [creator, setCreator] = useState<GalleryCreator | null>(null);
   const [error, setError] = useState<GalleryApiError | null>(null);
 
@@ -32,10 +32,11 @@ export function CreatorPage({ slug }: { slug: string }) {
       .then((value) => {
         if (!active) return;
         setCreator(value);
-        setDocumentMetadata({
-          title: `${value.profile.displayName} · ShareSlices Gallery`,
-          robots: "index,follow",
-          canonicalPath: `/creators/${encodeURIComponent(value.profile.slug)}`,
+        documentMetadataController.resolvePublic({
+          kind: "creator",
+          slug: value.profile.slug,
+          displayName: value.profile.displayName,
+          indexable: true,
         });
       })
       .catch((reason: unknown) => {
@@ -49,10 +50,6 @@ export function CreatorPage({ slug }: { slug: string }) {
                 503,
               ),
         );
-        setDocumentMetadata({
-          title: "Gallery Creator unavailable · ShareSlices",
-          robots: "noindex,nofollow",
-        });
       });
     return () => {
       active = false;
@@ -61,7 +58,7 @@ export function CreatorPage({ slug }: { slug: string }) {
 
   if (error)
     return (
-      <PublicGalleryShell>
+      <PublicSiteShell galleryAvailable={error.status !== 503}>
         <main className="mx-auto w-full max-w-[1920px] px-8 py-7">
           <Alert variant={error.status === 503 ? "destructive" : "default"}>
             <AlertTitle>
@@ -69,12 +66,12 @@ export function CreatorPage({ slug }: { slug: string }) {
             </AlertTitle>
           </Alert>
         </main>
-      </PublicGalleryShell>
+      </PublicSiteShell>
     );
-  if (unsupported) return <UnsupportedGalleryDevice />;
+  if (unsupported) return <UnsupportedPublicDevice />;
 
   return (
-    <PublicGalleryShell>
+    <PublicSiteShell>
       <main className="mx-auto w-full max-w-[1920px] px-8 py-7">
         {!creator ? (
           <div className="grid min-h-96 place-items-center">
@@ -130,6 +127,6 @@ export function CreatorPage({ slug }: { slug: string }) {
           </>
         )}
       </main>
-    </PublicGalleryShell>
+    </PublicSiteShell>
   );
 }

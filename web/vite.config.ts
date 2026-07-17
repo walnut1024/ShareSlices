@@ -8,7 +8,7 @@ function previewNoStore(): Plugin {
     name: "shareslices-preview-no-store",
     configureServer(server) {
       server.middlewares.use((request, response, next) => {
-        if (/^\/artifacts\/[^/]+\/preview(?:\?|$)/.test(request.url ?? "")) {
+        if (/^\/(?:console\/)?artifacts\/[^/]+\/preview(?:\?|$)/.test(request.url ?? "")) {
           const setHeader = response.setHeader.bind(response);
           response.setHeader = ((name, value) =>
             setHeader(name, name.toLowerCase() === "cache-control" ? "no-store" : value)) as typeof response.setHeader;
