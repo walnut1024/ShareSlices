@@ -61,7 +61,13 @@
     }
   },
   "kubernetes": {
+    "context": "enterprise-production",
     "namespace": "shareslices",
+    "delivery": { "mode": "external-cdn" },
+    "registry": {
+      "repository": "registry.example.test/shareslices",
+      "pullSecretName": "shareslices-registry"
+    },
     "objectStorage": { "ref": "secret://s3/application", "revision": "3" },
     "email": {
       "adapter": "smtp",
@@ -69,6 +75,10 @@
     },
     "ingress": {
       "className": "nginx",
+      "tls": {
+        "applicationSecretName": "shareslices-app-tls",
+        "contentSecretName": "shareslices-content-tls"
+      },
       "externalCdn": { "enabled": true, "provider": "enterprise-edge" }
     },
     "network": {
@@ -92,6 +102,43 @@
           "namespace": "shareslices-egress",
           "podLabels": { "app.kubernetes.io/name": "shareslices-egress-gateway" }
         }
+      }
+    },
+    "workloads": {
+      "api": {
+        "replicas": 2,
+        "resources": { "requests": { "cpu": "100m", "memory": "256Mi" }, "limits": { "cpu": "1", "memory": "1Gi" } },
+        "rollout": { "maxUnavailable": 0, "maxSurge": 1 },
+        "disruption": { "minAvailable": 1 },
+        "scheduling": { "nodeSelector": { "kubernetes.io/os": "linux" }, "topologyKey": "kubernetes.io/hostname" }
+      },
+      "web": {
+        "replicas": 2,
+        "resources": { "requests": { "cpu": "25m", "memory": "64Mi" }, "limits": { "cpu": "250m", "memory": "256Mi" } },
+        "rollout": { "maxUnavailable": 0, "maxSurge": 1 },
+        "disruption": { "minAvailable": 1 },
+        "scheduling": { "nodeSelector": { "kubernetes.io/os": "linux" }, "topologyKey": "kubernetes.io/hostname" }
+      },
+      "content": {
+        "replicas": 2,
+        "resources": { "requests": { "cpu": "50m", "memory": "128Mi" }, "limits": { "cpu": "500m", "memory": "512Mi" } },
+        "rollout": { "maxUnavailable": 0, "maxSurge": 1 },
+        "disruption": { "minAvailable": 1 },
+        "scheduling": { "nodeSelector": { "kubernetes.io/os": "linux" }, "topologyKey": "kubernetes.io/hostname" }
+      },
+      "maintenance": {
+        "replicas": 1,
+        "resources": { "requests": { "cpu": "50m", "memory": "128Mi" }, "limits": { "cpu": "500m", "memory": "512Mi" } },
+        "rollout": { "maxUnavailable": 0, "maxSurge": 1 },
+        "disruption": { "minAvailable": 1 },
+        "scheduling": { "nodeSelector": { "kubernetes.io/os": "linux" }, "topologyKey": "kubernetes.io/hostname" }
+      },
+      "worker": {
+        "replicas": 2,
+        "resources": { "requests": { "cpu": "250m", "memory": "512Mi" }, "limits": { "cpu": "2", "memory": "2Gi" } },
+        "rollout": { "maxUnavailable": 0, "maxSurge": 1 },
+        "disruption": { "minAvailable": 1 },
+        "scheduling": { "nodeSelector": { "kubernetes.io/os": "linux" }, "topologyKey": "kubernetes.io/hostname" }
       }
     }
   }

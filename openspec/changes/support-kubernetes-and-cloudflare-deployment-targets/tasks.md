@@ -161,16 +161,16 @@ The numbered sections group work by responsibility; they are not permission to i
 - [x] 9.1 Replace environment-copy overlays with one Kustomize base and composable workload, ingress, Gallery-isolation, sizing, and optional-CDN components.
 - [x] 9.2 Remove fixed ClusterIPs and hard-coded internal addresses and use generated names plus Kubernetes Service discovery throughout.
 - [x] 9.3 Remove the deployable placeholder Secret and render only references to pre-created or externally synchronized role-scoped Secrets.
-- [ ] 9.4 Replace the API init-container migration with one release-scoped migration Job using the immutable migration artifact and checksum checks.
+- [x] 9.4 Replace the API init-container migration with one release-scoped migration Job using the immutable migration artifact and checksum checks.
 - [x] 9.5 Render separate API HTTP and maintenance Deployments so API scaling does not multiply reconciliation or SMTP dispatch loops.
 - [x] 9.6 Render Web and content-only Deployments and Services with the content runtime isolated from the trusted API application graph.
 - [x] 9.7 Render resident Rust processing workloads that cover every enabled lane and expose correct health and graceful-termination behavior.
-- [ ] 9.8 Generate complete ingress routing from the source-linked route projection, including Viewer, Gallery trusted routes, health/readiness, Preview, and forbidden internal paths.
+- [x] 9.8 Generate complete ingress routing from the source-linked route projection, including Viewer, Gallery trusted routes, health/readiness, Preview, and forbidden internal paths.
 - [x] 9.9 Configure probes only against endpoints implemented by each role and add validation that rejects a missing or mismatched probe path.
 - [x] 9.10 Add explicit resources, non-root identities, read-only roots with declared writable volumes, capability drops, no privilege escalation, seccomp, and service-account-token restrictions.
-- [ ] 9.11 Add default-deny NetworkPolicies and explicit API, maintenance, Worker, content, DNS, PostgreSQL, storage, SMTP, ingress, and internal-capture traffic; require each dynamic external dependency to use stable CIDRs, an operator egress gateway/proxy, or a qualified CNI FQDN extension instead of a broad Internet CIDR plus port.
-- [ ] 9.12 Generate TLS, ingress or Gateway class, replica, rollout, disruption, and scheduling configuration from deployment input.
-- [ ] 9.13 Add deterministic render, schema, per-role environment, Secret, route, security-context, and NetworkPolicy contract tests.
+- [x] 9.11 Add default-deny NetworkPolicies and explicit API, maintenance, Worker, content, DNS, PostgreSQL, storage, SMTP, ingress, and internal-capture traffic; require each dynamic external dependency to use stable CIDRs, an operator egress gateway/proxy, or a qualified CNI FQDN extension instead of a broad Internet CIDR plus port.
+- [x] 9.12 Generate TLS, ingress or Gateway class, replica, rollout, disruption, and scheduling configuration from deployment input.
+- [x] 9.13 Add deterministic render, schema, per-role environment, Secret, route, security-context, and NetworkPolicy contract tests.
 
 ## 10. Kubernetes Lifecycle, GitOps, and Optional CDN
 

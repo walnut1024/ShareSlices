@@ -113,6 +113,35 @@ test("production deployment schema accepts exactly one target and logical Secret
   const emptyGatewaySelector = clone(kubernetes);
   emptyGatewaySelector.kubernetes.network.egress.gateway.podLabels = {};
   assertInvalid("deployment.schema.json", emptyGatewaySelector);
+
+  const stableCidrs = clone(kubernetes);
+  stableCidrs.kubernetes.network.egress = {
+    mode: "stable-cidrs",
+    postgresqlCidrs: ["10.20.0.1/32"],
+    objectStorageCidrs: ["10.30.0.0/24"],
+    smtpCidrs: ["10.40.0.2/32"],
+  };
+  assertValid("deployment.schema.json", stableCidrs);
+
+  const ciliumFqdn = clone(kubernetes);
+  ciliumFqdn.kubernetes.network.egress = {
+    mode: "cni-fqdn-policy",
+    apiVersion: "cilium.io/v2",
+    kind: "CiliumNetworkPolicy",
+    qualificationRevision: "cilium-fqdn-v1",
+    postgresqlFqdns: ["db.example.test"],
+    objectStorageFqdns: ["objects.example.test"],
+    smtpFqdns: ["smtp.example.test"],
+  };
+  assertValid("deployment.schema.json", ciliumFqdn);
+
+  const unsupportedFqdnExtension = clone(ciliumFqdn);
+  unsupportedFqdnExtension.kubernetes.network.egress.kind = "UnknownPolicy";
+  assertInvalid("deployment.schema.json", unsupportedFqdnExtension);
+
+  const inconsistentDelivery = clone(kubernetes);
+  inconsistentDelivery.kubernetes.delivery.mode = "direct";
+  assertInvalid("deployment.schema.json", inconsistentDelivery);
 });
 
 test("deployment command results retain stable commands, outcomes, and reason codes", () => {

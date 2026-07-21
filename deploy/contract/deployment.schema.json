@@ -61,6 +61,70 @@
         }
       }
     },
+    "resourceQuantity": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*(?:m|Ki|Mi|Gi)?$"
+    },
+    "workload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["replicas", "resources", "rollout", "disruption", "scheduling"],
+      "properties": {
+        "replicas": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["requests", "limits"],
+          "properties": {
+            "requests": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["cpu", "memory"],
+              "properties": {
+                "cpu": { "$ref": "#/$defs/resourceQuantity" },
+                "memory": { "$ref": "#/$defs/resourceQuantity" }
+              }
+            },
+            "limits": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["cpu", "memory"],
+              "properties": {
+                "cpu": { "$ref": "#/$defs/resourceQuantity" },
+                "memory": { "$ref": "#/$defs/resourceQuantity" }
+              }
+            }
+          }
+        },
+        "rollout": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maxUnavailable", "maxSurge"],
+          "properties": {
+            "maxUnavailable": { "type": "integer", "minimum": 0 },
+            "maxSurge": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "disruption": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["minAvailable"],
+          "properties": { "minAvailable": { "type": "integer", "minimum": 0 } }
+        },
+        "scheduling": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["nodeSelector", "topologyKey"],
+          "properties": {
+            "nodeSelector": {
+              "type": "object",
+              "additionalProperties": { "type": "string", "minLength": 1 }
+            },
+            "topologyKey": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
     "httpsUrl": {
       "type": "string",
       "format": "uri",
@@ -153,9 +217,25 @@
     "kubernetes": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["namespace", "objectStorage", "email", "ingress", "network"],
+      "required": ["context", "namespace", "delivery", "registry", "objectStorage", "email", "ingress", "network", "workloads"],
       "properties": {
+        "context": { "type": "string", "minLength": 1 },
         "namespace": { "$ref": "#/$defs/dnsLabel" },
+        "delivery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": { "mode": { "enum": ["direct", "external-cdn"] } }
+        },
+        "registry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repository", "pullSecretName"],
+          "properties": {
+            "repository": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._:/-]*[a-z0-9]$" },
+            "pullSecretName": { "$ref": "#/$defs/dnsLabel" }
+          }
+        },
         "objectStorage": { "$ref": "#/$defs/secretReference" },
         "email": {
           "type": "object",
@@ -169,9 +249,18 @@
         "ingress": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["className", "externalCdn"],
+          "required": ["className", "tls", "externalCdn"],
           "properties": {
             "className": { "type": "string", "minLength": 1 },
+            "tls": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["applicationSecretName", "contentSecretName"],
+              "properties": {
+                "applicationSecretName": { "$ref": "#/$defs/dnsLabel" },
+                "contentSecretName": { "$ref": "#/$defs/dnsLabel" }
+              }
+            },
             "externalCdn": {
               "type": "object",
               "additionalProperties": false,
@@ -233,19 +322,72 @@
                 {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["mode", "apiVersion", "kind", "qualificationRevision"],
+                  "required": ["mode", "apiVersion", "kind", "qualificationRevision", "postgresqlFqdns", "objectStorageFqdns", "smtpFqdns"],
                   "properties": {
                     "mode": { "const": "cni-fqdn-policy" },
-                    "apiVersion": { "type": "string", "minLength": 1 },
-                    "kind": { "type": "string", "minLength": 1 },
-                    "qualificationRevision": { "type": "string", "minLength": 1 }
+                    "apiVersion": { "const": "cilium.io/v2" },
+                    "kind": { "const": "CiliumNetworkPolicy" },
+                    "qualificationRevision": { "type": "string", "minLength": 1 },
+                    "postgresqlFqdns": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "format": "hostname" } },
+                    "objectStorageFqdns": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "format": "hostname" } },
+                    "smtpFqdns": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "format": "hostname" } }
                   }
                 }
               ]
             }
           }
+        },
+        "workloads": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["api", "web", "content", "maintenance", "worker"],
+          "properties": {
+            "api": { "$ref": "#/$defs/workload" },
+            "web": { "$ref": "#/$defs/workload" },
+            "content": { "$ref": "#/$defs/workload" },
+            "maintenance": { "$ref": "#/$defs/workload" },
+            "worker": { "$ref": "#/$defs/workload" }
+          }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "delivery": {
+                "type": "object",
+                "properties": { "mode": { "const": "external-cdn" } }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "ingress": {
+                "type": "object",
+                "properties": {
+                  "externalCdn": {
+                    "type": "object",
+                    "properties": { "enabled": { "const": true } }
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "ingress": {
+                "type": "object",
+                "properties": {
+                  "externalCdn": {
+                    "type": "object",
+                    "properties": { "enabled": { "const": false } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     "cloudflare": {
       "type": "object",
