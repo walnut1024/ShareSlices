@@ -9,6 +9,7 @@ const controlTables = [
   "shareslices_deployment_control_metadata",
   "shareslices_deployment_operation",
   "shareslices_deployment_phase_journal",
+  "shareslices_deployment_release_record",
 ];
 
 export class DeploymentControlError extends Error {
@@ -97,11 +98,42 @@ export async function acquireOperationLease(client, input) {
       [input.installationId],
     );
     const row = current.rows[0];
-    if (row && row.lease_expires_at > input.now && row.lease_owner !== input.owner) {
-      throw new DeploymentControlError(
-        "deployment_operation_lease_held",
-        "Another deployment operation holds the active lease.",
+    if (row && row.lease_expires_at > input.now) {
+      if (row.lease_owner !== input.owner || row.operation_id !== input.operationId) {
+        throw new DeploymentControlError(
+          "deployment_operation_lease_held",
+          "Another deployment operation holds the active lease.",
+        );
+      }
+      const resumed = await client.query(
+        `update shareslices_deployment_operation
+         set lease_expires_at = $4, heartbeat_at = $3, revision = revision + 1,
+             updated_at = now()
+         where installation_id = $1 and operation_id = $2 and lease_owner = $5
+           and fencing_token = $6 and state = 'active' and lease_expires_at > $3
+         returning fencing_token, revision`,
+        [
+          input.installationId,
+          input.operationId,
+          input.now,
+          input.leaseExpiresAt,
+          input.owner,
+          Number(row.fencing_token),
+        ],
       );
+      if (resumed.rows.length !== 1) {
+        throw new DeploymentControlError(
+          "deployment_operation_lease_lost",
+          "Deployment operation lease changed before it could be resumed.",
+        );
+      }
+      await client.query("commit");
+      return Object.freeze({
+        operationId: input.operationId,
+        fencingToken: Number(resumed.rows[0].fencing_token),
+        revision: Number(resumed.rows[0].revision),
+        resumed: true,
+      });
     }
     const result = await client.query(
       `insert into shareslices_deployment_operation
@@ -131,7 +163,106 @@ export async function acquireOperationLease(client, input) {
       operationId: input.operationId,
       fencingToken: Number(result.rows[0].fencing_token),
       revision: Number(result.rows[0].revision),
+      resumed: false,
     });
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  }
+}
+
+const digestPattern = /^sha256:[a-f0-9]{64}$/;
+
+function normalizeReleaseRecord(record, target) {
+  if (
+    !record ||
+    !digestPattern.test(record.releaseId ?? "") ||
+    !digestPattern.test(record.bundleDigest ?? "") ||
+    !digestPattern.test(record.configurationDigest ?? "") ||
+    record.target !== target ||
+    !Array.isArray(record.secretRevisions)
+  ) {
+    throw new DeploymentControlError(
+      "deployment_release_record_invalid",
+      "Deployment release record is invalid.",
+    );
+  }
+  const secretRevisions = record.secretRevisions.map((secret) => {
+    if (
+      !secret ||
+      typeof secret.logicalId !== "string" ||
+      secret.logicalId.length === 0 ||
+      typeof secret.revision !== "string" ||
+      secret.revision.length === 0 ||
+      Object.keys(secret).some((key) => !["logicalId", "revision"].includes(key))
+    ) {
+      throw new DeploymentControlError(
+        "deployment_release_record_invalid",
+        "Deployment release record contains invalid Secret revision evidence.",
+      );
+    }
+    return { logicalId: secret.logicalId, revision: secret.revision };
+  }).sort((left, right) => left.logicalId.localeCompare(right.logicalId));
+  return Object.freeze({
+    target,
+    releaseId: record.releaseId,
+    bundleDigest: record.bundleDigest,
+    configurationDigest: record.configurationDigest,
+    secretRevisions: Object.freeze(secretRevisions),
+  });
+}
+
+export async function mirrorReleaseRecords(client, lease, records) {
+  const active = normalizeReleaseRecord(records.active, lease.target);
+  const previous = records.previous ? normalizeReleaseRecord(records.previous, lease.target) : null;
+  if (previous?.releaseId === active.releaseId) {
+    throw new DeploymentControlError(
+      "deployment_release_record_invalid",
+      "Active and previous release records must be distinct.",
+    );
+  }
+  await client.query("begin");
+  try {
+    const authority = await client.query(
+      `select 1 from shareslices_deployment_operation
+       where installation_id = $1 and operation_id = $2 and lease_owner = $3
+         and fencing_token = $4 and target = $5 and state = 'active'
+         and lease_expires_at > now()
+       for update`,
+      [lease.installationId, lease.operationId, lease.owner, lease.fencingToken, lease.target],
+    );
+    if (authority.rows.length !== 1) {
+      throw new DeploymentControlError(
+        "deployment_operation_stale_fence",
+        "A stale deployment operation cannot mirror release records.",
+      );
+    }
+    await client.query(
+      "delete from shareslices_deployment_release_record where installation_id = $1",
+      [lease.installationId],
+    );
+    for (const [slot, record] of [["active", active], ["previous", previous]]) {
+      if (!record) continue;
+      await client.query(
+        `insert into shareslices_deployment_release_record
+           (installation_id, slot, target, release_id, bundle_digest,
+            configuration_digest, secret_revisions, operation_id, fencing_token)
+         values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)`,
+        [
+          lease.installationId,
+          slot,
+          record.target,
+          record.releaseId,
+          record.bundleDigest,
+          record.configurationDigest,
+          JSON.stringify(record.secretRevisions),
+          lease.operationId,
+          lease.fencingToken,
+        ],
+      );
+    }
+    await client.query("commit");
+    return Object.freeze({ active, previous });
   } catch (error) {
     await client.query("rollback");
     throw error;

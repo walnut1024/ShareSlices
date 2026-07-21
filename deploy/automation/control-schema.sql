@@ -33,7 +33,19 @@ create table shareslices_deployment_phase_journal (
   started_at timestamptz,
   finished_at timestamptz,
   updated_at timestamptz not null default now(),
-  primary key (installation_id, operation_id, fencing_token, phase),
-  foreign key (installation_id, operation_id, fencing_token)
-    references shareslices_deployment_operation (installation_id, operation_id, fencing_token)
+  primary key (installation_id, operation_id, fencing_token, phase)
+);
+
+create table shareslices_deployment_release_record (
+  installation_id text not null,
+  slot text not null check (slot in ('active', 'previous')),
+  target text not null check (target in ('kubernetes', 'cloudflare')),
+  release_id text not null check (release_id ~ '^sha256:[a-f0-9]{64}$'),
+  bundle_digest text not null check (bundle_digest ~ '^sha256:[a-f0-9]{64}$'),
+  configuration_digest text not null check (configuration_digest ~ '^sha256:[a-f0-9]{64}$'),
+  secret_revisions jsonb not null,
+  operation_id text not null,
+  fencing_token bigint not null check (fencing_token > 0),
+  updated_at timestamptz not null default now(),
+  primary key (installation_id, slot)
 );

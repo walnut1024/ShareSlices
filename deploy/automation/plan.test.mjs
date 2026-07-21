@@ -17,7 +17,16 @@ const desired = {
 test("includes the one permitted first-install control-schema bootstrap", () => {
   const plan = buildDeploymentPlan({
     desired,
-    observed: { revision: "absent:1", controlSchema: { state: "absent" }, resources: [] },
+    observed: {
+      revision: "absent:1",
+      controlSchema: { state: "absent" },
+      resources: [{
+        logicalId: "database/external",
+        digest: "external-1",
+        owner: "external-prerequisite",
+        retention: "external",
+      }],
+    },
     controlSchemaChecksum: checksum,
   });
   assert.equal(plan.firstInstallation, true);
@@ -42,6 +51,7 @@ test("orders drift by phase and records replacements and security-sensitive chan
       revision: "observed-7",
       controlSchema: { state: "present", checksum },
       resources: [
+        { logicalId: "database/external", digest: "external-1", owner: "external-prerequisite", retention: "external" },
         { logicalId: "runtime/api", digest: "api-1", owner: "deployment-module", retention: "active" },
         { logicalId: "migration/0030", digest: "migration-1", owner: "deployment-module", retention: "active" },
         { logicalId: "old/workload", digest: "old-1", owner: "deployment-module", retention: "active" },
@@ -61,7 +71,7 @@ test("orders drift by phase and records replacements and security-sensitive chan
   assert.equal(plan.actions.at(-1).action, "retire");
 });
 
-test("refuses control-schema mismatch and destructive durable replacement", () => {
+test("refuses control-schema mismatch and external prerequisite drift", () => {
   const destructive = structuredClone(desired);
   destructive.resources[0].replacement = true;
   const plan = buildDeploymentPlan({
@@ -81,8 +91,83 @@ test("refuses control-schema mismatch and destructive durable replacement", () =
   assert.equal(plan.outcome, "refused");
   assert.deepEqual(plan.refusalReasons, [
     "deployment_control_schema_mismatch",
+    "deployment_prerequisite_drift",
     "destructive_change_requires_review",
   ]);
+});
+
+test("reports external prerequisites without proposing provider mutation", () => {
+  const missing = buildDeploymentPlan({
+    desired,
+    observed: {
+      revision: "observed-9",
+      controlSchema: { state: "present", checksum },
+      resources: [],
+    },
+    controlSchemaChecksum: checksum,
+  });
+  const missingDatabase = missing.actions.find(({ logicalId }) => logicalId === "database/external");
+  assert.equal(missingDatabase.action, "prerequisite_missing");
+  assert.equal(missingDatabase.destructive, false);
+  assert.equal(missing.outcome, "refused");
+  assert.deepEqual(missing.refusalReasons, ["deployment_prerequisite_unavailable"]);
+
+  const drifted = buildDeploymentPlan({
+    desired,
+    observed: {
+      revision: "observed-10",
+      controlSchema: { state: "present", checksum },
+      resources: [{
+        logicalId: "database/external",
+        digest: "external-0",
+        owner: "external-prerequisite",
+        retention: "external",
+      }],
+    },
+    controlSchemaChecksum: checksum,
+  });
+  assert.equal(
+    drifted.actions.find(({ logicalId }) => logicalId === "database/external").action,
+    "prerequisite_drift",
+  );
+  assert.deepEqual(drifted.refusalReasons, ["deployment_prerequisite_drift"]);
+});
+
+test("refuses replacement of a deployment-owned durable resource", () => {
+  const durableDesired = structuredClone(desired);
+  durableDesired.resources.push({
+    logicalId: "runtime/stateful",
+    phase: "private-runtime",
+    digest: "stateful-2",
+    durable: true,
+    replacement: true,
+  });
+  const plan = buildDeploymentPlan({
+    desired: durableDesired,
+    observed: {
+      revision: "observed-11",
+      controlSchema: { state: "present", checksum },
+      resources: [
+        {
+          logicalId: "database/external",
+          digest: "external-1",
+          owner: "external-prerequisite",
+          retention: "external",
+        },
+        {
+          logicalId: "runtime/stateful",
+          digest: "stateful-1",
+          owner: "deployment-module",
+          retention: "durable",
+        },
+      ],
+    },
+    controlSchemaChecksum: checksum,
+  });
+  const replacement = plan.actions.find(({ logicalId }) => logicalId === "runtime/stateful");
+  assert.equal(replacement.action, "replace");
+  assert.equal(replacement.destructive, true);
+  assert.deepEqual(plan.refusalReasons, ["destructive_change_requires_review"]);
 });
 
 test("plan digest binds the exact observed revision and is deterministic", () => {

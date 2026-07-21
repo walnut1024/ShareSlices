@@ -17,7 +17,10 @@ function compareResources(desired, observed) {
   for (const resource of desired) {
     const current = observedById.get(resource.logicalId);
     let action = "unchanged";
-    if (!current) action = "create";
+    const prerequisite = resource.phase === "prerequisites" || resource.owner === "external-prerequisite";
+    if (prerequisite && !current) action = "prerequisite_missing";
+    else if (prerequisite && current.digest !== resource.digest) action = "prerequisite_drift";
+    else if (!current) action = "create";
     else if (current.digest !== resource.digest) action = resource.replacement ? "replace" : "update";
     actions.push({
       logicalId: resource.logicalId,
@@ -83,6 +86,12 @@ export function buildDeploymentPlan({ desired, observed, controlSchemaChecksum }
   }
   if (actions.some(({ destructive }) => destructive)) {
     refusalReasons.push("destructive_change_requires_review");
+  }
+  if (actions.some(({ action }) => action === "prerequisite_missing")) {
+    refusalReasons.push("deployment_prerequisite_unavailable");
+  }
+  if (actions.some(({ action }) => action === "prerequisite_drift")) {
+    refusalReasons.push("deployment_prerequisite_drift");
   }
   const body = {
     schemaVersion: "shareslices.deployment-plan/v1",

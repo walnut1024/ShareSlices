@@ -708,3 +708,48 @@ missing lifetime evidence, invalid values, and overflow refuse online rotation
 instead of guessing a retirement time. Focused tests cover parsing, deferred
 resolution, all outward evidence shapes, error redaction, targeted rollout, the
 three rotation phases, and fail-closed lifetime handling.
+
+## Eighteenth-pass shared plan and status acceptance
+
+Tasks 3.8 and 3.10 now satisfy the target-neutral lifecycle contract. The plan
+binds its digest to the desired release and exact observed revision, orders
+control, prerequisite, migration, private-runtime, public-runtime, verification,
+and retirement actions, and records drift, replacement, security-sensitive, and
+destructive classifications deterministically. First installation authorizes
+only the checksum-bound deployment-control bootstrap transition.
+
+The review found and corrected one prerequisite-ownership defect: an absent or
+drifted external PostgreSQL, object-storage, email, cluster, or provider
+prerequisite can no longer become a `create`, `update`, or `replace` action.
+Plans now report `prerequisite_missing` or `prerequisite_drift` and refuse with a
+stable reason, while deployment-owned durable replacements remain separately
+destructive and refused. Focused tests prove all three boundaries.
+
+Status projects desired, external-handoff, observed, phase-blocked, partial,
+failed, indeterminate, verified, drifted, and orphaned states with stable reason
+codes. Optional CDN, thumbnail, email, processing, or Gallery capabilities remain
+separate from core release state, so an unavailable optional capability cannot
+silently become verified and cannot erase an otherwise accurate core status.
+
+## Nineteenth-pass deployment-control store acceptance
+
+Task 3.11 now provides the checksum-verified external-PostgreSQL control schema,
+advisory-locked first-install bootstrap, lease heartbeat, monotonic fencing,
+phase journal, stale-writer rejection, and active/previous release mirrors. A
+retry after an ambiguous bootstrap response reconciles against the exact
+installed checksum and complete table set; a partial or mismatched installation
+rolls back and fails closed without provider mutation.
+
+The review corrected two persistence hazards. Historical phase rows no longer
+foreign-key the single current-operation row, so advancing that row to a new
+operation cannot either fail or rewrite prior journal identity. An unexpired
+lease can now be resumed only by the exact same owner and operation ID without
+advancing its fence; a different operation ID is refused even when it presents
+the same owner string. After expiry, acquisition advances the fence
+monotonically.
+
+Release mirrors are written only in a transaction that first locks and proves
+the live installation, operation, owner, target, and fencing token. They contain
+only target, immutable release/bundle/configuration digests, and sorted logical
+Secret revision identities. Embedded Secret values, malformed digests, equal
+active/previous releases, or a stale fence fail before the mirror is changed.
