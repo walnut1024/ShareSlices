@@ -1169,3 +1169,34 @@ release markers, invalid resource digests, mismatched configuration or schema,
 and unowned resources remain explicit drift or orphan evidence. Optional CDN is
 reported disabled in direct mode and unavailable pending edge verification in
 external-CDN mode rather than inferred from rendered configuration.
+
+## Thirty-fifth-pass Kubernetes pre-traffic network-probe acceptance
+
+The network-probe portion of task 10.3 is implemented. After direct apply has
+installed prerequisite configuration and NetworkPolicies, but before migration
+or application runtime activation, the Adapter creates a bounded probe set from
+the release's immutable API image. API, maintenance, content, Worker, and
+migration role labels exercise their declared PostgreSQL, object-storage, and
+SMTP TCP paths. Each role must also fail to reach a temporary in-cluster listener
+whose ingress permits the probe namespace, so an unreachable public test address
+cannot be mistaken for proof of egress-policy enforcement.
+
+Probe Pods are non-root, drop all capabilities, use a read-only root filesystem,
+disable service-account-token mounting, carry bounded resources, use the
+configured pull Secret reference, and receive no business Secret. Temporary
+Service, listener Pod, ingress policy, and client Pods carry exact installation,
+release, Deployment Module owner, and deterministic nonce labels.
+
+The phase engine now supplies a live lease assertion to target phase operations.
+The probe runner asserts it before creation and before every deletion, waits for
+the listener and every client result, returns redacted per-role pass evidence,
+and includes that evidence in the prerequisite checkpoint digest. Cleanup reads
+each resource and deletes it only when all ownership labels still match. A failed
+allowed/denied check still runs cleanup; an ownership mismatch leaves the
+resource untouched and fails explicitly.
+
+Focused tests prove allowed/denied composition, lack of Secret resources,
+hardening, lease assertions, complete success cleanup, cleanup after probe
+failure, and refusal to delete changed ownership. Task 10.3 remains open until
+verified release retirement and the complete direct-apply acceptance chain are
+implemented and exercised on a real conforming cluster.

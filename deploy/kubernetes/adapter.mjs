@@ -9,6 +9,7 @@ import {loadControlSchema} from "../automation/control-store.mjs";
 import {serializeCanonicalTargetBundle} from "../automation/release.mjs";
 import {TargetAdapterError} from "../automation/target-adapter.mjs";
 import {runCoreVerification} from "../automation/verify.mjs";
+import {createKubernetesNetworkProbeRunner} from "./network-probes.mjs";
 import {renderKubernetesBundle} from "./render.mjs";
 
 // cspell:ignore automount ciliumnetworkpolicies gitops ingressclass ingressclasses networkpolicies poddisruptionbudgets serviceaccounts
@@ -124,6 +125,7 @@ export function createKubernetesAdapter({
   verifyCore = runCoreVerification,
   finalizeRelease,
   rollbackRelease,
+  runNetworkProbes,
   controlSchemaChecksum,
 } = {}) {
   async function doctor({config}) {
@@ -340,7 +342,7 @@ export function createKubernetesAdapter({
       plan: deploymentPlan,
       authorizedPlanDigest,
       observe,
-      executePhase: async ({phase}) => {
+      executePhase: async ({phase, assertLease}) => {
         if (phase === "retirement") {
           throw new TargetAdapterError(
             "kubernetes_retirement_requires_verified_inventory",
@@ -403,6 +405,11 @@ export function createKubernetesAdapter({
             `Kubernetes apply failed in phase ${phase}.`,
           );
         }
+        let networkProbeEvidence;
+        if (phase === "prerequisites") {
+          const probeRunner = runNetworkProbes ?? createKubernetesNetworkProbeRunner({runKubectl});
+          networkProbeEvidence = await probeRunner({config, release, assertLease});
+        }
         if (phase === "migration") {
           const job = bundlePhase.resources.find(({kind}) => kind === "Job");
           const waited = runKubectl(commandFor(
@@ -436,7 +443,12 @@ export function createKubernetesAdapter({
             }
           }
         }
-        return {checkpointDigest};
+        return {
+          checkpointDigest: networkProbeEvidence
+            ? sha256Digest({checkpointDigest, networkProbeEvidence})
+            : checkpointDigest,
+          ...(networkProbeEvidence ? {evidence: networkProbeEvidence} : {}),
+        };
       },
     });
     if (config.kubernetes.reconciliation.mode !== "gitops" || result?.outcome !== "external_reconciler_required") {

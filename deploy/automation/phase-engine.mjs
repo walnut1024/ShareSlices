@@ -76,7 +76,12 @@ export async function applyDeploymentPlan({
     await control.assertLease(lease);
     await control.record(lease, { phase, state: "running" });
     try {
-      const outcome = await executePhase({ phase, actions, lease });
+      const outcome = await executePhase({
+        phase,
+        actions,
+        lease,
+        assertLease: () => control.assertLease(lease),
+      });
       if (outcome?.outcome === "external_reconciler_required") {
         const {continueHandoff, ...handoffOutcome} = outcome;
         await control.record(lease, {
@@ -95,7 +100,11 @@ export async function applyDeploymentPlan({
         state: "completed",
         digest: outcome?.checkpointDigest,
       });
-      outcomes.push({ phase, outcome: "completed" });
+      outcomes.push({
+        phase,
+        outcome: "completed",
+        ...(outcome?.evidence === undefined ? {} : {evidence: outcome.evidence}),
+      });
     } catch (error) {
       await control.record(lease, {
         phase,

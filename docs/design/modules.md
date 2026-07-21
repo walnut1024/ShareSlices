@@ -79,7 +79,8 @@ prototypes, not a supported Deployment target.
   with an explicit release it also requires exact rendered-resource convergence
   and verification-contract identity before a separately fenced operation
   records active and previous releases. Authorized deep verification, network
-  probes, retirement, and target qualification are not yet current. Direct
+  probe qualification on a real cluster, retirement, and target qualification
+  are not yet current. Direct
   rollback now requires a separately
   generated rollback plan bound to the exact observed revision, revalidates it
   after acquiring the PostgreSQL lease, proves retained image pulls and current
@@ -92,6 +93,12 @@ prototypes, not a supported Deployment target.
   evidence. Status blocks a candidate runtime observed before its required
   migration evidence. The external operator still owns actual promotion and
   convergence.
+  Direct apply now creates release-owned pre-traffic network probes after
+  prerequisite policies and before migration/runtime activation. The probes use
+  role labels to exercise declared PostgreSQL, object-storage, and SMTP paths
+  and must be denied access to an isolated in-cluster listener. They mount no
+  business Secret, heartbeat the operation lease before mutation, and delete
+  only resources whose installation, release, owner, and nonce still match.
   Direct and external-CDN delivery are mutually validated compositions. The
   external-CDN render adds only a provider-neutral contract containing origin
   access strategy, trusted-proxy source ranges and client-address header,

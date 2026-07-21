@@ -212,10 +212,14 @@ test("direct apply executes authorized phases with migration and rollout gates",
       return {status: 0, stdout: "resource/name\n", stderr: ""};
     },
     observeState: async () => ({revision: digest("4"), controlSchema: {state: "present", checksum: digest("6")}, resources: []}),
+    runNetworkProbes: async ({assertLease}) => {
+      await assertLease();
+      return {kind: "kubernetes-network-probes/v1", outcome: "passed", cleanup: "completed"};
+    },
     applyPlan: async ({executePhase}) => {
       const phases = [];
       for (const phase of ["prerequisites", "migration", "private-runtime", "public-runtime"]) {
-        phases.push({phase, ...(await executePhase({phase, actions: []}))});
+        phases.push({phase, ...(await executePhase({phase, actions: [], assertLease: async () => undefined}))});
       }
       return {outcome: "succeeded", phases};
     },
