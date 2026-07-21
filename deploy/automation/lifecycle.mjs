@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 
+import { diagnoseCloudflareDatabase } from "../cloudflare/database-doctor.mjs";
 import { deploymentResult, exitCodes } from "./cli.mjs";
 import {
   DeploymentConfigError,
@@ -103,6 +104,9 @@ async function executeReadOnly({ command, config, release, adapter }) {
         "deployment_doctor_result_invalid",
         "Target Adapter returned an invalid doctor result.",
       );
+    }
+    if (config.target === "cloudflare") {
+      diagnosis.checks.push(...diagnoseCloudflareDatabase(diagnosis.database));
     }
     const unavailable = diagnosis.checks.some(({ state }) => state === "unavailable");
     if (unavailable) {

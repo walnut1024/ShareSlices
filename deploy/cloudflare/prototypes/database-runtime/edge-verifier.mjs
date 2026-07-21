@@ -16,7 +16,11 @@ async function verify(env) {
   const password = `${crypto.randomUUID()}-Aa1!`;
 
   const pgResponse = await request(env, "/prototype/pg");
-  assert.equal(pgResponse.status, 200);
+  if (pgResponse.status !== 200) {
+    throw new Error(
+      `Hyperdrive pg verification returned ${pgResponse.status}: ${await pgResponse.text()}`,
+    );
+  }
   const pgEvidence = await pgResponse.json();
   assert.equal(pgEvidence.database_name, "postgres");
   assert.equal(pgEvidence.database_user, "postgres");
@@ -25,7 +29,11 @@ async function verify(env) {
   const pathResponse = await request(env, "/prototype/hyperdrive-paths", {
     method: "POST",
   });
-  assert.equal(pathResponse.status, 200);
+  if (pathResponse.status !== 200) {
+    throw new Error(
+      `Hyperdrive path verification returned ${pathResponse.status}: ${await pathResponse.text()}`,
+    );
+  }
   const pathEvidence = await pathResponse.json();
   assert.deepEqual(pathEvidence.paths, {
     authentication: "passed",
@@ -35,11 +43,16 @@ async function verify(env) {
     jobState: "passed",
   });
   assert.equal(pathEvidence.transactionRollback, "passed");
+  assert.equal(pathEvidence.cacheDisabledFreshness, "passed");
   assert.deepEqual(pathEvidence.semantics, {
     namedPreparedStatement: "passed",
     transactionLocalState: "passed",
     statementTimeout: "passed",
     workerPoolMaxConnections: 1,
+  });
+  assert.deepEqual(pathEvidence.connectionBudget, {
+    maxConnections: 1,
+    secondClientQueuedWhileFirstHeld: true,
   });
   assert.ok(
     ["rejected", "observed_succeeded_but_unsupported"].includes(

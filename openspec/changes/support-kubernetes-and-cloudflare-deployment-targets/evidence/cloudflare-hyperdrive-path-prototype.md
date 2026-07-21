@@ -1,5 +1,7 @@
 # Cloudflare Hyperdrive path prototype evidence
 
+<!-- cspell:words Supavisor -->
+
 ## Scope
 
 On 2026-07-19, the disposable database from task 1.3 was advanced through all
@@ -119,3 +121,52 @@ Official references:
 - <https://developers.cloudflare.com/hyperdrive/configuration/tls-ssl-certificates-for-hyperdrive/>
 - <https://developers.cloudflare.com/api/resources/hyperdrive/>
 - <https://supabase.com/docs/guides/platform/ssl-enforcement>
+
+## 2026-07-22 qualification attempt
+
+A new route-free verifier run first passed the existing representative path,
+transaction rollback, named `node-postgres` statement, transaction-local state
+reset, `100ms` statement timeout, and one-connection Worker pool assertions
+through the retained cache-disabled Hyperdrive configuration. Both disposable
+Workers and the one-minute Cron were deleted immediately after that evidence.
+
+The prototype was then extended to require two stronger behaviors before task
+5.3 can pass:
+
+- a committed value read through one logical Pool, updated, and immediately
+  reread through a new Pool with the same query key must expose the new value;
+- while the first client is checked out from a Pool configured with `max: 1`, a
+  second `connect()` must remain queued until the first client is released.
+
+Those assertions and phase-scoped redacted diagnostics are implemented in the
+working prototype, but the enhanced live run did not complete. The retained Hyperdrive
+began returning PostgreSQL `58000` / network-connection failures, eventually on
+the minimal `/prototype/pg` query, after previously succeeding. Repeating the
+same invocation was stopped rather than treating an intermittent provider path
+as qualification evidence.
+
+The TLS attempt extracted the single self-signed `Supabase Root 2021 CA` from
+the public `ap-southeast-1` Supavisor certificate chain and uploaded it as a
+disposable Cloudflare CA. Cloudflare accepted an atomic update of the retained
+Hyperdrive to cache-disabled `verify-full` with origin connection limit `5`.
+An update that replaced the DNS origin with its IPv6 literal then failed with
+provider code `2015`, `CERTIFICATE_VERIFY_FAILED`, and `IP address mismatch`;
+the original DNS-host configuration remained unchanged. This is valid
+wrong-host negative evidence.
+
+The subsequent Worker runtime could not complete even its minimal PostgreSQL
+query through that configuration, so control-plane acceptance is **not**
+recorded as the required positive runtime proof. The Hyperdrive was restored to
+its prior cache-disabled `require` mode, the uploaded CA was deleted, and both
+Workers and the Cron were deleted. The final live inventory contains only the
+pre-existing private Hyperdrive configuration and disposable Supabase project;
+there is no public route, Worker, Cron, Queue, or retained CA from this attempt.
+The operator owns both retained private prerequisites. They exist only for the
+next bounded database prototype and must be reviewed for removal before final
+change handoff if no further live database qualification needs them.
+
+Task 5.3 remains incomplete until the operator-provided CA downloaded from the
+Supabase project's Dashboard succeeds through the Worker runtime, the enhanced
+freshness and connection-budget assertions pass in the same bounded run, and
+the cleanup inventory is repeated. Encryption, control-plane update success,
+and the passing wrong-host negative do not substitute for that positive proof.

@@ -266,9 +266,11 @@ completed Free-compatible prototypes:
 - A verified operator-owned Resend sending domain, domain-scoped sending key,
   disabled-tracking evidence, and same-namespace key-rotation evidence;
   `resend.dev` proves only the bounded test-mode contract.
-- Hyperdrive `verify-full` (or a subsequently qualified equivalent) with an
-  uploaded region-specific single CA certificate and a hostname/certificate
-  negative case.
+- A passing Worker-runtime Hyperdrive `verify-full` positive case (or a
+  subsequently qualified equivalent) with the database's operator-provided,
+  region-specific single CA certificate. The 2026-07-22 wrong-host negative
+  case passed, but control-plane acceptance and encryption alone do not replace
+  the still-missing positive runtime proof.
 - One proven owner for every Worker-coupled field after repeated
   Terraform/Wrangler survival and drift tests, especially Cron, Queue consumers,
   routes, custom domains, and bindings.
@@ -352,3 +354,31 @@ from `node-postgres` but still excludes SQL-level `PREPARE`, `EXECUTE`,
 separate. Transaction, timeout, pool-budget, cache-disabled freshness, and
 `verify-full` positive/negative evidence remain required by task 5.3 and remain
 incomplete until executed and recorded.
+
+## Eighth-pass live Hyperdrive evidence correction
+
+The 2026-07-22 live qualification first passed the existing representative
+database paths, transaction rollback, protocol-level named statement,
+transaction-local state reset, statement timeout, and one-connection Worker
+pool checks through cache-disabled Hyperdrive. The enhanced prototype then
+added explicit cross-Pool freshness and queued-second-connection assertions,
+but a later provider/network failure prevented that stronger run from
+completing. Those assertions are therefore implemented but not yet qualified.
+
+A disposable region CA upload allowed the Hyperdrive control plane to accept
+`verify-full`. Replacing the configured DNS origin with its IPv6 literal failed
+with a certificate hostname mismatch while preserving the original
+configuration, which is valid wrong-host negative evidence. The corresponding
+Worker-runtime positive query did not succeed, so task 5.3 remains open. The
+configuration was restored to cache-disabled `require`, and every disposable
+Worker, Cron trigger, and uploaded CA was removed. Only the private Hyperdrive
+and Supabase prototype project remain, operator-owned for the next bounded
+database run and subject to removal review before final change handoff.
+
+This pass does not relax task 5.3, qualify `require` as hostname verification,
+or make Supabase a mandatory production database provider. The following local
+implementation added the task 5.4 fail-closed doctor gate: missing observations,
+an omitted required direct role, enabled or unknown Hyperdrive caching,
+`require`, a missing CA or qualified-equivalent identity, and absent positive or
+negative runtime evidence all produce stable unavailable checks. Provider
+observation and the complete CLI doctor remain owned by tasks 3.6 and 12.1.

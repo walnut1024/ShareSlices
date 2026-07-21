@@ -21,6 +21,27 @@ function executor(overrides = {}) {
   return createLifecycleExecutor({ cloudflare: adapter(overrides) });
 }
 
+const probe = (evidenceId) => ({ passed: true, evidenceId });
+const qualifiedDatabase = {
+  hyperdrive: {
+    reachable: true,
+    queryCacheDisabled: true,
+    tlsMode: "verify-full",
+    caCertificateId: "ca-region-1",
+    positiveRuntimeProbe: probe("hyperdrive-positive"),
+    negativeIdentityProbe: probe("hyperdrive-negative"),
+  },
+  requiredDirectRoles: ["migration"],
+  directConnections: [{
+    role: "migration",
+    reachable: true,
+    tlsMode: "verify-full",
+    caCertificateId: "ca-region-1",
+    positiveRuntimeProbe: probe("direct-positive"),
+    negativeIdentityProbe: probe("direct-negative"),
+  }],
+};
+
 test("doctor reports discovered references without resolving Secret values", async () => {
   let request;
   const execution = await executeInvocation(
@@ -28,7 +49,10 @@ test("doctor reports discovered references without resolving Secret values", asy
     executor({
       doctor: async (value) => {
         request = value;
-        return { checks: [{ id: "workers-plan", state: "unavailable" }] };
+        return {
+          checks: [{ id: "workers-plan", state: "unavailable" }],
+          database: qualifiedDatabase,
+        };
       },
     }),
   );
@@ -37,9 +61,31 @@ test("doctor reports discovered references without resolving Secret values", asy
   assert.equal(execution.result.reason.code, "deployment_prerequisite_unavailable");
   assert.equal(request.prerequisites.target, "cloudflare");
   assert.ok(request.prerequisites.secretReferences.every(({ ref }) => ref.includes("://")));
-  assert.deepEqual(execution.result.data.checks, [
-    { id: "workers-plan", state: "unavailable" },
-  ]);
+  assert.deepEqual(execution.result.data.checks[0], {
+    id: "workers-plan",
+    state: "unavailable",
+  });
+});
+
+test("Cloudflare doctor fails closed when database qualification evidence is absent", async () => {
+  const execution = await executeInvocation(
+    parseInvocation(["doctor", "--config", configPath]),
+    executor({ doctor: async () => ({ checks: [] }) }),
+  );
+  assert.equal(execution.exitCode, exitCodes.prerequisiteUnavailable);
+  assert.equal(execution.result.outcome, "failed");
+  assert.equal(
+    execution.result.data.checks.some(
+      ({ reasonCode }) => reasonCode === "cloudflare_hyperdrive_origin_identity_unqualified",
+    ),
+    true,
+  );
+  assert.equal(
+    execution.result.data.checks.some(
+      ({ reasonCode }) => reasonCode === "cloudflare_direct_postgresql_evidence_missing",
+    ),
+    true,
+  );
 });
 
 test("render returns a deterministic target bundle digest", async () => {

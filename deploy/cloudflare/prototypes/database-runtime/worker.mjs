@@ -54,6 +54,93 @@ function createPool(context) {
   });
 }
 
+async function verifyCacheDisabledFreshness(context, probeId) {
+  try {
+    const writer = createPool(context);
+    try {
+      await writer.query(
+        `insert into verification (id, identifier, value, expires_at)
+         values ($1, $2, $3, now() + interval '1 minute')`,
+        [probeId, probeId, "freshness-v1"],
+      );
+    } finally {
+      await writer.end();
+    }
+
+    const firstReader = createPool(context);
+    let firstValue;
+    try {
+      firstValue = (
+        await firstReader.query(
+          "select value from verification where id = $1",
+          [probeId],
+        )
+      ).rows[0]?.value;
+      await firstReader.query(
+        "update verification set value = $2 where id = $1",
+        [probeId, "freshness-v2"],
+      );
+    } finally {
+      await firstReader.end();
+    }
+
+    const secondReader = createPool(context);
+    let secondValue;
+    try {
+      secondValue = (
+        await secondReader.query(
+          "select value from verification where id = $1",
+          [probeId],
+        )
+      ).rows[0]?.value;
+    } finally {
+      await secondReader.end();
+    }
+    return firstValue === "freshness-v1" && secondValue === "freshness-v2"
+      ? "passed"
+      : "failed";
+  } finally {
+    const cleanup = createPool(context);
+    try {
+      await cleanup.query("delete from verification where id = $1", [probeId]);
+    } finally {
+      await cleanup.end();
+    }
+  }
+}
+
+async function verifyWorkerConnectionBudget(context) {
+  const pool = createPool(context);
+  const first = await pool.connect();
+  let firstReleased = false;
+  let second;
+  let secondReleased = false;
+  let secondAcquired = false;
+  const secondPromise = pool.connect().then((client) => {
+    secondAcquired = true;
+    second = client;
+    return client;
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const queuedWhileFirstHeld = !secondAcquired;
+    first.release();
+    firstReleased = true;
+    await secondPromise;
+    second.release();
+    secondReleased = true;
+    return {
+      maxConnections: pool.options.max,
+      secondClientQueuedWhileFirstHeld: queuedWhileFirstHeld,
+    };
+  } finally {
+    if (!firstReleased) first.release();
+    if (!second) second = await secondPromise;
+    if (!secondReleased) second.release();
+    await pool.end();
+  }
+}
+
 async function verifyHyperdriveSemantics(client, probeId) {
   const preparedQuery = {
     name: "shareslices-hyperdrive-prototype-v1",
@@ -133,6 +220,22 @@ app.get("/prototype/pg", async (context) => {
       "select current_database() as database_name, current_user as database_user, (select ssl from pg_stat_ssl where pid = pg_backend_pid()) as ssl",
     );
     return context.json(result.rows[0], 200, { "Cache-Control": "no-store" });
+  } catch (error) {
+    await client.query("rollback").catch(() => undefined);
+    return context.json(
+      {
+        error: {
+          phase: "pg-connectivity",
+          name: error instanceof Error ? error.name : "UnknownError",
+          code:
+            error && typeof error === "object" && "code" in error
+              ? String(error.code)
+              : "unknown",
+        },
+      },
+      500,
+      { "Cache-Control": "no-store" },
+    );
   } finally {
     await pool.end();
   }
@@ -156,22 +259,28 @@ app.post("/prototype/hyperdrive-paths", async (context) => {
   const pool = createPool(context);
   const client = await pool.connect();
   const probeId = `hyperdrive-${crypto.randomUUID()}`;
+  let phase = "representative-paths";
   try {
+    phase = "representative-transaction-begin";
     await client.query("begin");
+    phase = "representative-authentication";
     const authentication = await client.query(
       'select id from "user" where id = $1',
       [probeId],
     );
+    phase = "representative-authorization";
     const authorization = await client.query(
       "select id from artifact where id = $1 and owner_user_id = $2",
       [probeId, probeId],
     );
+    phase = "representative-viewer";
     const viewer = await client.query(
       `select link.id from artifact_share_link link
        left join artifact_publication publication on publication.artifact_id = link.artifact_id
        where link.slug = $1 order by publication.created_at desc limit 1`,
       [probeId],
     );
+    phase = "representative-gallery";
     const gallery = await client.query(
       `select listing.id from gallery_listing listing
        join gallery_listing_revision revision on revision.id = listing.current_revision_id
@@ -180,24 +289,37 @@ app.post("/prototype/hyperdrive-paths", async (context) => {
        and profile.retired_at is null order by listing.created_at desc, listing.id desc limit $1`,
       [1],
     );
+    phase = "representative-job-state";
     const jobState = await client.query(
       `select id from artifact_processing_job
        where state = 'queued' and available_at <= now()
        order by available_at, created_at, id for update skip locked limit 1`,
     );
+    phase = "representative-rollback-fixture";
     await client.query(
       `insert into verification (id, identifier, value, expires_at)
        values ($1, $2, $3, now() + interval '1 minute')`,
       [probeId, probeId, "rolled-back"],
     );
+    phase = "representative-transaction-rollback";
     await client.query("rollback");
 
+    phase = "representative-rollback-verification";
     const rollback = await client.query(
       "select count(*)::int as count from verification where id = $1",
       [probeId],
     );
+    phase = "driver-semantics";
     const semantics = await verifyHyperdriveSemantics(client, probeId);
+    phase = "cache-disabled-freshness";
+    const freshness = await verifyCacheDisabledFreshness(
+      context,
+      `${probeId}-freshness`,
+    );
+    phase = "worker-connection-budget";
+    const connectionBudget = await verifyWorkerConnectionBudget(context);
 
+    phase = "unsupported-advisory-lock-observation";
     let advisoryLock = "observed_succeeded_but_unsupported";
     await client.query("begin");
     try {
@@ -220,10 +342,27 @@ app.post("/prototype/hyperdrive-paths", async (context) => {
           jobState: jobState.rowCount === 0 ? "passed" : "unexpected_fixture",
         },
         transactionRollback: rollback.rows[0]?.count === 0 ? "passed" : "failed",
+        cacheDisabledFreshness: freshness,
         semantics,
+        connectionBudget,
         advisoryLock,
       },
       200,
+      { "Cache-Control": "no-store" },
+    );
+  } catch (error) {
+    return context.json(
+      {
+        error: {
+          phase,
+          name: error instanceof Error ? error.name : "UnknownError",
+          code:
+            error && typeof error === "object" && "code" in error
+              ? String(error.code)
+              : "unknown",
+        },
+      },
+      500,
       { "Cache-Control": "no-store" },
     );
   } finally {
