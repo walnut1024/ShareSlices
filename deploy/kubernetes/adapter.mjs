@@ -6,6 +6,7 @@ import {stringify} from "yaml";
 
 import {sha256Digest} from "../automation/canonical.mjs";
 import {loadControlSchema} from "../automation/control-store.mjs";
+import {serializeCanonicalTargetBundle} from "../automation/release.mjs";
 import {TargetAdapterError} from "../automation/target-adapter.mjs";
 import {runCoreVerification} from "../automation/verify.mjs";
 import {renderKubernetesBundle} from "./render.mjs";
@@ -117,6 +118,7 @@ export function createKubernetesAdapter({
   observeStatus,
   applyPlan,
   verifyCore = runCoreVerification,
+  finalizeRelease,
   controlSchemaChecksum,
 } = {}) {
   async function doctor({config}) {
@@ -400,17 +402,71 @@ export function createKubernetesAdapter({
     return observeStatus({config, runKubectl});
   }
 
-  async function verify({config, level}) {
+  async function verify({config, release, level}) {
     if (level !== "core") {
       throw new TargetAdapterError(
         "kubernetes_verification_level_unsupported",
         "Kubernetes currently supports only read-only core verification.",
       );
     }
-    return verifyCore({
+    const core = await verifyCore({
       applicationOrigin: config.shared.publicOrigins.application,
       contentOrigin: config.shared.publicOrigins.content,
     });
+    if (!release) return core;
+    const bundle = await render({config, release});
+    const canonical = serializeCanonicalTargetBundle(bundle);
+    const observed = typeof observeState === "function"
+      ? await observeState({config, release, bundle, runKubectl})
+      : null;
+    const expectedResources = bundle.phases.flatMap(({resources}) => resources);
+    const observedById = new Map((observed?.resources ?? []).map((resource) => [resource.logicalId, resource]));
+    const mismatches = expectedResources.flatMap((resource) => {
+      const logicalId = `${resource.apiVersion}/${resource.kind}/${resource.metadata.namespace}/${resource.metadata.name}`;
+      const current = observedById.get(logicalId);
+      return current?.digest === resource.metadata.annotations["shareslices.dev/resource-digest"]
+        ? []
+        : [{logicalId, reasonCode: current ? "resource_digest_mismatch" : "resource_missing"}];
+    });
+    const contractMatches = core.contractDigest === release.verificationContractDigest;
+    const convergence = Object.freeze({
+      id: "kubernetes-release-convergence",
+      scenarioId: "kubernetes-network-policy",
+      outcome: observed?.controlSchema?.state === "present" && mismatches.length === 0 && contractMatches
+        ? "passed"
+        : "failed",
+      reasonCode: observed?.controlSchema?.state !== "present"
+        ? "required_check_failed"
+        : !contractMatches
+          ? "required_check_failed"
+          : mismatches.length > 0
+            ? "required_check_failed"
+            : null,
+      evidence: {
+        controlSchemaState: observed?.controlSchema?.state ?? "unavailable",
+        expectedResourceCount: expectedResources.length,
+        observedResourceCount: observed?.resources?.length ?? 0,
+        verificationContractMatches: contractMatches,
+        mismatches,
+      },
+    });
+    const checks = [...core.checks, convergence];
+    const verification = Object.freeze({
+      ...core,
+      outcome: core.outcome === "passed" && convergence.outcome === "passed" ? "passed" : "failed",
+      releaseId: release.releaseId,
+      bundleDigest: canonical.digest,
+      checks: Object.freeze(checks),
+    });
+    if (verification.outcome !== "passed") return verification;
+    if (typeof finalizeRelease !== "function") {
+      throw new TargetAdapterError(
+        "kubernetes_release_finalization_unavailable",
+        "Release-bound Kubernetes verification requires fenced release finalization.",
+      );
+    }
+    await finalizeRelease({config, release, bundleDigest: canonical.digest, verification});
+    return Object.freeze({...verification, finalized: true});
   }
 
   return Object.freeze({

@@ -294,6 +294,35 @@ export async function heartbeatOperationLease(client, lease, { now, leaseExpires
   return Number(result.rows[0].revision);
 }
 
+export async function completeOperationLease(client, lease) {
+  await client.query("begin");
+  try {
+    const completed = await client.query(
+      `update shareslices_deployment_operation
+          set state = 'completed', revision = revision + 1, updated_at = now()
+        where installation_id = $1 and operation_id = $2 and lease_owner = $3
+          and fencing_token = $4 and target = $5 and state = 'active'
+          and lease_expires_at > now()
+        returning revision`,
+      [lease.installationId, lease.operationId, lease.owner, lease.fencingToken, lease.target],
+    );
+    if (completed.rows.length !== 1) {
+      throw new DeploymentControlError(
+        "deployment_operation_stale_fence",
+        "A stale deployment operation cannot be completed.",
+      );
+    }
+    await client.query(
+      "update shareslices_deployment_control_metadata set revision = revision + 1 where singleton = true",
+    );
+    await client.query("commit");
+    return Number(completed.rows[0].revision);
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  }
+}
+
 export async function recordPhaseCheckpoint(client, lease, checkpoint) {
   const result = await client.query(
     `insert into shareslices_deployment_phase_journal

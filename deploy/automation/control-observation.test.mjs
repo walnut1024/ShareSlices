@@ -124,7 +124,10 @@ test("Kubernetes status projects recorded release, rollout, image, migration, an
       controlSchema: {state: "present", revision: "control-9"},
       releaseRecords: {active: {releaseId, configurationDigest}},
       operation: {desiredReleaseId: releaseId},
-      phases: [{phase: "public-runtime", state: "completed"}],
+      phases: [
+        {phase: "public-runtime", state: "completed"},
+        {phase: "verification", state: "completed"},
+      ],
     }),
   });
   const result = await observe({
@@ -170,6 +173,7 @@ test("Kubernetes status projects recorded release, rollout, image, migration, an
     }),
   });
   assert.equal(result.observedReleaseId, releaseId);
+  assert.equal(result.verification, "passed");
   assert.deepEqual(result.components[0].imageIds, ["registry.example.test/api@sha256:1234"]);
   assert.equal(result.migration.schemaHead, "0030_deployment");
   assert.deepEqual(result.configurationDigests, [configurationDigest]);

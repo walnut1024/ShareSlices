@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   acquireOperationLease,
   bootstrapControlSchema,
+  completeOperationLease,
   DeploymentControlError,
   heartbeatOperationLease,
   loadControlSchema,
@@ -189,6 +190,29 @@ test("heartbeat and phase writes reject lost leases and stale fences", async () 
     recordPhaseCheckpoint(stale, lease, { phase: "migration", state: "completed" }),
     (error) => error.code === "deployment_operation_stale_fence",
   );
+});
+
+test("operation completion advances control revision only under the live fence", async () => {
+  const lease = {
+    installationId: "installation-1",
+    operationId: "operation-2",
+    owner: "controller-b",
+    fencingToken: 5,
+    target: "kubernetes",
+  };
+  const database = client(async (text) => text.includes("set state = 'completed'")
+    ? {rows: [{revision: "12"}]}
+    : {rows: []});
+  assert.equal(await completeOperationLease(database, lease), 12);
+  assert.equal(database.calls.some(({text}) => text.includes("control_metadata set revision")), true);
+  assert.equal(database.calls.at(-1).text, "commit");
+
+  const stale = client();
+  await assert.rejects(
+    completeOperationLease(stale, lease),
+    (error) => error.code === "deployment_operation_stale_fence",
+  );
+  assert.equal(stale.calls.at(-1).text, "rollback");
 });
 
 test("mirrors only Secret-free active and previous records under a live fence", async () => {

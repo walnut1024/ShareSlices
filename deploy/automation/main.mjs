@@ -13,6 +13,7 @@ import {
 } from "./control-observation.mjs";
 import {createLifecycleExecutor} from "./lifecycle.mjs";
 import {createProductionPlanApplier} from "./production-apply.mjs";
+import {createProductionReleaseFinalizer} from "./production-finalize.mjs";
 import {TargetAdapterError} from "./target-adapter.mjs";
 
 export function createProductionKubernetesAdapter({
@@ -20,6 +21,7 @@ export function createProductionKubernetesAdapter({
   createAdapter = createKubernetesAdapter,
   createControlObserver = createPostgresControlObserver,
   createPlanApplier = createProductionPlanApplier,
+  createReleaseFinalizer = createProductionReleaseFinalizer,
 } = {}) {
   const resolvers = () => {
     const root = environment.SHARESLICES_SECRET_ROOT;
@@ -45,10 +47,21 @@ export function createProductionKubernetesAdapter({
     }
     return createPlanApplier({resolvers: resolvers(), owner})(input);
   };
+  const finalizeRelease = async (input) => {
+    const owner = environment.SHARESLICES_DEPLOYMENT_PRINCIPAL;
+    if (!owner) {
+      throw new TargetAdapterError(
+        "deployment_principal_required",
+        "Production release finalization requires SHARESLICES_DEPLOYMENT_PRINCIPAL.",
+      );
+    }
+    return createReleaseFinalizer({resolvers: resolvers(), owner})(input);
+  };
   return createAdapter({
     observeState: createKubernetesStateObserver({observeControl}),
     observeStatus: createKubernetesStatusObserver({observeControl}),
     applyPlan,
+    finalizeRelease,
   });
 }
 

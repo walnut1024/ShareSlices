@@ -15,6 +15,7 @@ const release = {
   target: "kubernetes",
   releaseId: digest("9"),
   configurationDigest: digest("6"),
+  verificationContractDigest: digest("5"),
   routeContractDigest: digest("8"),
   cacheContractDigest: digest("7"),
   compatibility: {schemaHead: "0028_gallery_optional_tags"},
@@ -261,4 +262,51 @@ test("verify runs the shared core contract against configured trusted and conten
   assert.equal(result.outcome, "passed");
   assert.equal(input.applicationOrigin, config.shared.publicOrigins.application);
   assert.equal(input.contentOrigin, config.shared.publicOrigins.content);
+});
+
+test("release-bound verify requires exact cluster convergence before fenced finalization", async () => {
+  let finalized;
+  const adapter = createKubernetesAdapter({
+    verifyCore: async () => ({
+      schemaVersion: "shareslices.verification-result/v1",
+      contractSchemaVersion: "shareslices.verification/v1",
+      contractDigest: release.verificationContractDigest,
+      level: "core",
+      outcome: "passed",
+      checks: [],
+    }),
+    observeState: async ({bundle}) => ({
+      controlSchema: {state: "present"},
+      resources: bundle.phases.flatMap(({resources}) => resources.map((resource) => ({
+        logicalId: `${resource.apiVersion}/${resource.kind}/${resource.metadata.namespace}/${resource.metadata.name}`,
+        digest: resource.metadata.annotations["shareslices.dev/resource-digest"],
+      }))),
+    }),
+    finalizeRelease: async (value) => { finalized = value; },
+  });
+  const result = await adapter.verify({config, release, level: "core"});
+  assert.equal(result.outcome, "passed");
+  assert.equal(result.finalized, true);
+  assert.equal(result.checks.at(-1).id, "kubernetes-release-convergence");
+  assert.equal(result.checks.at(-1).outcome, "passed");
+  assert.equal(finalized.release, release);
+  assert.equal(finalized.bundleDigest, result.bundleDigest);
+});
+
+test("release-bound verify refuses missing cluster resources without finalization", async () => {
+  let finalized = false;
+  const adapter = createKubernetesAdapter({
+    verifyCore: async () => ({
+      contractDigest: release.verificationContractDigest,
+      level: "core",
+      outcome: "passed",
+      checks: [],
+    }),
+    observeState: async () => ({controlSchema: {state: "present"}, resources: []}),
+    finalizeRelease: async () => { finalized = true; },
+  });
+  const result = await adapter.verify({config, release, level: "core"});
+  assert.equal(result.outcome, "failed");
+  assert.equal(result.checks.at(-1).evidence.mismatches.length > 0, true);
+  assert.equal(finalized, false);
 });

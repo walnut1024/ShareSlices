@@ -158,6 +158,7 @@ async function executeReadOnly({ command, config, release, adapter }) {
         exitCode: exitCodes.prerequisiteUnavailable,
         result: deploymentResult(command, {
           target: config.target,
+          requestedRelease: release?.releaseId ?? null,
           outcome: "failed",
           reason: {
             code: "deployment_prerequisite_unavailable",
@@ -227,7 +228,7 @@ async function executeReadOnly({ command, config, release, adapter }) {
   }
 
   if (command === "verify") {
-    const verification = await adapter.verify({config, level: "core"});
+    const verification = await adapter.verify({config, release, level: "core"});
     if (
       !verification ||
       verification.level !== "core" ||
@@ -244,6 +245,7 @@ async function executeReadOnly({ command, config, release, adapter }) {
         exitCode: verification.outcome === "indeterminate" ? exitCodes.indeterminate : exitCodes.failed,
         result: deploymentResult(command, {
           target: config.target,
+          requestedRelease: release?.releaseId ?? null,
           outcome: verification.outcome,
           reason: {
             code: verification.outcome === "indeterminate"
@@ -255,7 +257,7 @@ async function executeReadOnly({ command, config, release, adapter }) {
         }),
       };
     }
-    return successful(command, config.target, null, {verification});
+    return successful(command, config.target, release?.releaseId ?? null, {verification});
   }
 
   throw new DeploymentLifecycleError(
@@ -271,7 +273,8 @@ export function createLifecycleExecutor(adapterRegistry) {
     try {
       config = await loadDeploymentConfig(options.config);
       const adapter = adapterFor(adapterRegistry, config.target);
-      const release = ["render", "plan", "apply"].includes(command)
+      const release = ["render", "plan", "apply"].includes(command) ||
+        (["verify", "rollback"].includes(command) && options.release)
         ? await loadRelease(options.release)
         : null;
       requestedRelease = release?.releaseId ?? requestedRelease;

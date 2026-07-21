@@ -66,3 +66,18 @@ test("production Kubernetes planning requires an explicit file Secret root", asy
     (error) => error.code === "deployment_secret_root_required",
   );
 });
+
+test("production Kubernetes release finalization requires an explicit principal", async () => {
+  let finalizeRelease;
+  createProductionKubernetesAdapter({
+    environment: {SHARESLICES_SECRET_ROOT: "/tmp/shareslices-test-secrets"},
+    createAdapter: (options) => {
+      finalizeRelease = options.finalizeRelease;
+      return {};
+    },
+  });
+  await assert.rejects(
+    finalizeRelease({}),
+    (error) => error.code === "deployment_principal_required",
+  );
+});

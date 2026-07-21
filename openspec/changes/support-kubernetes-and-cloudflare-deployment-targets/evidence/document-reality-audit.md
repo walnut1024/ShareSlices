@@ -912,3 +912,30 @@ specific release bundle or complete cluster-resource convergence, does not write
 the active/previous release record, and does not cover origin-versus-edge,
 network-policy, email, processing, thumbnail, CDN, Gallery, or authorized deep
 verification. Those facts must remain separately unavailable or pending.
+
+## Twenty-sixth-pass release-bound verification and finalization acceptance
+
+Kubernetes `verify --release` now renders the immutable target bundle again,
+observes every expected resource through the configured context and namespace,
+and requires each owned resource digest to match exactly. It also requires the
+core verifier's checked contract digest to equal the release's verification
+contract digest. Missing control state, missing resources, digest drift,
+contract drift, or any failed core check prevents finalization and is returned
+as failed convergence evidence.
+
+After all checks pass, production finalization resolves the database Secret only
+inside the operation, acquires a deterministic verification lease with a fresh
+fencing token, checkpoints the passed verification, mirrors the newly verified
+release as active and the prior active release as previous, completes the exact
+operation under its live fence, and increments the deployment-control revision.
+The release record contains only target, release and bundle digests,
+configuration digest, and logical Secret revisions. A stale fence cannot mirror
+or complete the operation. A release-less `verify` remains read-only and cannot
+write release records.
+
+This completes the release-recording slice of task 10.3 but not the task as a
+whole. Isolated allowed/denied network probes, pre-traffic verification,
+retirement execution, optional-CDN qualification, safe failure compensation,
+and real-cluster acceptance remain open. Task 10.4 also remains open until its
+database-head and optional-capability evidence is complete, and task 14.1 still
+requires its complete address/applicability projection.

@@ -66,10 +66,11 @@ prototypes, not a supported Deployment target.
   phases, workload generations and image IDs, migration state, configuration
   and route digests, ownership drift, and optional-CDN readiness from read-only
   control and cluster observations. Its current `verify` path also runs the
-  shared credential-free core HTTP checks against trusted and content origins.
-  Release-bound cluster convergence evidence, release finalization, authorized
-  deep verification, rollback, retirement, and target qualification are not yet
-  current.
+  shared credential-free core HTTP checks against trusted and content origins;
+  with an explicit release it also requires exact rendered-resource convergence
+  and verification-contract identity before a separately fenced operation
+  records active and previous releases. Authorized deep verification, network
+  probes, rollback, retirement, and target qualification are not yet current.
 - `deploy/cloudflare/` owns Cloudflare Workers, Edge/CDN, Static Assets, private
   R2, Hyperdrive, Queue, scheduled, Container, and Resend composition. Provider
   feasibility evidence gates only this Adapter; failure does not weaken shared

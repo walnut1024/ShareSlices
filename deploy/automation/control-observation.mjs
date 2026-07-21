@@ -390,6 +390,9 @@ export function createKubernetesStatusObserver({observeControl}) {
       target: "kubernetes",
       desiredReleaseId: control.operation?.desiredReleaseId ?? active?.releaseId ?? null,
       observedReleaseId: allActiveAndReady ? active.releaseId : null,
+      verification: control.phases.some(({phase, state}) => phase === "verification" && state === "completed")
+        ? "passed"
+        : "pending",
       phases: control.phases,
       components,
       migration,
