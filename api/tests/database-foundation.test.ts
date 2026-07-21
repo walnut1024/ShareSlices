@@ -18,6 +18,7 @@ import {
   artifactVersion,
   authenticationEmailCircuitBreaker,
   authenticationEmailDelivery,
+  authenticationEmailProviderAttempt,
   contentBundle,
   contentBundleAsset,
   contentBundleCleanup,
@@ -140,7 +141,17 @@ describe("artifact database foundation", () => {
       expect.arrayContaining(["attempt_id", "encrypted_code", "expires_at", "consumed_at"])
     );
     expect(getTableConfig(authenticationEmailDelivery).columns.map((column) => column.name)).toEqual(
-      expect.arrayContaining(["email_hash", "source_ip_hash", "encrypted_payload", "state", "lease_owner", "lease_expires_at"])
+      expect.arrayContaining([
+        "email_hash", "source_ip_hash", "encrypted_payload", "state", "lease_owner", "lease_expires_at",
+        "delivery_revision", "transport_adapter", "provider_namespace", "sender_identity", "endpoint_identity",
+        "transport_configuration_revision", "serializer_revision", "payload_digest", "provider_idempotency_key",
+        "provider_safe_replay_until", "local_message_id", "result_classification"
+      ])
+    );
+    expect(getTableConfig(authenticationEmailProviderAttempt).columns.map((column) => column.name)).toEqual(
+      expect.arrayContaining([
+        "delivery_id", "fence", "phase", "maximum_call_deadline", "complete_submission_at", "quiescent_at"
+      ])
     );
     expect(getTableConfig(authenticationEmailCircuitBreaker).columns.map((column) => column.name)).toEqual(
       expect.arrayContaining(["state", "reason_code", "resume_at"])
@@ -148,6 +159,49 @@ describe("artifact database foundation", () => {
 
     const breaker = await client.query("select id, state from authentication_email_circuit_breaker");
     expect(breaker.rows).toEqual([{ id: "global", state: "closed" }]);
+
+    const constraints = await client.query(
+      `select conname from pg_constraint where connamespace = $1::regnamespace`,
+      [schemaName]
+    );
+    expect(constraints.rows.map(({ conname }) => conname)).toEqual(expect.arrayContaining([
+      "authentication_email_delivery_transport_snapshot_check",
+      "authentication_email_delivery_resend_snapshot_check",
+      "authentication_email_provider_attempt_delivery_fence_key"
+    ]));
+  });
+
+  it("requires a complete frozen transport snapshot and one active provider attempt", async () => {
+    await client.query(
+      `insert into email_verification_attempt
+        (id, purpose, email, destination_hint, expires_at)
+       values ('transport-attempt', 'registration', 'masked@example.test', 'm***@example.test', now() + interval '10 minutes')`
+    );
+    const delivery = `insert into authentication_email_delivery
+      (id, attempt_id, email_hash, purpose, source_ip_hash, encrypted_payload,
+       transport_adapter, provider_namespace, sender_identity, endpoint_identity,
+       transport_configuration_revision, serializer_revision, payload_digest,
+       provider_idempotency_key, provider_safe_replay_until, local_message_id)
+      values
+      ('transport-delivery', 'transport-attempt', 'email-hash', 'registration', 'ip-hash', 'ciphertext',
+       'resend', 'team-a', 'ShareSlices <onboarding@resend.dev>', 'https://api.resend.com/emails',
+       'revision-1', 'authentication-email-v1', 'payload-digest',
+       'provider-key', now() + interval '23 hours', '<transport-delivery@shareslices.local>')`;
+
+    await expect(client.query(delivery.replace("'provider-key'", "null"))).rejects.toThrow(
+      "authentication_email_delivery_resend_snapshot_check"
+    );
+    await client.query(delivery);
+    await client.query(
+      `insert into authentication_email_provider_attempt
+        (id, delivery_id, fence, phase, maximum_call_deadline)
+       values ('provider-attempt-1', 'transport-delivery', 1, 'submitting', now() + interval '30 seconds')`
+    );
+    await expect(client.query(
+      `insert into authentication_email_provider_attempt
+        (id, delivery_id, fence, phase, maximum_call_deadline)
+       values ('provider-attempt-2', 'transport-delivery', 2, 'prepared', now() + interval '30 seconds')`
+    )).rejects.toThrow("authentication_email_provider_attempt_one_active_idx");
   });
 
   it("keeps one-time Version capture grants", async () => {

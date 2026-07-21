@@ -156,7 +156,19 @@ export const authenticationEmailDelivery = pgTable(
     providerMessageId: text("provider_message_id"),
     failureReasonCode: text("failure_reason_code"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-    sentAt: timestamp("sent_at", { withTimezone: true })
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    deliveryRevision: bigint("delivery_revision", { mode: "number" }).default(0).notNull(),
+    transportAdapter: text("transport_adapter"),
+    providerNamespace: text("provider_namespace"),
+    senderIdentity: text("sender_identity"),
+    endpointIdentity: text("endpoint_identity"),
+    transportConfigurationRevision: text("transport_configuration_revision"),
+    serializerRevision: text("serializer_revision"),
+    payloadDigest: text("payload_digest"),
+    providerIdempotencyKey: text("provider_idempotency_key"),
+    providerSafeReplayUntil: timestamp("provider_safe_replay_until", { withTimezone: true }),
+    localMessageId: text("local_message_id"),
+    resultClassification: text("result_classification")
   },
   (table) => [
     uniqueIndex("authentication_email_delivery_idempotency_idx")
@@ -167,6 +179,28 @@ export const authenticationEmailDelivery = pgTable(
     index("authentication_email_delivery_source_idx").on(table.sourceIpHash, table.createdAt),
     index("authentication_email_delivery_dispatch_idx").on(table.state, table.availableAt)
   ]
+);
+
+export const authenticationEmailProviderAttempt = pgTable(
+  "authentication_email_provider_attempt",
+  {
+    id: text("id").primaryKey(),
+    deliveryId: text("delivery_id")
+      .notNull()
+      .references(() => authenticationEmailDelivery.id, { onDelete: "cascade" }),
+    fence: bigint("fence", { mode: "number" }).notNull(),
+    phase: text("phase").notNull(),
+    maximumCallDeadline: timestamp("maximum_call_deadline", { withTimezone: true }).notNull(),
+    completeSubmissionAt: timestamp("complete_submission_at", { withTimezone: true }),
+    quiescentAt: timestamp("quiescent_at", { withTimezone: true }),
+    failureReasonCode: text("failure_reason_code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    unique("authentication_email_provider_attempt_delivery_fence_key").on(table.deliveryId, table.fence),
+    index("authentication_email_provider_attempt_delivery_idx").on(table.deliveryId, table.fence),
+  ],
 );
 
 export const authenticationEmailCircuitBreaker = pgTable("authentication_email_circuit_breaker", {
