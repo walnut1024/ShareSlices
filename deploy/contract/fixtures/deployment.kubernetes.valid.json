@@ -91,7 +91,19 @@
         "applicationSecretName": "shareslices-app-tls",
         "contentSecretName": "shareslices-content-tls"
       },
-      "externalCdn": { "enabled": true, "provider": "enterprise-edge" }
+      "externalCdn": {
+        "enabled": true,
+        "provider": "enterprise-edge",
+        "originAccess": {
+          "mode": "provider-address-ranges",
+          "evidenceRevision": "enterprise-edge-origin-v1"
+        },
+        "trustedProxy": {
+          "sourceCidrs": ["192.0.2.0/24", "198.51.100.0/24"],
+          "clientAddressHeader": "forwarded",
+          "evidenceRevision": "enterprise-edge-proxy-v1"
+        }
+      }
     },
     "network": {
       "cni": {

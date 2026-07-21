@@ -1098,3 +1098,26 @@ migration Job. Tests prove both apply and rollback make zero Kubernetes calls in
 GitOps mode; neither path writes or assumes a Git repository. The Deployment
 Module still does not claim that the external operator promoted or converged a
 handoff.
+
+## Thirty-second-pass Kubernetes external-CDN contract acceptance
+
+Tasks 10.7 and 10.8 are complete. The production schema accepts one Kubernetes
+delivery mode, `direct` or `external-cdn`, and cross-validates it with the CDN
+declaration. Direct mode rejects provider, origin-access, and trusted-proxy CDN
+configuration. External-CDN mode requires all of them and still renders the
+ordinary Kubernetes application workloads and ingress rather than any
+Cloudflare-target Worker or Container.
+
+The external-CDN declaration now records a provider-neutral origin-access mode
+and evidence revision plus trusted-proxy source CIDRs, client-address header,
+and evidence revision. The shared CIDR contract rejects unrestricted
+`0.0.0.0/0`. Rendering produces a Secret-free ConfigMap containing those
+requirements and the immutable route and cache contract digests. The generated
+contract requires dynamic `no-store`, origin access, and trusted-proxy evidence;
+it does not create or mutate a provider account.
+
+Schema, Kustomize, and renderer tests prove inconsistent or incomplete modes
+fail, the direct composition omits the CDN contract, the external composition
+contains it, both retain the same Kubernetes runtimes, and no Cloudflare runtime
+appears. Task 10.9 remains open because these deterministic contracts do not
+prove a real edge obeys them or matches direct-origin behavior.

@@ -88,6 +88,12 @@ prototypes, not a supported Deployment target.
   evidence. Status blocks a candidate runtime observed before its required
   migration evidence. The external operator still owns actual promotion and
   convergence.
+  Direct and external-CDN delivery are mutually validated compositions. The
+  external-CDN render adds only a provider-neutral contract containing origin
+  access strategy, trusted-proxy source ranges and client-address header,
+  evidence revisions, and the immutable route/cache contract digests. It does
+  not provision a CDN account or add a Cloudflare-target runtime. Live
+  origin-versus-edge parity and CDN qualification remain open.
 - `deploy/cloudflare/` owns Cloudflare Workers, Edge/CDN, Static Assets, private
   R2, Hyperdrive, Queue, scheduled, Container, and Resend composition. Provider
   feasibility evidence gates only this Adapter; failure does not weaken shared

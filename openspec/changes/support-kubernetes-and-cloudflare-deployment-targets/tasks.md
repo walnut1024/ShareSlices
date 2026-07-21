@@ -180,8 +180,8 @@ The numbered sections group work by responsibility; they are not permission to i
 - [ ] 10.4 Implement Kubernetes `status` from observed image IDs, generations, probes, migration head, configuration and route digests, release marker, and optional capabilities.
 - [x] 10.5 Implement Kubernetes `rollback` from the prior immutable runtime and configuration bundle against the current schema and verify that it never reruns the prior migration or applies a down migration.
 - [x] 10.6 Add render-only GitOps handoff with separate ordered phase bundles, predecessor evidence, `external_reconciler_required` apply/rollback outcomes, observed phase-block status, and reconciliation-owner validation; rollback emits current-schema compatibility evidence plus prior runtime/configuration bundles, not the prior migration Job, and never writes a Git repository or assumes generic controller ordering.
-- [ ] 10.7 Add `delivery.mode: direct` and `delivery.mode: external-cdn` without deploying any Cloudflare-target application runtime.
-- [ ] 10.8 Generate and validate origin-access, trusted-proxy, route, and cache requirements for an external CDN without provisioning its provider account.
+- [x] 10.7 Add `delivery.mode: direct` and `delivery.mode: external-cdn` without deploying any Cloudflare-target application runtime.
+- [x] 10.8 Generate and validate origin-access, trusted-proxy, route, and cache requirements for an external CDN without provisioning its provider account.
 - [ ] 10.9 Verify direct ingress and external edge against the same status, header, Cookie, CORS, credential, route, and cache scenarios and fail on divergence.
 - [ ] 10.10 Verify real Gallery registrable-site, Cookie, route, content-runtime, and network evidence and keep Gallery fail-closed when any dimension is unproven.
 

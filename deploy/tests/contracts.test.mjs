@@ -143,6 +143,19 @@ test("production deployment schema accepts exactly one target and logical Secret
   inconsistentDelivery.kubernetes.delivery.mode = "direct";
   assertInvalid("deployment.schema.json", inconsistentDelivery);
 
+  const missingExternalCdnTrust = clone(kubernetes);
+  delete missingExternalCdnTrust.kubernetes.ingress.externalCdn.trustedProxy;
+  assertInvalid("deployment.schema.json", missingExternalCdnTrust);
+
+  const unsafeExternalCdnSource = clone(kubernetes);
+  unsafeExternalCdnSource.kubernetes.ingress.externalCdn.trustedProxy.sourceCidrs = ["0.0.0.0/0"];
+  assertInvalid("deployment.schema.json", unsafeExternalCdnSource);
+
+  const directWithExternalCdnTrust = clone(kubernetes);
+  directWithExternalCdnTrust.kubernetes.delivery.mode = "direct";
+  directWithExternalCdnTrust.kubernetes.ingress.externalCdn.enabled = false;
+  assertInvalid("deployment.schema.json", directWithExternalCdnTrust);
+
   const competingDirectOwner = clone(kubernetes);
   competingDirectOwner.kubernetes.reconciliation.owner = "external";
   assertInvalid("deployment.schema.json", competingDirectOwner);

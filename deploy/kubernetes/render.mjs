@@ -120,7 +120,14 @@ function configureConfigMap(resource, config, release) {
     });
   }
   if (resource.metadata.name === "shareslices-external-cdn-contract") {
+    const externalCdn = config.kubernetes.ingress.externalCdn;
     Object.assign(resource.data, {
+      provider: externalCdn.provider,
+      originAccessMode: externalCdn.originAccess.mode,
+      originAccessEvidenceRevision: externalCdn.originAccess.evidenceRevision,
+      trustedProxySourceCidrs: JSON.stringify(externalCdn.trustedProxy.sourceCidrs),
+      trustedProxyClientAddressHeader: externalCdn.trustedProxy.clientAddressHeader,
+      trustedProxyEvidenceRevision: externalCdn.trustedProxy.evidenceRevision,
       routeProjection: release.routeContractDigest,
       cacheProjection: release.cacheContractDigest,
     });

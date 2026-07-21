@@ -159,6 +159,13 @@ test("renders gateway, stable-CIDR, and qualified Cilium FQDN egress without bro
 test("delivery mode selects only its matching optional CDN composition", () => {
   const external = renderKubernetesBundle({config, release, routeProjection});
   assert.match(external.documents, /name: shareslices-external-cdn-contract/);
+  assert.match(external.documents, /originAccessMode: provider-address-ranges/);
+  assert.match(external.documents, /trustedProxyClientAddressHeader: forwarded/);
+  assert.match(external.documents, /enterprise-edge-origin-v1/);
+  assert.match(external.documents, /enterprise-edge-proxy-v1/);
+  assert.match(external.documents, new RegExp(release.routeContractDigest));
+  assert.match(external.documents, new RegExp(release.cacheContractDigest));
+  assert.doesNotMatch(external.documents, /cloudflare/i);
   const direct = structuredClone(config);
   direct.kubernetes.delivery.mode = "direct";
   direct.kubernetes.ingress.externalCdn = {enabled: false};
