@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   createFileSecretResolvers,
+  createKubernetesStatusObserver,
   createKubernetesStateObserver,
   createPostgresControlObserver,
 } from "./control-observation.mjs";
@@ -100,4 +101,78 @@ test("Kubernetes observation refuses unowned matching names", async () => {
     }),
     (error) => error.code === "kubernetes_resource_ownership_unproven",
   );
+});
+
+test("Kubernetes status projects recorded release, rollout, image, migration, and digest evidence", async () => {
+  const releaseId = digest("a");
+  const configurationDigest = digest("b");
+  const suffix = "aaaaaaaaaaaa";
+  const labels = {
+    "app.kubernetes.io/name": "shareslices-api",
+    "shareslices.dev/installation": "example",
+    "shareslices.dev/release": suffix,
+    "shareslices.dev/owner": "deployment-module",
+  };
+  const metadata = (name, annotations = {}) => ({
+    namespace: "shareslices",
+    name,
+    labels,
+    annotations: {"shareslices.dev/resource-digest": digest("c"), ...annotations},
+  });
+  const observe = createKubernetesStatusObserver({
+    observeControl: async () => ({
+      controlSchema: {state: "present", revision: "control-9"},
+      releaseRecords: {active: {releaseId, configurationDigest}},
+      operation: {desiredReleaseId: releaseId},
+      phases: [{phase: "public-runtime", state: "completed"}],
+    }),
+  });
+  const result = await observe({
+    config: {
+      installationId: "example",
+      kubernetes: {context: "cluster", namespace: "shareslices", delivery: {mode: "direct"}},
+    },
+    runKubectl: () => ({
+      status: 0,
+      stderr: "",
+      stdout: JSON.stringify({items: [
+        {
+          apiVersion: "apps/v1",
+          kind: "Deployment",
+          metadata: {...metadata("shareslices-api"), generation: 4},
+          spec: {replicas: 1},
+          status: {observedGeneration: 4, updatedReplicas: 1, availableReplicas: 1},
+        },
+        {
+          apiVersion: "v1",
+          kind: "Pod",
+          metadata: {namespace: "shareslices", name: "shareslices-api-1", labels},
+          status: {containerStatuses: [{imageID: "registry.example.test/api@sha256:1234"}]},
+        },
+        {
+          apiVersion: "batch/v1",
+          kind: "Job",
+          metadata: metadata("shareslices-migrate", {
+            "shareslices.dev/schema-head": "0030_deployment",
+            "shareslices.dev/migration-checksum": digest("d"),
+          }),
+          status: {conditions: [{type: "Complete", status: "True"}]},
+        },
+        {
+          apiVersion: "v1",
+          kind: "ConfigMap",
+          metadata: metadata("shareslices-config", {
+            "shareslices.dev/configuration-digest": configurationDigest,
+            "shareslices.dev/route-contract-digest": digest("e"),
+          }),
+        },
+      ]}),
+    }),
+  });
+  assert.equal(result.observedReleaseId, releaseId);
+  assert.deepEqual(result.components[0].imageIds, ["registry.example.test/api@sha256:1234"]);
+  assert.equal(result.migration.schemaHead, "0030_deployment");
+  assert.deepEqual(result.configurationDigests, [configurationDigest]);
+  assert.deepEqual(result.routeDigests, [digest("e")]);
+  assert.deepEqual(result.drift, []);
 });

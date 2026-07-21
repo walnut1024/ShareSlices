@@ -4,6 +4,15 @@ export function deriveDeploymentStatus(input) {
   const optionalCapabilities = Object.fromEntries(
     Object.entries(input.optionalCapabilities ?? {}).sort(([left], [right]) => left.localeCompare(right)),
   );
+  const observedEvidence = Object.fromEntries([
+    ["components", input.components],
+    ["phases", input.phases],
+    ["migration", input.migration],
+    ["routeDigests", input.routeDigests],
+    ["configurationDigests", input.configurationDigests],
+    ["drift", input.drift],
+    ["orphans", input.orphans],
+  ].filter(([, value]) => value !== undefined));
   const base = {
     schemaVersion: "shareslices.deployment-status/v1",
     target: input.target,
@@ -12,6 +21,7 @@ export function deriveDeploymentStatus(input) {
     state: "desired",
     reasonCode: null,
     optionalCapabilities,
+    ...(Object.keys(observedEvidence).length > 0 ? {evidence: observedEvidence} : {}),
   };
   if (input.observation === "indeterminate" || input.phases?.some(({ state }) => state === "indeterminate")) {
     return Object.freeze({ ...base, state: "indeterminate", reasonCode: "deployment_observation_indeterminate" });

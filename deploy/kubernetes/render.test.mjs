@@ -14,6 +14,7 @@ const digest = (character) => `sha256:${character.repeat(64)}`;
 const release = {
   target: "kubernetes",
   releaseId: digest("9"),
+  configurationDigest: digest("6"),
   routeContractDigest: digest("8"),
   cacheContractDigest: digest("7"),
   compatibility: {schemaHead: "0028_gallery_optional_tags"},
@@ -48,6 +49,14 @@ test("renders one deterministic namespace- and release-bound Kubernetes bundle",
   const items = resources(first);
   assert.equal(items.every(({metadata}) => metadata.namespace === "shareslices"), true);
   assert.equal(items.every(({metadata}) => metadata.labels["shareslices.dev/release"] === "999999999999"), true);
+  assert.equal(
+    named(items, "ConfigMap", "shareslices-config").metadata.annotations["shareslices.dev/configuration-digest"],
+    release.configurationDigest,
+  );
+  assert.equal(
+    named(items, "Deployment", "shareslices-api").spec.template.metadata.labels["shareslices.dev/installation"],
+    config.installationId,
+  );
 });
 
 test("projects immutable artifacts, one release migration, workload sizing, rollout, and scheduling", () => {

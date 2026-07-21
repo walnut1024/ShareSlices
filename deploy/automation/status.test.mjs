@@ -29,6 +29,7 @@ test("reports phase-blocked, failed, and indeterminate evidence without claiming
       state: "phase-blocked",
       reasonCode: "dependency_unavailable",
       optionalCapabilities: {},
+      evidence: {phases: [{state: "blocked", reasonCode: "dependency_unavailable"}]},
     },
   );
   assert.equal(deriveDeploymentStatus({ ...base, phases: [{ state: "failed" }] }).state, "failed");
@@ -59,4 +60,22 @@ test("retains optional capability readiness separately from core release state",
     cdn: { state: "disabled", reasonCode: null },
     thumbnail: { state: "unavailable", reasonCode: "container_not_qualified" },
   });
+});
+
+test("retains target-observed rollout, migration, and digest evidence", () => {
+  const result = deriveDeploymentStatus({
+    ...base,
+    observedReleaseId: release,
+    components: [{logicalId: "apps/v1/Deployment/ns/api", releaseId: release, ready: true}],
+    phases: [{phase: "public-runtime", state: "completed"}],
+    migration: {schemaHead: "0030", complete: true},
+    routeDigests: [`sha256:${"c".repeat(64)}`],
+    configurationDigests: [`sha256:${"d".repeat(64)}`],
+    drift: [],
+    orphans: [],
+  });
+  assert.equal(result.state, "observed");
+  assert.equal(result.evidence.components[0].ready, true);
+  assert.equal(result.evidence.migration.schemaHead, "0030");
+  assert.equal(result.evidence.routeDigests.length, 1);
 });

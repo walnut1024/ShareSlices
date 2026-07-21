@@ -861,3 +861,29 @@ both production targets remain unavailable until their own complete acceptance
 gates pass. In particular, the presence of a direct mutation path is not release
 qualification, and the presence of a GitOps handoff is not evidence that an
 external reconciler promoted or converged it.
+
+## Twenty-fourth-pass Kubernetes status observation acceptance
+
+The production Kubernetes status path now reads active and previous release
+records, the current fenced operation, and its phase journal from PostgreSQL,
+then lists only installation-labelled Deployments, Pods, Jobs, Ingresses, and
+ConfigMaps in the configured cluster context and namespace. It reports workload
+generation and readiness, runtime image IDs observed from owned Pods, the
+release-scoped migration checksum and schema head, configuration and route
+digests, release-marker drift, ownership mismatches, and external-CDN readiness
+as machine-readable status evidence. An unavailable cluster observation is
+`indeterminate`; an unrecorded release marker, missing resource digest, or
+configuration mismatch is drift rather than inferred success.
+
+The renderer now propagates installation, release, and owner labels into
+Deployment Pod templates so image observations retain the same release and
+ownership identity. ConfigMaps carry the immutable release configuration and
+route-contract digests before their desired-resource digest is calculated.
+These additions make status evidence addressable without placing Secret values
+in Kubernetes metadata.
+
+Task 10.4 remains open. The current projection does not yet contain live
+black-box probe evidence, authoritative database schema-head comparison outside
+the completed migration Job, verified release finalization, or a qualified
+external-CDN observation. A recorded release plus ready Deployments is reported
+as observed, not verified or release-qualified.

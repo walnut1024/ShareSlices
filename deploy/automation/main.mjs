@@ -6,6 +6,7 @@ import {createKubernetesAdapter} from "../kubernetes/adapter.mjs";
 import {executeInvocation, parseInvocation} from "./cli.mjs";
 import {
   createFileSecretResolvers,
+  createKubernetesStatusObserver,
   createKubernetesStateObserver,
   createPostgresControlObserver,
   validateSecretReferenceForFileResolution,
@@ -46,6 +47,7 @@ export function createProductionKubernetesAdapter({
   };
   return createAdapter({
     observeState: createKubernetesStateObserver({observeControl}),
+    observeStatus: createKubernetesStatusObserver({observeControl}),
     applyPlan,
   });
 }

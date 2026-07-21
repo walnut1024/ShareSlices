@@ -99,6 +99,11 @@ function attachResourceDigest(resource) {
 
 function configureConfigMap(resource, config, release) {
   if (resource.kind !== "ConfigMap") return;
+  resource.metadata.annotations = {
+    ...(resource.metadata.annotations ?? {}),
+    "shareslices.dev/configuration-digest": release.configurationDigest,
+    "shareslices.dev/route-contract-digest": release.routeContractDigest,
+  };
   if (resource.metadata.name === "shareslices-config") {
     const application = config.shared.publicOrigins.application;
     const content = config.shared.publicOrigins.content;
@@ -136,6 +141,13 @@ function configureDeployment(resource, config, release) {
     throw new TypeError(`Kubernetes ${binding.config} rollout must preserve a ready replica.`);
   }
   const pod = resource.spec.template.spec;
+  resource.spec.template.metadata ??= {};
+  resource.spec.template.metadata.labels = {
+    ...(resource.spec.template.metadata.labels ?? {}),
+    "shareslices.dev/installation": config.installationId,
+    "shareslices.dev/release": releaseSuffix(release),
+    "shareslices.dev/owner": "deployment-module",
+  };
   const container = pod.containers[0];
   resource.spec.replicas = desired.replicas;
   resource.spec.strategy = {

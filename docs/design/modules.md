@@ -39,8 +39,8 @@ production entrypoint can consume a digest-bound authorized plan, fence and
 journal its phases in PostgreSQL, and drive Kubernetes direct server-side apply
 through migration and Deployment rollout gates. GitOps mode emits an immutable
 external-reconciler handoff without writing the cluster. Release recording,
-safe retirement, target-observed status, verification, rollback, completed
-GitOps predecessor observation, optional-CDN acceptance, real-cluster
+safe retirement, verification, rollback, completed GitOps predecessor
+observation, optional-CDN acceptance, real-cluster
 acceptance, and release qualification remain target work. The Cloudflare
 production Adapter and its mutating lifecycle remain target work; the checked
 Cloudflare files currently provide provider-contract evidence and bounded
@@ -62,9 +62,12 @@ prototypes, not a supported Deployment target.
   SMTP mechanics without changing application policy. Its current lifecycle
   validates declared prerequisites, renders ordered phase bundles, applies
   authorized direct phases behind the shared PostgreSQL lease and fence, or
-  emits a non-mutating GitOps handoff. Observation beyond plan inputs, release
-  finalization, verification, rollback, retirement, and target qualification are
-  not yet current.
+  emits a non-mutating GitOps handoff, and projects release records, operation
+  phases, workload generations and image IDs, migration state, configuration
+  and route digests, ownership drift, and optional-CDN readiness from read-only
+  control and cluster observations. Release finalization, live probe evidence,
+  verification, rollback, retirement, and target qualification are not yet
+  current.
 - `deploy/cloudflare/` owns Cloudflare Workers, Edge/CDN, Static Assets, private
   R2, Hyperdrive, Queue, scheduled, Container, and Resend composition. Provider
   feasibility evidence gates only this Adapter; failure does not weaken shared

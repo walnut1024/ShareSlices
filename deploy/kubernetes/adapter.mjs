@@ -113,6 +113,7 @@ export function createKubernetesAdapter({
   now = () => new Date(),
   routeProjection,
   observeState,
+  observeStatus,
   applyPlan,
   controlSchemaChecksum,
 } = {}) {
@@ -387,12 +388,22 @@ export function createKubernetesAdapter({
     };
   }
 
+  async function status({config}) {
+    if (typeof observeStatus !== "function") {
+      throw new TargetAdapterError(
+        "kubernetes_status_observation_unavailable",
+        "Kubernetes status requires authoritative control and cluster observations.",
+      );
+    }
+    return observeStatus({config, runKubectl});
+  }
+
   return Object.freeze({
     doctor,
     render,
     plan,
     apply,
-    status: unavailableOperation("status"),
+    status,
     verify: unavailableOperation("verify"),
     rollback: unavailableOperation("rollback"),
   });

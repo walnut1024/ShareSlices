@@ -64,6 +64,67 @@ async function inspectControlState(client) {
   });
 }
 
+async function inspectControlProjection(client, installationId) {
+  const releases = await client.query(
+    `select slot, target, release_id, bundle_digest, configuration_digest,
+            secret_revisions, operation_id, fencing_token, updated_at
+       from shareslices_deployment_release_record
+      where installation_id = $1 order by slot`,
+    [installationId],
+  );
+  const operations = await client.query(
+    `select target, operation_id, desired_release_id, lease_owner, lease_expires_at,
+            heartbeat_at, fencing_token, state, revision, updated_at
+       from shareslices_deployment_operation where installation_id = $1`,
+    [installationId],
+  );
+  const operation = operations.rows[0] ?? null;
+  let phases = [];
+  if (operation) {
+    const journal = await client.query(
+      `select phase, state, checkpoint_digest, reason_code, started_at, finished_at, updated_at
+         from shareslices_deployment_phase_journal
+        where installation_id = $1 and operation_id = $2 and fencing_token = $3
+        order by updated_at, phase`,
+      [installationId, operation.operation_id, operation.fencing_token],
+    );
+    phases = journal.rows.map((row) => Object.freeze({
+      phase: row.phase,
+      state: row.state,
+      checkpointDigest: row.checkpoint_digest ?? null,
+      reasonCode: row.reason_code ?? null,
+      startedAt: row.started_at ?? null,
+      finishedAt: row.finished_at ?? null,
+      updatedAt: row.updated_at ?? null,
+    }));
+  }
+  return Object.freeze({
+    releaseRecords: Object.freeze(Object.fromEntries(releases.rows.map((row) => [row.slot, Object.freeze({
+      target: row.target,
+      releaseId: row.release_id,
+      bundleDigest: row.bundle_digest,
+      configurationDigest: row.configuration_digest,
+      secretRevisions: row.secret_revisions,
+      operationId: row.operation_id,
+      fencingToken: Number(row.fencing_token),
+      updatedAt: row.updated_at,
+    })]))),
+    operation: operation ? Object.freeze({
+      target: operation.target,
+      operationId: operation.operation_id,
+      desiredReleaseId: operation.desired_release_id,
+      owner: operation.lease_owner,
+      leaseExpiresAt: operation.lease_expires_at,
+      heartbeatAt: operation.heartbeat_at,
+      fencingToken: Number(operation.fencing_token),
+      state: operation.state,
+      revision: Number(operation.revision),
+      updatedAt: operation.updated_at,
+    }) : null,
+    phases: Object.freeze(phases),
+  });
+}
+
 function parseDatabaseSecret(value) {
   let connectionString = value;
   if (value.startsWith("{")) {
@@ -136,7 +197,10 @@ export function createPostgresControlObserver({resolvers, ClientClass = Client} 
   return async ({config}) => withPostgresControlClient(config, resolvers, async (client) => {
     const controlSchema = await inspectControlState(client);
     const expected = await loadControlSchema();
-    return Object.freeze({controlSchema, expectedChecksum: expected.checksum});
+    const projection = controlSchema.state === "present"
+      ? await inspectControlProjection(client, config.installationId)
+      : {releaseRecords: {}, operation: null, phases: []};
+    return Object.freeze({controlSchema, expectedChecksum: expected.checksum, ...projection});
   }, ClientClass);
 }
 
@@ -192,6 +256,149 @@ export function createKubernetesStateObserver({observeControl}) {
     }
     const revision = sha256Digest({control: control.controlSchema.revision, resources: versions.sort()});
     return Object.freeze({revision, controlSchema: control.controlSchema, resources});
+  };
+}
+
+function releaseForSuffix(control, suffix) {
+  return Object.values(control.releaseRecords ?? {})
+    .find((record) => record.releaseId.slice("sha256:".length, "sha256:".length + 12) === suffix)
+    ?.releaseId ?? null;
+}
+
+function kubernetesCdnCapability(config, reasonCode = null) {
+  if (config.kubernetes.delivery.mode === "direct") {
+    return Object.freeze({state: "disabled", reasonCode: null});
+  }
+  return Object.freeze({
+    state: "unavailable",
+    reasonCode: reasonCode ?? "external_cdn_verification_pending",
+  });
+}
+
+export function createKubernetesStatusObserver({observeControl}) {
+  if (typeof observeControl !== "function") throw new TypeError("A control-state observer is required.");
+  return async ({config, runKubectl}) => {
+    const control = await observeControl({config});
+    if (control.controlSchema.state === "absent") {
+      return Object.freeze({
+        target: "kubernetes",
+        desiredReleaseId: null,
+        observedReleaseId: null,
+        phases: [],
+        components: [],
+        drift: [],
+        orphans: [],
+        optionalCapabilities: {cdn: kubernetesCdnCapability(config, "deployment_control_unavailable")},
+      });
+    }
+    const result = runKubectl([
+      "--context", config.kubernetes.context,
+      "--namespace", config.kubernetes.namespace,
+      "get", "deployments.apps,jobs.batch,ingresses.networking.k8s.io,configmaps,pods",
+      `--selector=shareslices.dev/installation=${config.installationId}`,
+      "--output=json",
+    ]);
+    if (result.status !== 0) {
+      return Object.freeze({
+        target: "kubernetes",
+        desiredReleaseId: control.operation?.desiredReleaseId ?? control.releaseRecords.active?.releaseId ?? null,
+        observedReleaseId: null,
+        observation: "indeterminate",
+        phases: control.phases,
+        components: [],
+        drift: [],
+        orphans: [],
+        optionalCapabilities: {cdn: kubernetesCdnCapability(config, "kubernetes_observation_indeterminate")},
+      });
+    }
+    let list;
+    try {
+      list = JSON.parse(result.stdout);
+    } catch {
+      throw new TargetAdapterError(
+        "kubernetes_status_observation_invalid",
+        "Kubernetes returned an unreadable status observation.",
+      );
+    }
+    const items = Array.isArray(list.items) ? list.items : [];
+    const orphans = [];
+    const drift = [];
+    const components = [];
+    let migration = null;
+    const routeDigests = new Set();
+    const configurationDigests = new Set();
+    const podImageIds = new Map();
+    for (const pod of items.filter(({kind}) => kind === "Pod")) {
+      const workload = pod.metadata?.labels?.["app.kubernetes.io/name"];
+      if (!workload) continue;
+      const imageIds = (pod.status?.containerStatuses ?? [])
+        .map(({imageID}) => imageID)
+        .filter(Boolean);
+      podImageIds.set(workload, [...(podImageIds.get(workload) ?? []), ...imageIds]);
+    }
+    for (const item of items) {
+      if (item.kind === "Pod") continue;
+      const logicalId = resourceIdentity(item);
+      if (item.metadata?.labels?.["shareslices.dev/owner"] !== "deployment-module") {
+        orphans.push({logicalId, reasonCode: "ownership_marker_mismatch"});
+        continue;
+      }
+      const suffix = item.metadata.labels["shareslices.dev/release"];
+      const releaseId = releaseForSuffix(control, suffix);
+      if (!releaseId) drift.push({logicalId, reasonCode: "release_marker_unrecorded"});
+      const digest = item.metadata.annotations?.["shareslices.dev/resource-digest"];
+      if (!/^sha256:[a-f0-9]{64}$/.test(digest ?? "")) {
+        drift.push({logicalId, reasonCode: "resource_digest_unavailable"});
+      }
+      if (item.kind === "Deployment") {
+        const desiredReplicas = item.spec?.replicas ?? 1;
+        const workload = item.metadata?.labels?.["app.kubernetes.io/name"];
+        const ready = item.status?.observedGeneration === item.metadata?.generation &&
+          (item.status?.updatedReplicas ?? 0) === desiredReplicas &&
+          (item.status?.availableReplicas ?? 0) === desiredReplicas;
+        components.push({
+          logicalId,
+          releaseId,
+          generation: item.metadata?.generation ?? null,
+          observedGeneration: item.status?.observedGeneration ?? null,
+          ready,
+          imageIds: [...new Set(podImageIds.get(workload) ?? [])].sort(),
+        });
+      }
+      if (item.kind === "Job" && item.metadata?.annotations?.["shareslices.dev/schema-head"]) {
+        migration = {
+          logicalId,
+          releaseId,
+          schemaHead: item.metadata.annotations["shareslices.dev/schema-head"],
+          checksum: item.metadata.annotations["shareslices.dev/migration-checksum"] ?? null,
+          complete: item.status?.conditions?.some(({type, status}) => type === "Complete" && status === "True") === true,
+        };
+      }
+      const routeDigest = item.metadata?.annotations?.["shareslices.dev/route-contract-digest"];
+      if (routeDigest) routeDigests.add(routeDigest);
+      const configurationDigest = item.metadata?.annotations?.["shareslices.dev/configuration-digest"];
+      if (configurationDigest) configurationDigests.add(configurationDigest);
+    }
+    const active = control.releaseRecords.active ?? null;
+    if (active && (configurationDigests.size !== 1 || !configurationDigests.has(active.configurationDigest))) {
+      drift.push({logicalId: "kubernetes/configuration", reasonCode: "configuration_digest_mismatch"});
+    }
+    const allActiveAndReady = Boolean(active) && components.length > 0 &&
+      components.every(({releaseId, ready}) => releaseId === active.releaseId && ready) &&
+      migration?.releaseId === active.releaseId && migration.complete;
+    return Object.freeze({
+      target: "kubernetes",
+      desiredReleaseId: control.operation?.desiredReleaseId ?? active?.releaseId ?? null,
+      observedReleaseId: allActiveAndReady ? active.releaseId : null,
+      phases: control.phases,
+      components,
+      migration,
+      routeDigests: [...routeDigests].sort(),
+      configurationDigests: [...configurationDigests].sort(),
+      drift,
+      orphans,
+      optionalCapabilities: {cdn: kubernetesCdnCapability(config)},
+    });
   };
 }
 

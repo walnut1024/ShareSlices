@@ -14,6 +14,7 @@ const digest = (character) => `sha256:${character.repeat(64)}`;
 const release = {
   target: "kubernetes",
   releaseId: digest("9"),
+  configurationDigest: digest("6"),
   routeContractDigest: digest("8"),
   cacheContractDigest: digest("7"),
   compatibility: {schemaHead: "0028_gallery_optional_tags"},
@@ -226,4 +227,24 @@ test("GitOps apply returns an immutable handoff without mutating Kubernetes", as
   assert.equal(result.outcome, "external_reconciler_required");
   assert.match(result.handoffDigest, /^sha256:/);
   assert.equal(calls.length, 0);
+});
+
+test("status delegates to authoritative control and cluster observation", async () => {
+  let input;
+  const projection = {
+    target: "kubernetes",
+    desiredReleaseId: release.releaseId,
+    observedReleaseId: release.releaseId,
+    components: [],
+  };
+  const adapter = createKubernetesAdapter({
+    runKubectl: () => ({status: 0, stdout: "", stderr: ""}),
+    observeStatus: async (value) => {
+      input = value;
+      return projection;
+    },
+  });
+  assert.equal(await adapter.status({config}), projection);
+  assert.equal(input.config, config);
+  assert.equal(typeof input.runKubectl, "function");
 });
