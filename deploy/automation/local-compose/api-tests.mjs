@@ -20,8 +20,15 @@ import {
 } from "./docker-controller.mjs";
 import {
   composeFeatureBaseline,
+  inspectComposeServices,
   verifyComposeCapabilities,
 } from "./compose-capabilities.mjs";
+import { loadAndValidateTestComposeModel } from "./test-topology-policy.mjs";
+import {
+  assertEndpointLayerUnchanged,
+  freezeTestEndpoints,
+  runtimeEnvironmentContents,
+} from "./test-endpoints.mjs";
 
 export const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 export const testEnvironmentFile = fileURLToPath(
@@ -40,6 +47,24 @@ export const testComposeArgs = [
   "-f",
   "deploy/compose/compose.test.yaml",
 ];
+
+export function testComposeArgsWithRuntime(runtimeEnvironmentFile) {
+  return [
+    "compose",
+    "--project-directory",
+    repositoryRoot,
+    "--env-file",
+    testEnvironmentFile,
+    "--env-file",
+    runtimeEnvironmentFile,
+    "-p",
+    "shareslices-test",
+    "-f",
+    "deploy/compose/compose.yaml",
+    "-f",
+    "deploy/compose/compose.test.yaml",
+  ];
+}
 
 function parseEnvironmentFixture(contents) {
   return Object.fromEntries(
@@ -124,9 +149,9 @@ export function commandsForApiTests() {
       "docker",
       [
         ...testComposeArgs,
-        "up", "-d", "--wait", "--wait-timeout",
+        "up", "-d", "--build", "--wait", "--wait-timeout",
         String(composeFeatureBaseline.waitTimeoutSeconds),
-        "postgres", "object-storage", "mailpit",
+        "postgres", "object-storage", "mailpit", "test-ingress",
       ],
     ],
     ["docker", [...testComposeArgs, "run", "--rm", "object-storage-init"]],
@@ -174,7 +199,17 @@ function run(command, args, env) {
   }
 }
 
-export function processChildEnvironment(testRoot, ambientEnvironment = process.env) {
+function executeDockerModel(args, options = {}) {
+  const result = spawnSync("docker", args, { encoding: "utf8", ...options });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    const detail = result.stderr?.trim() || result.stdout?.trim() || "no diagnostic output";
+    throw new Error(`docker ${args.join(" ")} failed: ${detail}`);
+  }
+  return result.stdout?.trim() ?? "";
+}
+
+export function processChildEnvironment(testRoot, endpoints, ambientEnvironment = process.env) {
   const {
     API_ORIGIN: _apiOrigin,
     BETTER_AUTH_URL: _betterAuthUrl,
@@ -191,10 +226,10 @@ export function processChildEnvironment(testRoot, ambientEnvironment = process.e
   return {
     ...minimalProcessInputs,
     ...processFixture,
-    AUTH_EMAIL_SMTP_URL: testStackEnvironment.SHARESLICES_TEST_SMTP_URL,
-    DATABASE_URL: testStackEnvironment.SHARESLICES_TEST_DATABASE_URL,
+    AUTH_EMAIL_SMTP_URL: `smtp://${endpoints.smtp.host}:${endpoints.smtp.port}`,
+    DATABASE_URL: `postgres://shareslices:shareslices@${endpoints.database.host}:${endpoints.database.port}/shareslices_test`,
     NODE_ENV: "test",
-    S3_ENDPOINT: testStackEnvironment.SHARESLICES_TEST_S3_ENDPOINT,
+    S3_ENDPOINT: `http://${endpoints.objectStorage.host}:${endpoints.objectStorage.port}`,
     S3_FORCE_PATH_STYLE: "true",
     UV_CACHE_DIR: join(testRoot, "uv-cache"),
   };
@@ -210,6 +245,7 @@ function combineErrors(primaryError, cleanupError) {
 export async function runApiTests() {
   const testRoot = mkdtempSync(join(tmpdir(), "shareslices-api-tests-"));
   const dockerConfig = join(testRoot, "docker-config");
+  const runtimeEnvironmentFile = join(testRoot, "runtime.env");
   mkdirSync(dockerConfig, { mode: 0o700 });
   prepareIsolatedDockerConfig(dockerConfig, resolveDockerPlugins());
   const dockerEnv = dockerChildEnvironment({
@@ -221,17 +257,6 @@ export async function runApiTests() {
     dockerConfig,
     host: resolveLocalDockerHost(),
   });
-  const processEnv = processChildEnvironment(testRoot);
-  const migrationEnv = {
-    ...processEnv,
-    API_ORIGIN: testStackEnvironment.API_ORIGIN,
-    BETTER_AUTH_URL: testStackEnvironment.BETTER_AUTH_URL,
-    VIEWER_ORIGIN: testStackEnvironment.VIEWER_ORIGIN,
-    WEB_ORIGIN: testStackEnvironment.WEB_ORIGIN,
-  };
-  const contractProcessEnv = {
-    ...processEnv,
-  };
   const cleanup = commandsForApiTests()[0];
   let interruptedSignal;
   const recordSigint = () => {
@@ -251,6 +276,12 @@ export async function runApiTests() {
       composeArgs: testComposeArgs,
       environment: dockerEnv,
     });
+    loadAndValidateTestComposeModel({
+      connectionArgs: dockerSnapshot.connectionArgs,
+      composeArgs: testComposeArgs,
+      environment: dockerEnv,
+      executeCommand: executeDockerModel,
+    });
     withDockerMutationController(dockerSnapshot, "shareslices-test", ({ runMutation }) => {
       const mutateDocker = (args) => runMutation(
         "docker",
@@ -258,7 +289,46 @@ export async function runApiTests() {
         { cwd: repositoryRoot, env: dockerEnv, stdio: "inherit" },
       );
       try {
-        for (const [command, args] of commandsForApiTests()) {
+        for (const [command, args] of commandsForApiTests().slice(0, 2)) {
+          if (command === "docker") mutateDocker(args);
+          else run(command, args, dockerEnv);
+          if (interruptedSignal) throw new Error(`API tests interrupted by ${interruptedSignal}`);
+        }
+        const endpointRecords = inspectComposeServices({
+          connectionArgs: dockerSnapshot.connectionArgs,
+          composeArgs: testComposeArgs,
+          environment: dockerEnv,
+          executeCommand: executeDockerModel,
+        });
+        const endpoints = freezeTestEndpoints(endpointRecords);
+        writeFileSync(runtimeEnvironmentFile, runtimeEnvironmentContents(endpoints), {
+          mode: 0o600,
+        });
+        const runtimeComposeArgs = testComposeArgsWithRuntime(runtimeEnvironmentFile);
+        loadAndValidateTestComposeModel({
+          connectionArgs: dockerSnapshot.connectionArgs,
+          composeArgs: runtimeComposeArgs,
+          environment: dockerEnv,
+          executeCommand: executeDockerModel,
+        });
+        const processEnv = processChildEnvironment(testRoot, endpoints);
+        const migrationEnv = {
+          ...processEnv,
+          API_ORIGIN: endpoints.apiOrigin,
+          BETTER_AUTH_URL: endpoints.webOrigin,
+          VIEWER_ORIGIN: endpoints.webOrigin,
+          WEB_ORIGIN: endpoints.webOrigin,
+        };
+        const contractProcessEnv = {
+          ...processEnv,
+          SHARESLICES_ARTIFACT_FLOW_URL: endpoints.apiTestOrigin,
+          SHARESLICES_TEST_DATABASE_URL: processEnv.DATABASE_URL,
+          SHARESLICES_TEST_MAILPIT_URL: `http://${endpoints.mailpit.host}:${endpoints.mailpit.port}`,
+          SHARESLICES_TEST_S3_ENDPOINT: processEnv.S3_ENDPOINT,
+          SHARESLICES_TEST_SMTP_URL: processEnv.AUTH_EMAIL_SMTP_URL,
+          SHARESLICES_TEST_WEB_ORIGIN: endpoints.webOrigin,
+        };
+        for (const [command, args] of commandsForApiTests().slice(2)) {
           if (command === "docker") mutateDocker(args);
           else run(command, args, dockerEnv);
           if (interruptedSignal) throw new Error(`API tests interrupted by ${interruptedSignal}`);
@@ -269,7 +339,7 @@ export async function runApiTests() {
           migrationEnv,
         );
         mutateDocker([
-          ...testComposeArgs,
+          ...runtimeComposeArgs,
           "exec", "-T", "postgres", "psql", "-U", "shareslices", "-d", "shareslices_test",
           "-c",
           "delete from authentication_email_delivery; delete from password_reset_grant; delete from email_verification_attempt; update authentication_email_circuit_breaker set state = 'closed', reason_code = null, opened_at = null, resume_at = null;",
@@ -281,11 +351,18 @@ export async function runApiTests() {
           contractProcessEnv,
         );
         mutateDocker([
-          ...testComposeArgs,
+          ...runtimeComposeArgs,
           "up", "-d", "--build", "--wait", "--wait-timeout",
           String(composeFeatureBaseline.waitTimeoutSeconds),
           "api", "maintenance", "worker", "web",
         ]);
+        const phaseTwoRecords = inspectComposeServices({
+          connectionArgs: dockerSnapshot.connectionArgs,
+          composeArgs: runtimeComposeArgs,
+          environment: dockerEnv,
+          executeCommand: executeDockerModel,
+        });
+        assertEndpointLayerUnchanged(endpointRecords, phaseTwoRecords);
         run(
           "uv",
           ["run", "pytest", "api/tests/artifact_flow_contract.py"],

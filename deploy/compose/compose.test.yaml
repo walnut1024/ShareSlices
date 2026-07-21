@@ -1,4 +1,27 @@
 # The test topology deliberately does not enable the Gallery-local authority
-# overlay. This extension field gives the ordered test file list a stable,
-# independently digestible identity without changing the base role graph.
+# overlay. Its endpoint layer is created first so Docker assigns every published
+# host port before application roles receive their frozen public Origins.
 x-shareslices-topology: isolated-test
+
+services:
+  test-ingress:
+    build:
+      context: .
+      dockerfile: deploy/compose/test-ingress.Dockerfile
+    ports:
+      - "127.0.0.1:0:8080"
+    volumes:
+      - ./deploy/compose/Caddyfile.test-ingress:/etc/caddy/Caddyfile:ro
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  api:
+    ports: !reset []
+
+  gallery-content:
+    ports: !reset []
+
+  web:
+    ports: !reset []

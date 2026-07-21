@@ -1,0 +1,15 @@
+:8080 {
+	@content host content.localhost
+	handle @content {
+		reverse_proxy gallery-content:7460
+	}
+
+	@api host api.localhost
+	handle @api {
+		reverse_proxy api:7456
+	}
+
+	handle {
+		reverse_proxy web:8080
+	}
+}

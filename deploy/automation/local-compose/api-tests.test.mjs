@@ -11,18 +11,35 @@ import {
   processChildEnvironment,
   repositoryRoot,
   testComposeArgs,
+  testComposeArgsWithRuntime,
   testEnvironmentFile,
   testStackEnvironment,
 } from "./api-tests.mjs";
 
-test("API contracts use a dedicated Compose project and non-development ports", () => {
+const testEndpoints = Object.freeze({
+  database: { host: "127.0.0.1", port: 49101 },
+  mailpit: { host: "127.0.0.1", port: 49102 },
+  objectStorage: { host: "127.0.0.1", port: 49103 },
+  smtp: { host: "127.0.0.1", port: 49104 },
+  webOrigin: "http://app.localhost:49105",
+});
+
+test("API contracts use a dedicated Compose project and request Engine-assigned ports", () => {
   assert.deepEqual(testComposeArgs.slice(testComposeArgs.indexOf("-p"), testComposeArgs.indexOf("-p") + 2), [
     "-p",
     "shareslices-test",
   ]);
-  assert.notEqual(testStackEnvironment.POSTGRES_PORT, "5432");
-  assert.notEqual(testStackEnvironment.API_PORT, "7456");
-  assert.notEqual(testStackEnvironment.WEB_PORT, "5173");
+  for (const name of [
+    "POSTGRES_PORT",
+    "OBJECT_STORAGE_PORT",
+    "MAILPIT_HTTP_PORT",
+    "SMTP_PORT",
+    "API_PORT",
+    "GALLERY_CONTENT_PUBLISHED_PORT",
+    "WEB_PORT",
+  ]) {
+    assert.equal(testStackEnvironment[name], "0", name);
+  }
 });
 
 test("API contracts clean only their dedicated project before provisioning", () => {
@@ -60,6 +77,24 @@ test("every test Compose invocation uses the fixed project, files, project direc
   assert.equal(testComposeArgs.includes(".env"), false);
 });
 
+test("runtime Compose arguments add only the frozen non-sensitive endpoint fixture", () => {
+  assert.deepEqual(testComposeArgsWithRuntime("/tmp/runtime.env"), [
+    "compose",
+    "--project-directory",
+    repositoryRoot,
+    "--env-file",
+    testEnvironmentFile,
+    "--env-file",
+    "/tmp/runtime.env",
+    "-p",
+    "shareslices-test",
+    "-f",
+    "deploy/compose/compose.yaml",
+    "-f",
+    "deploy/compose/compose.test.yaml",
+  ]);
+});
+
 test("Docker children inherit only the isolated config and executable path because the endpoint is an explicit argument", () => {
   const environment = dockerChildEnvironment({
     dockerConfig: "/tmp/isolated-docker-config",
@@ -82,7 +117,7 @@ test("Docker children inherit only the isolated config and executable path becau
 });
 
 test("test processes exclude caller application, provider, CI, and agent variables", () => {
-  const environment = processChildEnvironment("/tmp/shareslices-test-root", {
+  const environment = processChildEnvironment("/tmp/shareslices-test-root", testEndpoints, {
     HOME: "/tmp/test-home",
     LANG: "en_US.UTF-8",
     PATH: "/usr/bin:/bin",
@@ -95,7 +130,10 @@ test("test processes exclude caller application, provider, CI, and agent variabl
   });
 
   assert.equal(environment.HOME, "/tmp/test-home");
-  assert.equal(environment.DATABASE_URL, testStackEnvironment.SHARESLICES_TEST_DATABASE_URL);
+  assert.equal(
+    environment.DATABASE_URL,
+    "postgres://shareslices:shareslices@127.0.0.1:49101/shareslices_test",
+  );
   assert.equal(environment.CLOUDFLARE_API_TOKEN, undefined);
   assert.equal(environment.COMPOSE_FILE, undefined);
   assert.equal(environment.RESEND_API_KEY, undefined);
@@ -103,10 +141,20 @@ test("test processes exclude caller application, provider, CI, and agent variabl
   assert.equal(environment.CODEX_THREAD_ID, undefined);
 });
 
-test("checked test fixture freezes expected endpoints without caller Compose controls", () => {
-  assert.equal(testStackEnvironment.POSTGRES_PORT, "55432");
-  assert.equal(testStackEnvironment.API_PORT, "57456");
-  assert.equal(testStackEnvironment.WEB_PORT, "55173");
+test("checked test fixture contains no preselected endpoint", () => {
+  assert.equal(testStackEnvironment.POSTGRES_PORT, "0");
+  assert.equal(testStackEnvironment.API_ORIGIN, "http://app.localhost.invalid");
+  assert.equal(testStackEnvironment.WEB_ORIGIN, "http://app.localhost.invalid");
+  for (const name of [
+    "SHARESLICES_ARTIFACT_FLOW_URL",
+    "SHARESLICES_TEST_DATABASE_URL",
+    "SHARESLICES_TEST_MAILPIT_URL",
+    "SHARESLICES_TEST_S3_ENDPOINT",
+    "SHARESLICES_TEST_SMTP_URL",
+    "SHARESLICES_TEST_WEB_ORIGIN",
+  ]) {
+    assert.equal(testStackEnvironment[name], undefined, name);
+  }
   for (const forbidden of ["COMPOSE_FILE", "COMPOSE_PROJECT_NAME", "DOCKER_HOST"]) {
     assert.equal(Object.hasOwn(testStackEnvironment, forbidden), false, forbidden);
   }

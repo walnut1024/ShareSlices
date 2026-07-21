@@ -20,7 +20,7 @@ The proposed Cloudflare architecture is **conditionally feasible, but support re
 2. A thumbnail Container cannot both use direct PostgreSQL TCP and prove that untrusted Chromium cannot reach PostgreSQL merely through `enableInternet` or `allowedHosts`; those controls apply to the Container network, not separately to the Rust process and Chromium child process.
 3. This design chooses Durable Object `exports` for the Jobs Worker. The current Durable Object manual says configuration containing `exports` fails `wrangler versions upload`, while Wrangler behavior is actively evolving. The qualified default therefore uses immediate Jobs `wrangler deploy` with Queue delivery paused and Cron detached, followed by observed Container rollout; every pinned toolchain must reconfirm the interface, and the manuals do not establish an atomic Worker-and-Container switch.
 4. `nodejs_compat` does not make arbitrary Node.js dependencies compatible. The exact Better Auth, Drizzle, PostgreSQL driver, archive-processing, and storage paths must pass a workerd compatibility harness.
-5. A single Worker HTTP request cannot exceed the account request-body limit. The current default 50 MiB artifact limit fits the current 100 MB Free/Pro limit, but deployment-configurable limits above the account ceiling require either validation that rejects the configuration or a new client-side multipart protocol.
+5. A single Worker HTTP request cannot exceed the Cloudflare account-plan request-body limit. The current default 50 MiB artifact limit fits the current 100 MB Cloudflare Free/Pro account-plan tier, but this classification is independent of the Workers Free/Paid entitlement. Deployment-configurable limits above the account ceiling require either validation that rejects the configuration or a new client-side multipart protocol.
 
 The Cloudflare target also requires Workers Paid because Containers are not available on the Free plan. It can be low-cost and scale-to-zero, but it is not an entirely free deployment target.
 
@@ -133,7 +133,7 @@ Until this passes, the proposal should call the sequence a target release design
 
 ### 4. Upload-limit gate
 
-At deployment validation time, compare the configured maximum artifact request size with the Cloudflare account's Worker body limit. The current 50 MiB default is below the documented 100 MB Free/Pro ceiling. A higher configured limit must fail validation unless a separately specified client multipart protocol is enabled. R2 multipart APIs alone do not change the size of an incoming Worker request.
+At deployment validation time, compare the configured maximum artifact request size with the Cloudflare account-plan Worker body limit. The current 50 MiB default is below the documented 100 MB Cloudflare Free/Pro account-plan ceiling; “Free/Pro” here does not mean Workers Free/Paid. A higher configured limit must fail validation unless a separately specified client multipart protocol is enabled. R2 multipart APIs alone do not change the size of an incoming Worker request.
 
 ### 5. Ownership gate
 

@@ -52,7 +52,7 @@ Gallery 需要与 Web/API 不同的 registrable site；最稳妥的基线是准�
 
 | 产品 | 当前价格与免费额度 | 关键限制 |
 | --- | --- | --- |
-| Workers | Free 为 100,000 请求/日、每次 10 ms CPU；Paid 账户最低 $5/月，含 1,000 万请求和 3,000 万 CPU-ms/月，超额分别为 $0.30/百万请求、$0.02/百万 CPU-ms。静态资源请求免费且不限量。[Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/) | Free/Paid isolate 都是 128 MB；Free/Paid 包大小分别为 3/10 MB；Paid HTTP CPU 默认 30 秒、最高 5 分钟，Queue/Cron 最长 15 分钟；Free/Pro 账户的入站请求体上限为 100 MB。[Workers limits](https://developers.cloudflare.com/workers/platform/limits/) |
+| Workers | Workers Free 为 100,000 请求/日、每次 10 ms CPU；Workers Paid 最低 $5/月，含 1,000 万请求和 3,000 万 CPU-ms/月，超额分别为 $0.30/百万请求、$0.02/百万 CPU-ms。静态资源请求免费且不限量。[Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/) | Workers Free/Paid isolate 都是 128 MB；Workers Free/Paid 包大小分别为 3/10 MB；Workers Paid HTTP CPU 默认 30 秒、最高 5 分钟，Queue/Cron 最长 15 分钟。入站请求体上限按独立的 Cloudflare 账户套餐划分，Cloudflare Free/Pro 账户套餐当前为 100 MB，不能从 Workers Free/Paid entitlement 推导。[Workers limits](https://developers.cloudflare.com/workers/platform/limits/) |
 | Static Assets | 静态资产请求免费且不限量，资产存储无附加费用。[Static Assets billing](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/) | 单文件 25 MiB；每 Worker version 的文件数 Free 20,000、Paid 100,000。它适合 Web build，不适合把所有用户 Artifact 当作一次 Worker deployment。[Workers limits](https://developers.cloudflare.com/workers/platform/limits/) |
 | R2 Standard | 10 GB-month、100 万 Class A、1,000 万 Class B/月免费；超额为 $0.015/GB-month、$4.50/百万 A、$0.36/百万 B；公网出口免费。[R2 pricing](https://developers.cloudflare.com/r2/pricing/) | 免费额度只适用于 Standard；计费单位向上取整。Infrequent Access 没有免费额度，还有读取费和 30 天最低保存期，早期产品不应只看其较低的存储单价。 |
 | Hyperdrive | Free 与 Paid 都可连接外部 PostgreSQL/MySQL；Free 100,000 条语句/日，Paid 不单独按查询收费。[Workers pricing: Hyperdrive](https://developers.cloudflare.com/workers/platform/pricing/#hyperdrive) | Free/Paid 每配置约 20/100 个源数据库连接；单条语句最长 60 秒，缓存响应最多 50 MB。[Hyperdrive limits](https://developers.cloudflare.com/hyperdrive/platform/limits/) |
@@ -129,7 +129,7 @@ Workers Static Assets 的免费不限量只适用于 Web build 等真正的静�
    - 新增 gateway Worker，完整复刻当前 Caddy 的分流合同：拒绝 `/internal/*`；把 `/api/*`、`/a/*`、`/gallery/{slug}/download`、请求 JSON 的 `/gallery` 与 `/gallery/*`、`/gallery-media/*`、`/health`、`/ready` 代理到 Node API origin；其余请求交给 Static Assets 和 SPA fallback；Preview 文档继续返回 `no-store`。若 Viewer 使用独立 host，同一份路由合同还要按 host 拆分验证。
    - 验证 `Cookie`、`Set-Cookie`、origin/host、CSRF/CORS、流式 upload/export 和错误响应在代理前后不变。现有 Web 依赖同源 `/api`，不能改成跨域 API 后只靠宽松 CORS 补救。
 2. 为现有 S3 Adapter 增加 R2 deployment profile 配置和兼容性测试，并保持 bucket private；浏览器仍不能拿到 bucket URL 或签名下载 URL。
-3. 首阶段保留当前经 API 流式上传的 50 MiB 默认合同；它低于 Workers Free/Pro 的 100 MB 入站请求体上限，但仍需验证 gateway 不缓冲请求体。只有在产品上调上限、实测代理成为瓶颈，或需要断点续传时，再改为经 API 授权后的 multipart 直传 R2。该变化涉及持久 upload session 与 HTTP contract，届时必须走 OpenSpec 并同步 OpenAPI。
+3. 首阶段保留当前经 API 流式上传的 50 MiB 默认合同；它低于 Cloudflare Free/Pro **账户套餐**当前 100 MB 的入站请求体上限，但该上限不由 Workers Free/Paid 套餐决定，且仍需验证 gateway 不缓冲请求体。只有在产品上调上限、实测代理成为瓶颈，或需要断点续传时，再改为经 API 授权后的 multipart 直传 R2。该变化涉及持久 upload session 与 HTTP contract，届时必须走 OpenSpec 并同步 OpenAPI。
 4. Node API、PostgreSQL、Rust Worker 和 Chromium 暂留通用容器主机；先记录每次 Upload 的 CPU、peak RSS、临时磁盘、处理秒数、thumbnail 秒数和对象操作数。
 5. 用独立 registrable site 承载不可信内容。Cloudflare DNS、反向代理或一个 sibling subdomain 本身不能替代 Gallery eligibility 所要求的站点边界。
 

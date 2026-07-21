@@ -433,3 +433,45 @@ as running and healthy from parsed `ps` evidence, and then independently probes
 Web, API, content, Mailpit, and SMTP from the host. The recorded version is
 evidence, not an exact-version lock: another version must pass the same feature
 checks before mutation.
+
+## Tenth-pass plan and implementation checkpoint
+
+The 2026-07-22 pre-continuation review re-read the proposal, design, all delta
+specifications, tasks, durable product and module documents, current prototype
+baseline, and first-party Cloudflare, Resend, and Docker Compose manuals before
+allowing more implementation work.
+
+One provider-term ambiguity was corrected. Cloudflare's inbound Worker request
+body limit is selected by the Cloudflare account plan (for example Free or Pro),
+not by the independent Workers Free/Paid entitlement. The current 50 MiB Upload
+still fits the documented 100 MB minimum account-plan tier, but the value remains
+release-static evidence rather than a live measurement. The design, platform
+audit, and superseded cost-research snapshot now name both plan dimensions
+explicitly so `doctor` cannot infer a body limit from Container or Workers Paid
+availability.
+
+The review initially refused to advance Compose task 13.6 from partial
+implementation evidence. A live isolated `mise run api-test` proved the
+404-test API suite and the account-entry SMTP contract against dynamically
+discovered loopback endpoints, then exposed that the new test ingress returned
+the Web SPA document with `200` for `/assets/app.js` where the checked direct-API
+contract requires `404`. The implementation retained that contract and added a
+test-only `api.localhost` Host route on the already frozen ingress port rather
+than weakening the route expectation.
+
+The corrected live run passed all 404 API tests, the account-entry SMTP contract,
+and the complete Artifact-flow contract. Machine-readable before/after evidence
+proved that phase two neither recreated the four endpoint-layer containers nor
+renumbered any of their five loopback bindings. Cleanup removed the complete
+`shareslices-test` project and its two volumes. The simultaneously healthy
+developer control retained the same eight container IDs, the same PostgreSQL and
+object-storage named-volume IDs, and passing Web, API, content, Mailpit, and SMTP
+probes. This completes the dynamic-endpoint and non-recreation scope of task
+13.6; the stronger crash-recovery, E2E, provider-neutral evidence, and full cold
+lifecycle requirements remain in tasks 13.7-13.10.
+
+No new production target, hybrid topology, reduced Cloudflare target, or relaxed
+thumbnail/email/domain gate was introduced. Compose remains local/test-only;
+Kubernetes and Cloudflare remain mutually exclusive production choices; and the
+current Workers Free plus R2 plus `workers.dev`/`resend.dev` setup remains a
+non-qualifying prototype profile.
