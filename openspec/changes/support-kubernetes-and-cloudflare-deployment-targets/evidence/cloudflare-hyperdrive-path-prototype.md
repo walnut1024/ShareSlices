@@ -39,6 +39,7 @@ a direct PostgreSQL connection are therefore:
 | Migration serialization and migration execution | `api/src/db/migrate.ts` | Uses session advisory lock/unlock; deployment migration remains a direct, one-shot operation. |
 | Create or reuse an email verification attempt | `createVerificationAttempt` in `api/src/db/authentication-email-repository.ts` | Uses a transaction-scoped advisory lock to serialize email/purpose state. |
 | Accept an authentication-email delivery | `acceptAuthenticationEmailDelivery` in `api/src/db/authentication-email-repository.ts` | Uses two transaction-scoped advisory locks for email and source-IP rate serialization. |
+| Dispatch one authentication-email delivery | `dispatchOneAuthenticationEmail` in `api/src/application/accounts/authentication-email-dispatcher.ts` | Keeps claim, provider submission, lease heartbeat, and terminal transition on one explicitly checked-out direct client. This is a runtime session-continuity requirement even though its individual statements are ordinary PostgreSQL operations. |
 | Gallery disable rollback | `GalleryRollbackCoordinator.reconcileDisabled` | Uses the `gallery-rollback` transaction-scoped advisory lock. |
 | Gallery reconciliation | `GalleryReconciliation.run` | Uses the `gallery-reconciliation` transaction-scoped advisory lock. |
 | Trusted Rust processing and job-state mutation | `worker/src/job_store.rs` and its processing Container | The target architecture assigns trusted Container database access to direct TLS PostgreSQL; Hyperdrive is not a Container database transport. Its ordinary transactions and row locks are protocol-compatible but remain on the direct Adapter by runtime ownership. |
@@ -72,12 +73,18 @@ This evidence completes task 1.4. It does not qualify migrations, the direct
 Container database Adapter, R2 streaming, release automation, or production
 capacity.
 
-The next disposable run also has explicit checks for the repository driver's
-named prepared statements, transaction-local state reset, PostgreSQL statement
-timeout propagation, and a one-connection Worker-side pool. These checks are
-committed but not yet recorded as passing live evidence. They do not replace
-the provider configuration's origin-connection limit or the production TLS
-negative test.
+The next disposable run also has explicit checks for `node-postgres` named
+prepared statements, transaction-local state reset, PostgreSQL statement
+timeout propagation, and a one-connection Worker-side pool. The named-statement
+probe is a conservative driver-compatibility check, not evidence that current
+ShareSlices application queries name their prepared statements: the repository
+currently uses parameterized `node-postgres` and Drizzle queries without a
+checked application-level `name`. Cloudflare documents protocol-level named
+prepared statements from `node-postgres` as supported while separately
+excluding SQL-level statement management such as `PREPARE`, `EXECUTE`,
+`DEALLOCATE`, and `DISCARD`. These probes are committed but not yet recorded as
+passing live evidence. They do not replace the provider configuration's
+origin-connection limit or the production TLS negative test.
 
 ## Production TLS follow-up
 

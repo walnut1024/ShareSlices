@@ -333,3 +333,22 @@ Assets are free while `run_worker_first` requests consume Worker allowance and
 may return `429` on Free exhaustion; Hyperdrive `verify-full` adds hostname
 matching beyond `require`; and `resend.dev` remains restricted test mode with a
 24-hour idempotency window. No target, task, or acceptance gate was relaxed.
+
+## Seventh-pass database-scope correction
+
+The 2026-07-22 pre-5.3 documentation review found two scope errors in the
+Hyperdrive prototype evidence. First, the direct-connection inventory had not
+been updated after task 5.2 moved the complete authentication-email dispatch
+attempt onto one explicitly checked-out direct client. The inventory now names
+that session-continuity requirement alongside the advisory-lock paths.
+
+Second, the pending live-semantics paragraph called its named prepared-statement
+probe a repository-driver requirement without saying that no current
+ShareSlices query supplies an application-level `node-postgres` statement
+`name`. The probe is intentionally conservative compatibility evidence.
+Cloudflare's current contract supports protocol-level named prepared statements
+from `node-postgres` but still excludes SQL-level `PREPARE`, `EXECUTE`,
+`DEALLOCATE`, and `DISCARD`; the corrected evidence keeps those categories
+separate. Transaction, timeout, pool-budget, cache-disabled freshness, and
+`verify-full` positive/negative evidence remain required by task 5.3 and remain
+incomplete until executed and recorded.
