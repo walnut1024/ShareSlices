@@ -7,6 +7,7 @@ import {
   parseSecretReference,
   planSharedSigningKeyRotation,
   redactSecretMaterial,
+  SecretOperationError,
   withResolvedSecret,
 } from "./secrets.mjs";
 
@@ -41,6 +42,38 @@ test("resolves a Secret only inside the consuming operation", async () => {
   assert.deepEqual(calls.map(({ stage }) => stage), ["resolve", "consume"]);
 });
 
+test("redacts resolved material from operation results and errors", async () => {
+  const reference = { ref: "secret://provider/token", revision: "token-2" };
+  const resolvers = { secret: async () => "sensitive-value" };
+  const digest = createHash("sha256").update("sensitive-value").digest("hex");
+
+  const result = await withResolvedSecret(reference, resolvers, async (value) => ({
+    render: `render:${value}`,
+    plan: { fingerprint: `sha256:${digest}` },
+    record: [value],
+    log: `provider accepted ${value}`,
+  }));
+  assert.equal(JSON.stringify(result).includes("sensitive-value"), false);
+  assert.equal(JSON.stringify(result).includes(digest), false);
+  assert.deepEqual(result, {
+    render: "render:[REDACTED]",
+    plan: { fingerprint: "[REDACTED]" },
+    record: ["[REDACTED]"],
+    log: "provider accepted [REDACTED]",
+  });
+
+  await assert.rejects(
+    withResolvedSecret(reference, resolvers, async (value) => {
+      throw new Error(`provider rejected ${value} sha256:${digest}`);
+    }),
+    (error) => {
+      assert.equal(error instanceof SecretOperationError, true);
+      assert.equal(error.message, "provider rejected [REDACTED] [REDACTED]");
+      return true;
+    },
+  );
+});
+
 test("recursively redacts values and common value-derived fingerprints", () => {
   const secret = "sensitive-value";
   const digest = createHash("sha256").update(secret).digest("hex");
@@ -68,12 +101,15 @@ test("stages shared signing-key rotation and refuses missing overlap", () => {
       oldRevision: "signing-1",
       newRevision: "signing-2",
       overlapSupported: true,
-      maximumLifetimeSeconds: 3600,
+      maximumTokenLifetimeSeconds: 900,
+      maximumGrantLifetimeSeconds: 3600,
+      maximumSessionLifetimeSeconds: 1800,
+      mixedRuntimeLifetimeSeconds: 300,
     }).phases,
     [
       { action: "verify", revisions: ["signing-1", "signing-2"] },
       { action: "sign", revision: "signing-2" },
-      { action: "retire_verification", revision: "signing-1", notBeforeSeconds: 3600 },
+      { action: "retire_verification", revision: "signing-1", notBeforeSeconds: 3900 },
     ],
   );
   assert.equal(
@@ -81,7 +117,21 @@ test("stages shared signing-key rotation and refuses missing overlap", () => {
       oldRevision: "signing-1",
       newRevision: "signing-2",
       overlapSupported: false,
-      maximumLifetimeSeconds: 3600,
+      maximumTokenLifetimeSeconds: 900,
+      maximumGrantLifetimeSeconds: 3600,
+      maximumSessionLifetimeSeconds: 1800,
+      mixedRuntimeLifetimeSeconds: 300,
+    }).kind,
+    "refused",
+  );
+  assert.equal(
+    planSharedSigningKeyRotation({
+      oldRevision: "signing-1",
+      newRevision: "signing-2",
+      overlapSupported: true,
+      maximumTokenLifetimeSeconds: 900,
+      maximumGrantLifetimeSeconds: 3600,
+      maximumSessionLifetimeSeconds: 1800,
     }).kind,
     "refused",
   );

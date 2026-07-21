@@ -3,6 +3,14 @@ import { createHash } from "node:crypto";
 const referencePattern = /^(secret|kubernetes-secret|cloudflare-secret):\/\/([A-Za-z0-9._/-]+)$/;
 const redacted = "[REDACTED]";
 
+export class SecretOperationError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "SecretOperationError";
+    this.code = "secret_operation_failed";
+  }
+}
+
 export function parseSecretReference(reference) {
   if (!reference || typeof reference !== "object") {
     throw new TypeError("Secret reference must be an object.");
@@ -28,7 +36,12 @@ export async function withResolvedSecret(reference, resolvers, operation) {
   if (typeof value !== "string" || value.length === 0) {
     throw new TypeError("Secret resolver returned an invalid value.");
   }
-  return operation(value, parsed);
+  try {
+    return redactSecretMaterial(await operation(value, parsed), [value]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new SecretOperationError(redactSecretMaterial(message, [value]));
+  }
 }
 
 function derivedRepresentations(value) {
@@ -80,7 +93,28 @@ export function affectedSecretConsumers(previous, next, bindings) {
 
 export function planSharedSigningKeyRotation(input) {
   if (input.oldRevision === input.newRevision) return Object.freeze({ kind: "unchanged", phases: [] });
-  if (!input.overlapSupported || !Number.isSafeInteger(input.maximumLifetimeSeconds) || input.maximumLifetimeSeconds <= 0) {
+  const lifetimes = [
+    input.maximumTokenLifetimeSeconds,
+    input.maximumGrantLifetimeSeconds,
+    input.maximumSessionLifetimeSeconds,
+  ];
+  const validLifetimes = lifetimes.every((value) => Number.isSafeInteger(value) && value >= 0);
+  const mixedRuntimeLifetimeSeconds = input.mixedRuntimeLifetimeSeconds;
+  if (
+    !input.overlapSupported ||
+    !validLifetimes ||
+    !Number.isSafeInteger(mixedRuntimeLifetimeSeconds) ||
+    mixedRuntimeLifetimeSeconds < 0
+  ) {
+    return Object.freeze({
+      kind: "refused",
+      reasonCode: "signing_key_overlap_unavailable",
+      phases: [],
+    });
+  }
+  const maximumCapabilityLifetimeSeconds = Math.max(...lifetimes);
+  const retirementDelaySeconds = mixedRuntimeLifetimeSeconds + maximumCapabilityLifetimeSeconds;
+  if (!Number.isSafeInteger(retirementDelaySeconds) || retirementDelaySeconds <= 0) {
     return Object.freeze({
       kind: "refused",
       reasonCode: "signing_key_overlap_unavailable",
@@ -95,7 +129,7 @@ export function planSharedSigningKeyRotation(input) {
       {
         action: "retire_verification",
         revision: input.oldRevision,
-        notBeforeSeconds: input.maximumLifetimeSeconds,
+        notBeforeSeconds: retirementDelaySeconds,
       },
     ],
   });

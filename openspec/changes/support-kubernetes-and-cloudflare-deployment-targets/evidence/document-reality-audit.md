@@ -689,3 +689,22 @@ pre-emptive cleanup was used. The developer project was finally stopped through
 the two canonical named volumes and their creation timestamps. This live
 diagnostic evidence is separate from the ordinary `mise run check` gate, which
 also passed while the required local database dependency was temporarily up.
+
+## Seventeenth-pass shared Secret lifecycle acceptance
+
+Task 3.4 now keeps deployment configuration and artifacts at the logical
+reference plus operator-controlled revision boundary. Resolution occurs only
+inside the consuming callback, changed revisions select only declared consuming
+roles, and the callback boundary recursively removes both the resolved value and
+its supported SHA-256 representations from render-, plan-, record-, and log-like
+results. A provider failure is converted to a stable Secret-operation error whose
+message is redacted and whose original Secret-bearing cause is not retained.
+
+Shared signing-key rotation now models the overlap explicitly. Verifiers first
+accept old and new revisions, producers then sign only with the new revision,
+and old verification remains until the mixed-runtime window plus the longest
+declared token, grant, or Session lifetime has elapsed. Missing overlap support,
+missing lifetime evidence, invalid values, and overflow refuse online rotation
+instead of guessing a retirement time. Focused tests cover parsing, deferred
+resolution, all outward evidence shapes, error redaction, targeted rollout, the
+three rotation phases, and fail-closed lifetime handling.
