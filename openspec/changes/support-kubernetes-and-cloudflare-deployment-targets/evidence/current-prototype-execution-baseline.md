@@ -4,9 +4,13 @@
 
 This evidence records which deployment experiments the current operator accounts can support without implying that the Cloudflare production target is qualified. It contains no credential values, provider tokens, database passwords, billing identifiers, or reusable resource addresses.
 
-Observed on 2026-07-21 with non-mutating account and CLI commands. Mutable provider state must be checked again before each live prototype and before release qualification.
+The table below is the 2026-07-21 non-mutating account and CLI snapshot. It is
+historical execution evidence, not a cache of current provider state. Mutable
+provider state must be checked again before each live prototype and before
+release qualification; a failed refresh makes the affected dependency
+`unknown` and forbids automatic resource selection.
 
-## Current account evidence
+## 2026-07-21 account evidence
 
 | Dependency | Current observation | Work allowed now | Work that remains blocked |
 | --- | --- | --- | --- |
@@ -15,8 +19,30 @@ Observed on 2026-07-21 with non-mutating account and CLI commands. Mutable provi
 | Cloudflare hostname | The account has a `workers.dev` subdomain | Disposable route prototypes that are removed after evidence collection | Production ingress, the separate trusted/content registrable-site boundary, Gallery eligibility, and custom-domain qualification |
 | R2 | R2 is enabled and prior disposable bucket operations succeeded | Private R2 binding, streaming, multipart, range, and object-contract prototypes | R2 availability does not qualify the complete target or permit public bucket exposure |
 | PostgreSQL | Supabase CLI can see one active Free project; this repository is not linked to it. The retained private Hyperdrive is cache-disabled with origin connection limit `5` and was restored to TLS `require` after an incomplete `verify-full` runtime attempt. Both private prerequisites are operator-owned, retained only for the next bounded database prototype, and due for removal review before final change handoff. | Explicitly configured, disposable database and Hyperdrive compatibility probes that use operator-supplied references | Automatic project selection, production durability, backup and recovery claims, uninterrupted availability, or production TLS identity; Free projects may pause after low activity, and task 5.3 still requires the Dashboard-provided project CA plus a passing Worker-runtime `verify-full` positive case |
-| Resend | A key is available to the opt-in verifier, and the recorded `resend.dev` run proved accepted HTTPS submission and idempotent replay | API-shape, error classification, quota-header, idempotency, replay-cutoff, redaction, and safe simulation-address tests | Task 1.9, arbitrary recipients, verified-domain sending, disabled-tracking proof, same-domain key rotation, deliverability, and inbox-delivery claims |
+| Resend | A key is available to the opt-in verifier, and the recorded `resend.dev` run proved accepted HTTPS submission and idempotent replay to an allowed test recipient | API-shape, error classification, quota-header, idempotency, replay-cutoff, redaction, and Resend-documented simulation-address tests; an actual `resend.dev` send is restricted to the Resend account's own email address | Task 1.9, arbitrary recipients, verified-domain sending, disabled-tracking proof, same-domain key rotation, deliverability, and inbox-delivery claims |
 | Owned domains | No operator-owned Cloudflare zones or verified Resend sending domain are recorded for this change | `workers.dev` and `resend.dev` prototype work only | Production custom domains, distinct-site acceptance, Resend production qualification, and full Cloudflare staging acceptance |
+
+## Latest read-only refresh
+
+On 2026-07-22, Wrangler 4.112.0 still authenticated successfully to the intended
+Cloudflare account, and the R2 bucket-list operation completed without listing a
+bucket. That proves CLI access at that instant; it does not prove Workers Paid,
+quota headroom, retained-resource absence outside the returned inventory, or
+permission to create a public route.
+
+The same refresh could not list Supabase projects because the Supabase CLI
+returned a transport error for the management API. The 2026-07-21 PostgreSQL row
+therefore remains historical evidence only. Until a later read-only refresh
+succeeds and the operator supplies the exact project reference, automation must
+report the project inventory as `unknown`; it must not infer that the previously
+observed project still exists, select a replacement project, or create one.
+
+The current shell did not expose `RESEND_API_KEY_FILE`. This does not contradict
+the operator's statement that a key has been stored elsewhere, but it means a
+live verifier is not ready from this process until an explicit readable key-file
+path is supplied. Automation must not search the repository, shell history, or
+ambient environment for an alternative key, and it must never treat key presence
+as verified-domain, tracking, team-namespace, or quota evidence.
 
 ## Execution rule
 

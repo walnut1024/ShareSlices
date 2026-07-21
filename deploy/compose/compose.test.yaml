@@ -2,6 +2,12 @@
 # overlay. Its endpoint layer is created first so Docker assigns every published
 # host port before application roles receive their frozen public Origins.
 x-shareslices-topology: isolated-test
+x-shareslices-test-labels: &shareslices-test-labels
+  com.shareslices.test.repository: ${SHARESLICES_TEST_REPOSITORY_ID:-fixture-repository}
+  com.shareslices.test.topology: ${SHARESLICES_TEST_TOPOLOGY_ID:-fixture-topology}
+  com.shareslices.test.endpoint: ${SHARESLICES_TEST_ENDPOINT_ID:-fixture-endpoint}
+  com.shareslices.test.engine: ${SHARESLICES_TEST_ENGINE_ID:-fixture-engine}
+  com.shareslices.test.project: shareslices-test
 
 services:
   test-ingress:
@@ -16,12 +22,47 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    labels: *shareslices-test-labels
+
+  postgres:
+    labels: *shareslices-test-labels
+
+  object-storage:
+    labels: *shareslices-test-labels
+
+  object-storage-init:
+    labels: *shareslices-test-labels
+
+  mailpit:
+    labels: *shareslices-test-labels
+
+  migrate:
+    labels: *shareslices-test-labels
 
   api:
     ports: !reset []
+    labels: *shareslices-test-labels
+
+  maintenance:
+    labels: *shareslices-test-labels
 
   gallery-content:
     ports: !reset []
+    labels: *shareslices-test-labels
+
+  worker:
+    labels: *shareslices-test-labels
 
   web:
     ports: !reset []
+    labels: *shareslices-test-labels
+
+volumes:
+  shareslices-postgres:
+    labels: *shareslices-test-labels
+  shareslices-object-storage:
+    labels: *shareslices-test-labels
+
+networks:
+  default:
+    labels: *shareslices-test-labels

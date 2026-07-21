@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  assertDistinctTestBrowserSites,
   assertEndpointLayerUnchanged,
   freezeEndpointLayerIdentity,
   freezeTestEndpoints,
@@ -85,4 +86,31 @@ test("rejects missing, duplicate, non-loopback, and non-running bindings", () =>
   const stopped = records();
   stopped[0].State = "exited";
   assert.throws(() => freezeTestEndpoints(stopped), /not running/);
+});
+
+test("rejects same-host different-port and developer-default test endpoints", () => {
+  const endpoints = freezeTestEndpoints(records());
+  assert.throws(
+    () => assertDistinctTestBrowserSites({
+      ...endpoints,
+      contentOrigin: `http://app.localhost:${endpoints.ingress.port + 1}`,
+    }),
+    /same host on different ports/,
+  );
+
+  const developerPort = records();
+  developerPort.find((record) => record.Service === "postgres")
+    .Publishers[0].PublishedPort = 5432;
+  assert.throws(
+    () => freezeTestEndpoints(developerPort),
+    /reused developer-default port 5432/,
+  );
+
+  assert.throws(
+    () => assertDistinctTestBrowserSites({
+      ...endpoints,
+      contentOrigin: `http://other.localhost:${endpoints.ingress.port}`,
+    }),
+    /isolated app\.localhost and content\.localhost browser sites/,
+  );
 });

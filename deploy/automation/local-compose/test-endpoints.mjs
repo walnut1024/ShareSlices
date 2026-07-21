@@ -13,6 +13,51 @@ const endpointLayerServices = Object.freeze([
   "test-ingress",
 ]);
 
+const developerDefaultPorts = Object.freeze(new Set([
+  1025,
+  5173,
+  5432,
+  7460,
+  8025,
+  9000,
+]));
+
+function requireHttpOrigin(name, value) {
+  const url = new URL(value);
+  if (url.protocol !== "http:" || url.username || url.password || url.pathname !== "/") {
+    throw new Error(`Test ${name} must be a credential-free HTTP Origin`);
+  }
+  return url;
+}
+
+export function assertDistinctTestBrowserSites(endpoints) {
+  const web = requireHttpOrigin("Web Origin", endpoints.webOrigin);
+  const content = requireHttpOrigin("Untrusted-content Origin", endpoints.contentOrigin);
+  if (web.origin === content.origin) {
+    throw new Error("Test Web and Untrusted-content Origins must be distinct");
+  }
+  if (web.hostname === content.hostname) {
+    throw new Error(
+      "Test Web and Untrusted-content Origins must not use the same host on different ports",
+    );
+  }
+  if (web.hostname !== "app.localhost" || content.hostname !== "content.localhost") {
+    throw new Error(
+      "Test Web and Untrusted-content Origins must use the isolated app.localhost and content.localhost browser sites",
+    );
+  }
+  for (const [name, binding] of Object.entries(endpoints)) {
+    if (
+      binding
+      && typeof binding === "object"
+      && Number.isSafeInteger(binding.port)
+      && developerDefaultPorts.has(binding.port)
+    ) {
+      throw new Error(`Test endpoint ${name} reused developer-default port ${binding.port}`);
+    }
+  }
+}
+
 function bindingFor(records, service, targetPort) {
   const record = records.find((candidate) => candidate.Service === service);
   if (!record || record.State !== "running") {
@@ -47,13 +92,15 @@ export function freezeTestEndpoints(records) {
     throw new Error("Docker assigned one published port to multiple test endpoints");
   }
   const ingressPort = bindings.ingress.port;
-  return Object.freeze({
+  const endpoints = Object.freeze({
     ...bindings,
     apiOrigin: `http://app.localhost:${ingressPort}`,
     apiTestOrigin: `http://api.localhost:${ingressPort}`,
     contentOrigin: `http://content.localhost:${ingressPort}`,
     webOrigin: `http://app.localhost:${ingressPort}`,
   });
+  assertDistinctTestBrowserSites(endpoints);
+  return endpoints;
 }
 
 export function freezeEndpointLayerIdentity(records) {

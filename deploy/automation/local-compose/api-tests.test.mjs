@@ -5,12 +5,15 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
+  combineErrors,
   commandsForApiTests,
+  cleanupCommand,
   dockerChildEnvironment,
   prepareIsolatedDockerConfig,
   processChildEnvironment,
   repositoryRoot,
   testComposeArgs,
+  testComposeArgsWithOwnership,
   testComposeArgsWithRuntime,
   testEnvironmentFile,
   testStackEnvironment,
@@ -42,14 +45,30 @@ test("API contracts use a dedicated Compose project and request Engine-assigned 
   }
 });
 
-test("API contracts clean only their dedicated project before provisioning", () => {
-  assert.deepEqual(commandsForApiTests()[0], [
-    "docker", [...testComposeArgs, "down", "--volumes", "--remove-orphans"],
+test("API contracts do not clean before provisioning", () => {
+  assert.equal(commandsForApiTests().some(([, args]) => args.includes("down")), false);
+  assert.deepEqual(cleanupCommand(testComposeArgsWithOwnership("/tmp/ownership.env")), [
+    "docker",
+    [
+      ...testComposeArgsWithOwnership("/tmp/ownership.env"),
+      "down", "--volumes", "--remove-orphans",
+    ],
   ]);
 });
 
+test("cleanup failure is reported without masking the primary failure", () => {
+  const primary = new Error("primary contract failure");
+  const cleanup = new Error("isolated cleanup failure");
+  const combined = combineErrors(primary, cleanup);
+  assert.equal(combined instanceof AggregateError, true);
+  assert.deepEqual(combined.errors, [primary, cleanup]);
+  assert.match(combined.message, /API tests and isolated cleanup failed/);
+  assert.equal(combineErrors(primary, undefined), primary);
+  assert.equal(combineErrors(undefined, cleanup), cleanup);
+});
+
 test("API infrastructure startup has a bounded Compose wait", () => {
-  const startup = commandsForApiTests()[1][1];
+  const startup = commandsForApiTests()[0][1];
   assert.deepEqual(
     startup.slice(startup.indexOf("--wait"), startup.indexOf("--wait") + 3),
     ["--wait", "--wait-timeout", "120"],
@@ -77,13 +96,15 @@ test("every test Compose invocation uses the fixed project, files, project direc
   assert.equal(testComposeArgs.includes(".env"), false);
 });
 
-test("runtime Compose arguments add only the frozen non-sensitive endpoint fixture", () => {
-  assert.deepEqual(testComposeArgsWithRuntime("/tmp/runtime.env"), [
+test("runtime Compose arguments add only ownership and frozen endpoint fixtures", () => {
+  assert.deepEqual(testComposeArgsWithRuntime("/tmp/ownership.env", "/tmp/runtime.env"), [
     "compose",
     "--project-directory",
     repositoryRoot,
     "--env-file",
     testEnvironmentFile,
+    "--env-file",
+    "/tmp/ownership.env",
     "--env-file",
     "/tmp/runtime.env",
     "-p",

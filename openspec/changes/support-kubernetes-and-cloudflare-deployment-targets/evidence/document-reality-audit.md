@@ -1,6 +1,6 @@
 # Deployment document reality audit
 
-<!-- cspell:words Hyperdrive rollouts unarchived workerd WebPKI quiescence -->
+<!-- cspell:words Hyperdrive pooler rollouts unarchived workerd worktree WebPKI quiescence -->
 
 Audit date: 2026-07-21. Rechecked against the repository and linked first-party
 manuals on 2026-07-22.
@@ -475,3 +475,74 @@ thumbnail/email/domain gate was introduced. Compose remains local/test-only;
 Kubernetes and Cloudflare remain mutually exclusive production choices; and the
 current Workers Free plus R2 plus `workers.dev`/`resend.dev` setup remains a
 non-qualifying prototype profile.
+
+## Eleventh-pass mutable-evidence correction
+
+The 2026-07-22 documentation-only review re-read the active proposal, design,
+all delta specifications, task dependencies, durable deployment policy and
+terminology, module ownership, the superseded cost research, and the existing
+prototype evidence before more implementation work. It also refreshed the
+implementation-relevant first-party manuals and ran the real repository gates:
+`mise run docs-check`, `mise run spellcheck`, `pnpm run docs:refs`,
+`pnpm run docs:links`, and strict OpenSpec change validation. The repository
+does not expose separate `mise run docs-lint`, `docs-refs`, or `docs-links`
+tasks; durable instructions must use the checked entry points above.
+
+No product or architecture contradiction was found. The two production targets
+remain mutually exclusive; Compose remains local/test-only; Kubernetes may use
+an optional external CDN without becoming the Cloudflare target; and the
+Cloudflare target still requires paid trusted processing even when thumbnail
+qualification is deferred. Direct Static Assets requests remain free and
+unlimited, while Worker-first routes consume Worker allowance and may return
+`429` on Workers Free exhaustion. Containers still have no Workers Free
+allocation. `resend.dev` remains a restricted prototype sender whose real sends
+can target only the Resend account's own email address; documented simulation
+addresses test event paths without proving external delivery. It is not a
+substitute for the production verified-domain gate. Supabase Free projects may
+still pause after low activity, and transaction-pooler connections still require
+prepared statements to be disabled.
+
+One documentation defect was corrected: the file named “current prototype
+execution baseline” presented a dated provider snapshot prominently enough that
+a later implementation could mistake it for live inventory. The baseline now
+separates its 2026-07-21 historical snapshot from a 2026-07-22 read-only refresh,
+makes a failed refresh explicitly `unknown`, and forbids automatic fallback to a
+previously observed project or ambient credential. The refresh confirmed
+Wrangler authentication and an empty returned R2 bucket list at that instant,
+but the Supabase management request failed with a transport error and the current
+shell did not expose the Resend verifier's explicit key-file variable. Those
+facts block only the corresponding live prototype invocation; they do not block
+local Compose, provider-neutral, or Kubernetes work and do not weaken any
+production gate.
+
+At the time of this documentation-only pass, the repository-wide spell check
+still reported one word in the already-uncommitted Compose test code. The
+subsequent implementation batch corrected that spelling without weakening the
+gate, and the current repository-wide spell check passes. The checked Markdown,
+documentation-reference, documentation-link, and OpenSpec validation commands
+listed above also pass.
+
+## Twelfth-pass fixed-project crash-recovery acceptance
+
+The 2026-07-22 task 13.7 acceptance run started the canonical isolated API test
+controller while the developer project remained a live control, then terminated
+the controller with `SIGKILL` after the complete `shareslices-test` role graph
+had been created. The crash left eleven test containers, the project network,
+and both test volumes. Every inspected resource carried the exact repository,
+topology, endpoint, Engine, and project ownership markers; no developer resource
+was part of that inventory.
+
+A second `mise run api-test` reclaimed the dead process locks, acquired the
+endpoint/project and Engine/project locks, positively matched the stale resource
+inventory, removed only that project and its volumes, and provisioned a fresh
+run. The recovered run passed all 404 API tests, the account-entry SMTP contract,
+and the Artifact-flow contract before removing every test container, network,
+and volume. Focused tests separately prove that a missing or mismatched marker
+fails before cleanup and that an incomplete cleanup reports the exact remaining
+resource without hiding the primary test failure.
+
+The developer control retained the same ten Compose container IDs, the same two
+named-volume IDs, and passing Web, API, content, Mailpit, and SMTP probes across
+the crash and recovery run. This completes task 13.7 without claiming the wider
+controller race matrix, read-only/write verification split, Web E2E acceptance,
+or cold lifecycle work owned by tasks 13.8-13.10.

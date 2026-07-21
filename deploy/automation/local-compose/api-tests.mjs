@@ -29,6 +29,11 @@ import {
   freezeTestEndpoints,
   runtimeEnvironmentContents,
 } from "./test-endpoints.mjs";
+import {
+  createTestOwnership,
+  ownershipEnvironmentContents,
+  recoverOwnedTestProject,
+} from "./test-ownership.mjs";
 
 export const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 export const testEnvironmentFile = fileURLToPath(
@@ -48,7 +53,7 @@ export const testComposeArgs = [
   "deploy/compose/compose.test.yaml",
 ];
 
-export function testComposeArgsWithRuntime(runtimeEnvironmentFile) {
+export function testComposeArgsWithOwnership(ownershipEnvironmentFile) {
   return [
     "compose",
     "--project-directory",
@@ -56,7 +61,7 @@ export function testComposeArgsWithRuntime(runtimeEnvironmentFile) {
     "--env-file",
     testEnvironmentFile,
     "--env-file",
-    runtimeEnvironmentFile,
+    ownershipEnvironmentFile,
     "-p",
     "shareslices-test",
     "-f",
@@ -64,6 +69,12 @@ export function testComposeArgsWithRuntime(runtimeEnvironmentFile) {
     "-f",
     "deploy/compose/compose.test.yaml",
   ];
+}
+
+export function testComposeArgsWithRuntime(ownershipEnvironmentFile, runtimeEnvironmentFile) {
+  const args = testComposeArgsWithOwnership(ownershipEnvironmentFile);
+  args.splice(args.indexOf("-p"), 0, "--env-file", runtimeEnvironmentFile);
+  return args;
 }
 
 function parseEnvironmentFixture(contents) {
@@ -144,7 +155,6 @@ export function prepareIsolatedDockerConfig(dockerConfig, plugins) {
 
 export function commandsForApiTests() {
   return [
-    ["docker", [...testComposeArgs, "down", "--volumes", "--remove-orphans"]],
     [
       "docker",
       [
@@ -184,6 +194,10 @@ export function commandsForApiTests() {
       ],
     ],
   ];
+}
+
+export function cleanupCommand(composeArgs) {
+  return ["docker", [...composeArgs, "down", "--volumes", "--remove-orphans"]];
 }
 
 function run(command, args, env) {
@@ -235,7 +249,7 @@ export function processChildEnvironment(testRoot, endpoints, ambientEnvironment 
   };
 }
 
-function combineErrors(primaryError, cleanupError) {
+export function combineErrors(primaryError, cleanupError) {
   if (primaryError && cleanupError) {
     return new AggregateError([primaryError, cleanupError], "API tests and isolated cleanup failed");
   }
@@ -246,6 +260,7 @@ export async function runApiTests() {
   const testRoot = mkdtempSync(join(tmpdir(), "shareslices-api-tests-"));
   const dockerConfig = join(testRoot, "docker-config");
   const runtimeEnvironmentFile = join(testRoot, "runtime.env");
+  const ownershipEnvironmentFile = join(testRoot, "ownership.env");
   mkdirSync(dockerConfig, { mode: 0o700 });
   prepareIsolatedDockerConfig(dockerConfig, resolveDockerPlugins());
   const dockerEnv = dockerChildEnvironment({
@@ -257,7 +272,6 @@ export async function runApiTests() {
     dockerConfig,
     host: resolveLocalDockerHost(),
   });
-  const cleanup = commandsForApiTests()[0];
   let interruptedSignal;
   const recordSigint = () => {
     interruptedSignal ??= "SIGINT";
@@ -282,21 +296,43 @@ export async function runApiTests() {
       environment: dockerEnv,
       executeCommand: executeDockerModel,
     });
-    withDockerMutationController(dockerSnapshot, "shareslices-test", ({ runMutation }) => {
+    withDockerMutationController(dockerSnapshot, "shareslices-test", ({ engineId, runMutation }) => {
       const mutateDocker = (args) => runMutation(
         "docker",
         [...dockerSnapshot.connectionArgs, ...args],
         { cwd: repositoryRoot, env: dockerEnv, stdio: "inherit" },
       );
+      const ownership = createTestOwnership({
+        repositoryRoot,
+        endpoint: dockerSnapshot.host,
+        engineId,
+      });
+      writeFileSync(ownershipEnvironmentFile, ownershipEnvironmentContents(ownership), {
+        mode: 0o600,
+      });
+      const ownedComposeArgs = testComposeArgsWithOwnership(ownershipEnvironmentFile);
+      const cleanup = cleanupCommand(ownedComposeArgs);
       try {
-        for (const [command, args] of commandsForApiTests().slice(0, 2)) {
+        recoverOwnedTestProject({
+          connectionArgs: dockerSnapshot.connectionArgs,
+          environment: dockerEnv,
+          executeCommand(command, args, options) {
+            if (command !== "docker") throw new Error(`Unexpected recovery command ${command}`);
+            return executeDockerModel(args, options);
+          },
+          ownership,
+          cleanup: () => mutateDocker(cleanup[1]),
+        });
+        const [command, baseArgs] = commandsForApiTests()[0];
+        const args = [...ownedComposeArgs, ...baseArgs.slice(testComposeArgs.length)];
+        {
           if (command === "docker") mutateDocker(args);
           else run(command, args, dockerEnv);
           if (interruptedSignal) throw new Error(`API tests interrupted by ${interruptedSignal}`);
         }
         const endpointRecords = inspectComposeServices({
           connectionArgs: dockerSnapshot.connectionArgs,
-          composeArgs: testComposeArgs,
+          composeArgs: ownedComposeArgs,
           environment: dockerEnv,
           executeCommand: executeDockerModel,
         });
@@ -304,7 +340,10 @@ export async function runApiTests() {
         writeFileSync(runtimeEnvironmentFile, runtimeEnvironmentContents(endpoints), {
           mode: 0o600,
         });
-        const runtimeComposeArgs = testComposeArgsWithRuntime(runtimeEnvironmentFile);
+        const runtimeComposeArgs = testComposeArgsWithRuntime(
+          ownershipEnvironmentFile,
+          runtimeEnvironmentFile,
+        );
         loadAndValidateTestComposeModel({
           connectionArgs: dockerSnapshot.connectionArgs,
           composeArgs: runtimeComposeArgs,
@@ -328,7 +367,10 @@ export async function runApiTests() {
           SHARESLICES_TEST_SMTP_URL: processEnv.AUTH_EMAIL_SMTP_URL,
           SHARESLICES_TEST_WEB_ORIGIN: endpoints.webOrigin,
         };
-        for (const [command, args] of commandsForApiTests().slice(2)) {
+        for (const [command, baseArgs] of commandsForApiTests().slice(1)) {
+          const args = command === "docker"
+            ? [...ownedComposeArgs, ...baseArgs.slice(testComposeArgs.length)]
+            : baseArgs;
           if (command === "docker") mutateDocker(args);
           else run(command, args, dockerEnv);
           if (interruptedSignal) throw new Error(`API tests interrupted by ${interruptedSignal}`);
