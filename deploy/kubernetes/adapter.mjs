@@ -11,7 +11,7 @@ import {TargetAdapterError} from "../automation/target-adapter.mjs";
 import {runCoreVerification} from "../automation/verify.mjs";
 import {renderKubernetesBundle} from "./render.mjs";
 
-// cspell:ignore ciliumnetworkpolicies gitops ingressclass ingressclasses networkpolicies poddisruptionbudgets serviceaccounts
+// cspell:ignore automount ciliumnetworkpolicies gitops ingressclass ingressclasses networkpolicies poddisruptionbudgets serviceaccounts
 const requiredApiResources = Object.freeze([
   "configmaps", "deployments.apps", "ingresses.networking.k8s.io", "jobs.batch",
   "ingressclasses.networking.k8s.io", "networkpolicies.networking.k8s.io", "pods",
@@ -123,6 +123,7 @@ export function createKubernetesAdapter({
   applyPlan,
   verifyCore = runCoreVerification,
   finalizeRelease,
+  rollbackRelease,
   controlSchemaChecksum,
 } = {}) {
   async function doctor({config}) {
@@ -236,9 +237,12 @@ export function createKubernetesAdapter({
     });
   }
 
-  async function plan({config, release, bundle, bundleDigest}) {
+  async function plan({config, release, bundle, bundleDigest, operation = "apply"}) {
     const dryRuns = [];
-    for (const phase of bundle.phases) {
+    const planPhases = operation === "rollback"
+      ? bundle.phases.filter(({id}) => id !== "migration")
+      : bundle.phases;
+    for (const phase of planPhases) {
       if (phase.resources.length === 0) continue;
       const documents = phase.resources
         .map((resource) => stringify(resource, {lineWidth: 0}).trim())
@@ -277,11 +281,24 @@ export function createKubernetesAdapter({
       );
     }
     const phaseNames = {ingress: "public-runtime"};
+    const observedResources = operation === "rollback"
+      ? observed.resources.filter(({logicalId}) => !logicalId.includes("/Job/"))
+      : observed.resources;
+    const rollbackRefusals = [];
+    if (operation === "rollback") {
+      if (sha256Digest(config) !== release.configurationDigest) {
+        rollbackRefusals.push("rollback_configuration_digest_mismatch");
+      }
+      rollbackRefusals.push(...gitOpsRollbackRefusals(config, observed, release));
+      if (!rollbackRecordMatches(observed.releaseRecords?.previous, release, bundleDigest)) {
+        rollbackRefusals.push("rollback_candidate_record_mismatch");
+      }
+    }
     const desired = {
       target: "kubernetes",
       releaseId: release.releaseId,
       bundleDigest,
-      resources: bundle.phases.flatMap((phase) => phase.resources.map((resource) => ({
+      resources: planPhases.flatMap((phase) => phase.resources.map((resource) => ({
         logicalId: `${resource.apiVersion}/${resource.kind}/${resource.metadata.namespace}/${resource.metadata.name}`,
         phase: phaseNames[phase.id] ?? phase.id,
         digest: resource.metadata.annotations["shareslices.dev/resource-digest"],
@@ -292,8 +309,9 @@ export function createKubernetesAdapter({
     };
     return Object.freeze({
       desired,
-      observed: {...observed, dryRuns},
+      observed: {...observed, resources: observedResources, dryRuns},
       controlSchemaChecksum: controlSchemaChecksum ?? (await loadControlSchema()).checksum,
+      refusalReasons: [...new Set(rollbackRefusals)].sort(),
     });
   }
 
@@ -390,12 +408,6 @@ export function createKubernetesAdapter({
     });
   }
 
-  function unavailableOperation(name) {
-    return async () => {
-      throw new TypeError(`Kubernetes ${name} is not implemented yet.`);
-    };
-  }
-
   async function status({config}) {
     if (typeof observeStatus !== "function") {
       throw new TargetAdapterError(
@@ -419,11 +431,26 @@ export function createKubernetesAdapter({
     });
     if (!release) return core;
     const bundle = await render({config, release});
+    const verification = await verifyRenderedRelease({config, release, bundle, core});
+    if (verification.outcome !== "passed") return verification;
+    if (typeof finalizeRelease !== "function") {
+      throw new TargetAdapterError(
+        "kubernetes_release_finalization_unavailable",
+        "Release-bound Kubernetes verification requires fenced release finalization.",
+      );
+    }
+    await finalizeRelease({config, release, bundleDigest: verification.bundleDigest, verification});
+    return Object.freeze({...verification, finalized: true});
+  }
+
+  async function verifyRenderedRelease({config, release, bundle, core, excludeMigration = false}) {
     const canonical = serializeCanonicalTargetBundle(bundle);
     const observed = typeof observeState === "function"
       ? await observeState({config, release, bundle, runKubectl})
       : null;
-    const expectedResources = bundle.phases.flatMap(({resources}) => resources);
+    const expectedResources = bundle.phases
+      .filter(({id}) => !excludeMigration || id !== "migration")
+      .flatMap(({resources}) => resources);
     const observedById = new Map((observed?.resources ?? []).map((resource) => [resource.logicalId, resource]));
     const mismatches = expectedResources.flatMap((resource) => {
       const logicalId = `${resource.apiVersion}/${resource.kind}/${resource.metadata.namespace}/${resource.metadata.name}`;
@@ -462,15 +489,341 @@ export function createKubernetesAdapter({
       bundleDigest: canonical.digest,
       checks: Object.freeze(checks),
     });
-    if (verification.outcome !== "passed") return verification;
-    if (typeof finalizeRelease !== "function") {
+    return verification;
+  }
+
+  function currentSecretRevisions(config) {
+    return Object.freeze([
+      {logicalId: "database", revision: config.shared.database.revision},
+      ...config.shared.sessionSigningKeys.map(({revision}) => ({logicalId: "session-signing", revision})),
+      {logicalId: "object-storage", revision: config.kubernetes.objectStorage.revision},
+      {logicalId: "smtp", revision: config.kubernetes.email.smtp.revision},
+      {logicalId: "release-store", revision: config.kubernetes.releaseStore.revision},
+    ]);
+  }
+
+  function rollbackProbe(resourceName, config, release, artifact) {
+    return {
+      apiVersion: "v1",
+      kind: "Pod",
+      metadata: {
+        name: resourceName,
+        namespace: config.kubernetes.namespace,
+        labels: {
+          "app.kubernetes.io/name": "shareslices-rollback-image-probe",
+          "app.kubernetes.io/managed-by": "shareslices-deployment",
+          "shareslices.dev/installation": config.installationId,
+          "shareslices.dev/release": release.releaseId.slice(7, 19),
+          "shareslices.dev/owner": "deployment-module",
+        },
+      },
+      spec: {
+        automountServiceAccountToken: false,
+        restartPolicy: "Never",
+        imagePullSecrets: [{name: config.kubernetes.registry.pullSecretName}],
+        securityContext: {runAsNonRoot: true, seccompProfile: {type: "RuntimeDefault"}},
+        containers: [{
+          name: "probe",
+          image: `${config.kubernetes.registry.repository}/${artifact.name}@${artifact.contentDigest}`,
+          command: ["/shareslices-image-availability-probe-does-not-exist"],
+          securityContext: {
+            allowPrivilegeEscalation: false,
+            readOnlyRootFilesystem: true,
+            capabilities: {drop: ["ALL"]},
+          },
+          resources: {
+            requests: {cpu: "1m", memory: "8Mi"},
+            limits: {cpu: "10m", memory: "32Mi"},
+          },
+        }],
+      },
+    };
+  }
+
+  function probeName(release, artifact) {
+    const name = artifact.name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-|-$/g, "");
+    const identity = artifact.contentDigest.slice(7, 15);
+    return `shareslices-rb-${release.releaseId.slice(7, 15)}-${name.slice(0, 24)}-${identity}`
+      .slice(0, 63)
+      .replace(/-$/g, "");
+  }
+
+  function observeOwnedProbe(config, release, artifact, name) {
+    const result = runKubectl(commandFor(config, "get", "pod", name, "--output=json"));
+    if (result.status !== 0) return null;
+    let pod;
+    try {
+      pod = JSON.parse(result.stdout);
+    } catch {
       throw new TargetAdapterError(
-        "kubernetes_release_finalization_unavailable",
-        "Release-bound Kubernetes verification requires fenced release finalization.",
+        "kubernetes_rollback_probe_observation_invalid",
+        "An existing rollback image probe could not be read safely.",
       );
     }
-    await finalizeRelease({config, release, bundleDigest: canonical.digest, verification});
-    return Object.freeze({...verification, finalized: true});
+    const expectedImage = `${config.kubernetes.registry.repository}/${artifact.name}@${artifact.contentDigest}`;
+    if (
+      pod.metadata?.labels?.["shareslices.dev/installation"] !== config.installationId ||
+      pod.metadata?.labels?.["shareslices.dev/release"] !== release.releaseId.slice(7, 19) ||
+      pod.metadata?.labels?.["shareslices.dev/owner"] !== "deployment-module" ||
+      pod.spec?.containers?.length !== 1 ||
+      pod.spec.containers[0].image !== expectedImage
+    ) {
+      throw new TargetAdapterError(
+        "kubernetes_rollback_probe_ownership_unproven",
+        "A rollback image probe name is occupied by an unowned Pod.",
+      );
+    }
+    return pod;
+  }
+
+  async function deleteOwnedProbe(config, release, artifact, name, assertLease) {
+    if (!observeOwnedProbe(config, release, artifact, name)) return;
+    await assertLease();
+    const removed = runKubectl(commandFor(config, "delete", "pod", name, "--wait=true", "--timeout=60s"));
+    if (removed.status !== 0) {
+      throw new TargetAdapterError(
+        "kubernetes_rollback_probe_cleanup_failed",
+        "A rollback image probe could not be removed.",
+      );
+    }
+  }
+
+  async function probeRollbackImages(config, release, assertLease) {
+    const availableProviderIdentities = [];
+    const requiredSecretsAvailable = secretNames(config).every((name) => (
+      runKubectl(commandFor(config, "get", "secret", name, "--output=name")).status === 0
+    ));
+    if (!requiredSecretsAvailable) {
+      return Object.freeze({
+        availableProviderIdentities: Object.freeze([]),
+        availableSecretRevisions: Object.freeze([]),
+      });
+    }
+    for (const artifact of release.artifacts.filter(({artifactKind}) => artifactKind === "oci-image")) {
+      const name = probeName(release, artifact);
+      await deleteOwnedProbe(config, release, artifact, name, assertLease);
+      try {
+        await assertLease();
+        const created = runKubectl(commandFor(config, "create", "--filename=-"), {
+          input: documentsFor([rollbackProbe(name, config, release, artifact)]),
+        });
+        if (created.status !== 0) continue;
+        const waited = runKubectl(commandFor(
+          config,
+          "wait",
+          "--for=jsonpath={.status.containerStatuses[0].imageID}",
+          `pod/${name}`,
+          "--timeout=120s",
+        ));
+        if (waited.status === 0) availableProviderIdentities.push(artifact.providerIdentity);
+      } finally {
+        await deleteOwnedProbe(config, release, artifact, name, assertLease);
+      }
+    }
+    return Object.freeze({
+      availableProviderIdentities: Object.freeze(availableProviderIdentities),
+      availableSecretRevisions: requiredSecretsAvailable ? currentSecretRevisions(config) : Object.freeze([]),
+    });
+  }
+
+  function rollbackRecordMatches(record, release, bundleDigest) {
+    const secretRevisions = [...release.secretRevisions]
+      .sort((left, right) => left.logicalId.localeCompare(right.logicalId));
+    return Boolean(record) && sha256Digest(record) === sha256Digest({
+      target: release.target,
+      releaseId: release.releaseId,
+      bundleDigest,
+      configurationDigest: release.configurationDigest,
+      secretRevisions,
+      compatibility: release.compatibility,
+      contractRevisions: release.contractRevisions,
+    });
+  }
+
+  function gitOpsRollbackRefusals(config, control, release) {
+    const active = control.releaseRecords?.active;
+    const previous = control.releaseRecords?.previous;
+    const reasons = [];
+    if (!active || !previous || previous.releaseId !== release.releaseId) {
+      reasons.push("rollback_candidate_not_recorded");
+    }
+    if (active?.compatibility?.schemaHead !== release.compatibility.schemaHead) {
+      reasons.push("rollback_schema_incompatible");
+    }
+    if (active?.compatibility?.runtimeNMinus1 !== release.compatibility.runtimeN) {
+      reasons.push("rollback_runtime_incompatible");
+    }
+    if (active?.contractRevisions?.jobs !== release.contractRevisions.jobs) {
+      reasons.push("rollback_job_contract_incompatible");
+    }
+    const revisions = new Set(currentSecretRevisions(config).map(
+      ({logicalId, revision}) => `${logicalId}:${revision}`,
+    ));
+    if (release.secretRevisions.some(
+      ({logicalId, revision}) => !revisions.has(`${logicalId}:${revision}`),
+    )) {
+      reasons.push("rollback_secret_revision_unavailable");
+    }
+    return [...new Set(reasons)].sort();
+  }
+
+  async function rollback({config, release, plan: deploymentPlan, authorizedPlanDigest}) {
+    if (sha256Digest(config) !== release.configurationDigest) {
+      return Object.freeze({
+        outcome: "refused",
+        refusalReasons: ["rollback_configuration_digest_mismatch"],
+        actions: [],
+      });
+    }
+    const bundle = await render({config, release});
+    const bundleDigest = serializeCanonicalTargetBundle(bundle).digest;
+    if (config.kubernetes.reconciliation.mode === "gitops") {
+      const {planDigest, ...planBody} = deploymentPlan ?? {};
+      if (
+        deploymentPlan?.operation !== "rollback" ||
+        deploymentPlan.outcome !== "ready" ||
+        deploymentPlan.actions?.some(({phase}) => phase === "migration") ||
+        planDigest !== authorizedPlanDigest ||
+        sha256Digest(planBody) !== planDigest ||
+        deploymentPlan.target !== config.target ||
+        deploymentPlan.releaseId !== release.releaseId ||
+        deploymentPlan.bundleDigest !== bundleDigest
+      ) {
+        return Object.freeze({
+          outcome: "refused",
+          refusalReasons: ["rollback_plan_unauthorized"],
+          actions: [],
+        });
+      }
+      if (typeof observeState !== "function") {
+        throw new TargetAdapterError(
+          "kubernetes_rollback_observation_unavailable",
+          "GitOps rollback requires authoritative release-record observation.",
+        );
+      }
+      const control = await observeState({config, release, bundle, runKubectl});
+      if (control.revision !== deploymentPlan.observedStateRevision) {
+        return Object.freeze({
+          outcome: "refused",
+          refusalReasons: ["rollback_plan_stale"],
+          actions: [],
+        });
+      }
+      const refusalReasons = gitOpsRollbackRefusals(config, control, release);
+      if (!rollbackRecordMatches(control.releaseRecords?.previous, release, bundleDigest)) {
+        refusalReasons.push("rollback_candidate_record_mismatch");
+      }
+      const uniqueRefusals = [...new Set(refusalReasons)].sort();
+      if (uniqueRefusals.length > 0) {
+        return Object.freeze({
+          outcome: "refused",
+          refusalReasons: uniqueRefusals,
+          actions: [],
+        });
+      }
+      const phases = Object.freeze([
+        {
+          phase: "private-runtime",
+          resources: Object.freeze(bundle.phases
+            .filter(({id}) => ["prerequisites", "private-runtime"].includes(id))
+            .flatMap(({resources}) => resources)),
+        },
+        {
+          phase: "public-runtime",
+          resources: Object.freeze(bundle.phases.find(({id}) => id === "ingress")?.resources ?? []),
+        },
+      ]);
+      return Object.freeze({
+        outcome: "external_reconciler_required",
+        releaseId: release.releaseId,
+        bundleDigest,
+        handoffDigest: sha256Digest({releaseId: release.releaseId, bundleDigest, phases}),
+        compatibilityEvidence: Object.freeze({
+          currentSchemaHead: control.releaseRecords.active?.compatibility?.schemaHead ?? null,
+          candidateSchemaHead: release.compatibility.schemaHead,
+          jobsContract: release.contractRevisions.jobs,
+          migrationIncluded: false,
+          providerAvailability: "external_reconciler_required",
+        }),
+        phases,
+      });
+    }
+    if (typeof rollbackRelease !== "function") {
+      throw new TargetAdapterError(
+        "kubernetes_rollback_control_unavailable",
+        "Kubernetes rollback requires authoritative deployment control.",
+      );
+    }
+    return rollbackRelease({
+      config,
+      release,
+      bundleDigest,
+      plan: deploymentPlan,
+      authorizedPlanDigest,
+      observe: () => observeState({config, release, bundle, runKubectl}),
+      preflight: async ({assertLease}) => probeRollbackImages(config, release, assertLease),
+      executePhase: async ({phase}) => {
+        if (phase === "private-runtime") {
+          const resources = bundle.phases
+            .filter(({id}) => ["prerequisites", "private-runtime"].includes(id))
+            .flatMap(({resources}) => resources);
+          const applied = runKubectl(commandFor(
+            config,
+            "apply",
+            "--server-side",
+            `--field-manager=${config.kubernetes.fieldManager}`,
+            "--filename=-",
+            "--output=name",
+          ), {input: documentsFor(resources)});
+          if (applied.status !== 0) {
+            throw new TargetAdapterError("kubernetes_rollback_apply_failed", "Kubernetes private rollback apply failed.");
+          }
+          for (const deployment of resources.filter(({kind}) => kind === "Deployment")) {
+            const rollout = runKubectl(commandFor(config, "rollout", "status", `deployment/${deployment.metadata.name}`, "--timeout=600s"));
+            if (rollout.status !== 0) {
+              throw new TargetAdapterError("kubernetes_rollback_rollout_incomplete", "A rollback Deployment did not complete rollout.");
+            }
+          }
+          return {resourceCount: resources.length, migrationApplied: false};
+        }
+        if (phase === "public-runtime") {
+          const resources = bundle.phases.find(({id}) => id === "ingress")?.resources ?? [];
+          const applied = runKubectl(commandFor(
+            config,
+            "apply",
+            "--server-side",
+            `--field-manager=${config.kubernetes.fieldManager}`,
+            "--filename=-",
+            "--output=name",
+          ), {input: documentsFor(resources)});
+          if (applied.status !== 0) {
+            throw new TargetAdapterError("kubernetes_rollback_ingress_failed", "Kubernetes public rollback apply failed.");
+          }
+          return {resourceCount: resources.length, migrationApplied: false};
+        }
+        if (phase === "verification") {
+          const core = await verifyCore({
+            applicationOrigin: config.shared.publicOrigins.application,
+            contentOrigin: config.shared.publicOrigins.content,
+          });
+          const verification = await verifyRenderedRelease({
+            config,
+            release,
+            bundle,
+            core,
+            excludeMigration: true,
+          });
+          if (verification.outcome !== "passed") {
+            throw new TargetAdapterError(
+              "kubernetes_rollback_verification_failed",
+              "The restored Kubernetes release did not pass verification.",
+            );
+          }
+          return verification;
+        }
+        throw new TargetAdapterError("kubernetes_rollback_phase_unavailable", "An unknown rollback phase was requested.");
+      },
+    });
   }
 
   return Object.freeze({
@@ -480,6 +833,6 @@ export function createKubernetesAdapter({
     apply,
     status,
     verify,
-    rollback: unavailableOperation("rollback"),
+    rollback,
   });
 }

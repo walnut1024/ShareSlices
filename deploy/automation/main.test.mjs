@@ -81,3 +81,18 @@ test("production Kubernetes release finalization requires an explicit principal"
     (error) => error.code === "deployment_principal_required",
   );
 });
+
+test("production Kubernetes rollback requires an explicit principal", async () => {
+  let rollbackRelease;
+  createProductionKubernetesAdapter({
+    environment: {SHARESLICES_SECRET_ROOT: "/tmp/shareslices-test-secrets"},
+    createAdapter: (options) => {
+      rollbackRelease = options.rollbackRelease;
+      return {};
+    },
+  });
+  await assert.rejects(
+    rollbackRelease({}),
+    (error) => error.code === "deployment_principal_required",
+  );
+});

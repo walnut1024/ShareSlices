@@ -41,8 +41,12 @@ journal its phases in PostgreSQL, and drive Kubernetes direct server-side apply
 through migration and Deployment rollout gates. GitOps mode emits an immutable
 external-reconciler handoff without writing the cluster. Release-bound core
 verification can now record active and previous releases after exact rendered
-resource convergence. Safe retirement execution, deep verification, rollback,
-completed GitOps predecessor observation, optional-CDN acceptance, real-cluster
+resource convergence. Compatibility-aware direct rollback now restores the
+recorded prior configuration and runtime without applying its migration, verifies
+the result, and swaps active/previous records under a fenced operation; GitOps
+rollback emits an immutable migration-free handoff without writing the cluster.
+Safe retirement execution, deep verification, completed GitOps predecessor
+observation, optional-CDN acceptance, real-cluster
 acceptance, and release qualification remain target work. The Cloudflare
 production Adapter and its mutating lifecycle remain target work; the checked
 Cloudflare files currently provide provider-contract evidence and bounded
@@ -72,10 +76,14 @@ prototypes, not a supported Deployment target.
   with an explicit release it also requires exact rendered-resource convergence
   and verification-contract identity before a separately fenced operation
   records active and previous releases. Authorized deep verification, network
-  probes, target rollback execution, retirement, and target qualification are
-  not yet current. Release records now retain the Secret-free runtime/schema and
-  contract compatibility snapshot required to evaluate an explicit rollback
-  candidate.
+  probes, retirement, completed GitOps predecessor observation, and target
+  qualification are not yet current. Direct rollback now requires a separately
+  generated rollback plan bound to the exact observed revision, revalidates it
+  after acquiring the PostgreSQL lease, proves retained image pulls and current
+  Secret revisions, applies no migration Job, verifies convergence against the
+  current schema head, and atomically swaps active and previous release records.
+  GitOps rollback returns ordered prior configuration/runtime and ingress bundles
+  with compatibility evidence, but does not claim external reconciliation.
 - `deploy/cloudflare/` owns Cloudflare Workers, Edge/CDN, Static Assets, private
   R2, Hyperdrive, Queue, scheduled, Container, and Resend composition. Provider
   feasibility evidence gates only this Adapter; failure does not weaken shared

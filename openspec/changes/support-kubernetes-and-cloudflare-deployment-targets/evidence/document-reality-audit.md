@@ -991,3 +991,45 @@ tested lifecycle; adding optimistic procedures now would turn target design into
 unsafe operator guidance. The next implementation work must therefore continue
 from the unchecked rollback and qualification boundaries, not from the stale
 summary language corrected here.
+
+## Twenty-ninth-pass compatibility-aware Kubernetes rollback acceptance
+
+Tasks 3.12 and 10.5 now have an end-to-end repository implementation. A rollback
+is no longer authorized by a release path alone: `plan --operation rollback`
+produces a digest-bound plan for the exact candidate bundle and observed target
+revision, excludes the candidate migration Job from dry-run and desired actions,
+and records compatibility or predecessor refusals. `rollback` requires that
+exact ready plan and release, verifies their canonical digests and identities,
+and refuses stale observation before any lease or target mutation.
+
+Direct reconciliation acquires the authoritative PostgreSQL operation lease,
+rereads active/previous records, re-observes the plan revision, and fails closed
+if either changed. Under the live fence it confirms every required role Secret
+still exists, compares the operator-controlled candidate Secret revisions,
+creates least-privilege default-denied image-pull probe Pods for each retained
+OCI digest, and removes only positively owned probes. The fence is renewed before
+every probe mutation and each rollback phase. Only configuration/prerequisites,
+private runtimes, and public ingress are applied; no prior migration Job or down
+migration is rendered into the rollback plan or applied. Runtime rollout and the
+shared credential-free verification contract must pass before active/previous
+release records are swapped and the operation completes. A repeated already
+converged rollback returns success without a provider mutation.
+
+The status observer now accepts the still-current completed migration Job when
+its observed schema head equals the restored runtime's recorded compatible
+schema head; it does not require that Job to carry the restored release ID. This
+preserves truthful status after an application-only rollback. GitOps rollback
+uses the same authorized-plan and compatibility checks, emits ordered prior
+configuration/runtime and ingress bundles plus current-schema evidence, omits
+migration, and returns `external_reconciler_required` without writing either the
+cluster or a Git repository or claiming completion.
+
+Deployment tests cover unauthorized and stale plans, unrecorded candidates,
+schema/runtime/job/Secret/provider refusal, lease heartbeats and stable failed
+checkpoints, idempotent repetition, image-probe cleanup and ownership, migration
+omission, post-rollback verification, record swapping, compatible status, and
+the migration-free GitOps handoff. Task 3.14 remains open because its complete
+cross-target integration and Cloudflare conditional-mirror matrix is broader
+than this Kubernetes rollback slice. Tasks 10.3, 10.4, 10.6, and the real-cluster
+acceptance gates also remain open; this implementation does not qualify the
+Kubernetes target by itself.

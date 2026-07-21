@@ -66,13 +66,13 @@ export function parseInvocation(argv) {
       };
     }
     const key = name.slice(2);
-    if (!new Set(["config", "release", "plan"]).has(key) || options[key] !== undefined) {
+    if (!new Set(["config", "release", "plan", "operation"]).has(key) || options[key] !== undefined) {
       return {
         exitCode: exitCodes.invalidInput,
         result: deploymentResult(command, {
           reason: {
             code: "invalid_deployment_arguments",
-            message: "Only one --config, --release, and --plan option is accepted.",
+            message: "Only one --config, --release, --plan, and --operation option is accepted.",
           },
         }),
       };

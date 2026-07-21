@@ -139,6 +139,31 @@ test("plan binds the observed revision and refuses destructive drift", async () 
   assert.equal(execution.result.data.plan.planDigest.startsWith("sha256:"), true);
 });
 
+test("plan carries an explicit rollback operation into the authorized digest", async () => {
+  let requestedOperation;
+  const execution = await executeInvocation(
+    parseInvocation(["plan", "--config", configPath, "--release", releasePath, "--operation", "rollback"]),
+    executor({
+      render: async () => ({target: "cloudflare", releaseId: release.releaseId}),
+      plan: async ({bundleDigest, operation}) => {
+        requestedOperation = operation;
+        return {
+          desired: {target: "cloudflare", releaseId: release.releaseId, bundleDigest, resources: []},
+          observed: {
+            revision: "observed-rollback-1",
+            controlSchema: {state: "present", checksum: sha256Digest("control")},
+            resources: [],
+          },
+          controlSchemaChecksum: sha256Digest("control"),
+        };
+      },
+    }),
+  );
+  assert.equal(execution.exitCode, exitCodes.succeeded);
+  assert.equal(requestedOperation, "rollback");
+  assert.equal(execution.result.data.plan.operation, "rollback");
+});
+
 test("status projects provider observations through the common state model", async () => {
   const execution = await executeInvocation(
     parseInvocation(["status", "--config", configPath]),
@@ -177,6 +202,7 @@ test("apply accepts only a digest-bound plan for the rendered target bundle", as
   const bundle = {target: "cloudflare", releaseId: release.releaseId, resources: []};
   const body = {
     schemaVersion: "shareslices.deployment-plan/v1",
+    operation: "apply",
     target: "cloudflare",
     releaseId: release.releaseId,
     bundleDigest: serializeCanonicalTargetBundle(bundle).digest,
@@ -205,7 +231,7 @@ test("apply accepts only a digest-bound plan for the rendered target bundle", as
   assert.equal(execution.result.data.bundleDigest, body.bundleDigest);
 });
 
-test("rollback requires an explicit release and preserves refused and external handoff outcomes", async () => {
+test("rollback requires an explicit release and authorized rollback plan while preserving outcomes", async (context) => {
   const missing = await executeInvocation(
     parseInvocation(["rollback", "--config", configPath]),
     executor(),
@@ -213,16 +239,39 @@ test("rollback requires an explicit release and preserves refused and external h
   assert.equal(missing.exitCode, exitCodes.invalidInput);
   assert.equal(missing.result.reason.code, "rollback_release_required");
 
+  const directory = await mkdtemp(path.join(tmpdir(), "shareslices-rollback-plan-"));
+  context.after(() => rm(directory, {recursive: true, force: true}));
+  const bundle = {target: "cloudflare", releaseId: release.releaseId, resources: []};
+  const body = {
+    schemaVersion: "shareslices.deployment-plan/v1",
+    operation: "rollback",
+    target: "cloudflare",
+    releaseId: release.releaseId,
+    bundleDigest: serializeCanonicalTargetBundle(bundle).digest,
+    observedStateRevision: "observed-1",
+    firstInstallation: false,
+    actions: [],
+    outcome: "ready",
+    refusalReasons: [],
+  };
+  const plan = {...body, planDigest: sha256Digest(body)};
+  const planPath = path.join(directory, "plan.json");
+  await writeFile(planPath, JSON.stringify(plan));
+  const rollbackExecutor = (result) => executor({
+    render: async () => bundle,
+    rollback: async () => result,
+  });
+
   const refused = await executeInvocation(
-    parseInvocation(["rollback", "--config", configPath, "--release", releasePath]),
-    executor({rollback: async () => ({outcome: "refused", refusalReasons: ["rollback_schema_incompatible"]})}),
+    parseInvocation(["rollback", "--config", configPath, "--release", releasePath, "--plan", planPath]),
+    rollbackExecutor({outcome: "refused", refusalReasons: ["rollback_schema_incompatible"]}),
   );
   assert.equal(refused.exitCode, exitCodes.refused);
   assert.equal(refused.result.reason.code, "rollback_schema_incompatible");
 
   const handedOff = await executeInvocation(
-    parseInvocation(["rollback", "--config", configPath, "--release", releasePath]),
-    executor({rollback: async () => ({outcome: "external_reconciler_required", phases: []})}),
+    parseInvocation(["rollback", "--config", configPath, "--release", releasePath, "--plan", planPath]),
+    rollbackExecutor({outcome: "external_reconciler_required", phases: []}),
   );
   assert.equal(handedOff.exitCode, exitCodes.externalReconcilerRequired);
   assert.equal(handedOff.result.reason.code, "external_reconciler_required");

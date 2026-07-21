@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import test from "node:test";
 
+import {parseDocument} from "yaml";
+
+import {sha256Digest} from "../automation/canonical.mjs";
+import {buildDeploymentPlan} from "../automation/plan.mjs";
+import {serializeCanonicalTargetBundle} from "../automation/release.mjs";
 import {createKubernetesAdapter} from "./adapter.mjs";
 
 // cspell:ignore ingressclasses
@@ -334,4 +339,273 @@ test("release-bound verify refuses missing cluster resources without finalizatio
   assert.equal(result.outcome, "failed");
   assert.equal(result.checks.at(-1).evidence.mismatches.length > 0, true);
   assert.equal(finalized, false);
+});
+
+function rollbackReleaseFor(rollbackConfig) {
+  const candidate = structuredClone(release);
+  candidate.configurationDigest = sha256Digest(rollbackConfig);
+  candidate.compatibility = {
+    schemaHead: "0028_gallery_optional_tags",
+    runtimeN: "runtime-old",
+    runtimeNMinus1: null,
+    minimumDeploymentSchemaVersion: "shareslices.deployment/v1",
+    migrationPrefixesCompatibleWithNMinus1: true,
+    adjacentArtifactsCompatible: true,
+  };
+  candidate.contractRevisions = {
+    deployment: "shareslices.deployment/v1",
+    database: "0028_gallery_optional_tags",
+    jobs: "gallery-job/v1",
+    verification: "shareslices.verification/v1",
+  };
+  candidate.secretRevisions = [
+    {logicalId: "database", revision: rollbackConfig.shared.database.revision},
+    {logicalId: "session-signing", revision: rollbackConfig.shared.sessionSigningKeys[0].revision},
+    {logicalId: "object-storage", revision: rollbackConfig.kubernetes.objectStorage.revision},
+    {logicalId: "smtp", revision: rollbackConfig.kubernetes.email.smtp.revision},
+    {logicalId: "release-store", revision: rollbackConfig.kubernetes.releaseStore.revision},
+  ];
+  candidate.artifacts = candidate.artifacts.map((artifact) => ({
+    ...artifact,
+    platforms: ["linux/amd64"],
+    providerIdentity: {
+      kind: "digest",
+      value: artifact.contentDigest,
+      qualified: true,
+      mutable: false,
+    },
+  }));
+  return candidate;
+}
+
+function rollbackPlanFor(candidate, bundleDigest, observedStateRevision = "rollback-observed-1") {
+  const body = {
+    schemaVersion: "shareslices.deployment-plan/v1",
+    operation: "rollback",
+    target: candidate.target,
+    releaseId: candidate.releaseId,
+    bundleDigest,
+    observedStateRevision,
+    firstInstallation: false,
+    actions: [],
+    outcome: "ready",
+    refusalReasons: [],
+  };
+  return {...body, planDigest: sha256Digest(body)};
+}
+
+test("rollback planning excludes migration and binds the recorded compatible predecessor", async () => {
+  const rollbackConfig = structuredClone(config);
+  const candidate = rollbackReleaseFor(rollbackConfig);
+  const adapter = createKubernetesAdapter({
+    runKubectl: () => ({status: 0, stdout: "resource/name\n", stderr: ""}),
+    controlSchemaChecksum: digest("4"),
+    observeState: async ({bundle}) => {
+      const bundleDigest = serializeCanonicalTargetBundle(bundle).digest;
+      return {
+        revision: "rollback-observed-1",
+        controlSchema: {state: "present", checksum: digest("4")},
+        resources: [],
+        releaseRecords: {
+          active: {
+            releaseId: digest("8"),
+            compatibility: {
+              schemaHead: candidate.compatibility.schemaHead,
+              runtimeNMinus1: candidate.compatibility.runtimeN,
+            },
+            contractRevisions: {jobs: candidate.contractRevisions.jobs},
+          },
+          previous: {
+            target: candidate.target,
+            releaseId: candidate.releaseId,
+            bundleDigest,
+            configurationDigest: candidate.configurationDigest,
+            secretRevisions: [...candidate.secretRevisions]
+              .sort((left, right) => left.logicalId.localeCompare(right.logicalId)),
+            compatibility: candidate.compatibility,
+            contractRevisions: candidate.contractRevisions,
+          },
+        },
+      };
+    },
+  });
+  const bundle = await adapter.render({config: rollbackConfig, release: candidate});
+  const bundleDigest = serializeCanonicalTargetBundle(bundle).digest;
+  const planning = await adapter.plan({
+    config: rollbackConfig,
+    release: candidate,
+    bundle,
+    bundleDigest,
+    operation: "rollback",
+  });
+  const plan = buildDeploymentPlan({...planning, operation: "rollback"});
+  assert.equal(plan.operation, "rollback");
+  assert.equal(plan.outcome, "ready");
+  assert.equal(plan.actions.some(({phase}) => phase === "migration"), false);
+  assert.equal(planning.observed.dryRuns.some(({phase}) => phase === "migration"), false);
+  assert.equal(planning.desired.resources.some(({logicalId}) => logicalId.includes("/Job/")), false);
+});
+
+test("direct rollback proves retained images, omits migration, verifies, and delegates the fenced record swap", async () => {
+  const direct = structuredClone(config);
+  direct.kubernetes.delivery.mode = "direct";
+  direct.kubernetes.ingress.externalCdn.enabled = false;
+  const candidate = rollbackReleaseFor(direct);
+  const calls = [];
+  const probePods = new Map();
+  let controllerInput;
+  const adapter = createKubernetesAdapter({
+    runKubectl: (arguments_, options = {}) => {
+      calls.push({arguments_, input: options.input ?? null});
+      if (arguments_.includes("get") && arguments_.includes("pod")) {
+        const name = arguments_[arguments_.indexOf("pod") + 1];
+        const pod = probePods.get(name);
+        return pod
+          ? {status: 0, stdout: JSON.stringify(pod), stderr: ""}
+          : {status: 1, stdout: "", stderr: "not found"};
+      }
+      if (arguments_.includes("create")) {
+        const pod = parseDocument(options.input).toJSON();
+        probePods.set(pod.metadata.name, pod);
+      }
+      if (arguments_.includes("delete") && arguments_.includes("pod")) {
+        probePods.delete(arguments_[arguments_.indexOf("pod") + 1]);
+      }
+      return {status: 0, stdout: "resource/name\n", stderr: ""};
+    },
+    observeState: async ({bundle}) => ({
+      controlSchema: {state: "present"},
+      resources: bundle.phases.flatMap(({resources}) => resources.map((resource) => ({
+        logicalId: `${resource.apiVersion}/${resource.kind}/${resource.metadata.namespace}/${resource.metadata.name}`,
+        digest: resource.metadata.annotations["shareslices.dev/resource-digest"],
+      }))),
+    }),
+    verifyCore: async () => ({
+      contractDigest: candidate.verificationContractDigest,
+      level: "core",
+      outcome: "passed",
+      checks: [],
+    }),
+    rollbackRelease: async (input) => {
+      controllerInput = input;
+      const availability = await input.preflight({lease: {}, assertLease: async () => {}});
+      assert.equal(availability.availableProviderIdentities.length, candidate.artifacts.length);
+      const phases = [];
+      for (const phase of ["private-runtime", "public-runtime", "verification"]) {
+        phases.push({phase, evidence: await input.executePhase({lease: {}, phase})});
+      }
+      return {outcome: "succeeded", phases};
+    },
+  });
+  const result = await adapter.rollback({config: direct, release: candidate});
+  assert.equal(result.outcome, "succeeded");
+  assert.equal(controllerInput.release, candidate);
+  assert.equal(calls.filter(({arguments_}) => arguments_.includes("create")).length, candidate.artifacts.length);
+  assert.equal(calls.filter(({arguments_}) => arguments_.includes("delete")).length, candidate.artifacts.length);
+  const appliedDocuments = calls.filter(({arguments_}) => arguments_.includes("apply")).map(({input}) => input).join("\n");
+  assert.equal(appliedDocuments.includes("kind: Job"), false);
+  assert.equal(appliedDocuments.includes("kind: Deployment"), true);
+  assert.equal(result.phases.at(-1).evidence.outcome, "passed");
+});
+
+test("direct rollback refuses missing role Secrets before creating image probes", async () => {
+  const rollbackConfig = structuredClone(config);
+  const candidate = rollbackReleaseFor(rollbackConfig);
+  const calls = [];
+  const adapter = createKubernetesAdapter({
+    runKubectl: (arguments_) => {
+      calls.push(arguments_);
+      if (arguments_.includes("secret") && arguments_.includes("shareslices-api-secrets")) {
+        return {status: 1, stdout: "", stderr: "not found"};
+      }
+      return {status: 0, stdout: "resource/name\n", stderr: ""};
+    },
+    rollbackRelease: async ({preflight}) => {
+      const availability = await preflight({assertLease: async () => {}});
+      assert.deepEqual(availability.availableSecretRevisions, []);
+      return {outcome: "refused", refusalReasons: ["rollback_secret_revision_unavailable"], actions: []};
+    },
+  });
+  const result = await adapter.rollback({config: rollbackConfig, release: candidate});
+  assert.deepEqual(result.refusalReasons, ["rollback_secret_revision_unavailable"]);
+  assert.equal(calls.some((arguments_) => arguments_.includes("create")), false);
+});
+
+test("direct rollback never deletes an image-probe Pod without exact ownership", async () => {
+  const rollbackConfig = structuredClone(config);
+  const candidate = rollbackReleaseFor(rollbackConfig);
+  const calls = [];
+  const adapter = createKubernetesAdapter({
+    runKubectl: (arguments_) => {
+      calls.push(arguments_);
+      if (arguments_.includes("get") && arguments_.includes("pod")) {
+        return {status: 0, stdout: JSON.stringify({metadata: {labels: {}}}), stderr: ""};
+      }
+      return {status: 0, stdout: "resource/name\n", stderr: ""};
+    },
+    rollbackRelease: async ({preflight}) => preflight({assertLease: async () => {}}),
+  });
+  await assert.rejects(
+    adapter.rollback({config: rollbackConfig, release: candidate}),
+    (error) => error.code === "kubernetes_rollback_probe_ownership_unproven",
+  );
+  assert.equal(calls.some((arguments_) => arguments_.includes("delete")), false);
+});
+
+test("GitOps rollback emits prior runtime/configuration bundles without a migration or cluster mutation", async () => {
+  const gitops = structuredClone(config);
+  gitops.kubernetes.reconciliation.mode = "gitops";
+  const candidate = rollbackReleaseFor(gitops);
+  let record;
+  let observation;
+  const adapter = createKubernetesAdapter({
+    runKubectl: () => ({status: 0, stdout: "", stderr: ""}),
+    observeState: async () => observation,
+  });
+  const bundle = await adapter.render({config: gitops, release: candidate});
+  const bundleDigest = serializeCanonicalTargetBundle(bundle).digest;
+  record = {
+    target: candidate.target,
+    releaseId: candidate.releaseId,
+    bundleDigest,
+    configurationDigest: candidate.configurationDigest,
+    secretRevisions: [...candidate.secretRevisions].sort((left, right) => left.logicalId.localeCompare(right.logicalId)),
+    compatibility: candidate.compatibility,
+    contractRevisions: candidate.contractRevisions,
+  };
+  const plan = rollbackPlanFor(candidate, bundleDigest);
+  observation = {
+    revision: plan.observedStateRevision,
+    controlSchema: {state: "present"},
+    resources: [],
+    releaseRecords: {
+      active: {
+        compatibility: {
+          schemaHead: candidate.compatibility.schemaHead,
+          runtimeNMinus1: candidate.compatibility.runtimeN,
+        },
+        contractRevisions: {jobs: candidate.contractRevisions.jobs},
+      },
+      previous: record,
+    },
+  };
+  const result = await adapter.rollback({
+    config: gitops,
+    release: candidate,
+    plan,
+    authorizedPlanDigest: plan.planDigest,
+  });
+  assert.equal(result.outcome, "external_reconciler_required");
+  assert.equal(result.compatibilityEvidence.migrationIncluded, false);
+  assert.equal(result.phases.some(({resources}) => resources.some(({kind}) => kind === "Job")), false);
+  assert.match(result.handoffDigest, /^sha256:/);
+});
+
+test("rollback refuses a configuration that cannot reproduce the recorded candidate bundle", async () => {
+  const candidate = rollbackReleaseFor(config);
+  const changed = structuredClone(config);
+  changed.kubernetes.workloads.api.replicas += 1;
+  const adapter = createKubernetesAdapter();
+  const result = await adapter.rollback({config: changed, release: candidate});
+  assert.deepEqual(result.refusalReasons, ["rollback_configuration_digest_mismatch"]);
 });

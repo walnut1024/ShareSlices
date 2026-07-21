@@ -139,7 +139,7 @@ function validateBundleIdentity(bundle, config, release) {
   return bundle;
 }
 
-async function executeReadOnly({ command, config, release, adapter }) {
+async function executeReadOnly({ command, config, release, adapter, options }) {
   if (command === "doctor") {
     const prerequisites = discoverPrerequisites(config);
     const diagnosis = await adapter.doctor({ config, prerequisites });
@@ -191,14 +191,28 @@ async function executeReadOnly({ command, config, release, adapter }) {
   }
 
   if (command === "plan") {
+    const operation = options.operation ?? "apply";
+    if (!["apply", "rollback"].includes(operation)) {
+      throw new DeploymentLifecycleError(
+        "deployment_plan_operation_invalid",
+        "Plan operation must be apply or rollback.",
+        exitCodes.invalidInput,
+      );
+    }
     const bundle = validateBundleIdentity(
       await adapter.render({ config, release }),
       config,
       release,
     );
     const canonical = serializeCanonicalTargetBundle(bundle);
-    const planning = await adapter.plan({ config, release, bundle, bundleDigest: canonical.digest });
-    const plan = buildDeploymentPlan(planning);
+    const planning = await adapter.plan({
+      config,
+      release,
+      bundle,
+      bundleDigest: canonical.digest,
+      operation,
+    });
+    const plan = buildDeploymentPlan({...planning, operation});
     if (plan.outcome === "refused") {
       return {
         exitCode: exitCodes.refused,
@@ -280,7 +294,7 @@ export function createLifecycleExecutor(adapterRegistry) {
       requestedRelease = release?.releaseId ?? requestedRelease;
       if (command === "apply") {
         const plan = await loadPlan(options.plan);
-        if (plan.target !== config.target || plan.releaseId !== release.releaseId) {
+        if (plan.operation !== "apply" || plan.target !== config.target || plan.releaseId !== release.releaseId) {
           throw new DeploymentLifecycleError(
             "deployment_plan_identity_mismatch",
             "Deployment plan does not match the selected target and release.",
@@ -331,7 +345,29 @@ export function createLifecycleExecutor(adapterRegistry) {
             exitCodes.invalidInput,
           );
         }
-        const result = await adapter.rollback({config, release});
+        const plan = await loadPlan(options.plan);
+        if (plan.operation !== "rollback" || plan.target !== config.target || plan.releaseId !== release.releaseId) {
+          throw new DeploymentLifecycleError(
+            "deployment_plan_identity_mismatch",
+            "Rollback plan does not match the selected target, operation, and release.",
+            exitCodes.invalidInput,
+          );
+        }
+        const bundle = validateBundleIdentity(await adapter.render({config, release}), config, release);
+        const canonical = serializeCanonicalTargetBundle(bundle);
+        if (plan.bundleDigest !== canonical.digest) {
+          throw new DeploymentLifecycleError(
+            "deployment_plan_bundle_mismatch",
+            "Rollback plan does not authorize the rendered target bundle.",
+            exitCodes.invalidInput,
+          );
+        }
+        const result = await adapter.rollback({
+          config,
+          release,
+          plan,
+          authorizedPlanDigest: plan.planDigest,
+        });
         if (result?.outcome === "refused") {
           return {
             exitCode: exitCodes.refused,
@@ -370,7 +406,7 @@ export function createLifecycleExecutor(adapterRegistry) {
         }
         return successful(command, config.target, release.releaseId, {rollback: result});
       }
-      return await executeReadOnly({ command, config, release, adapter });
+      return await executeReadOnly({ command, config, release, adapter, options });
     } catch (error) {
       const known =
         error instanceof DeploymentLifecycleError ||

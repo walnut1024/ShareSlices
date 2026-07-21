@@ -14,6 +14,7 @@ import {
 import {createLifecycleExecutor} from "./lifecycle.mjs";
 import {createProductionPlanApplier} from "./production-apply.mjs";
 import {createProductionReleaseFinalizer} from "./production-finalize.mjs";
+import {createProductionRollbackExecutor} from "./production-rollback.mjs";
 import {TargetAdapterError} from "./target-adapter.mjs";
 
 export function createProductionKubernetesAdapter({
@@ -22,6 +23,7 @@ export function createProductionKubernetesAdapter({
   createControlObserver = createPostgresControlObserver,
   createPlanApplier = createProductionPlanApplier,
   createReleaseFinalizer = createProductionReleaseFinalizer,
+  createRollbackExecutor = createProductionRollbackExecutor,
 } = {}) {
   const resolvers = () => {
     const root = environment.SHARESLICES_SECRET_ROOT;
@@ -57,11 +59,22 @@ export function createProductionKubernetesAdapter({
     }
     return createReleaseFinalizer({resolvers: resolvers(), owner})(input);
   };
+  const rollbackRelease = async (input) => {
+    const owner = environment.SHARESLICES_DEPLOYMENT_PRINCIPAL;
+    if (!owner) {
+      throw new TargetAdapterError(
+        "deployment_principal_required",
+        "Production rollback requires SHARESLICES_DEPLOYMENT_PRINCIPAL.",
+      );
+    }
+    return createRollbackExecutor({resolvers: resolvers(), owner})(input);
+  };
   return createAdapter({
     observeState: createKubernetesStateObserver({observeControl}),
     observeStatus: createKubernetesStatusObserver({observeControl}),
     applyPlan,
     finalizeRelease,
+    rollbackRelease,
   });
 }
 

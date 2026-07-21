@@ -52,7 +52,13 @@ function compareResources(desired, observed) {
   });
 }
 
-export function buildDeploymentPlan({ desired, observed, controlSchemaChecksum }) {
+export function buildDeploymentPlan({
+  desired,
+  observed,
+  controlSchemaChecksum,
+  operation = "apply",
+  refusalReasons: suppliedRefusalReasons = [],
+}) {
   if (!desired || !observed || typeof controlSchemaChecksum !== "string") {
     throw new TypeError("Desired state, observed state, and control schema checksum are required.");
   }
@@ -83,7 +89,10 @@ export function buildDeploymentPlan({ desired, observed, controlSchemaChecksum }
     });
   }
 
-  const refusalReasons = [];
+  if (!["apply", "rollback"].includes(operation)) {
+    throw new TypeError("Deployment plan operation must be apply or rollback.");
+  }
+  const refusalReasons = [...suppliedRefusalReasons];
   if (actions.some(({ action }) => action === "refuse")) {
     refusalReasons.push("deployment_control_schema_mismatch");
   }
@@ -98,6 +107,7 @@ export function buildDeploymentPlan({ desired, observed, controlSchemaChecksum }
   }
   const body = {
     schemaVersion: "shareslices.deployment-plan/v1",
+    operation,
     target: desired.target,
     releaseId: desired.releaseId,
     bundleDigest: desired.bundleDigest,

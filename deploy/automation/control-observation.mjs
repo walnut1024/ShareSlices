@@ -258,7 +258,12 @@ export function createKubernetesStateObserver({observeControl}) {
       versions.push(`${resourceIdentity(desired)}:${observed.metadata.resourceVersion ?? "unknown"}:${digest}`);
     }
     const revision = sha256Digest({control: control.controlSchema.revision, resources: versions.sort()});
-    return Object.freeze({revision, controlSchema: control.controlSchema, resources});
+    return Object.freeze({
+      revision,
+      controlSchema: control.controlSchema,
+      releaseRecords: control.releaseRecords ?? {},
+      resources,
+    });
   };
 }
 
@@ -386,9 +391,11 @@ export function createKubernetesStatusObserver({observeControl}) {
     if (active && (configurationDigests.size !== 1 || !configurationDigests.has(active.configurationDigest))) {
       drift.push({logicalId: "kubernetes/configuration", reasonCode: "configuration_digest_mismatch"});
     }
+    const migrationCompatible = Boolean(active) && migration?.complete === true &&
+      migration.schemaHead === active.compatibility?.schemaHead;
     const allActiveAndReady = Boolean(active) && components.length > 0 &&
       components.every(({releaseId, ready}) => releaseId === active.releaseId && ready) &&
-      migration?.releaseId === active.releaseId && migration.complete;
+      migrationCompatible;
     return Object.freeze({
       target: "kubernetes",
       desiredReleaseId: control.operation?.desiredReleaseId ?? active?.releaseId ?? null,
@@ -399,6 +406,7 @@ export function createKubernetesStatusObserver({observeControl}) {
       phases: control.phases,
       components,
       migration,
+      migrationCompatible,
       routeDigests: [...routeDigests].sort(),
       configurationDigests: [...configurationDigests].sort(),
       drift,

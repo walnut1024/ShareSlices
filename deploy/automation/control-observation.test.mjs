@@ -105,6 +105,7 @@ test("Kubernetes observation refuses unowned matching names", async () => {
 
 test("Kubernetes status projects recorded release, rollout, image, migration, and digest evidence", async () => {
   const releaseId = digest("a");
+  const migrationReleaseId = digest("f");
   const configurationDigest = digest("b");
   const suffix = "aaaaaaaaaaaa";
   const labels = {
@@ -122,7 +123,14 @@ test("Kubernetes status projects recorded release, rollout, image, migration, an
   const observe = createKubernetesStatusObserver({
     observeControl: async () => ({
       controlSchema: {state: "present", revision: "control-9"},
-      releaseRecords: {active: {releaseId, configurationDigest}},
+      releaseRecords: {
+        active: {
+          releaseId,
+          configurationDigest,
+          compatibility: {schemaHead: "0030_deployment"},
+        },
+        previous: {releaseId: migrationReleaseId},
+      },
       operation: {desiredReleaseId: releaseId},
       phases: [
         {phase: "public-runtime", state: "completed"},
@@ -155,10 +163,13 @@ test("Kubernetes status projects recorded release, rollout, image, migration, an
         {
           apiVersion: "batch/v1",
           kind: "Job",
-          metadata: metadata("shareslices-migrate", {
-            "shareslices.dev/schema-head": "0030_deployment",
-            "shareslices.dev/migration-checksum": digest("d"),
-          }),
+          metadata: {
+            ...metadata("shareslices-migrate", {
+              "shareslices.dev/schema-head": "0030_deployment",
+              "shareslices.dev/migration-checksum": digest("d"),
+            }),
+            labels: {...labels, "shareslices.dev/release": "ffffffffffff"},
+          },
           status: {conditions: [{type: "Complete", status: "True"}]},
         },
         {
@@ -176,6 +187,8 @@ test("Kubernetes status projects recorded release, rollout, image, migration, an
   assert.equal(result.verification, "passed");
   assert.deepEqual(result.components[0].imageIds, ["registry.example.test/api@sha256:1234"]);
   assert.equal(result.migration.schemaHead, "0030_deployment");
+  assert.equal(result.migration.releaseId, migrationReleaseId);
+  assert.equal(result.migrationCompatible, true);
   assert.deepEqual(result.configurationDigests, [configurationDigest]);
   assert.deepEqual(result.routeDigests, [digest("e")]);
   assert.deepEqual(result.drift, []);

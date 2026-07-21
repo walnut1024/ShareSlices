@@ -56,6 +56,8 @@ test("release finalization records active and previous releases under one verifi
   assert.equal(result.lease.fencingToken, 3);
   assert.equal(result.records.active.releaseId, digest("d"));
   assert.equal(result.records.previous.releaseId, digest("a"));
+  const verificationCheckpoint = calls.find(({sql}) => sql.includes("insert into shareslices_deployment_phase_journal"));
+  assert.match(verificationCheckpoint.values[5], /^sha256:/);
   assert.equal(calls.some(({sql}) => sql.includes("set state = 'completed'")), true);
   assert.equal(calls.some(({sql}) => sql.includes("set revision = revision + 1")), true);
 });

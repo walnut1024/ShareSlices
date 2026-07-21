@@ -75,7 +75,7 @@ export function createProductionReleaseFinalizer({
       await recordPhaseCheckpoint(client, lease, {
         phase: "verification",
         state: "completed",
-        checkpointDigest: sha256Digest(verification),
+        digest: sha256Digest(verification),
         reasonCode: null,
       });
       const records = await mirrorReleaseRecords(client, lease, {
