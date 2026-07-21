@@ -16,6 +16,7 @@ const schemas = Object.fromEntries(
   await Promise.all(
     [
       "deployment.schema.json",
+      "command-result.schema.json",
       "release.schema.json",
       "route-projection.schema.json",
       "cache-projection.schema.json",
@@ -94,6 +95,36 @@ test("production deployment schema accepts exactly one target and logical Secret
   const unsafeOrigin = clone(cloudflare);
   unsafeOrigin.shared.publicOrigins.application = "http://public.example.test";
   assertInvalid("deployment.schema.json", unsafeOrigin);
+});
+
+test("deployment command results retain stable commands, outcomes, and reason codes", () => {
+  assertValid("command-result.schema.json", {
+    schemaVersion: "shareslices.deployment-result/v1",
+    command: "doctor",
+    target: "kubernetes",
+    requestedRelease: null,
+    outcome: "succeeded",
+    reason: null,
+  });
+  assertValid("command-result.schema.json", {
+    schemaVersion: "shareslices.deployment-result/v1",
+    command: null,
+    target: null,
+    requestedRelease: null,
+    outcome: "failed",
+    reason: {
+      code: "invalid_deployment_command",
+      message: "The command is invalid.",
+    },
+  });
+  assertInvalid("command-result.schema.json", {
+    schemaVersion: "shareslices.deployment-result/v1",
+    command: "compose",
+    target: null,
+    requestedRelease: null,
+    outcome: "succeeded",
+    reason: null,
+  });
 });
 
 test("equivalent deployment input has deterministic canonical bytes", async () => {

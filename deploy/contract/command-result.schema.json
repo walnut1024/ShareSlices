@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shareslices.example/deploy/contract/command-result.schema.json",
+  "title": "ShareSlices deployment command result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "command",
+    "target",
+    "requestedRelease",
+    "outcome",
+    "reason"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "shareslices.deployment-result/v1" },
+    "command": {
+      "type": ["string", "null"],
+      "enum": ["doctor", "render", "plan", "apply", "status", "verify", "rollback", null]
+    },
+    "target": {
+      "type": ["string", "null"],
+      "enum": ["kubernetes", "cloudflare", null]
+    },
+    "requestedRelease": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "outcome": {
+      "enum": [
+        "succeeded",
+        "warning",
+        "refused",
+        "failed",
+        "indeterminate",
+        "external_reconciler_required"
+      ]
+    },
+    "reason": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "message": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

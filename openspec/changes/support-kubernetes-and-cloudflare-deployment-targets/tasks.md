@@ -65,9 +65,9 @@ The numbered sections group work by responsibility; they are not permission to i
 
 ## 3. Deployment Automation Core
 
-- [ ] 3.1 Add a repository deployment CLI under `deploy/automation/` and expose it through `mise run deploy -- <command>` with stable JSON results and exit categories.
-- [ ] 3.2 Define the narrow target Adapter interface used by `doctor`, `render`, `plan`, `apply`, `status`, `verify`, and `rollback` without exposing provider details to lifecycle policy.
-- [ ] 3.3 Implement common configuration loading, schema-version checks, target selection, target-field rejection, and target-specific prerequisite discovery.
+- [x] 3.1 Add a repository deployment CLI under `deploy/automation/` and expose it through `mise run deploy -- <command>` with stable JSON results and exit categories.
+- [x] 3.2 Define the narrow target Adapter interface used by `doctor`, `render`, `plan`, `apply`, `status`, `verify`, and `rollback` without exposing provider details to lifecycle policy.
+- [x] 3.3 Implement common configuration loading, schema-version checks, target selection, target-field rejection, and target-specific prerequisite discovery.
 - [ ] 3.4 Implement logical Secret references, operator-controlled non-secret revisions, last-responsible-moment resolution, targeted consumer rollout, recursive redaction, and tests that keep values and value-derived fingerprints out of renders, plans, records, errors, and logs; shared signing-key rotation must stage old-plus-new verification, then new signing, then old-key removal after the maximum grant and mixed-runtime lifetime.
 - [ ] 3.5 Implement canonical release and target-bundle serialization, content-digest verification, qualified provider-identity validation, mutable or reused tag rejection, and deterministic re-render tests.
 - [ ] 3.6 Implement `doctor` as a read-only configuration, tool, credential-reference, provider-capability, DNS/TLS, dependency, and compatibility check.

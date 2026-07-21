@@ -6,6 +6,8 @@ and no rendered provider resources.
 
 - `deployment.schema.json` selects exactly one production target and accepts
   only logical Secret references.
+- `command-result.schema.json` defines the stable machine result returned by
+  every production lifecycle command.
 - `release.schema.json` records immutable release identity, compatibility,
   inventory, ownership, and qualified provider metadata.
 - `route-projection.json` maps ingress route families back to OpenAPI operations
