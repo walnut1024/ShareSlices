@@ -1,5 +1,5 @@
 // cspell:ignore Deque oneshot
-use std::{future::Future, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use serde::Deserialize;
@@ -21,6 +21,7 @@ use shareslices_worker::{
         ProcessingError, ProcessingOperation, RetryDecision, RetryPolicy, TerminalOutcome,
         ValidationFailure,
     },
+    runner::{BackgroundLane, ClaimPermit, LaneRunOutcome, RunnerError, RunnerLane},
     validation_report::ValidationReport,
 };
 use sqlx::{PgPool, Row};
@@ -32,7 +33,6 @@ use uuid::Uuid;
 #[derive(Clone, Debug)]
 pub struct RuntimeConfig {
     pub worker_id: String,
-    pub poll_interval: Duration,
     pub lease_duration: Duration,
     pub heartbeat_interval: Duration,
     pub write_concurrency: usize,
@@ -315,36 +315,7 @@ where
         }
     }
 
-    pub async fn run_until<F>(&self, shutdown: F)
-    where
-        F: Future<Output = ()> + Send + 'static,
-    {
-        let (shutdown_sender, mut shutdown_receiver) = tokio::sync::watch::channel(false);
-        tokio::spawn(async move {
-            shutdown.await;
-            shutdown_sender.send_replace(true);
-        });
-        loop {
-            if *shutdown_receiver.borrow() {
-                emit_stopped();
-                return;
-            }
-            if self.run_iteration().await {
-                continue;
-            }
-            tokio::select! {
-                result = shutdown_receiver.changed() => {
-                    if result.is_ok() && *shutdown_receiver.borrow() {
-                        emit_stopped();
-                    }
-                    return;
-                }
-                () = tokio::time::sleep(self.config.poll_interval) => {}
-            }
-        }
-    }
-
-    async fn run_iteration(&self) -> bool {
+    pub async fn run_one(&self) -> bool {
         match self
             .store
             .recover_expired_leases(self.config.recovery_limit)
@@ -571,13 +542,31 @@ where
     }
 }
 
-fn emit_stopped() {
-    WorkerEvent::new(
-        Severity::Info,
-        "shareslices.worker.stopped",
-        "worker stopped",
-    )
-    .emit();
+#[async_trait(?Send)]
+impl<S, I, P, J> BackgroundLane for WorkerRuntime<S, I, P, J>
+where
+    S: JobStore + ContentBundleStore + 'static,
+    I: ProcessingInputSource,
+    P: AttemptProcessor,
+    J: Fn(Duration) -> Duration + Send + Sync,
+{
+    fn lane(&self) -> RunnerLane {
+        RunnerLane::ArtifactProcessing
+    }
+
+    async fn run_one(&self, _permit: ClaimPermit) -> Result<LaneRunOutcome, RunnerError> {
+        Ok(if WorkerRuntime::run_one(self).await {
+            LaneRunOutcome::Claimed
+        } else {
+            LaneRunOutcome::Idle
+        })
+    }
+
+    async fn has_claimable_work(&self) -> Result<bool, RunnerError> {
+        self.store.has_claimable_work().await.map_err(|_| {
+            RunnerError::Lane("artifact-processing work observation failed".to_owned())
+        })
+    }
 }
 
 fn emit_reuse_outcome(
@@ -751,7 +740,12 @@ fn error_type(error: ProcessingError) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::VecDeque, env, fs, path::Path, sync::Mutex};
+    use std::{
+        collections::{BTreeSet, VecDeque},
+        env, fs,
+        path::Path,
+        sync::Mutex,
+    };
 
     use shareslices_worker::{
         job_store::{
@@ -759,6 +753,7 @@ mod tests {
             ReadyContentBundleVersionCommit,
         },
         manifest::ReadyManifest,
+        runner::Runner,
     };
     use sqlx::postgres::PgPoolOptions;
 
@@ -770,7 +765,7 @@ mod tests {
         store.recovered.lock().expect("recovered lock").push_back(2);
         let runtime = runtime(Arc::clone(&store), FakeProcessor::default());
 
-        assert!(!runtime.run_iteration().await);
+        assert!(!runtime.run_one().await);
         assert_eq!(*store.recovery_calls.lock().expect("recovery lock"), 1);
     }
 
@@ -779,7 +774,7 @@ mod tests {
         let store = Arc::new(FakeStore::with_claim(claim(1, 3)));
         let runtime = runtime(Arc::clone(&store), FakeProcessor::succeed());
 
-        assert!(runtime.run_iteration().await);
+        assert!(runtime.run_one().await);
         assert!(store.failures.lock().expect("failure lock").is_empty());
     }
 
@@ -794,7 +789,7 @@ mod tests {
         ));
         let runtime = runtime(Arc::clone(&store), processor);
 
-        assert!(runtime.run_iteration().await);
+        assert!(runtime.run_one().await);
         let failures = store.failures.lock().expect("failure lock");
         assert_eq!(failures[0].reason_code, "object_store_unavailable");
         assert!(failures[0].retry_at.is_some());
@@ -815,7 +810,7 @@ mod tests {
         });
         let runtime = runtime(Arc::clone(&store), processor);
 
-        assert!(runtime.run_iteration().await);
+        assert!(runtime.run_one().await);
         let failures = store.failures.lock().expect("failure lock");
         assert_eq!(failures[0].reason_code, "archive_path_traversal");
         assert_eq!(failures[0].summary, "The ZIP contains an unsafe file path.");
@@ -834,30 +829,30 @@ mod tests {
         let mut runtime = runtime(Arc::clone(&store), processor);
         runtime.config.heartbeat_interval = Duration::from_millis(5);
 
-        assert!(runtime.run_iteration().await);
+        assert!(runtime.run_one().await);
         assert!(*store.heartbeat_calls.lock().expect("heartbeat lock") >= 1);
     }
 
     #[tokio::test]
     async fn shutdown_stops_an_idle_worker() {
         let store = Arc::new(FakeStore::default());
-        let mut runtime = runtime(store, FakeProcessor::default());
-        runtime.config.poll_interval = Duration::from_mins(1);
-        let (send, receive) = tokio::sync::oneshot::channel();
+        let runtime = Arc::new(runtime(store, FakeProcessor::default()));
+        let runner = Runner::new(
+            vec![runtime as Arc<dyn BackgroundLane>],
+            &BTreeSet::from([RunnerLane::ArtifactProcessing]),
+            Duration::from_mins(1),
+        )
+        .expect("runner");
+        let (send, receive) = tokio::sync::watch::channel(false);
         tokio::spawn(async move {
             tokio::task::yield_now().await;
-            send.send(()).expect("send shutdown");
+            send.send_replace(true);
         });
 
-        tokio::time::timeout(Duration::from_millis(100), async {
-            runtime
-                .run_until(async {
-                    receive.await.ok();
-                })
-                .await;
-        })
-        .await
-        .expect("worker stops promptly");
+        tokio::time::timeout(Duration::from_millis(100), runner.run_resident(receive))
+            .await
+            .expect("worker stops promptly")
+            .expect("resident result");
     }
 
     #[tokio::test]
@@ -870,22 +865,23 @@ mod tests {
             outcome: Mutex::new(Some(Ok(completion()))),
             delay: Duration::from_millis(25),
         };
-        let runtime = runtime(Arc::clone(&store), processor);
-        let (send, receive) = tokio::sync::oneshot::channel();
+        let runtime = Arc::new(runtime(Arc::clone(&store), processor));
+        let runner = Runner::new(
+            vec![runtime as Arc<dyn BackgroundLane>],
+            &BTreeSet::from([RunnerLane::ArtifactProcessing]),
+            Duration::from_millis(1),
+        )
+        .expect("runner");
+        let (send, receive) = tokio::sync::watch::channel(false);
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(5)).await;
-            send.send(()).expect("send shutdown");
+            send.send_replace(true);
         });
 
-        tokio::time::timeout(Duration::from_millis(100), async {
-            runtime
-                .run_until(async {
-                    receive.await.ok();
-                })
-                .await;
-        })
-        .await
-        .expect("active attempt finishes before shutdown");
+        tokio::time::timeout(Duration::from_millis(100), runner.run_resident(receive))
+            .await
+            .expect("active attempt finishes before shutdown")
+            .expect("resident result");
 
         let remaining = store.claims.lock().expect("claims lock");
         assert_eq!(remaining.len(), 1);
@@ -1004,7 +1000,6 @@ mod tests {
             RetryPolicy::new(identity),
             RuntimeConfig {
                 worker_id: "worker-test".to_owned(),
-                poll_interval: Duration::from_millis(1),
                 lease_duration: Duration::from_secs(30),
                 heartbeat_interval: Duration::from_secs(10),
                 write_concurrency: 2,
@@ -1108,6 +1103,10 @@ mod tests {
 
     #[async_trait]
     impl JobStore for FakeStore {
+        async fn has_claimable_work(&self) -> Result<bool, JobStoreError> {
+            Ok(!self.claims.lock().expect("claims lock").is_empty())
+        }
+
         async fn claim_next(
             &self,
             _worker_id: &str,

@@ -38,7 +38,7 @@ impl ClaimPermit {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 pub trait BackgroundLane: Send + Sync {
     fn lane(&self) -> RunnerLane;
 
@@ -310,7 +310,7 @@ mod tests {
         }
     }
 
-    #[async_trait]
+    #[async_trait(?Send)]
     impl BackgroundLane for FakeLane {
         fn lane(&self) -> RunnerLane {
             self.lane

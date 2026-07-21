@@ -2,7 +2,7 @@
 mod config;
 mod runtime;
 
-use std::{sync::Arc, time::Duration};
+use std::{collections::BTreeSet, sync::Arc, time::Duration};
 
 use aws_sdk_s3::config::{Credentials, Region};
 use config::WorkerConfig;
@@ -20,6 +20,7 @@ use shareslices_worker::{
     manifest::ReadyManifest,
     object_storage::{AwsS3ObjectStorage, ObjectStorage},
     retry_policy::RetryPolicy,
+    runner::{BackgroundLane, Runner, RunnerLane},
     thumbnail::{
         ThumbnailConfig, preflight_chromium, requeue_failed_browser_jobs, run_thumbnail_loop,
     },
@@ -122,7 +123,7 @@ async fn run(config: WorkerConfig) -> Result<(), Box<dyn std::error::Error>> {
     let storage = configured_storage(&config);
     let store = Arc::new(PostgresJobStore::new(pool.clone()));
     let (current_fingerprint_key, previous_fingerprint_key) = fingerprint_keys(&config)?;
-    let runtime: ProductionRuntime = WorkerRuntime::new(
+    let runtime: Arc<ProductionRuntime> = Arc::new(WorkerRuntime::new(
         Arc::clone(&store),
         processing_input_source(
             pool.clone(),
@@ -134,14 +135,18 @@ async fn run(config: WorkerConfig) -> Result<(), Box<dyn std::error::Error>> {
         RetryPolicy::new(jitter),
         RuntimeConfig {
             worker_id: format!("worker-{}", Uuid::new_v4()),
-            poll_interval: config.poll_interval,
             lease_duration: config.lease_duration,
             heartbeat_interval: config.heartbeat_interval,
             write_concurrency: config.write_concurrency,
             recovery_limit: config.recovery_limit,
             configured_max_attempts: config.job_max_attempts,
         },
-    );
+    ));
+    let runner = Runner::new(
+        vec![Arc::clone(&runtime) as Arc<dyn BackgroundLane>],
+        &BTreeSet::from([RunnerLane::ArtifactProcessing]),
+        config.poll_interval,
+    )?;
     let _ready_guard = readiness.mark_ready()?;
 
     WorkerEvent::new(
@@ -166,6 +171,7 @@ async fn run(config: WorkerConfig) -> Result<(), Box<dyn std::error::Error>> {
     let copy_task = spawn_gallery_copy(&pool, &storage, &config, &shutdown_receiver);
     let (thumbnail_exit_sender, thumbnail_exit_receiver) = tokio::sync::oneshot::channel();
     let thumbnail_pool = pool.clone();
+    let thumbnail_shutdown = shutdown_receiver.clone();
     let thumbnail_task = tokio::spawn(async move {
         run_thumbnail_loop(
             thumbnail_pool,
@@ -177,25 +183,20 @@ async fn run(config: WorkerConfig) -> Result<(), Box<dyn std::error::Error>> {
                 lease_duration: config.lease_duration,
                 poll_interval: config.poll_interval,
             },
-            shutdown_receiver.clone(),
+            thumbnail_shutdown,
         )
         .await;
         let _ = thumbnail_exit_sender.send(());
     });
     let thumbnail_stopped_unexpectedly = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let shutdown_reason = Arc::clone(&thumbnail_stopped_unexpectedly);
-    runtime
-        .run_until(async move {
-            tokio::select! {
-                biased;
-                () = shutdown_signal() => {}
-                _ = thumbnail_exit_receiver => {
-                    shutdown_reason.store(true, std::sync::atomic::Ordering::Relaxed);
-                }
-            }
-            shutdown_sender.send_replace(true);
-        })
-        .await;
+    let shutdown_task = tokio::spawn(coordinate_shutdown(
+        shutdown_sender,
+        thumbnail_exit_receiver,
+        shutdown_reason,
+    ));
+    runner.run_resident(shutdown_receiver).await?;
+    shutdown_task.await?;
     thumbnail_task.await?;
     alias_reindex_task.await?;
     safety_task.await?;
@@ -206,6 +207,24 @@ async fn run(config: WorkerConfig) -> Result<(), Box<dyn std::error::Error>> {
     }
     pool.close().await;
     Ok(())
+}
+
+async fn coordinate_shutdown(
+    shutdown_sender: tokio::sync::watch::Sender<bool>,
+    thumbnail_exit: tokio::sync::oneshot::Receiver<()>,
+    thumbnail_stopped_unexpectedly: Arc<std::sync::atomic::AtomicBool>,
+) {
+    tokio::select! {
+        biased;
+        () = shutdown_signal() => {}
+        _ = thumbnail_exit => {
+            thumbnail_stopped_unexpectedly.store(
+                true,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+        }
+    }
+    shutdown_sender.send_replace(true);
 }
 
 fn spawn_gallery_safety(

@@ -135,6 +135,8 @@ pub enum JobStoreError {
 
 #[async_trait]
 pub trait JobStore: Send + Sync {
+    async fn has_claimable_work(&self) -> Result<bool, JobStoreError>;
+
     async fn claim_next(
         &self,
         worker_id: &str,
@@ -321,6 +323,22 @@ impl PostgresJobStore {
 
 #[async_trait]
 impl JobStore for PostgresJobStore {
+    async fn has_claimable_work(&self) -> Result<bool, JobStoreError> {
+        let exists = sqlx::query_scalar::<_, bool>(
+            r"
+            select exists (
+              select 1
+              from artifact_processing_job
+              where (state = 'queued' and available_at <= now())
+                 or (state = 'running' and lease_expires_at <= now())
+            )
+            ",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(exists)
+    }
+
     async fn claim_next(
         &self,
         worker_id: &str,
