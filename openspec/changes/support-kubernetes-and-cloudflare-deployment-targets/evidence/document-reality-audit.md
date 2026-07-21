@@ -887,3 +887,28 @@ black-box probe evidence, authoritative database schema-head comparison outside
 the completed migration Job, verified release finalization, or a qualified
 external-CDN observation. A recorded release plus ready Deployments is reported
 as observed, not verified or release-qualified.
+
+## Twenty-fifth-pass shared core-verifier acceptance
+
+The shared deployment lifecycle now wires `verify` to a credential-free `core`
+verifier. It loads and digests the checked verification-scenario contract, uses
+only `GET` requests with omitted credentials and manual redirect handling, and
+records status, cache policy, request-ID presence, referrer policy, Cookie
+presence, and redirect presence without response bodies or transport exception
+text. It checks trusted liveness and readiness, unknown Viewer and unauthorized
+Preview `no-store` behavior, content-only liveness and readiness, invalid public
+and review credential refusal, and the absence of internal and management routes
+from public ingress. Redirects, response Cookies, missing required headers,
+unexpected statuses, and transport failures fail closed with the checked stable
+`required_check_failed` reason.
+
+Kubernetes delegates its current `verify` command to this shared core contract
+using the configured trusted and content origins. A failed required check returns
+a failed deployment result; no verification request creates product data, sends
+mail, changes authorization, or writes provider state.
+
+Tasks 10.3, 10.4, and 14.1 remain open. Core HTTP success is not yet bound to a
+specific release bundle or complete cluster-resource convergence, does not write
+the active/previous release record, and does not cover origin-versus-edge,
+network-policy, email, processing, thumbnail, CDN, Gallery, or authorized deep
+verification. Those facts must remain separately unavailable or pending.

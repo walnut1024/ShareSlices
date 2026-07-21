@@ -248,3 +248,17 @@ test("status delegates to authoritative control and cluster observation", async 
   assert.equal(input.config, config);
   assert.equal(typeof input.runKubectl, "function");
 });
+
+test("verify runs the shared core contract against configured trusted and content origins", async () => {
+  let input;
+  const adapter = createKubernetesAdapter({
+    verifyCore: async (value) => {
+      input = value;
+      return {level: "core", outcome: "passed", checks: []};
+    },
+  });
+  const result = await adapter.verify({config, level: "core"});
+  assert.equal(result.outcome, "passed");
+  assert.equal(input.applicationOrigin, config.shared.publicOrigins.application);
+  assert.equal(input.contentOrigin, config.shared.publicOrigins.content);
+});

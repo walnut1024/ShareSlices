@@ -65,8 +65,10 @@ prototypes, not a supported Deployment target.
   emits a non-mutating GitOps handoff, and projects release records, operation
   phases, workload generations and image IDs, migration state, configuration
   and route digests, ownership drift, and optional-CDN readiness from read-only
-  control and cluster observations. Release finalization, live probe evidence,
-  verification, rollback, retirement, and target qualification are not yet
+  control and cluster observations. Its current `verify` path also runs the
+  shared credential-free core HTTP checks against trusted and content origins.
+  Release-bound cluster convergence evidence, release finalization, authorized
+  deep verification, rollback, retirement, and target qualification are not yet
   current.
 - `deploy/cloudflare/` owns Cloudflare Workers, Edge/CDN, Static Assets, private
   R2, Hyperdrive, Queue, scheduled, Container, and Resend composition. Provider

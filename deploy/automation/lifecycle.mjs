@@ -226,6 +226,38 @@ async function executeReadOnly({ command, config, release, adapter }) {
     });
   }
 
+  if (command === "verify") {
+    const verification = await adapter.verify({config, level: "core"});
+    if (
+      !verification ||
+      verification.level !== "core" ||
+      !["passed", "failed", "indeterminate"].includes(verification.outcome) ||
+      !Array.isArray(verification.checks)
+    ) {
+      throw new DeploymentLifecycleError(
+        "deployment_verification_result_invalid",
+        "Target Adapter returned an invalid verification result.",
+      );
+    }
+    if (verification.outcome !== "passed") {
+      return {
+        exitCode: verification.outcome === "indeterminate" ? exitCodes.indeterminate : exitCodes.failed,
+        result: deploymentResult(command, {
+          target: config.target,
+          outcome: verification.outcome,
+          reason: {
+            code: verification.outcome === "indeterminate"
+              ? "deployment_verification_indeterminate"
+              : "required_check_failed",
+            message: "One or more required deployment checks did not pass.",
+          },
+          data: {verification},
+        }),
+      };
+    }
+    return successful(command, config.target, null, {verification});
+  }
+
   throw new DeploymentLifecycleError(
     "deployment_command_not_wired",
     `${command} is not wired to the shared lifecycle yet.`,

@@ -7,6 +7,7 @@ import {stringify} from "yaml";
 import {sha256Digest} from "../automation/canonical.mjs";
 import {loadControlSchema} from "../automation/control-store.mjs";
 import {TargetAdapterError} from "../automation/target-adapter.mjs";
+import {runCoreVerification} from "../automation/verify.mjs";
 import {renderKubernetesBundle} from "./render.mjs";
 
 // cspell:ignore ciliumnetworkpolicies gitops ingressclass networkpolicies poddisruptionbudgets serviceaccounts
@@ -115,6 +116,7 @@ export function createKubernetesAdapter({
   observeState,
   observeStatus,
   applyPlan,
+  verifyCore = runCoreVerification,
   controlSchemaChecksum,
 } = {}) {
   async function doctor({config}) {
@@ -398,13 +400,26 @@ export function createKubernetesAdapter({
     return observeStatus({config, runKubectl});
   }
 
+  async function verify({config, level}) {
+    if (level !== "core") {
+      throw new TargetAdapterError(
+        "kubernetes_verification_level_unsupported",
+        "Kubernetes currently supports only read-only core verification.",
+      );
+    }
+    return verifyCore({
+      applicationOrigin: config.shared.publicOrigins.application,
+      contentOrigin: config.shared.publicOrigins.content,
+    });
+  }
+
   return Object.freeze({
     doctor,
     render,
     plan,
     apply,
     status,
-    verify: unavailableOperation("verify"),
+    verify,
     rollback: unavailableOperation("rollback"),
   });
 }

@@ -155,6 +155,22 @@ test("status projects provider observations through the common state model", asy
   assert.equal(execution.result.data.status.state, "verified");
 });
 
+test("verify exposes read-only core evidence and fails closed on a required check", async () => {
+  const passed = await executeInvocation(
+    parseInvocation(["verify", "--config", configPath]),
+    executor({verify: async () => ({level: "core", outcome: "passed", checks: [{id: "health", outcome: "passed"}]})}),
+  );
+  assert.equal(passed.exitCode, exitCodes.succeeded);
+  assert.equal(passed.result.data.verification.level, "core");
+
+  const failed = await executeInvocation(
+    parseInvocation(["verify", "--config", configPath]),
+    executor({verify: async () => ({level: "core", outcome: "failed", checks: [{id: "health", outcome: "failed"}]})}),
+  );
+  assert.equal(failed.exitCode, exitCodes.failed);
+  assert.equal(failed.result.reason.code, "required_check_failed");
+});
+
 test("apply accepts only a digest-bound plan for the rendered target bundle", async (context) => {
   const directory = await mkdtemp(path.join(tmpdir(), "shareslices-plan-"));
   context.after(() => rm(directory, {recursive: true, force: true}));
