@@ -249,15 +249,27 @@ export function processChildEnvironment(testRoot, endpoints, ambientEnvironment 
   };
 }
 
+export function webE2eEnvironment(processEnvironment, endpoints) {
+  return Object.freeze({
+    ...processEnvironment,
+    SHARESLICES_API_URL: endpoints.apiTestOrigin,
+    SHARESLICES_MAILPIT_URL: `http://${endpoints.mailpit.host}:${endpoints.mailpit.port}`,
+    SHARESLICES_WEB_URL: endpoints.webOrigin,
+  });
+}
+
 export function combineErrors(primaryError, cleanupError) {
   if (primaryError && cleanupError) {
-    return new AggregateError([primaryError, cleanupError], "API tests and isolated cleanup failed");
+    return new AggregateError([primaryError, cleanupError], "Tests and isolated cleanup failed");
   }
   return primaryError ?? cleanupError;
 }
 
-export async function runApiTests() {
-  const testRoot = mkdtempSync(join(tmpdir(), "shareslices-api-tests-"));
+export async function runIsolatedTests(suite) {
+  if (suite !== "api" && suite !== "web-e2e") {
+    throw new Error(`Unknown isolated test suite: ${suite}`);
+  }
+  const testRoot = mkdtempSync(join(tmpdir(), `shareslices-${suite}-`));
   const dockerConfig = join(testRoot, "docker-config");
   const runtimeEnvironmentFile = join(testRoot, "runtime.env");
   const ownershipEnvironmentFile = join(testRoot, "ownership.env");
@@ -328,7 +340,7 @@ export async function runApiTests() {
         {
           if (command === "docker") mutateDocker(args);
           else run(command, args, dockerEnv);
-          if (interruptedSignal) throw new Error(`API tests interrupted by ${interruptedSignal}`);
+          if (interruptedSignal) throw new Error(`Tests interrupted by ${interruptedSignal}`);
         }
         const endpointRecords = inspectComposeServices({
           connectionArgs: dockerSnapshot.connectionArgs,
@@ -373,25 +385,27 @@ export async function runApiTests() {
             : baseArgs;
           if (command === "docker") mutateDocker(args);
           else run(command, args, dockerEnv);
-          if (interruptedSignal) throw new Error(`API tests interrupted by ${interruptedSignal}`);
+          if (interruptedSignal) throw new Error(`Tests interrupted by ${interruptedSignal}`);
         }
         run(
           "node",
           ["api/node_modules/tsx/dist/cli.mjs", "api/src/db/migrate.ts"],
           migrationEnv,
         );
-        mutateDocker([
-          ...runtimeComposeArgs,
-          "exec", "-T", "postgres", "psql", "-U", "shareslices", "-d", "shareslices_test",
-          "-c",
-          "delete from authentication_email_delivery; delete from password_reset_grant; delete from email_verification_attempt; update authentication_email_circuit_breaker set state = 'closed', reason_code = null, opened_at = null, resume_at = null;",
-        ]);
-        run("pnpm", ["--dir", "api", "run", "test"], processEnv);
-        run(
-          "uv",
-          ["run", "pytest", "api/tests/test_account_entry_contract.py"],
-          contractProcessEnv,
-        );
+        if (suite === "api") {
+          mutateDocker([
+            ...runtimeComposeArgs,
+            "exec", "-T", "postgres", "psql", "-U", "shareslices", "-d", "shareslices_test",
+            "-c",
+            "delete from authentication_email_delivery; delete from password_reset_grant; delete from email_verification_attempt; update authentication_email_circuit_breaker set state = 'closed', reason_code = null, opened_at = null, resume_at = null;",
+          ]);
+          run("pnpm", ["--dir", "api", "run", "test"], processEnv);
+          run(
+            "uv",
+            ["run", "pytest", "api/tests/test_account_entry_contract.py"],
+            contractProcessEnv,
+          );
+        }
         mutateDocker([
           ...runtimeComposeArgs,
           "up", "-d", "--build", "--wait", "--wait-timeout",
@@ -405,11 +419,19 @@ export async function runApiTests() {
           executeCommand: executeDockerModel,
         });
         assertEndpointLayerUnchanged(endpointRecords, phaseTwoRecords);
-        run(
-          "uv",
-          ["run", "pytest", "api/tests/artifact_flow_contract.py"],
-          contractProcessEnv,
-        );
+        if (suite === "api") {
+          run(
+            "uv",
+            ["run", "pytest", "api/tests/artifact_flow_contract.py"],
+            contractProcessEnv,
+          );
+        } else {
+          run(
+            "pnpm",
+            ["--dir", "web", "run", "e2e", "--project=desktop-chromium"],
+            webE2eEnvironment(processEnv, endpoints),
+          );
+        }
       } catch (error) {
         primaryError = error;
       } finally {
@@ -432,8 +454,23 @@ export async function runApiTests() {
   if (error) throw error;
 }
 
+export function runApiTests() {
+  return runIsolatedTests("api");
+}
+
+export function runWebE2eTests() {
+  return runIsolatedTests("web-e2e");
+}
+
 export function runApiTestsCli() {
   return runApiTests().catch((error) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}
+
+export function runWebE2eTestsCli() {
+  return runWebE2eTests().catch((error) => {
     console.error(error instanceof Error ? error.message : error);
     process.exit(1);
   });

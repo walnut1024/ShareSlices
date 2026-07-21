@@ -77,6 +77,118 @@
       }
     },
     {
+      "id": "kubernetes-external-cdn",
+      "level": "pre_traffic",
+      "appliesTo": ["compose", "kubernetes"],
+      "capability": "kubernetes-external-cdn",
+      "requiredWhenEnabled": false,
+      "disabledExpectation": "not_applicable",
+      "notApplicableReason": "compose_has_no_provider_control_plane",
+      "mutating": false,
+      "owner": {
+        "capability": "kubernetes-deployment",
+        "requirement": "Keep an external CDN optional and target-local"
+      }
+    },
+    {
+      "id": "cloudflare-static-assets",
+      "level": "pre_traffic",
+      "appliesTo": ["compose", "cloudflare"],
+      "capability": "workers-static-assets",
+      "requiredWhenEnabled": true,
+      "disabledExpectation": "not_applicable",
+      "notApplicableReason": "compose_has_no_provider_control_plane",
+      "mutating": false,
+      "owner": {
+        "capability": "cloudflare-deployment",
+        "requirement": "Preserve the shared route and cache contract at the Cloudflare edge"
+      }
+    },
+    {
+      "id": "cloudflare-cache-api",
+      "level": "pre_traffic",
+      "appliesTo": ["compose", "cloudflare"],
+      "capability": "workers-cache-api",
+      "requiredWhenEnabled": false,
+      "disabledExpectation": "not_applicable",
+      "notApplicableReason": "compose_has_no_provider_control_plane",
+      "mutating": false,
+      "owner": {
+        "capability": "cloudflare-deployment",
+        "requirement": "Preserve the shared route and cache contract at the Cloudflare edge"
+      }
+    },
+    {
+      "id": "cloudflare-r2",
+      "level": "pre_traffic",
+      "appliesTo": ["compose", "cloudflare"],
+      "capability": "r2",
+      "requiredWhenEnabled": true,
+      "disabledExpectation": "not_applicable",
+      "notApplicableReason": "compose_has_no_provider_control_plane",
+      "mutating": false,
+      "owner": {
+        "capability": "cloudflare-deployment",
+        "requirement": "Keep R2 private behind shared object authorization"
+      }
+    },
+    {
+      "id": "cloudflare-hyperdrive",
+      "level": "pre_traffic",
+      "appliesTo": ["compose", "cloudflare"],
+      "capability": "hyperdrive",
+      "requiredWhenEnabled": true,
+      "disabledExpectation": "not_applicable",
+      "notApplicableReason": "compose_has_no_provider_control_plane",
+      "mutating": false,
+      "owner": {
+        "capability": "cloudflare-deployment",
+        "requirement": "Retain PostgreSQL as the durable business authority"
+      }
+    },
+    {
+      "id": "cloudflare-queues",
+      "level": "pre_traffic",
+      "appliesTo": ["compose", "cloudflare"],
+      "capability": "queues",
+      "requiredWhenEnabled": true,
+      "disabledExpectation": "not_applicable",
+      "notApplicableReason": "compose_has_no_provider_control_plane",
+      "mutating": false,
+      "owner": {
+        "capability": "cloudflare-deployment",
+        "requirement": "Use Queue messages only as non-authoritative wake-up signals"
+      }
+    },
+    {
+      "id": "cloudflare-containers",
+      "level": "pre_traffic",
+      "appliesTo": ["compose", "cloudflare"],
+      "capability": "containers",
+      "requiredWhenEnabled": true,
+      "disabledExpectation": "not_applicable",
+      "notApplicableReason": "compose_has_no_provider_control_plane",
+      "mutating": false,
+      "owner": {
+        "capability": "cloudflare-deployment",
+        "requirement": "Drain enabled background lanes in bounded executions"
+      }
+    },
+    {
+      "id": "cloudflare-resend",
+      "level": "pre_traffic",
+      "appliesTo": ["compose", "cloudflare"],
+      "capability": "resend",
+      "requiredWhenEnabled": true,
+      "disabledExpectation": "not_applicable",
+      "notApplicableReason": "compose_has_no_provider_control_plane",
+      "mutating": false,
+      "owner": {
+        "capability": "cloudflare-deployment",
+        "requirement": "Deliver authentication email through the Resend HTTPS Adapter"
+      }
+    },
+    {
       "id": "transactional-email-delivery",
       "level": "deep",
       "appliesTo": ["kubernetes", "cloudflare"],

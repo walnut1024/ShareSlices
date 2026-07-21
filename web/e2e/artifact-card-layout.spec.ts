@@ -15,7 +15,8 @@ const thumbnailRaster = createQuadrantBmp(800, 450);
 
 test("keeps Artifact cards readable across desktop CSS widths and Retina density", async ({ browser }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-chromium", "Desktop-only product acceptance");
-  const baseURL = process.env.SHARESLICES_WEB_URL ?? "http://127.0.0.1:5173";
+  const baseURL = process.env.SHARESLICES_WEB_URL;
+  if (!baseURL) throw new Error("SHARESLICES_WEB_URL is required; run through mise run web-e2e");
 
   for (const testCase of cases) {
     const context = await browser.newContext({

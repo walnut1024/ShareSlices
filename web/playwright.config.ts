@@ -1,5 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const webUrl = process.env.SHARESLICES_WEB_URL;
+if (!webUrl) {
+  throw new Error("SHARESLICES_WEB_URL is required; run Web E2E through mise run web-e2e");
+}
+
 export default defineConfig({
   testDir: "./e2e",
   outputDir: "../output/playwright/test-results",
@@ -7,7 +12,7 @@ export default defineConfig({
   timeout: 60_000,
   expect: { timeout: 10_000 },
   use: {
-    baseURL: process.env.SHARESLICES_WEB_URL ?? "http://127.0.0.1:5173",
+    baseURL: webUrl,
     screenshot: "only-on-failure",
     trace: "retain-on-failure"
   },

@@ -4,6 +4,13 @@ const cliHeaders = {
   "ShareSlices-CLI-Version": "0.1.0",
   "ShareSlices-CLI-OS": "macos"
 };
+const apiOrigin = process.env.SHARESLICES_API_URL;
+const mailpitOrigin = process.env.SHARESLICES_MAILPIT_URL;
+if (!apiOrigin || !mailpitOrigin) {
+  throw new Error("Dynamic API and Mailpit endpoints are required; run through mise run web-e2e");
+}
+const apiUrl = (path: string): string => new URL(path, apiOrigin).href;
+const mailpitUrl = (path: string): string => new URL(path, mailpitOrigin).href;
 
 test("sign in, compare the code, approve, and complete CLI authorization", async ({ page, request }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -11,13 +18,13 @@ test("sign in, compare the code, approve, and complete CLI authorization", async
   const email = `cli-browser-${runId}@example.test`;
   const password = "cli-browser-password-001";
 
-  const registration = await request.post("http://127.0.0.1:7456/api/users", {
+  const registration = await request.post(apiUrl("/api/users"), {
     data: { name: "CLI Browser Tester", email, password }
   });
   expect(registration.status()).toBe(202);
   await verifyRegistration(request, registration, email);
 
-  const started = await request.post("http://127.0.0.1:7456/api/cli-authorizations", {
+  const started = await request.post(apiUrl("/api/cli-authorizations"), {
     headers: cliHeaders,
     data: { clientId: "shareslices-cli" }
   });
@@ -39,7 +46,7 @@ test("sign in, compare the code, approve, and complete CLI authorization", async
   await expect(page.getByRole("heading", { name: "CLI authorized" })).toBeVisible();
   await expect(page.getByText("You can close this window.")).toBeVisible();
 
-  const exchanged = await request.post("http://127.0.0.1:7456/api/cli-sessions", {
+  const exchanged = await request.post(apiUrl("/api/cli-sessions"), {
     headers: cliHeaders,
     data: { clientId: "shareslices-cli", deviceCode: authorization.deviceCode }
   });
@@ -53,12 +60,12 @@ test("deny CLI authorization without creating a session", async ({ page, request
   const runId = Date.now().toString(36);
   const email = `cli-deny-${runId}@example.test`;
   const password = "cli-browser-password-001";
-  const registration = await request.post("http://127.0.0.1:7456/api/users", {
+  const registration = await request.post(apiUrl("/api/users"), {
     data: { name: "CLI Denial Tester", email, password }
   });
   expect(registration.status()).toBe(202);
   await verifyRegistration(request, registration, email);
-  const started = await request.post("http://127.0.0.1:7456/api/cli-authorizations", {
+  const started = await request.post(apiUrl("/api/cli-authorizations"), {
     headers: cliHeaders,
     data: { clientId: "shareslices-cli" }
   });
@@ -71,7 +78,7 @@ test("deny CLI authorization without creating a session", async ({ page, request
   await page.getByRole("button", { name: "Deny" }).click();
   await expect(page.getByRole("heading", { name: "Authorization denied" })).toBeVisible();
 
-  const exchanged = await request.post("http://127.0.0.1:7456/api/cli-sessions", {
+  const exchanged = await request.post(apiUrl("/api/cli-sessions"), {
     headers: cliHeaders,
     data: { clientId: "shareslices-cli", deviceCode: authorization.deviceCode }
   });
@@ -87,14 +94,14 @@ async function verifyRegistration(
   const body = await registration.json() as { verification: { id: string } };
   let verificationCode = "";
   await expect.poll(async () => {
-    const response = await request.get("http://127.0.0.1:8025/api/v1/search", {
+    const response = await request.get(mailpitUrl("/api/v1/search"), {
       params: { query: `to:\"${email}\"` },
     });
     const body = await response.json() as { messages: Array<{ Snippet: string }> };
     verificationCode = body.messages[0]?.Snippet.match(/\b\d{6}\b/)?.[0] ?? "";
     return verificationCode;
   }, { timeout: 30_000 }).toMatch(/^\d{6}$/);
-  const verified = await request.post(`http://127.0.0.1:7456/api/email-verifications/${body.verification.id}/verify`, {
+  const verified = await request.post(apiUrl(`/api/email-verifications/${body.verification.id}/verify`), {
     data: { code: verificationCode },
   });
   expect(verified.status()).toBe(200);

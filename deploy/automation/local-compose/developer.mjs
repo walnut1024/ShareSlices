@@ -14,6 +14,7 @@ import {
   runPinnedReadOnly,
   withDockerMutationController,
 } from "./docker-controller.mjs";
+import { printComposeNotApplicableEvidence } from "./verification-evidence.mjs";
 
 export const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 export const developerComposeArgs = [
@@ -89,6 +90,7 @@ export async function verifyLocalStack() {
   await checkHttp("Gallery content", localEndpoints.content);
   await checkHttp("Mailpit", localEndpoints.mailpit);
   await checkTcp("SMTP", "127.0.0.1", 1025);
+  printComposeNotApplicableEvidence();
 }
 
 function verifyComposeState(snapshot, environment) {

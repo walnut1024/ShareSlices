@@ -328,7 +328,11 @@ async function verifyEmailFromMailpit(page: import("@playwright/test").Page, ema
   await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
   let code = "";
   await expect.poll(async () => {
-    const response = await page.request.get("http://127.0.0.1:8025/api/v1/search", {
+    const mailpitOrigin = process.env.SHARESLICES_MAILPIT_URL;
+    if (!mailpitOrigin) {
+      throw new Error("SHARESLICES_MAILPIT_URL is required; run through mise run web-e2e");
+    }
+    const response = await page.request.get(new URL("/api/v1/search", mailpitOrigin).href, {
       params: { query: `to:\"${email}\"` },
     });
     const body = await response.json() as { messages: Array<{ Snippet: string }> };

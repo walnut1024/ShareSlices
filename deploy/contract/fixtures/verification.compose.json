@@ -6,9 +6,28 @@
     "content": "http://content.localhost:7460"
   },
   "requiredCapabilities": ["trusted-http", "viewer", "content-only-http"],
-  "disabledCapabilities": ["cloudflare-provider-control-plane", "kubernetes-network-policy"],
+  "disabledCapabilities": [
+    "cloudflare-provider-control-plane",
+    "containers",
+    "hyperdrive",
+    "kubernetes-external-cdn",
+    "kubernetes-network-policy",
+    "queues",
+    "r2",
+    "resend",
+    "workers-cache-api",
+    "workers-static-assets"
+  ],
   "expectedNotApplicable": {
+    "cloudflare-cache-api": "compose_has_no_provider_control_plane",
+    "cloudflare-containers": "compose_has_no_provider_control_plane",
+    "cloudflare-hyperdrive": "compose_has_no_provider_control_plane",
     "cloudflare-provider-bindings": "compose_has_no_provider_control_plane",
+    "cloudflare-queues": "compose_has_no_provider_control_plane",
+    "cloudflare-r2": "compose_has_no_provider_control_plane",
+    "cloudflare-resend": "compose_has_no_provider_control_plane",
+    "cloudflare-static-assets": "compose_has_no_provider_control_plane",
+    "kubernetes-external-cdn": "compose_has_no_provider_control_plane",
     "kubernetes-network-policy": "compose_has_no_provider_control_plane"
   }
 }

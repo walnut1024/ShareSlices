@@ -546,3 +546,34 @@ named-volume IDs, and passing Web, API, content, Mailpit, and SMTP probes across
 the crash and recovery run. This completes task 13.7 without claiming the wider
 controller race matrix, read-only/write verification split, Web E2E acceptance,
 or cold lifecycle work owned by tasks 13.8-13.10.
+
+## Thirteenth-pass local verification routing acceptance
+
+Task 13.8 removed the remaining supported path that could execute stateful Web
+E2E against the developer project. `mise run web-e2e` now enters the same
+endpoint/project and Engine/project locked `shareslices-test` controller used by
+API integration, provisions Engine-assigned loopback endpoints, migrates a fresh
+test database, injects the frozen Web, API, and Mailpit addresses into
+Playwright, and removes only the positively owned test project and volumes.
+Playwright configuration and the stateful CLI-authorization and Signup flows now
+refuse to start without those injected addresses; no checked E2E path retains a
+developer-port fallback.
+
+The live acceptance run passed all 27 desktop Chromium E2E cases, including
+registration and authentication-email verification, CLI authorization approval
+and denial, Upload, Preview, Publish, stable Viewer access, Unpublish,
+replacement, account sign-out, and occupied-email behavior. Before and after
+the run, the developer control retained the same eight running container IDs,
+the same two named volumes, and passing Web, API, content, Mailpit, and SMTP
+readiness. The isolated test project, network, and volumes were absent after
+cleanup.
+
+Developer `dev-status` remains read-only and now emits contract-derived stable
+`not_applicable` evidence for Kubernetes network policy/CNI, Kubernetes external
+CDN, Workers Static Assets, Workers Cache API, R2, Hyperdrive, Queues,
+Containers, Resend, and the generic Cloudflare provider-control-plane row. The
+shared fixture and scenario projection are tested together, so a missing,
+renamed, or reason-code-divergent row fails the deployment-contract gate. This
+completes the read/write routing and local provider-applicability boundary; the
+larger controller matrix and cold lifecycle acceptance remain tasks 13.9 and
+13.10.

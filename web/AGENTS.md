@@ -27,6 +27,6 @@ Inherits [repository-wide guidance](../AGENTS.md) and owns rules specific to `we
 ## Verification
 
 - Run `mise run web-test` for changed Web behavior.
-- With the local stack running, run `mise run web-e2e` for changed behavior that depends on routing, browser APIs, or an existing end-to-end flow.
+- Run `mise run web-e2e` for changed behavior that depends on routing, browser APIs, or an existing end-to-end flow. The command provisions and cleans the locked `shareslices-test` topology with Engine-assigned endpoints; it never uses the developer stack as test data.
 - Treat Web end-to-end tests as a separate integration gate, not part of `mise run check`.
 - Verify visual changes at `1440x900`. Do not add mobile or tablet acceptance coverage unless [PRODUCT.md](../PRODUCT.md) changes first.

@@ -17,6 +17,7 @@ import {
   testComposeArgsWithRuntime,
   testEnvironmentFile,
   testStackEnvironment,
+  webE2eEnvironment,
 } from "./api-tests.mjs";
 
 const testEndpoints = Object.freeze({
@@ -62,7 +63,7 @@ test("cleanup failure is reported without masking the primary failure", () => {
   const combined = combineErrors(primary, cleanup);
   assert.equal(combined instanceof AggregateError, true);
   assert.deepEqual(combined.errors, [primary, cleanup]);
-  assert.match(combined.message, /API tests and isolated cleanup failed/);
+  assert.match(combined.message, /Tests and isolated cleanup failed/);
   assert.equal(combineErrors(primary, undefined), primary);
   assert.equal(combineErrors(undefined, cleanup), cleanup);
 });
@@ -160,6 +161,21 @@ test("test processes exclude caller application, provider, CI, and agent variabl
   assert.equal(environment.RESEND_API_KEY, undefined);
   assert.equal(environment.CI, undefined);
   assert.equal(environment.CODEX_THREAD_ID, undefined);
+});
+
+test("Web E2E receives only frozen isolated Web, API, and Mailpit endpoints", () => {
+  const environment = webE2eEnvironment({ PATH: "/usr/bin" }, {
+    ...testEndpoints,
+    apiTestOrigin: "http://127.0.0.1:49106",
+  });
+  assert.deepEqual(environment, {
+    PATH: "/usr/bin",
+    SHARESLICES_API_URL: "http://127.0.0.1:49106",
+    SHARESLICES_MAILPIT_URL: "http://127.0.0.1:49102",
+    SHARESLICES_WEB_URL: "http://app.localhost:49105",
+  });
+  assert.equal(Object.values(environment).some((value) => String(value).includes(":7456")), false);
+  assert.equal(Object.values(environment).some((value) => String(value).includes(":8025")), false);
 });
 
 test("checked test fixture contains no preselected endpoint", () => {
