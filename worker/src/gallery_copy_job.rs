@@ -1,4 +1,8 @@
-use crate::{manifest::ReadyManifest, object_storage::ObjectStorage};
+use crate::{
+    manifest::ReadyManifest,
+    object_storage::ObjectStorage,
+    runner::{BackgroundLane, ClaimPermit, LaneRunOutcome, RunnerError, RunnerLane},
+};
 use sqlx::{PgPool, Row};
 use std::{sync::Arc, time::Duration};
 use tokio::io::AsyncReadExt;
@@ -57,33 +61,81 @@ pub fn copy_lifecycle_action(event: CopySourceEvent) -> CopyLifecycleAction {
 pub fn should_retry(code: &str, attempt: i32, max_attempts: i32) -> bool {
     code != "invalid_input" && attempt < max_attempts
 }
-pub async fn run_gallery_copy_loop<S: ObjectStorage + 'static>(
+pub struct GalleryCopyLane<S> {
     pool: PgPool,
     storage: Arc<S>,
     worker: String,
     lease: Duration,
-    poll_interval: Duration,
-    mut shutdown: tokio::sync::watch::Receiver<bool>,
-) {
-    recover(&pool).await.ok();
-    loop {
-        if *shutdown.borrow() {
-            return;
+}
+
+impl<S: ObjectStorage> GalleryCopyLane<S> {
+    #[must_use]
+    pub const fn new(pool: PgPool, storage: Arc<S>, worker: String, lease: Duration) -> Self {
+        Self {
+            pool,
+            storage,
+            worker,
+            lease,
         }
-        match claim(&pool, &worker, lease).await {
-            Ok(Some(job)) => process(&pool, storage.as_ref(), &worker, lease, job).await,
-            Ok(None) => {
-                tokio::select! {()=tokio::time::sleep(poll_interval)=>{},_=shutdown.changed()=>{}}
+    }
+
+    async fn run_claim(&self, permit: ClaimPermit) -> LaneRunOutcome {
+        if permit
+            .remaining()
+            .is_some_and(|remaining| remaining <= self.lease)
+        {
+            return LaneRunOutcome::Idle;
+        }
+        if let Err(error) = recover(&self.pool).await {
+            tracing::error!(
+                event_name = "shareslices.gallery.copy.lease_recovery_failed",
+                error.kind = "database",
+                "Gallery copy lease recovery failed: {error}"
+            );
+            return LaneRunOutcome::Idle;
+        }
+        match claim(&self.pool, &self.worker, self.lease).await {
+            Ok(Some(job)) => {
+                process(
+                    &self.pool,
+                    self.storage.as_ref(),
+                    &self.worker,
+                    self.lease,
+                    job,
+                )
+                .await;
+                LaneRunOutcome::Claimed
             }
+            Ok(None) => LaneRunOutcome::Idle,
             Err(error) => {
                 tracing::error!(
                     event_name = "shareslices.gallery.copy.claim_failed",
                     error.kind = "database",
                     "Gallery copy claim failed: {error}"
                 );
-                tokio::time::sleep(poll_interval).await;
+                LaneRunOutcome::Idle
             }
         }
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl<S: ObjectStorage + 'static> BackgroundLane for GalleryCopyLane<S> {
+    fn lane(&self) -> RunnerLane {
+        RunnerLane::GalleryCopy
+    }
+
+    async fn run_one(&self, permit: ClaimPermit) -> Result<LaneRunOutcome, RunnerError> {
+        Ok(self.run_claim(permit).await)
+    }
+
+    async fn has_claimable_work(&self) -> Result<bool, RunnerError> {
+        sqlx::query_scalar::<_, bool>(
+            "select exists(select 1 from gallery_copy_job where state='accepted' or (state='processing' and lease_expires_at<=now()))",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|_| RunnerError::Lane("Gallery copy work observation failed".to_owned()))
     }
 }
 async fn claim(pool: &PgPool, worker: &str, lease: Duration) -> Result<Option<Claim>, sqlx::Error> {
@@ -93,28 +145,28 @@ async fn claim(pool: &PgPool, worker: &str, lease: Duration) -> Result<Option<Cl
         tx.commit().await?;
         return Ok(None);
     };
-    let id: String = row.get("id");
+    let id: String = row.try_get("id")?;
     let updated=sqlx::query("update gallery_copy_job set state='processing',started_at=coalesce(started_at,now()),lease_owner=$2,lease_expires_at=now()+make_interval(secs=>$3),fence_token=fence_token+1,attempt_count=attempt_count+1 where id=$1 returning fence_token,attempt_count").bind(&id).bind(worker).bind(i32::try_from(lease.as_secs()).unwrap_or(i32::MAX)).fetch_one(&mut*tx).await?;
-    let fence = updated.get("fence_token");
-    let attempt = updated.get("attempt_count");
+    let fence = updated.try_get("fence_token")?;
+    let attempt = updated.try_get("attempt_count")?;
     let bundle = format!("copy-bundle-{}", Uuid::new_v4());
     sqlx::query("insert into gallery_copy_attempt(id,job_id,attempt_number,fence_token,object_prefix) values($1,$2,$3,$4,$5)").bind(format!("copy-attempt-{}",Uuid::new_v4())).bind(&id).bind(attempt).bind(fence).bind(format!("staging/gallery-copy/{id}/{fence}/")).execute(&mut*tx).await?;
     let claim = Claim {
         id,
-        owner: row.get("copier_user_id"),
-        source_listing: row.get("source_listing_id"),
-        source_revision: row.get("source_listing_revision"),
-        source_version: row.get("source_version_id"),
-        artifact: row.get("destination_artifact_id"),
-        version: row.get("destination_version_id"),
-        title: row.get("destination_title"),
-        reservation: row.get("quota_reservation_id"),
+        owner: row.try_get("copier_user_id")?,
+        source_listing: row.try_get("source_listing_id")?,
+        source_revision: row.try_get("source_listing_revision")?,
+        source_version: row.try_get("source_version_id")?,
+        artifact: row.try_get("destination_artifact_id")?,
+        version: row.try_get("destination_version_id")?,
+        title: row.try_get("destination_title")?,
+        reservation: row.try_get("quota_reservation_id")?,
         fence,
         attempt,
         bundle,
-        source_manifest: row.get("source_manifest"),
-        content_revision: row.get("content_identity_revision"),
-        renderer: row.get("renderer_revision"),
+        source_manifest: row.try_get("source_manifest")?,
+        content_revision: row.try_get("content_identity_revision")?,
+        renderer: row.try_get("renderer_revision")?,
     };
     tx.commit().await?;
     Ok(Some(claim))
@@ -289,7 +341,11 @@ async fn fail<S: ObjectStorage>(
         tx.rollback().await?;
         return Ok(());
     };
-    let retryable = should_retry(code, row.get("attempt_count"), row.get("max_attempts"));
+    let retryable = should_retry(
+        code,
+        row.try_get("attempt_count")?,
+        row.try_get("max_attempts")?,
+    );
     sqlx::query("update gallery_copy_job set state=case when $4 then 'accepted' else 'failed' end,terminal_failure_code=case when $4 then null else $5 end,finished_at=case when $4 then null else now() end,lease_owner=null,lease_expires_at=null where id=$1 and lease_owner=$2 and fence_token=$3").bind(&job.id).bind(worker).bind(job.fence).bind(retryable).bind(code).execute(&mut*tx).await?;
     sqlx::query("update gallery_copy_attempt set state='failed',failure_code=$3,finished_at=now() where job_id=$1 and attempt_number=$2").bind(&job.id).bind(job.attempt).bind(code).execute(&mut*tx).await?;
     if !retryable {

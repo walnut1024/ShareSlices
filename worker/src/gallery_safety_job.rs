@@ -13,6 +13,7 @@ use crate::{
     },
     manifest::ReadyManifest,
     object_storage::ObjectStorage,
+    runner::{BackgroundLane, ClaimPermit, LaneRunOutcome, RunnerError, RunnerLane},
 };
 
 #[derive(Clone, Debug)]
@@ -22,7 +23,7 @@ struct ClaimedJob {
     attempt_number: i32,
     policy: GallerySafetyPolicy,
     manifest_key: String,
-    expected_file_count: i64,
+    expected_file_count: i32,
     expected_total_bytes: i64,
 }
 
@@ -33,36 +34,86 @@ struct FindingEvidence<'a> {
     decision: &'a str,
 }
 
-pub async fn run_gallery_safety_loop<S: ObjectStorage + 'static>(
+pub struct GallerySafetyLane<S> {
     pool: PgPool,
     storage: Arc<S>,
     worker_id: String,
     lease_duration: Duration,
-    poll_interval: Duration,
-    mut shutdown: tokio::sync::watch::Receiver<bool>,
-) {
-    recover_expired(&pool).await.ok();
-    loop {
-        if *shutdown.borrow() {
-            return;
+}
+
+impl<S: ObjectStorage> GallerySafetyLane<S> {
+    #[must_use]
+    pub const fn new(
+        pool: PgPool,
+        storage: Arc<S>,
+        worker_id: String,
+        lease_duration: Duration,
+    ) -> Self {
+        Self {
+            pool,
+            storage,
+            worker_id,
+            lease_duration,
         }
-        match claim(&pool, &worker_id, lease_duration).await {
+    }
+
+    async fn run_claim(&self, permit: ClaimPermit) -> LaneRunOutcome {
+        if permit
+            .remaining()
+            .is_some_and(|remaining| remaining <= self.lease_duration)
+        {
+            return LaneRunOutcome::Idle;
+        }
+        if let Err(error) = recover_expired(&self.pool).await {
+            tracing::error!(
+                event_name = "shareslices.gallery.safety.lease_recovery_failed",
+                error.kind = "database",
+                "Gallery safety lease recovery failed: {error}"
+            );
+            return LaneRunOutcome::Idle;
+        }
+        match claim(&self.pool, &self.worker_id, self.lease_duration).await {
             Ok(Some(job)) => {
-                process(&pool, storage.as_ref(), &worker_id, lease_duration, job).await;
+                process(
+                    &self.pool,
+                    self.storage.as_ref(),
+                    &self.worker_id,
+                    self.lease_duration,
+                    job,
+                )
+                .await;
+                LaneRunOutcome::Claimed
             }
-            Ok(None) => tokio::select! {
-                () = tokio::time::sleep(poll_interval) => {},
-                _ = shutdown.changed() => {},
-            },
+            Ok(None) => LaneRunOutcome::Idle,
             Err(error) => {
                 tracing::error!(
                     event_name = "shareslices.gallery.safety.claim_failed",
                     error.kind = "database",
                     "Gallery safety claim failed: {error}"
                 );
-                tokio::time::sleep(poll_interval).await;
+                LaneRunOutcome::Idle
             }
         }
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl<S: ObjectStorage + 'static> BackgroundLane for GallerySafetyLane<S> {
+    fn lane(&self) -> RunnerLane {
+        RunnerLane::GallerySafety
+    }
+
+    async fn run_one(&self, permit: ClaimPermit) -> Result<LaneRunOutcome, RunnerError> {
+        Ok(self.run_claim(permit).await)
+    }
+
+    async fn has_claimable_work(&self) -> Result<bool, RunnerError> {
+        sqlx::query_scalar::<_, bool>(
+            "select exists(select 1 from gallery_safety_job where (state='queued' and available_at<=now()) or (state='running' and lease_expires_at<=now()))",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|_| RunnerError::Lane("Gallery safety work observation failed".to_owned()))
     }
 }
 
@@ -84,8 +135,8 @@ async fn claim(
         tx.commit().await?;
         return Ok(None);
     };
-    let id: String = row.get("id");
-    let contract: String = row.get("contract_version");
+    let id: String = row.try_get("id")?;
+    let contract: String = row.try_get("contract_version")?;
     if !SUPPORTED_CONTRACT_VERSIONS.contains(&contract.as_str()) {
         sqlx::query("update gallery_safety_job set state='failed', failure_code='incompatible_contract', finished_at=now() where id=$1")
             .bind(&id).execute(&mut *tx).await?;
@@ -103,21 +154,21 @@ async fn claim(
     .bind(i32::try_from(lease.as_secs()).unwrap_or(i32::MAX))
     .fetch_one(&mut *tx)
     .await?;
-    let fence_token: i64 = claimed.get("fence_token");
-    let attempt_number: i32 = claimed.get("attempt_count");
+    let fence_token: i64 = claimed.try_get("fence_token")?;
+    let attempt_number: i32 = claimed.try_get("attempt_count")?;
     sqlx::query("insert into gallery_safety_attempt(id,job_id,attempt_number,fence_token) values($1,$2,$3,$4)")
         .bind(format!("gsa-{id}-{fence_token}")).bind(&id).bind(attempt_number).bind(fence_token)
         .execute(&mut *tx).await?;
-    let policy = serde_json::from_value(row.get("policy_snapshot"))
+    let policy = serde_json::from_value(row.try_get("policy_snapshot")?)
         .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
     let job = ClaimedJob {
         id,
         fence_token,
         attempt_number,
         policy,
-        manifest_key: row.get("object_key"),
-        expected_file_count: row.get("file_count"),
-        expected_total_bytes: row.get("total_size_bytes"),
+        manifest_key: row.try_get("object_key")?,
+        expected_file_count: row.try_get("file_count")?,
+        expected_total_bytes: row.try_get("total_size_bytes")?,
     };
     tx.commit().await?;
     Ok(Some(job))
@@ -160,7 +211,7 @@ async fn inspect_candidate<S: ObjectStorage>(
         .map_err(|_| "source_unavailable")?;
     let manifest: ReadyManifest =
         serde_json::from_slice(&manifest_bytes).map_err(|_| "invalid_input")?;
-    if i64::try_from(manifest.file_count()).ok() != Some(job.expected_file_count)
+    if i32::try_from(manifest.file_count()).ok() != Some(job.expected_file_count)
         || i64::try_from(manifest.total_size_bytes()).ok() != Some(job.expected_total_bytes)
         || manifest.file_count() as u64 > job.policy.max_file_count
         || manifest.total_size_bytes() > job.policy.max_total_bytes

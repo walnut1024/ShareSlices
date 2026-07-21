@@ -10,21 +10,20 @@ use runtime::{
     PostgresInputSource, ProductionRuntime, RuntimeConfig, StorageAttemptProcessor, WorkerRuntime,
 };
 use shareslices_worker::{
+    bundle_alias::BundleAliasLane,
     content_fingerprint::{FingerprintError, FingerprintKey},
-    gallery_copy_job::run_gallery_copy_loop,
-    gallery_cover_job::run_gallery_cover_loop,
-    gallery_safety_job::run_gallery_safety_loop,
+    gallery_copy_job::GalleryCopyLane,
+    gallery_cover_job::GalleryCoverLane,
+    gallery_safety_job::GallerySafetyLane,
     health::{DEFAULT_READY_FILE, ReadyFile},
-    job_store::{ContentBundleIntegrity, ContentBundleStore, PostgresJobStore},
+    job_store::PostgresJobStore,
     logging::{LogConfig, SanitizedException, Severity, WorkerEvent},
-    manifest::ReadyManifest,
-    object_storage::{AwsS3ObjectStorage, ObjectStorage},
+    object_storage::AwsS3ObjectStorage,
     retry_policy::RetryPolicy,
-    runner::{BackgroundLane, Runner, RunnerLane},
+    runner::{BackgroundLane, Runner, RunnerError, RunnerLane},
     thumbnail::{ThumbnailConfig, ThumbnailLane, preflight_chromium, requeue_failed_browser_jobs},
 };
 use sqlx::{PgPool, postgres::PgPoolOptions};
-use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
 #[tokio::main]
@@ -140,9 +139,9 @@ async fn run(config: WorkerConfig) -> Result<(), Box<dyn std::error::Error>> {
             configured_max_attempts: config.job_max_attempts,
         },
     ));
-    let runner = Runner::new(
-        vec![Arc::clone(&runtime) as Arc<dyn BackgroundLane>],
-        &BTreeSet::from([RunnerLane::ArtifactProcessing]),
+    let runner = single_lane_runner(
+        Arc::clone(&runtime) as Arc<dyn BackgroundLane>,
+        RunnerLane::ArtifactProcessing,
         config.poll_interval,
     )?;
     let _ready_guard = readiness.mark_ready()?;
@@ -154,19 +153,17 @@ async fn run(config: WorkerConfig) -> Result<(), Box<dyn std::error::Error>> {
     )
     .emit();
     let (shutdown_sender, shutdown_receiver) = tokio::sync::watch::channel(false);
-    let alias_reindex_task = tokio::spawn(run_alias_reindex_loop(
+    let alias_lane = Arc::new(BundleAliasLane::new(
         Arc::clone(&store),
         storage.clone(),
         current_fingerprint_key,
-        shutdown_receiver.clone(),
     ));
-    let safety_task = spawn_gallery_safety(&pool, &storage, &config, &shutdown_receiver);
-    let cover_task = tokio::spawn(run_gallery_cover_loop(
-        pool.clone(),
-        config.poll_interval,
-        shutdown_receiver.clone(),
-    ));
-    let copy_task = spawn_gallery_copy(&pool, &storage, &config, &shutdown_receiver);
+    let alias_runner = single_lane_runner(
+        alias_lane as Arc<dyn BackgroundLane>,
+        RunnerLane::BundleAlias,
+        Duration::from_secs(30),
+    )?;
+    let (safety_runner, cover_runner, copy_runner) = gallery_runners(&pool, &storage, &config)?;
     let thumbnail_lane = Arc::new(ThumbnailLane::new(
         pool.clone(),
         storage,
@@ -177,61 +174,86 @@ async fn run(config: WorkerConfig) -> Result<(), Box<dyn std::error::Error>> {
             lease_duration: config.lease_duration,
         },
     ));
-    let thumbnail_runner = Runner::new(
-        vec![thumbnail_lane as Arc<dyn BackgroundLane>],
-        &BTreeSet::from([RunnerLane::Thumbnail]),
+    let thumbnail_runner = single_lane_runner(
+        thumbnail_lane as Arc<dyn BackgroundLane>,
+        RunnerLane::Thumbnail,
         config.poll_interval,
     )?;
-    let (processing_result, thumbnail_result, ()) = tokio::join!(
+    let (
+        processing_result,
+        thumbnail_result,
+        alias_result,
+        safety_result,
+        cover_result,
+        copy_result,
+        (),
+    ) = tokio::join!(
         runner.run_resident(shutdown_receiver.clone()),
-        thumbnail_runner.run_resident(shutdown_receiver),
+        thumbnail_runner.run_resident(shutdown_receiver.clone()),
+        alias_runner.run_resident(shutdown_receiver.clone()),
+        safety_runner.run_resident(shutdown_receiver.clone()),
+        cover_runner.run_resident(shutdown_receiver.clone()),
+        copy_runner.run_resident(shutdown_receiver),
         coordinate_shutdown(shutdown_sender),
     );
     processing_result?;
     thumbnail_result?;
-    alias_reindex_task.await?;
-    safety_task.await?;
-    cover_task.await?;
-    copy_task.await?;
+    alias_result?;
+    safety_result?;
+    cover_result?;
+    copy_result?;
     pool.close().await;
     Ok(())
+}
+
+fn single_lane_runner(
+    lane: Arc<dyn BackgroundLane>,
+    lane_id: RunnerLane,
+    poll_interval: Duration,
+) -> Result<Runner, RunnerError> {
+    Runner::new(vec![lane], &BTreeSet::from([lane_id]), poll_interval)
+}
+
+fn gallery_runners(
+    pool: &PgPool,
+    storage: &AwsS3ObjectStorage,
+    config: &WorkerConfig,
+) -> Result<(Runner, Runner, Runner), RunnerError> {
+    let safety = Arc::new(GallerySafetyLane::new(
+        pool.clone(),
+        Arc::new(storage.clone()),
+        format!("gallery-safety-worker-{}", Uuid::new_v4()),
+        config.lease_duration,
+    ));
+    let cover = Arc::new(GalleryCoverLane::new(pool.clone()));
+    let copy = Arc::new(GalleryCopyLane::new(
+        pool.clone(),
+        Arc::new(storage.clone()),
+        format!("gallery-copy-worker-{}", Uuid::new_v4()),
+        config.lease_duration,
+    ));
+    Ok((
+        single_lane_runner(
+            safety as Arc<dyn BackgroundLane>,
+            RunnerLane::GallerySafety,
+            config.poll_interval,
+        )?,
+        single_lane_runner(
+            cover as Arc<dyn BackgroundLane>,
+            RunnerLane::GalleryCover,
+            config.poll_interval,
+        )?,
+        single_lane_runner(
+            copy as Arc<dyn BackgroundLane>,
+            RunnerLane::GalleryCopy,
+            config.poll_interval,
+        )?,
+    ))
 }
 
 async fn coordinate_shutdown(shutdown_sender: tokio::sync::watch::Sender<bool>) {
     shutdown_signal().await;
     shutdown_sender.send_replace(true);
-}
-
-fn spawn_gallery_safety(
-    pool: &PgPool,
-    storage: &AwsS3ObjectStorage,
-    config: &WorkerConfig,
-    shutdown: &tokio::sync::watch::Receiver<bool>,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(run_gallery_safety_loop(
-        pool.clone(),
-        Arc::new(storage.clone()),
-        format!("gallery-safety-worker-{}", Uuid::new_v4()),
-        config.lease_duration,
-        config.poll_interval,
-        shutdown.clone(),
-    ))
-}
-
-fn spawn_gallery_copy(
-    pool: &PgPool,
-    storage: &AwsS3ObjectStorage,
-    config: &WorkerConfig,
-    shutdown: &tokio::sync::watch::Receiver<bool>,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(run_gallery_copy_loop(
-        pool.clone(),
-        Arc::new(storage.clone()),
-        format!("gallery-copy-worker-{}", Uuid::new_v4()),
-        config.lease_duration,
-        config.poll_interval,
-        shutdown.clone(),
-    ))
 }
 
 fn processing_input_source(
@@ -282,97 +304,6 @@ fn fingerprint_keys(
         .map(|(revision, key)| FingerprintKey::new(revision.clone(), key.as_bytes().to_vec()))
         .transpose()?;
     Ok((current, previous))
-}
-
-async fn run_alias_reindex_loop(
-    store: Arc<PostgresJobStore>,
-    storage: AwsS3ObjectStorage,
-    current_key: FingerprintKey,
-    mut shutdown: tokio::sync::watch::Receiver<bool>,
-) {
-    loop {
-        match reindex_bundle_aliases(&store, &storage, &current_key, 100).await {
-            Ok(count) if count > 0 => tracing::info!(
-                event_name = "shareslices.artifact.bundle_alias.reindexed",
-                shareslices.bundle_alias.reindexed_count = count,
-                "Content bundle aliases reindexed"
-            ),
-            Ok(_) => {}
-            Err(error) => WorkerEvent::new(
-                Severity::Error,
-                "shareslices.artifact.bundle_alias.reindex_failed",
-                "Content bundle alias reindex failed",
-            )
-            .with_exception(SanitizedException::new(
-                std::any::type_name_of_val(&*error),
-                error.to_string(),
-                Option::<&str>::None,
-                std::iter::empty::<&str>(),
-            ))
-            .emit(),
-        }
-        tokio::select! {
-            () = tokio::time::sleep(Duration::from_secs(30)) => {}
-            changed = shutdown.changed() => {
-                if changed.is_err() || *shutdown.borrow() {
-                    break;
-                }
-            }
-        }
-    }
-}
-
-async fn reindex_bundle_aliases(
-    store: &PostgresJobStore,
-    storage: &dyn ObjectStorage,
-    current_key: &FingerprintKey,
-    limit: i64,
-) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
-    const MAX_MANIFEST_BYTES: u64 = 16 * 1024 * 1024;
-    let candidates = store
-        .list_bundle_alias_reindex_candidates(&current_key.revision, limit)
-        .await?;
-    let mut installed = 0_u64;
-    for candidate in candidates {
-        let Some(manifest_object_key) = candidate.manifest_object_key.as_deref() else {
-            store
-                .quarantine_content_bundle(&candidate.bundle_id, ContentBundleIntegrity::Suspect)
-                .await?;
-            continue;
-        };
-        let mut bytes = Vec::new();
-        storage
-            .read_private_object(manifest_object_key)
-            .await?
-            .take(MAX_MANIFEST_BYTES + 1)
-            .read_to_end(&mut bytes)
-            .await?;
-        let manifest = if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > MAX_MANIFEST_BYTES {
-            None
-        } else {
-            serde_json::from_slice::<ReadyManifest>(&bytes).ok()
-        };
-        let Some(manifest) = manifest else {
-            store
-                .quarantine_content_bundle(&candidate.bundle_id, ContentBundleIntegrity::Suspect)
-                .await?;
-            continue;
-        };
-        let Ok(identity) = manifest.content_identity(&candidate.content_identity_revision) else {
-            store
-                .quarantine_content_bundle(&candidate.bundle_id, ContentBundleIntegrity::Suspect)
-                .await?;
-            continue;
-        };
-        let alias = current_key.alias(&candidate.owner_user_id, identity.as_bytes());
-        if store
-            .install_reindexed_bundle_alias(&candidate, &alias.key_revision, &alias.value)
-            .await?
-        {
-            installed += 1;
-        }
-    }
-    Ok(installed)
 }
 
 fn jitter(base: Duration) -> Duration {

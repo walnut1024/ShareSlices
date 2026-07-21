@@ -1,4 +1,5 @@
 pub mod archive_validation;
+pub mod bundle_alias;
 pub mod content_fingerprint;
 pub mod format_rules;
 pub mod gallery_copy_job;

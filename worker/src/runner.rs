@@ -1,3 +1,4 @@
+// cspell:ignore Deque
 use std::{collections::BTreeSet, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
