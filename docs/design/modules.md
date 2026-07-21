@@ -84,6 +84,10 @@ prototypes, not a supported Deployment target.
   current schema head, and atomically swaps active and previous release records.
   GitOps rollback returns ordered prior configuration/runtime and ingress bundles
   with compatibility evidence, but does not claim external reconciliation.
+  The current handoff is not yet a completed GitOps contract: validation that
+  one declared external reconciler owns every rendered field, observation that
+  each predecessor phase actually completed before the next phase, and
+  qualification against a real reconciler remain open under task 10.6.
 - `deploy/cloudflare/` owns Cloudflare Workers, Edge/CDN, Static Assets, private
   R2, Hyperdrive, Queue, scheduled, Container, and Resend composition. Provider
   feasibility evidence gates only this Adapter; failure does not weaken shared

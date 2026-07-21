@@ -44,6 +44,13 @@ path is supplied. Automation must not search the repository, shell history, or
 ambient environment for an alternative key, and it must never treat key presence
 as verified-domain, tracking, team-namespace, or quota evidence.
 
+The operator subsequently confirmed that a key was written, but the 2026-07-22
+documentation audit again observed both `RESEND_API_KEY_FILE` and
+`RESEND_API_KEY` unset in the verifier process. The correct conclusion remains
+that the credential is operator-stored but not injected into this process; the
+audit did not search for it. This does not invalidate the recorded 2026-07-21
+test-mode result and does not authorize another live send.
+
 ## Second read-only refresh
 
 Later on 2026-07-22, a fresh Supabase CLI request succeeded and returned one
@@ -79,6 +86,12 @@ object, Hyperdrive configuration, or external database is permitted only when a
 named later prototype requires it, its owner and expiry are recorded, and it has
 no public ingress or active trigger. Final prototype cleanup must re-inventory
 the account rather than infer cleanup from successful delete commands.
+
+No live provider prototype is a prerequisite for ordinary local implementation
+or documentation validation. When one is explicitly run, its final acceptance
+step includes disabling or removing public and continuously invocable resources
+and rereading inventory; a passing assertion without that shutdown evidence is
+an incomplete prototype result.
 
 The following tasks remain incomplete until their real prerequisites exist:
 

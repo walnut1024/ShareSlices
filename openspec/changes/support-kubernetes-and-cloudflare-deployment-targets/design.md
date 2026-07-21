@@ -83,6 +83,42 @@ and [the document reality audit](evidence/document-reality-audit.md).
 
 The [current prototype execution baseline](evidence/current-prototype-execution-baseline.md) separately records mutable account observations and the work they permit. Account login, an enabled R2 subscription, a visible Supabase project, a `workers.dev` hostname, or a successful `resend.dev` request is prototype evidence only. None of those observations replaces Workers Paid Container entitlement, owned production zones, distinct registrable sites, a verified Resend sending domain, or target-specific release qualification.
 
+### Current implementation checkpoint
+
+This checkpoint prevents the intended target architecture from being mistaken
+for the next executable deployment plan:
+
+- Local development and automated integration use the canonical Compose
+  topology only. Compose is regression evidence, not a production target or
+  production-target qualification evidence.
+- Kubernetes is the only production target with an implemented mutating
+  lifecycle path. It still lacks complete deep verification, network probes,
+  retirement, optional-CDN acceptance, GitOps external-owner validation,
+  real-cluster acceptance, and release qualification. It therefore remains
+  unavailable as a supported release target.
+- The current Cloudflare account can exercise only bounded Workers
+  Free-compatible prototypes plus separately enabled R2. This is not a third
+  target and production `render`, `plan`, and `apply` must reject it. Trusted
+  background processing still requires Containers and Workers Paid. Deferring
+  thumbnail generation does not remove that independent processing gate.
+- Supabase is only the currently observed prototype implementation of the
+  operator-provided external PostgreSQL dependency, not a required ShareSlices
+  vendor. A Free project may pause after low activity and is not production
+  availability or recoverability evidence.
+- `resend.dev` may exercise bounded API and idempotency behavior only. It cannot
+  qualify arbitrary-recipient authentication mail, a verified sending domain,
+  disabled tracking, same-domain key rotation, or inbox delivery.
+- Live provider work is opt-in and disposable. After bounded verification,
+  public routes and continuously invocable resources are removed or disabled,
+  provider inventory is reread, and each deliberately retained private
+  prerequisite receives an owner and expiry. Ordinary implementation and
+  documentation checks do not start provider services.
+
+Development proceeds from unchecked task acceptance criteria, not from the
+presence of a renderer, prototype, authenticated CLI, stored credential, or
+provider resource. Provider facts are refreshed immediately before a live
+prototype and again before qualification.
+
 - [Cloudflare Containers](https://developers.cloudflare.com/containers/) require Workers Paid. A Container is controlled through a Durable Object, runs a `linux/amd64` image, uses ephemeral disk, defaults to a ten-minute `sleepAfter`, and receives `SIGTERM` before a fifteen-minute forced shutdown. Queue and scheduled handlers must explicitly address or start that Container; a Queue is not itself a Container scheduler. [Container SSH](https://developers.cloudflare.com/containers/ssh/) is enabled by default, so production images explicitly disable it and provide no authorized keys.
 - [Cloudflare Queue delivery](https://developers.cloudflare.com/queues/reference/delivery-guarantees/) is at least once, and a Queue-consumer invocation has a finite platform duration. The Queue handler therefore acknowledges only controller handoff; PostgreSQL, not the Queue acknowledgment, determines processing success and recovery.
 - [Workers limits](https://developers.cloudflare.com/workers/platform/limits/) include a 128 MB isolate limit, Cloudflare-account-plan-dependent inbound request limits, bundle and Static Assets limits, and bounded Queue or scheduled invocations. The request-body tiers follow the Cloudflare account plan (for example Free or Pro), not the separate Workers Free/Paid entitlement. The current default 50 MiB ShareSlices Upload fits the documented 100 MB minimum request-body tier, but that value is release-static evidence rather than a live account measurement. Deployment validation must classify provider-observed, release-static, and operator-evidenced facts and compare the configured Upload policy and generated Web assets with the qualified applicable values.

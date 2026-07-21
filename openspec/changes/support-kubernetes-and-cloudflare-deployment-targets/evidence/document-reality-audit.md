@@ -1033,3 +1033,43 @@ cross-target integration and Cloudflare conditional-mirror matrix is broader
 than this Kubernetes rollback slice. Tasks 10.3, 10.4, 10.6, and the real-cluster
 acceptance gates also remain open; this implementation does not qualify the
 Kubernetes target by itself.
+
+## Thirtieth-pass pre-implementation documentation audit
+
+The documentation-only audit on 2026-07-22 paused implementation and compared
+the durable product and vocabulary owners, module map, active proposal/design,
+task acceptance criteria, current provider baseline, current working-tree
+implementation, and refreshed primary manuals for Cloudflare Containers,
+Workers Static Assets and caching, Resend test sending, and Supabase Free project
+pausing.
+
+No product-contract contradiction was found: one production installation still
+selects Kubernetes or Cloudflare, never both; Compose remains local/test only;
+Kubernetes may independently use an optional external CDN; and Cloudflare Edge
+delivery remains part of the Cloudflare target even when optional Viewer byte
+caching is disabled. Dynamic Viewer and authorization responses remain outwardly
+`no-store`.
+
+The audit found a presentation risk rather than a policy error. The intended
+Cloudflare architecture, current Free-compatible prototype envelope, and
+implemented Kubernetes slice were accurate but distributed across several
+files. A current-implementation checkpoint now states the executable boundary
+in one place: Workers Free plus R2 is prototype-only, Containers still gate
+trusted processing, thumbnail deferral does not remove that gate, Supabase Free
+is an optional pausable prototype PostgreSQL service rather than the target
+contract, and `resend.dev` cannot qualify production mail. It also makes the
+mandatory post-prototype shutdown and inventory step explicit.
+
+The module map now calls out the remaining GitOps gap beside the implemented
+handoff: external reconciliation ownership, predecessor-completion observation,
+and real-reconciler qualification are not complete. Therefore task 10.6 remains
+unchecked even though the current working tree can emit ordered handoff data.
+No other task checkbox advances from this documentation review.
+
+The refreshed primary manuals still support the blocking conclusions. Cloudflare
+Containers have no Free-plan allocation and are included with Workers Paid;
+Static Assets are automatically edge cached while Worker-first routing remains
+configurable; `resend.dev` real test sending is restricted to the account's own
+address; and inactive Supabase Free projects may be paused. These mutable facts
+remain dated evidence and must be refreshed before live provider work and final
+qualification.
