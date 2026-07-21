@@ -5,6 +5,9 @@ import test from "node:test";
 import { sha256Digest } from "./canonical.mjs";
 import {
   qualifyReleaseArtifacts,
+  constructReleaseManifest,
+  publishRelease,
+  qualifyArtifactPublication,
   ReleaseQualificationError,
   serializeCanonicalRelease,
   serializeCanonicalTargetBundle,
@@ -12,6 +15,10 @@ import {
 
 const fixturePath = new URL("../contract/fixtures/release.valid.json", import.meta.url);
 const fixture = async () => JSON.parse(await readFile(fixturePath, "utf8"));
+const publicationFixture = async () => JSON.parse(await readFile(
+  new URL("../contract/fixtures/artifact-publication.valid.json", import.meta.url),
+  "utf8",
+));
 
 function artifactInputs(release) {
   const inputs = new Map();
@@ -26,6 +33,9 @@ function artifactInputs(release) {
     }
     inputs.set(artifact.name, bytes);
   }
+  const body = { ...release };
+  delete body.releaseId;
+  release.releaseId = sha256Digest(body);
   return inputs;
 }
 
@@ -83,5 +93,163 @@ test("rejects mutable, duplicate, mismatched, and reused provider identities", a
       }],
     }),
     (error) => error.code === "provider_tag_reused",
+  );
+});
+
+function completeCloudflareInputs(base) {
+  const names = [
+    ["app-worker-bundle", "worker-bundle"],
+    ["content-worker-bundle", "worker-bundle"],
+    ["jobs-worker-bundle", "worker-bundle"],
+    ["static-assets", "static-assets"],
+    ["trusted-processing-image", "oci-image"],
+    ["thumbnail-image", "oci-image"],
+  ];
+  const artifactBytes = new Map(names.map(([name]) => [name, Buffer.from(`artifact:${name}`)]));
+  return {
+    ...base,
+    target: "cloudflare",
+    artifacts: names.map(([name, artifactKind]) => ({
+      name,
+      artifactKind,
+      ...(artifactKind === "oci-image" ? { platforms: ["linux/amd64"] } : {}),
+      providerIdentity: artifactKind === "oci-image"
+        ? { kind: "digest", value: `sha256:${"0".repeat(64)}`, qualified: true, mutable: false }
+        : { kind: "version_id", value: `${name}-v1`, qualified: true, mutable: false },
+    })),
+    artifactBytes,
+    migrationBytes: new Map(base.migrations.map(({ id }) => [id, Buffer.from(`migration:${id}`)])),
+    configuration: { target: "cloudflare", installation: "example" },
+    routeContract: { revision: "routes-v1" },
+    cacheContract: { revision: "cache-v1" },
+    verificationContract: { revision: "verification-v1" },
+  };
+}
+
+test("constructs the same complete release manifest from identical evidence", async () => {
+  const base = await fixture();
+  const input = completeCloudflareInputs(base);
+  delete input.releaseId;
+  const first = constructReleaseManifest(input);
+  const second = constructReleaseManifest({ ...input, artifactBytes: new Map(input.artifactBytes) });
+  assert.deepEqual(first, second);
+  assert.match(first.releaseId, /^sha256:[a-f0-9]{64}$/);
+
+  input.artifactBytes.delete("thumbnail-image");
+  assert.throws(
+    () => constructReleaseManifest(input),
+    (error) => error.code === "release_target_artifact_missing",
+  );
+});
+
+test("derives migration and contract digests and rejects incomplete evidence", async () => {
+  const input = completeCloudflareInputs(await fixture());
+  delete input.releaseId;
+  const release = constructReleaseManifest(input);
+  assert.equal(release.migrations[0].checksum, sha256Digest(input.migrationBytes.get(release.migrations[0].id)));
+  assert.equal(release.routeContractDigest, sha256Digest(input.routeContract));
+  assert.equal(release.cacheContractDigest, sha256Digest(input.cacheContract));
+  assert.equal(release.verificationContractDigest, sha256Digest(input.verificationContract));
+
+  input.migrationBytes.clear();
+  assert.throws(
+    () => constructReleaseManifest(input),
+    (error) => error.code === "release_migration_missing",
+  );
+});
+
+test("publishes immutable bundles and verifies OCI digests before retention", async () => {
+  const base = await fixture();
+  const input = completeCloudflareInputs(base);
+  delete input.releaseId;
+  const release = constructReleaseManifest(input);
+  const publication = await publicationFixture();
+  const calls = [];
+  const result = await publishRelease(release, input.artifactBytes, publication, {
+    releaseStore: {
+      putImmutable: async (entry) => {
+        calls.push(["store", entry.key, entry.digest]);
+        return { outcome: "created", digest: entry.digest };
+      },
+    },
+    ociRegistry: {
+      verifyDigest: async (entry) => {
+        calls.push(["oci", entry.name, entry.digest]);
+        return { digest: entry.digest, platforms: entry.requiredPlatforms };
+      },
+    },
+    retention: {
+      protect: async (entry) => {
+        calls.push(["retention", entry.releaseId]);
+        return { protected: true };
+      },
+    },
+  });
+  assert.equal(result.releaseId, release.releaseId);
+  assert.equal(calls.filter(([kind]) => kind === "oci").length, 2);
+  assert.equal(calls.at(-1)[0], "retention");
+  assert.ok(calls.some(([kind, key]) => kind === "store" && key.endsWith("/release.json")));
+});
+
+test("rejects shared publication credentials and missing OCI platforms", async () => {
+  const publication = await publicationFixture();
+  publication.ociRegistry.deployPullCredentialRef = publication.ociRegistry.buildPushCredentialRef;
+  assert.throws(
+    () => qualifyArtifactPublication(publication),
+    (error) => error.code === "artifact_publication_credential_scope_reused",
+  );
+
+  const base = await fixture();
+  const input = completeCloudflareInputs(base);
+  delete input.releaseId;
+  const release = constructReleaseManifest(input);
+  const validPublication = await publicationFixture();
+  validPublication.ociRegistry.requiredPlatforms = ["linux/amd64", "linux/arm64"];
+  await assert.rejects(
+    publishRelease(release, input.artifactBytes, validPublication, {
+      releaseStore: { putImmutable: async () => {} },
+      ociRegistry: { verifyDigest: async () => {} },
+      retention: { protect: async () => {} },
+    }),
+    (error) => error.code === "release_artifact_platform_missing",
+  );
+});
+
+test("fails closed on unconfirmed immutable writes, registry observations, or retention", async () => {
+  const input = completeCloudflareInputs(await fixture());
+  delete input.releaseId;
+  const release = constructReleaseManifest(input);
+  const publication = await publicationFixture();
+  const validStore = {
+    putImmutable: async ({ digest }) => ({ outcome: "created", digest }),
+  };
+  const validRegistry = {
+    verifyDigest: async ({ digest, requiredPlatforms }) => ({ digest, platforms: requiredPlatforms }),
+  };
+  const validRetention = { protect: async () => ({ protected: true }) };
+
+  await assert.rejects(
+    publishRelease(release, input.artifactBytes, publication, {
+      releaseStore: { putImmutable: async () => ({ outcome: "indeterminate" }) },
+      ociRegistry: validRegistry,
+      retention: validRetention,
+    }),
+    (error) => error.code === "release_store_write_unconfirmed",
+  );
+  await assert.rejects(
+    publishRelease(release, input.artifactBytes, publication, {
+      releaseStore: validStore,
+      ociRegistry: { verifyDigest: async () => ({ digest: `sha256:${"f".repeat(64)}`, platforms: ["linux/amd64"] }) },
+      retention: validRetention,
+    }),
+    (error) => error.code === "oci_artifact_verification_failed",
+  );
+  await assert.rejects(
+    publishRelease(release, input.artifactBytes, publication, {
+      releaseStore: validStore,
+      ociRegistry: validRegistry,
+      retention: { protect: async () => ({ protected: false }) },
+    }),
+    (error) => error.code === "release_retention_unconfirmed",
   );
 });

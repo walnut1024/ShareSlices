@@ -18,6 +18,7 @@ const schemas = Object.fromEntries(
       "deployment.schema.json",
       "command-result.schema.json",
       "release.schema.json",
+      "artifact-publication.schema.json",
       "recovery-marker.schema.json",
       "route-projection.schema.json",
       "cache-projection.schema.json",
@@ -153,6 +154,10 @@ test("immutable release schema rejects mutable or unverifiable provider identity
   secretValue.secretRevisions[0].value = "must-not-be-accepted";
   assertInvalid("release.schema.json", secretValue);
 
+  const incompatible = clone(release);
+  incompatible.compatibility.migrationPrefixesCompatibleWithNMinus1 = false;
+  assertInvalid("release.schema.json", incompatible);
+
   const artifactNames = release.artifacts.map(({ name }) => name);
   assert.equal(new Set(artifactNames).size, artifactNames.length);
   assert.deepEqual(
@@ -164,6 +169,23 @@ test("immutable release schema rejects mutable or unverifiable provider identity
       assert.equal(artifact.providerIdentity.verifiedContentDigest, artifact.contentDigest);
     }
   }
+});
+
+test("artifact publication contract separates credentials and refuses mutable storage", async () => {
+  const publication = await readJson("fixtures/artifact-publication.valid.json");
+  assertValid("artifact-publication.schema.json", publication);
+
+  const mutableStore = clone(publication);
+  mutableStore.releaseStore.immutableWrites = false;
+  assertInvalid("artifact-publication.schema.json", mutableStore);
+
+  const mutablePull = clone(publication);
+  mutablePull.ociRegistry.digestPulls = false;
+  assertInvalid("artifact-publication.schema.json", mutablePull);
+
+  const unsafeRetention = clone(publication);
+  unsafeRetention.retention.minimumReleaseCount = 1;
+  assertInvalid("artifact-publication.schema.json", unsafeRetention);
 });
 
 test("recovery marker schema binds one database/object consistency cut", () => {

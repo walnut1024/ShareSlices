@@ -12,6 +12,10 @@ and no rendered provider resources.
   manifest to the same known consistency cut.
 - `release.schema.json` records immutable release identity, compatibility,
   inventory, ownership, and qualified provider metadata.
+- `artifact-publication.schema.json` defines the operator-supplied immutable
+  release store and OCI registry boundary, distinct build-push and deploy-pull
+  credential references, Kubernetes pull reference, platform requirements, and
+  rollback-aware retention refusal.
 - `route-projection.json` maps ingress route families back to OpenAPI operations
   or documented owners.
 - `cache-projection.json` defines edge and internal-byte cache boundaries without

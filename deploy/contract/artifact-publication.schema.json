@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shareslices.example/deploy/contract/artifact-publication.schema.json",
+  "title": "ShareSlices release artifact publication prerequisites",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "releaseStore", "ociRegistry", "retention"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": "shareslices.artifact-publication/v1" },
+    "releaseStore": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["namespace", "buildPushCredentialRef", "deployPullCredentialRef", "immutableWrites"],
+      "properties": {
+        "namespace": { "type": "string", "minLength": 1 },
+        "buildPushCredentialRef": { "$ref": "#/$defs/secretRef" },
+        "deployPullCredentialRef": { "$ref": "#/$defs/secretRef" },
+        "immutableWrites": { "const": true }
+      }
+    },
+    "ociRegistry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "buildPushCredentialRef", "deployPullCredentialRef", "kubernetesImagePullSecretRef", "requiredPlatforms", "digestPulls"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "buildPushCredentialRef": { "$ref": "#/$defs/secretRef" },
+        "deployPullCredentialRef": { "$ref": "#/$defs/secretRef" },
+        "kubernetesImagePullSecretRef": { "type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" },
+        "requiredPlatforms": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^linux/(amd64|arm64)$" }
+        },
+        "digestPulls": { "const": true }
+      }
+    },
+    "retention": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimumReleaseCount", "rollbackWindowSeconds", "garbageCollectionRefusal"],
+      "properties": {
+        "minimumReleaseCount": { "type": "integer", "minimum": 2 },
+        "rollbackWindowSeconds": { "type": "integer", "minimum": 1 },
+        "garbageCollectionRefusal": { "const": true }
+      }
+    }
+  },
+  "$defs": {
+    "secretRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["logicalId", "revision"],
+      "properties": {
+        "logicalId": { "type": "string", "pattern": "^[a-z][a-z0-9.-]*$" },
+        "revision": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$" }
+      }
+    }
+  }
+}

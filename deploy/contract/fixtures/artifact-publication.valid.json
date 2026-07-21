@@ -1,0 +1,23 @@
+{
+  "$schema": "../artifact-publication.schema.json",
+  "schemaVersion": "shareslices.artifact-publication/v1",
+  "releaseStore": {
+    "namespace": "shareslices-production",
+    "buildPushCredentialRef": { "logicalId": "release-store-build", "revision": "7" },
+    "deployPullCredentialRef": { "logicalId": "release-store-deploy", "revision": "4" },
+    "immutableWrites": true
+  },
+  "ociRegistry": {
+    "repository": "registry.example/shareslices",
+    "buildPushCredentialRef": { "logicalId": "registry-build", "revision": "8" },
+    "deployPullCredentialRef": { "logicalId": "registry-deploy", "revision": "5" },
+    "kubernetesImagePullSecretRef": "shareslices-registry-pull",
+    "requiredPlatforms": ["linux/amd64"],
+    "digestPulls": true
+  },
+  "retention": {
+    "minimumReleaseCount": 2,
+    "rollbackWindowSeconds": 604800,
+    "garbageCollectionRefusal": true
+  }
+}

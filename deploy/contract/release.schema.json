@@ -15,6 +15,9 @@
     "contractRevisions",
     "configurationDigest",
     "routeContractDigest",
+    "cacheContractDigest",
+    "verificationContractDigest",
+    "buildProvenance",
     "providerToolchain",
     "secretRevisions",
     "inventory",
@@ -50,6 +53,19 @@
     },
     "configurationDigest": { "$ref": "#/$defs/sha256" },
     "routeContractDigest": { "$ref": "#/$defs/sha256" },
+    "cacheContractDigest": { "$ref": "#/$defs/sha256" },
+    "verificationContractDigest": { "$ref": "#/$defs/sha256" },
+    "buildProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["builder", "invocationId", "sourceClean", "builtAt"],
+      "properties": {
+        "builder": { "type": "string", "minLength": 1 },
+        "invocationId": { "type": "string", "minLength": 1 },
+        "sourceClean": { "const": true },
+        "builtAt": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T.*Z$" }
+      }
+    },
     "providerToolchain": {
       "type": "object",
       "additionalProperties": false,
@@ -82,9 +98,16 @@
     "artifact": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "contentDigest", "providerIdentity"],
+      "required": ["name", "artifactKind", "contentDigest", "providerIdentity"],
       "properties": {
         "name": { "type": "string", "minLength": 1 },
+        "artifactKind": { "enum": ["oci-image", "worker-bundle", "static-assets"] },
+        "platforms": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^linux/(amd64|arm64)$" }
+        },
         "contentDigest": { "$ref": "#/$defs/sha256" },
         "providerIdentity": {
           "type": "object",
@@ -104,7 +127,14 @@
             }
           ]
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "artifactKind": { "const": "oci-image" } } },
+          "then": { "required": ["platforms"] },
+          "else": { "not": { "required": ["platforms"] } }
+        }
+      ]
     },
     "migration": {
       "type": "object",
@@ -119,11 +149,14 @@
     "compatibility": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schemaHead", "runtimeN", "runtimeNMinus1"],
+      "required": ["schemaHead", "runtimeN", "runtimeNMinus1", "minimumDeploymentSchemaVersion", "migrationPrefixesCompatibleWithNMinus1", "adjacentArtifactsCompatible"],
       "properties": {
         "schemaHead": { "type": "string", "minLength": 1 },
         "runtimeN": { "type": "string", "minLength": 1 },
-        "runtimeNMinus1": { "type": ["string", "null"] }
+        "runtimeNMinus1": { "type": ["string", "null"] },
+        "minimumDeploymentSchemaVersion": { "type": "string", "minLength": 1 },
+        "migrationPrefixesCompatibleWithNMinus1": { "const": true },
+        "adjacentArtifactsCompatible": { "const": true }
       }
     },
     "secretRevision": {

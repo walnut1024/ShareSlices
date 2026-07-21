@@ -1,13 +1,14 @@
 {
   "$schema": "../release.schema.json",
   "schemaVersion": "shareslices.release/v1",
-  "releaseId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "releaseId": "sha256:a6daf667e65eeaa6a0ff7330fd75a48192e2d2a475ff407bb24f4c7f742ae633",
   "previousReleaseId": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "sourceRevision": "0123456789abcdef0123456789abcdef01234567",
   "target": "cloudflare",
   "artifacts": [
     {
       "name": "application-worker",
+      "artifactKind": "worker-bundle",
       "contentDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       "providerIdentity": {
         "kind": "version_id",
@@ -18,6 +19,8 @@
     },
     {
       "name": "jobs-container",
+      "artifactKind": "oci-image",
+      "platforms": ["linux/amd64"],
       "contentDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
       "providerIdentity": {
         "kind": "release_tag",
@@ -38,7 +41,10 @@
   "compatibility": {
     "schemaHead": "0018_gallery_permission_grant",
     "runtimeN": "release-aaaaaaaaaaaa",
-    "runtimeNMinus1": "release-bbbbbbbbbbbb"
+    "runtimeNMinus1": "release-bbbbbbbbbbbb",
+    "minimumDeploymentSchemaVersion": "shareslices.deployment/v1",
+    "migrationPrefixesCompatibleWithNMinus1": true,
+    "adjacentArtifactsCompatible": true
   },
   "contractRevisions": {
     "deployment": "shareslices.deployment/v1",
@@ -48,6 +54,14 @@
   },
   "configurationDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
   "routeContractDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "cacheContractDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "verificationContractDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "buildProvenance": {
+    "builder": "github-actions",
+    "invocationId": "example-run-1",
+    "sourceClean": true,
+    "builtAt": "2026-07-22T00:00:00.000Z"
+  },
   "providerToolchain": {
     "baselineVersion": 1,
     "identities": {
