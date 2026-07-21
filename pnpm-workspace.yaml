@@ -1,5 +1,8 @@
 packages:
   - "api"
+  - "deploy/cloudflare/prototypes/*"
   - "web"
 allowBuilds:
   esbuild: true
+  sharp: true
+  workerd: true

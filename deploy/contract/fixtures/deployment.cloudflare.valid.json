@@ -1,0 +1,85 @@
+{
+  "$schema": "../deployment.schema.json",
+  "schemaVersion": "shareslices.deployment/v1",
+  "installationId": "example-cloudflare",
+  "target": "cloudflare",
+  "shared": {
+    "database": { "ref": "secret://supabase/direct", "revision": "12" },
+    "sessionSigningKeys": [
+      { "ref": "secret://workers/signing-current", "revision": "4" },
+      { "ref": "secret://workers/signing-previous", "revision": "3" }
+    ],
+    "publicOrigins": {
+      "application": "https://app.example.test",
+      "content": "https://content.example.test"
+    },
+    "recoverability": {
+      "postgresql": {
+        "owner": "database-team",
+        "encryptedLocation": "backup://postgresql/example-cloudflare",
+        "retention": "30d",
+        "observedAt": "2026-07-21T00:00:00Z",
+        "maximumAgeSeconds": 86400,
+        "rpoSeconds": 3600,
+        "rtoSeconds": 14400
+      },
+      "objectStorage": {
+        "owner": "storage-team",
+        "encryptedLocation": "backup://r2/example-cloudflare",
+        "retention": "30d",
+        "observedAt": "2026-07-21T00:00:00Z",
+        "maximumAgeSeconds": 86400,
+        "rpoSeconds": 3600,
+        "rtoSeconds": 14400
+      },
+      "iacState": {
+        "owner": "platform-team",
+        "encryptedLocation": "state://cloudflare/example-cloudflare",
+        "retention": "90d",
+        "observedAt": "2026-07-21T00:00:00Z",
+        "maximumAgeSeconds": 86400,
+        "rpoSeconds": 3600,
+        "rtoSeconds": 7200
+      },
+      "releaseBundles": {
+        "owner": "release-team",
+        "encryptedLocation": "release://example-cloudflare",
+        "retention": "90d",
+        "observedAt": "2026-07-21T00:00:00Z",
+        "maximumAgeSeconds": 86400,
+        "rpoSeconds": 0,
+        "rtoSeconds": 3600
+      },
+      "deploymentJournal": {
+        "owner": "release-team",
+        "encryptedLocation": "journal://example-cloudflare",
+        "retention": "90d",
+        "observedAt": "2026-07-21T00:00:00Z",
+        "maximumAgeSeconds": 86400,
+        "rpoSeconds": 0,
+        "rtoSeconds": 3600
+      }
+    }
+  },
+  "cloudflare": {
+    "accountId": "0123456789abcdef0123456789abcdef",
+    "postgresqlOrigin": { "ref": "secret://supabase/hyperdrive", "revision": "8" },
+    "email": {
+      "adapter": "resend",
+      "resend": { "ref": "secret://resend/sending", "revision": "2" }
+    },
+    "workers": {
+      "application": "shareslices-app",
+      "content": "shareslices-content",
+      "jobs": "shareslices-jobs"
+    },
+    "r2": {
+      "artifactBucket": "shareslices-artifacts",
+      "deploymentStateBucket": "shareslices-deployment-state"
+    },
+    "queues": {
+      "jobs": "shareslices-jobs",
+      "deadLetter": "shareslices-jobs-dead-letter"
+    }
+  }
+}

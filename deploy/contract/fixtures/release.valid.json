@@ -1,0 +1,79 @@
+{
+  "$schema": "../release.schema.json",
+  "schemaVersion": "shareslices.release/v1",
+  "releaseId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "previousReleaseId": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "sourceRevision": "0123456789abcdef0123456789abcdef01234567",
+  "target": "cloudflare",
+  "artifacts": [
+    {
+      "name": "application-worker",
+      "contentDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "providerIdentity": {
+        "kind": "version_id",
+        "value": "worker-version-example",
+        "qualified": true,
+        "mutable": false
+      }
+    },
+    {
+      "name": "jobs-container",
+      "contentDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "providerIdentity": {
+        "kind": "release_tag",
+        "value": "release-aaaaaaaaaaaa",
+        "qualified": true,
+        "mutable": false,
+        "verifiedContentDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      }
+    }
+  ],
+  "migrations": [
+    {
+      "order": 1,
+      "id": "0001_account_entry.sql",
+      "checksum": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    }
+  ],
+  "compatibility": {
+    "schemaHead": "0018_gallery_permission_grant",
+    "runtimeN": "release-aaaaaaaaaaaa",
+    "runtimeNMinus1": "release-bbbbbbbbbbbb"
+  },
+  "contractRevisions": {
+    "deployment": "shareslices.deployment/v1",
+    "database": "0018_gallery_permission_grant",
+    "jobs": "gallery-job/v1",
+    "verification": "shareslices.verification/v1"
+  },
+  "configurationDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "routeContractDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "providerToolchain": {
+    "baselineVersion": 1,
+    "identities": {
+      "wrangler": "4.112.0",
+      "terraformProvider": "cloudflare/cloudflare@5.22.0"
+    }
+  },
+  "secretRevisions": [
+    { "logicalId": "database", "revision": "12" },
+    { "logicalId": "resend", "revision": "2" },
+    { "logicalId": "session-signing", "revision": "4" }
+  ],
+  "inventory": [
+    {
+      "logicalId": "worker/application",
+      "owner": "deployment-module",
+      "retention": "active"
+    },
+    {
+      "logicalId": "postgresql/external",
+      "owner": "external-prerequisite",
+      "retention": "external"
+    }
+  ],
+  "ownershipMarkers": {
+    "installation": "example-cloudflare",
+    "release": "aaaaaaaaaaaa"
+  }
+}

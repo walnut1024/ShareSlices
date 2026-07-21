@@ -1,0 +1,96 @@
+{
+  "$schema": "./verification-scenarios.schema.json",
+  "schemaVersion": "shareslices.verification/v1",
+  "stableReasons": [
+    "capability_disabled",
+    "compose_has_no_provider_control_plane",
+    "external_cdn_disabled",
+    "provider_capability_not_selected",
+    "required_check_failed"
+  ],
+  "scenarios": [
+    {
+      "id": "trusted-health",
+      "level": "core",
+      "appliesTo": ["compose", "kubernetes", "cloudflare"],
+      "capability": "trusted-http",
+      "requiredWhenEnabled": true,
+      "mutating": false,
+      "routeIds": ["health-live", "health-ready"],
+      "owner": {
+        "capability": "deployment-orchestration",
+        "requirement": "Verify one product contract across deployment targets"
+      }
+    },
+    {
+      "id": "viewer-cache-boundary",
+      "level": "core",
+      "appliesTo": ["compose", "kubernetes", "cloudflare"],
+      "capability": "viewer",
+      "requiredWhenEnabled": true,
+      "mutating": false,
+      "routeIds": ["viewer-entry", "viewer-assets", "preview-entry", "preview-assets"],
+      "owner": {
+        "capability": "artifact-viewer",
+        "requirement": "Disable Preview and Viewer caching"
+      }
+    },
+    {
+      "id": "content-authority-isolation",
+      "level": "core",
+      "appliesTo": ["compose", "kubernetes", "cloudflare"],
+      "capability": "content-only-http",
+      "requiredWhenEnabled": true,
+      "mutating": false,
+      "routeIds": ["gallery-content-public", "gallery-content-review", "internal-routes"],
+      "owner": {
+        "capability": "gallery-security",
+        "requirement": "Isolate Artifact execution from management credentials"
+      }
+    },
+    {
+      "id": "cloudflare-provider-bindings",
+      "level": "pre_traffic",
+      "appliesTo": ["compose", "cloudflare"],
+      "capability": "cloudflare-provider-control-plane",
+      "requiredWhenEnabled": true,
+      "disabledExpectation": "not_applicable",
+      "notApplicableReason": "compose_has_no_provider_control_plane",
+      "mutating": false,
+      "owner": {
+        "capability": "cloudflare-deployment",
+        "requirement": "Qualify the Cloudflare platform contract"
+      }
+    },
+    {
+      "id": "kubernetes-network-policy",
+      "level": "pre_traffic",
+      "appliesTo": ["compose", "kubernetes"],
+      "capability": "kubernetes-network-policy",
+      "requiredWhenEnabled": true,
+      "disabledExpectation": "not_applicable",
+      "notApplicableReason": "compose_has_no_provider_control_plane",
+      "mutating": false,
+      "owner": {
+        "capability": "kubernetes-deployment",
+        "requirement": "Apply a production Kubernetes security and availability baseline"
+      }
+    },
+    {
+      "id": "transactional-email-delivery",
+      "level": "deep",
+      "appliesTo": ["kubernetes", "cloudflare"],
+      "capability": "authentication-email",
+      "requiredWhenEnabled": true,
+      "disabledExpectation": "fail_closed",
+      "mutating": true,
+      "authorization": "explicit deep-verification authorization",
+      "ownership": "release-scoped recipient and logical delivery key",
+      "cleanup": "expire the probe delivery and retain only redacted provider evidence",
+      "owner": {
+        "capability": "account-entry",
+        "requirement": "Durable and idempotent email delivery"
+      }
+    }
+  ]
+}

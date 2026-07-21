@@ -7,6 +7,10 @@ target/
 *.log
 .DS_Store
 .sqlx/
+.terraform/
+.wrangler/
+*.tfstate
+*.tfstate.*
 .venv/
 __pycache__/
 .pytest_cache/

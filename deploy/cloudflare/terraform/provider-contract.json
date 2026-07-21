@@ -1,0 +1,64 @@
+{
+  "$schema": "./provider-contract.schema.json",
+  "providerAddress": "registry.terraform.io/cloudflare/cloudflare",
+  "providerVersion": "5.22.0",
+  "resources": {
+    "cloudflare_hyperdrive_config": [
+      "account_id",
+      "name",
+      "caching.disabled",
+      "mtls.sslmode",
+      "origin.database",
+      "origin.host",
+      "origin.password",
+      "origin.port",
+      "origin.scheme",
+      "origin.user"
+    ],
+    "cloudflare_queue": [
+      "account_id",
+      "queue_name",
+      "settings.delivery_delay",
+      "settings.delivery_paused",
+      "settings.message_retention_period"
+    ],
+    "cloudflare_queue_consumer": [
+      "account_id",
+      "dead_letter_queue",
+      "queue_id",
+      "script_name",
+      "settings.batch_size",
+      "settings.max_concurrency",
+      "settings.max_retries",
+      "settings.max_wait_time_ms",
+      "settings.retry_delay",
+      "settings.visibility_timeout_ms",
+      "type"
+    ],
+    "cloudflare_r2_bucket": [
+      "account_id",
+      "jurisdiction",
+      "location",
+      "name",
+      "storage_class"
+    ],
+    "cloudflare_workers_cron_trigger": [
+      "account_id",
+      "schedules",
+      "script_name"
+    ],
+    "cloudflare_workers_custom_domain": [
+      "account_id",
+      "environment",
+      "hostname",
+      "service",
+      "zone_id",
+      "zone_name"
+    ],
+    "cloudflare_workers_route": [
+      "pattern",
+      "script",
+      "zone_id"
+    ]
+  }
+}

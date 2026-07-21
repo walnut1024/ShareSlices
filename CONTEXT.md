@@ -188,6 +188,39 @@ _Avoid_: Gallery player authorization, management Session, public Preview link
 A deployment whose configured topology places the Untrusted-content origin on a separate browser site and registrable-domain boundary from the Web and API, outside every management credential boundary. A sibling subdomain, another port, or a feature flag alone is insufficient.
 _Avoid_: Shared-host compatibility mode, Gallery feature flag
 
+**Deployment target**:
+The mutually exclusive production runtime and release composition selected for
+one ShareSlices installation. The accepted targets are Kubernetes and
+Cloudflare; Docker Compose is a local development and test topology, not a
+Deployment target.
+_Avoid_: Environment, hosting provider, Docker Compose target
+
+**Kubernetes target**:
+The Deployment target that runs ShareSlices in an operator-provided conforming
+Kubernetes cluster with external PostgreSQL, private S3-compatible storage, and
+enterprise SMTP. An optional external CDN does not change this target.
+_Avoid_: Cloudflare target when Cloudflare is only the CDN, generic self-hosting
+
+**Cloudflare target**:
+The Deployment target that composes ShareSlices from qualified Cloudflare edge
+and compute services, private R2, external PostgreSQL, and Resend. It is an
+alternative to, not an extension of, the Kubernetes target.
+_Avoid_: Kubernetes with Cloudflare CDN, hybrid target
+
+**Deployment Module**:
+The repository module under `deploy/` that owns production target selection,
+configuration validation, rendering, release planning, apply, observation,
+verification, compatible rollback, and the canonical local Compose topology.
+It coordinates target Adapters without owning product policy.
+_Avoid_: Deployment target, CI workflow, cloud account provisioner
+
+**Email Adapter**:
+The target-specific transport behind the shared durable authentication-email
+delivery contract: enterprise SMTP for the Kubernetes target and Resend HTTPS
+for the Cloudflare target. It reports transport acceptance separately from inbox
+delivery and does not own account-entry policy.
+_Avoid_: Email provider as product policy, inline signup email
+
 **Gallery report**:
 A Viewer request for ShareSlices to review the publicly accessible current revision of one Gallery listing for a safety, rights, privacy, legality, or spam concern.
 _Avoid_: Appeal, support request

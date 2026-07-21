@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "shareslices.verification-fixture/v1",
+  "topology": "compose",
+  "addresses": {
+    "application": "http://app.localhost:5173",
+    "content": "http://content.localhost:7460"
+  },
+  "requiredCapabilities": ["trusted-http", "viewer", "content-only-http"],
+  "disabledCapabilities": ["cloudflare-provider-control-plane", "kubernetes-network-policy"],
+  "expectedNotApplicable": {
+    "cloudflare-provider-bindings": "compose_has_no_provider_control_plane",
+    "kubernetes-network-policy": "compose_has_no_provider_control_plane"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "@shareslices/cloudflare-resend-prototype",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "scripts": {
+    "check": "node --test ./resend-contract.test.mjs",
+    "verify:live": "node ./verify-live.mjs"
+  }
+}

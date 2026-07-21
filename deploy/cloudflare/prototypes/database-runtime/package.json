@@ -1,0 +1,11 @@
+{
+  "name": "@shareslices/cloudflare-database-runtime-prototype",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "better-auth": "1.6.23",
+    "drizzle-orm": "0.44.7",
+    "hono": "4.12.28",
+    "pg": "8.22.0"
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "$schema": "./cache-projection.schema.json",
+  "schemaVersion": "shareslices.cache/v1",
+  "privateObjectStorage": true,
+  "policies": [
+    {
+      "id": "web-static-immutable",
+      "scope": "edge-response",
+      "enabled": true,
+      "outwardCacheControl": "public, max-age=31536000, immutable",
+      "rangeBehavior": "not-applicable",
+      "authorization": "not-required",
+      "contentHashRequired": true,
+      "representationKeyInputs": ["path", "content-encoding"],
+      "routeFamilies": ["web-static-assets"]
+    },
+    {
+      "id": "viewer-internal-immutable-bytes",
+      "scope": "internal-immutable-bytes",
+      "enabled": false,
+      "optional": true,
+      "outwardCacheControl": "no-store",
+      "rangeBehavior": "cache-full-body-only",
+      "authorization": "before-cache",
+      "representationKeyInputs": [
+        "publication-id",
+        "version-id",
+        "manifest-asset-path",
+        "content-digest",
+        "content-type",
+        "content-encoding"
+      ],
+      "routeFamilies": ["viewer-entry", "viewer-assets"]
+    },
+    {
+      "id": "viewer-authorized-outward-no-store",
+      "scope": "bypass",
+      "enabled": true,
+      "outwardCacheControl": "no-store",
+      "rangeBehavior": "bypass",
+      "authorization": "before-cache",
+      "routeFamilies": ["viewer-entry", "viewer-assets"]
+    },
+    {
+      "id": "preview-no-store",
+      "scope": "bypass",
+      "enabled": true,
+      "outwardCacheControl": "no-store",
+      "rangeBehavior": "bypass",
+      "authorization": "before-cache",
+      "routeFamilies": ["preview-entry", "preview-assets"]
+    },
+    {
+      "id": "content-authorized-no-store",
+      "scope": "bypass",
+      "enabled": true,
+      "outwardCacheControl": "no-store",
+      "rangeBehavior": "bypass",
+      "authorization": "before-cache",
+      "routeFamilies": ["gallery-content-public", "gallery-content-review"]
+    },
+    {
+      "id": "dynamic-no-store",
+      "scope": "bypass",
+      "enabled": true,
+      "outwardCacheControl": "no-store",
+      "rangeBehavior": "bypass",
+      "authorization": "not-applicable",
+      "routeFamilies": ["health-live", "health-ready", "management-api", "gallery-public"]
+    },
+    {
+      "id": "forbidden",
+      "scope": "forbidden",
+      "enabled": true,
+      "outwardCacheControl": "no-store",
+      "rangeBehavior": "not-applicable",
+      "authorization": "not-applicable",
+      "routeFamilies": ["internal-routes"]
+    }
+  ]
+}

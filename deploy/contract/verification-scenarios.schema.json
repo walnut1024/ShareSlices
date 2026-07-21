@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shareslices.example/deploy/contract/verification-scenarios.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "stableReasons", "scenarios"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": "shareslices.verification/v1" },
+    "stableReasons": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z0-9_]+$" }
+    },
+    "scenarios": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/scenario" }
+    }
+  },
+  "$defs": {
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability", "requirement"],
+      "properties": {
+        "capability": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+        "requirement": { "type": "string", "minLength": 1 }
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "level",
+        "appliesTo",
+        "capability",
+        "requiredWhenEnabled",
+        "mutating",
+        "owner"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+        "level": { "enum": ["core", "pre_traffic", "deep"] },
+        "appliesTo": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["compose", "kubernetes", "cloudflare"] }
+        },
+        "capability": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+        "requiredWhenEnabled": { "type": "boolean" },
+        "disabledExpectation": { "enum": ["fail_closed", "not_applicable"] },
+        "notApplicableReason": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+        "mutating": { "type": "boolean" },
+        "authorization": { "type": "string", "minLength": 1 },
+        "ownership": { "type": "string", "minLength": 1 },
+        "cleanup": { "type": "string", "minLength": 1 },
+        "routeIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9-]+$" }
+        },
+        "owner": { "$ref": "#/$defs/owner" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "level": { "const": "core" } } },
+          "then": { "properties": { "mutating": { "const": false } } }
+        },
+        {
+          "if": { "properties": { "mutating": { "const": true } } },
+          "then": { "required": ["authorization", "ownership", "cleanup"] }
+        },
+        {
+          "if": { "required": ["notApplicableReason"] },
+          "then": { "properties": { "disabledExpectation": { "const": "not_applicable" } } }
+        }
+      ]
+    }
+  }
+}

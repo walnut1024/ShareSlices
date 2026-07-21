@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shareslices.example/deploy/contract/release.schema.json",
+  "title": "ShareSlices immutable release bundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "releaseId",
+    "sourceRevision",
+    "target",
+    "artifacts",
+    "migrations",
+    "compatibility",
+    "contractRevisions",
+    "configurationDigest",
+    "routeContractDigest",
+    "providerToolchain",
+    "secretRevisions",
+    "inventory",
+    "ownershipMarkers"
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": "shareslices.release/v1" },
+    "releaseId": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "previousReleaseId": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "sourceRevision": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "target": { "enum": ["kubernetes", "cloudflare"] },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/artifact" }
+    },
+    "migrations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/migration" }
+    },
+    "compatibility": { "$ref": "#/$defs/compatibility" },
+    "contractRevisions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deployment", "database", "jobs", "verification"],
+      "properties": {
+        "deployment": { "type": "string", "minLength": 1 },
+        "database": { "type": "string", "minLength": 1 },
+        "jobs": { "type": "string", "minLength": 1 },
+        "verification": { "type": "string", "minLength": 1 }
+      }
+    },
+    "configurationDigest": { "$ref": "#/$defs/sha256" },
+    "routeContractDigest": { "$ref": "#/$defs/sha256" },
+    "providerToolchain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baselineVersion", "identities"],
+      "properties": {
+        "baselineVersion": { "type": "integer", "minimum": 1 },
+        "identities": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "secretRevisions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/secretRevision" }
+    },
+    "inventory": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/inventoryItem" }
+    },
+    "ownershipMarkers": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "contentDigest", "providerIdentity"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "contentDigest": { "$ref": "#/$defs/sha256" },
+        "providerIdentity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value", "qualified", "mutable"],
+          "properties": {
+            "kind": { "enum": ["digest", "version_id", "release_tag"] },
+            "value": { "type": "string", "minLength": 1 },
+            "qualified": { "const": true },
+            "mutable": { "const": false },
+            "verifiedContentDigest": { "$ref": "#/$defs/sha256" }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "kind": { "const": "release_tag" } } },
+              "then": { "required": ["verifiedContentDigest"] }
+            }
+          ]
+        }
+      }
+    },
+    "migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["order", "id", "checksum"],
+      "properties": {
+        "order": { "type": "integer", "minimum": 1 },
+        "id": { "type": "string", "minLength": 1 },
+        "checksum": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaHead", "runtimeN", "runtimeNMinus1"],
+      "properties": {
+        "schemaHead": { "type": "string", "minLength": 1 },
+        "runtimeN": { "type": "string", "minLength": 1 },
+        "runtimeNMinus1": { "type": ["string", "null"] }
+      }
+    },
+    "secretRevision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["logicalId", "revision"],
+      "properties": {
+        "logicalId": { "type": "string", "pattern": "^[a-z][a-z0-9.-]*$" },
+        "revision": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$" }
+      }
+    },
+    "inventoryItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["logicalId", "owner", "retention"],
+      "properties": {
+        "logicalId": { "type": "string", "minLength": 1 },
+        "owner": { "enum": ["deployment-module", "external-prerequisite"] },
+        "retention": { "enum": ["active", "rollback", "durable", "external"] }
+      }
+    }
+  }
+}

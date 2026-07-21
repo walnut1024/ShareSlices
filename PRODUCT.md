@@ -12,6 +12,82 @@ An artifact has an HTML entry file and supporting assets such as JavaScript, CSS
 
 The product starts where an agent finishes. ShareSlices takes local agent output, creates a stable Share link when requested, and can separately list a fixed Version in Gallery.
 
+## Deployment choices
+
+A production installation selects exactly one Deployment target: Kubernetes or
+Cloudflare. The targets are alternative runtime and release compositions for the
+same ShareSlices product; one installation does not combine them, run them
+active-active, or fail over between them. Docker Compose remains the canonical
+local development and test topology and is not a production Deployment target.
+
+This section defines the accepted product contract for those targets; it does
+not by itself make either target available in a release. A release may advertise
+or accept a target only after its implementation, prerequisite checks, and
+target-specific qualification evidence pass. Failure to qualify Cloudflare does
+not weaken this contract or prevent an independently qualified Kubernetes target
+from being released.
+
+The Kubernetes target runs on an operator-provided conforming Kubernetes cluster
+and uses external PostgreSQL, private S3-compatible object storage, and an
+operator-provided enterprise SMTP service. It can expose ShareSlices directly
+through cluster ingress or place an optional external CDN in front of that
+ingress. Using Cloudflare or another vendor only as that CDN does not change the
+installation into the Cloudflare target and does not add Cloudflare application
+runtimes. Direct mode has no external-CDN dependency. CDN mode may cache only
+routes classified cacheable by the shared cache contract and must preserve every
+dynamic `no-store`, authorization, revocation, status, Cookie, and security-header
+decision.
+
+The Cloudflare target uses Cloudflare edge services, Workers, private R2,
+external PostgreSQL, Queues, and qualified on-demand processing. It uses the
+Resend HTTPS API for authentication email. Cloudflare Edge/CDN is an explicit
+part of this target: content-hashed Web build assets are cacheable, while API,
+authentication, management, Upload, Preview, stable Viewer, known-link state,
+and authorized Gallery responses are not. Optional Viewer acceleration may
+reuse only a bounded full immutable Version representation internally after the
+current request passes authorization. Range responses bypass that internal
+cache. The outward Viewer response remains `no-store`; internal byte reuse never
+caches or bypasses the current Publication, expiry, restriction, or authorization
+decision.
+
+Both targets preserve the same product behavior, public HTTP contract,
+PostgreSQL authority, private object-storage boundary, durable job semantics,
+Gallery eligibility rule, and Viewer revocation behavior. A target-specific
+runtime or infrastructure Adapter must not create a second implementation of
+account, authorization, Artifact, Publication, Gallery, or delivery policy.
+
+Authentication-email delivery remains asynchronous and durable across targets.
+The Kubernetes email Adapter uses the configured enterprise SMTP relay; the
+Cloudflare email Adapter uses the configured Resend team, verified sending
+domain, disabled open/click tracking, and sending-access key. Provider or relay
+acceptance means only that the transport accepted the message; it does not prove
+inbox delivery. ShareSlices does not infer delivery, bounce, complaint, or spam
+state without a separately defined provider-event contract.
+
+The first claim of each email delivery freezes its Adapter kind, provider-team or
+relay namespace, sender/domain and endpoint identity, configuration revision,
+serialized payload digest, and provider idempotency identity when available.
+Automatic retries must retain that namespace and byte-equivalent payload.
+Credential rotation may continue an attempted delivery only when operator
+evidence proves the replacement credential belongs to the same namespace and
+sender/domain scope. A provider's finite idempotency window is a bounded retry
+aid, not ShareSlices' durable delivery state or an exactly-once guarantee. An
+unresolved submission at or beyond the frozen safe-replay cutoff requires manual
+reconciliation rather than a blind resend.
+
+Manual email reconciliation is a non-public maintenance operation. It requires a
+short-lived, single-use signed authorization that binds the operator, installation,
+delivery and attempt revisions, frozen transport identity, decision, evidence,
+and expiry. PostgreSQL transactionally serializes authorization-nonce claim,
+delivery locking, evidence validation, resolution, and audit recording against
+dispatcher work and account-entry transitions.
+
+Application rollback restores only a retained compatible release and never runs
+database down migrations or presents itself as data disaster recovery. It is
+refused when the retained application, configuration, Secret revision, job or
+object contract, or current database schema is incompatible. Database and object
+restoration remain separate operator-controlled recovery procedures.
+
 ## Supported clients
 
 ShareSlices-owned Web UI, Gallery, and Viewer surfaces support desktop browsers only. Mobile browsers, tablet layouts, touch-specific interaction, and responsive mobile layouts are outside the supported product scope and receive an explicit unsupported message. ShareSlices serves uploaded artifacts as provided and does not adapt their layouts for different devices.

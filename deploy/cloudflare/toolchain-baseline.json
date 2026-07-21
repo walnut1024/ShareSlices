@@ -1,0 +1,40 @@
+{
+  "$schema": "./toolchain-baseline.schema.json",
+  "baselineVersion": 1,
+  "qualifiedOn": "2026-07-21",
+  "wrangler": {
+    "version": "4.112.0",
+    "configurationSchemaSha256": "c591dbacdec3a36a3320bc1d7a2283eb52c1f9535d345c9c71bb11840753c1f8"
+  },
+  "terraformProvider": {
+    "source": "cloudflare/cloudflare",
+    "version": "5.22.0",
+    "schemaSha256": "464d413d784d2251cc281af4320add27323fcf91af064fa2e37937ce71aaa2a9",
+    "platformPackageSha256": {
+      "darwin_amd64": "8437138c0af1a1a557b516ca42dae54499933cc81072396abe7eefd267218f79",
+      "darwin_arm64": "d952f92ae1a688ed376757127ae1aa3b625571bf1fc606214a5822eae98213e0",
+      "linux_amd64": "cd767016ea7382e384e560f6ddb302637ecb1b53ece15c9326032010effe6c33",
+      "linux_arm64": "45f3b7c50254b1da1dc21e77e03cd1e931cab40fb75c7cba822a53ed54cd232e"
+    }
+  },
+  "workersRuntime": {
+    "compatibilityDate": "2026-07-19",
+    "compatibilityFlags": [
+      "nodejs_compat"
+    ]
+  },
+  "containerPackage": {
+    "name": "@cloudflare/containers",
+    "version": "0.3.7"
+  },
+  "officialContracts": [
+    "https://developers.cloudflare.com/workers/configuration/compatibility-dates/",
+    "https://developers.cloudflare.com/workers/configuration/compatibility-flags/",
+    "https://developers.cloudflare.com/workers/wrangler/configuration/",
+    "https://developers.cloudflare.com/containers/get-started/",
+    "https://registry.terraform.io/providers/cloudflare/cloudflare/5.22.0",
+    "https://releases.hashicorp.com/terraform/1.15.7/",
+    "https://developer.hashicorp.com/terraform/language/providers/requirements",
+    "https://developer.hashicorp.com/terraform/language/files/dependency-lock"
+  ]
+}

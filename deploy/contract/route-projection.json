@@ -1,0 +1,142 @@
+{
+  "$schema": "./route-projection.schema.json",
+  "schemaVersion": "shareslices.routes/v1",
+  "rows": [
+    {
+      "id": "web-static-assets",
+      "family": "web",
+      "pathPattern": "/assets/{contentHash}.{extension}",
+      "methods": ["GET", "HEAD"],
+      "ingress": "trusted",
+      "owner": {
+        "kind": "documented-route-family",
+        "document": "docs/design/modules.md",
+        "section": "Trusted Web surfaces"
+      },
+      "cachePolicy": "web-static-immutable",
+      "forbidden": false
+    },
+    {
+      "id": "health-live",
+      "family": "health",
+      "pathPattern": "/health",
+      "methods": ["GET"],
+      "ingress": "trusted",
+      "owner": { "kind": "openapi", "operationId": "getHealth" },
+      "cachePolicy": "dynamic-no-store",
+      "forbidden": false
+    },
+    {
+      "id": "health-ready",
+      "family": "health",
+      "pathPattern": "/ready",
+      "methods": ["GET"],
+      "ingress": "trusted",
+      "owner": { "kind": "openapi", "operationId": "getReadiness" },
+      "cachePolicy": "dynamic-no-store",
+      "forbidden": false
+    },
+    {
+      "id": "management-api",
+      "family": "public",
+      "pathPattern": "/api/**",
+      "methods": ["ANY"],
+      "ingress": "trusted",
+      "owner": {
+        "kind": "documented-route-family",
+        "document": "docs/design/modules.md",
+        "section": "Hono runtime Modules"
+      },
+      "cachePolicy": "dynamic-no-store",
+      "forbidden": false
+    },
+    {
+      "id": "viewer-entry",
+      "family": "viewer",
+      "pathPattern": "/a/{shareSlug}/",
+      "methods": ["GET", "HEAD"],
+      "ingress": "trusted",
+      "owner": { "kind": "openapi", "operationId": "getSharedArtifactEntry" },
+      "cachePolicy": "viewer-authorized-outward-no-store",
+      "forbidden": false
+    },
+    {
+      "id": "viewer-assets",
+      "family": "viewer",
+      "pathPattern": "/a/{shareSlug}/{assetPath}",
+      "methods": ["GET", "HEAD"],
+      "ingress": "trusted",
+      "owner": { "kind": "openapi", "operationId": "getSharedArtifactAsset" },
+      "cachePolicy": "viewer-authorized-outward-no-store",
+      "forbidden": false
+    },
+    {
+      "id": "preview-entry",
+      "family": "preview",
+      "pathPattern": "/api/versions/{versionId}/content/",
+      "methods": ["GET", "HEAD"],
+      "ingress": "trusted",
+      "owner": { "kind": "openapi", "operationId": "previewVersionEntry" },
+      "cachePolicy": "preview-no-store",
+      "forbidden": false
+    },
+    {
+      "id": "preview-assets",
+      "family": "preview",
+      "pathPattern": "/api/versions/{versionId}/content/{assetPath}",
+      "methods": ["GET", "HEAD"],
+      "ingress": "trusted",
+      "owner": { "kind": "openapi", "operationId": "previewVersionAsset" },
+      "cachePolicy": "preview-no-store",
+      "forbidden": false
+    },
+    {
+      "id": "gallery-public",
+      "family": "gallery",
+      "pathPattern": "/gallery/**",
+      "methods": ["GET", "HEAD", "POST"],
+      "ingress": "trusted",
+      "owner": {
+        "kind": "documented-route-family",
+        "document": "docs/design/modules.md",
+        "section": "Gallery Modules"
+      },
+      "cachePolicy": "dynamic-no-store",
+      "forbidden": false
+    },
+    {
+      "id": "gallery-content-public",
+      "family": "content-only",
+      "pathPattern": "/gallery-content/public/{playerAuthorization}/**",
+      "methods": ["GET", "HEAD"],
+      "ingress": "content-only",
+      "owner": { "kind": "openapi", "operationId": "getGalleryContentAsset" },
+      "cachePolicy": "content-authorized-no-store",
+      "forbidden": false
+    },
+    {
+      "id": "gallery-content-review",
+      "family": "content-only",
+      "pathPattern": "/gallery-content/review/{reviewAuthorization}/**",
+      "methods": ["GET", "HEAD"],
+      "ingress": "content-only",
+      "owner": { "kind": "openapi", "operationId": "getGalleryReviewContentAsset" },
+      "cachePolicy": "content-authorized-no-store",
+      "forbidden": false
+    },
+    {
+      "id": "internal-routes",
+      "family": "internal",
+      "pathPattern": "/internal/**",
+      "methods": ["ANY"],
+      "ingress": "none",
+      "owner": {
+        "kind": "documented-route-family",
+        "document": "docs/design/modules.md",
+        "section": "Hono runtime Modules"
+      },
+      "cachePolicy": "forbidden",
+      "forbidden": true
+    }
+  ]
+}

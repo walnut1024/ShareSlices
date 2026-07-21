@@ -18,6 +18,22 @@ Each durable fact has one owner. Other documents link to that owner. Scoped guid
 | `openspec/specs/` | Implemented requirements per capability | living |
 | `openspec/changes/` | One change: proposal, design, tasks, delta specs | disposable |
 
+Deployment facts have these durable owners:
+
+| Fact | Owner |
+| --- | --- |
+| Accepted target choices, release-qualification rule, cross-target product invariants, email policy, cache boundary, and rollback limits | `PRODUCT.md` |
+| Deployment terminology | `CONTEXT.md` |
+| Deployment Module seams, role composition, and Adapter direction | `docs/design/modules.md` |
+| Executable schemas, rendering, lifecycle policy, target composition, and local Compose automation | `deploy/` and its tests |
+| Operator prerequisites, rollout, verification, rollback, and recovery procedures | `docs/operations/` |
+| Implemented observable deployment requirements | `openspec/specs/` after archive synchronization |
+
+Provider manuals and account observations are external compatibility evidence,
+not durable ShareSlices policy. Pin or refresh them through the Deployment Module
+and the implementing change rather than copying mutable provider limits into
+`PRODUCT.md`.
+
 Lifecycle classes:
 
 - **durable**: always true; edited directly, carefully.

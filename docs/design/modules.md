@@ -25,6 +25,66 @@ Status: current for the runtime seams, CLI authentication and Artifact commands,
 | CLI commands into ShareSlices | current for human and Agent protocol v1 surfaces | `cli/` command Interface | Rust CLI with operating-system credential and continuation stores | In-memory credential/continuation and fake HTTP Adapters |
 | Gallery trusted API and isolated content | current | `api/src/application/gallery/` and `api/src/content/` | PostgreSQL, private object storage, and content-only Hono runtime | Focused application, route, migration, and content-runtime tests |
 | Gallery safety, cover, and copy jobs | current | checked contracts in `db/contracts/` | Rust Worker with fenced PostgreSQL leases | N/N-1 fixtures and focused Worker tests |
+| Deployment lifecycle and target composition | target | `deploy/` Deployment Module | Kubernetes or Cloudflare target Adapter | Deterministic render, lifecycle, provider-spike, and black-box contract tests |
+
+## Deployment Module
+
+Status: target. Existing Kubernetes files are examples, and existing Compose
+files and lifecycle policy have not yet moved completely under this Module.
+
+- `PRODUCT.md` owns the mutually exclusive target choice, cross-target product
+  invariants, email-provider policy, caching boundary, and rollback limits.
+  `CONTEXT.md` owns the accepted deployment vocabulary.
+- `deploy/contract/` owns checked, provider-neutral deployment configuration,
+  release, route, cache, verification-scenario, and evidence schemas. It contains
+  no Secret values and does not duplicate public OpenAPI behavior.
+- `deploy/automation/` owns the non-interactive `doctor`, `render`, `plan`,
+  `apply`, `status`, `verify`, and `rollback` lifecycle, including redaction,
+  operation leasing and fencing, immutable release evidence, inventory, and
+  compatible retirement. CI workflows remain thin callers of this interface.
+- `deploy/kubernetes/` owns deterministic composition for an existing conforming
+  cluster. Its Adapter supplies Kubernetes, direct PostgreSQL, private
+  S3-compatible storage, trusted-ingress, optional external-CDN, and enterprise
+  SMTP mechanics without changing application policy.
+- `deploy/cloudflare/` owns Cloudflare Workers, Edge/CDN, Static Assets, private
+  R2, Hyperdrive, Queue, scheduled, Container, and Resend composition. Provider
+  feasibility evidence gates only this Adapter; failure does not weaken shared
+  policy or block the Kubernetes Adapter.
+- `deploy/compose/` owns the canonical non-production local and isolated test
+  topology. `.mise.toml` remains the public local lifecycle entrypoint. Compose
+  is not accepted by the production target discriminator and cannot provide
+  Kubernetes or Cloudflare qualification evidence.
+- `docs/operations/` owns operator procedures and prerequisite responsibilities.
+  It does not become an executable second deployment implementation.
+
+The lifecycle core depends only on a narrow target Adapter for observation,
+rendering, mutation, verification, and rollback. Provider objects do not leak
+into lifecycle policy, and application/domain Modules do not branch on target.
+Both target Adapters consume the same immutable release, PostgreSQL authority,
+private object layout, route/cache projection, compatibility metadata, and
+verification scenarios.
+
+Runtime composition is role-specific. Trusted API HTTP, maintenance and
+authentication-email dispatch, content-only serving, one-shot migration,
+background processing, thumbnail capture, and Web delivery receive only their
+required configuration and authority. Node/Kubernetes and Cloudflare entrypoints
+adapt the same application builders; they do not duplicate account,
+authorization, Artifact, Publication, Viewer, Gallery, or email-delivery policy.
+
+```text
+                         Deployment lifecycle core
+                                   |
+                    +--------------+--------------+
+                    |                             |
+          Kubernetes target Adapter    Cloudflare target Adapter
+                    |                             |
+     cluster workloads + optional CDN     edge + bounded runtimes
+                    +--------------+--------------+
+                                   |
+             shared application and durable contracts
+
+        deploy/compose = local/test contract harness only
+```
 
 ## Official Skill entry
 
@@ -65,7 +125,13 @@ Status: mixed. Account entry remains a thin current HTTP/Auth/DB path. Artifact,
 - Version thumbnail reads and internal capture routing are current thin HTTP paths over `ArtifactThumbnailRepository`. The repository owns Owner-scoped immutable thumbnail lookup through a Version's pinned Content bundle and renderer revision, one-time capture-grant consumption, capture-session validation, and manifest asset lookup; a separate application Module remains deferred until a second caller or Adapter appears.
 - `UserModule` remains target. Current account entry intentionally stays in `api/src/http/account-routes.ts`, Better Auth, and focused account queries until another caller or implementation requires extraction.
 - `AdministrationModule` is a roadmap Module for user search, deactivation, reactivation, soft deletion, forced sign out, session revocation, email verification policy, and administrative audit. It stays separate because the actor and permissions differ from user-managed flows.
-- `AuthenticationEmailDelivery` is current. Account routes persist encrypted delivery payloads and return without contacting SMTP; the API-runtime dispatcher leases pending rows, renders fixed authentication templates, sends through `api/src/email/`, records bounded retry outcomes, and removes terminal payloads. SMTP outages do not affect API readiness.
+- `AuthenticationEmailDelivery` is current for durable PostgreSQL queuing and the
+  SMTP Adapter. Account routes persist encrypted delivery payloads and return
+  without contacting a provider; a maintenance composition will lease pending
+  rows, render fixed authentication templates, invoke the selected target Email
+  Adapter, record bounded provider-acceptance outcomes, and remove terminal
+  payloads. Kubernetes uses enterprise SMTP and Cloudflare uses Resend HTTPS;
+  neither transport affects API readiness or owns account-entry policy.
 
 ## Gallery Modules
 

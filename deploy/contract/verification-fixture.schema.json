@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shareslices.example/deploy/contract/verification-fixture.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "topology",
+    "addresses",
+    "requiredCapabilities",
+    "disabledCapabilities",
+    "expectedNotApplicable"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "shareslices.verification-fixture/v1" },
+    "topology": { "enum": ["compose", "kubernetes", "cloudflare"] },
+    "addresses": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["application", "content"],
+      "properties": {
+        "application": { "type": "string", "format": "uri" },
+        "content": { "type": "string", "format": "uri" }
+      }
+    },
+    "requiredCapabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z0-9-]+$" }
+    },
+    "disabledCapabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z0-9-]+$" }
+    },
+    "expectedNotApplicable": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "pattern": "^[a-z0-9_]+$" }
+    }
+  }
+}

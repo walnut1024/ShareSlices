@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shareslices.example/deploy/cloudflare/toolchain-baseline.schema.json",
+  "title": "ShareSlices Cloudflare toolchain baseline",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "baselineVersion",
+    "qualifiedOn",
+    "wrangler",
+    "terraformProvider",
+    "workersRuntime",
+    "containerPackage",
+    "officialContracts"
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "baselineVersion": { "const": 1 },
+    "qualifiedOn": { "type": "string", "format": "date" },
+    "wrangler": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "configurationSchemaSha256"],
+      "properties": {
+        "version": { "$ref": "#/$defs/version" },
+        "configurationSchemaSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "terraformProvider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "version",
+        "schemaSha256",
+        "platformPackageSha256"
+      ],
+      "properties": {
+        "source": { "const": "cloudflare/cloudflare" },
+        "version": { "$ref": "#/$defs/version" },
+        "schemaSha256": { "$ref": "#/$defs/sha256" },
+        "platformPackageSha256": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "darwin_amd64",
+            "darwin_arm64",
+            "linux_amd64",
+            "linux_arm64"
+          ],
+          "properties": {
+            "darwin_amd64": { "$ref": "#/$defs/sha256" },
+            "darwin_arm64": { "$ref": "#/$defs/sha256" },
+            "linux_amd64": { "$ref": "#/$defs/sha256" },
+            "linux_arm64": { "$ref": "#/$defs/sha256" }
+          }
+        }
+      }
+    },
+    "workersRuntime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["compatibilityDate", "compatibilityFlags"],
+      "properties": {
+        "compatibilityDate": { "type": "string", "format": "date" },
+        "compatibilityFlags": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "containerPackage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "const": "@cloudflare/containers" },
+        "version": { "$ref": "#/$defs/version" }
+      }
+    },
+    "officialContracts": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "format": "uri", "pattern": "^https://" },
+      "uniqueItems": true
+    }
+  },
+  "$defs": {
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "shareslices.verification-fixture/v1",
+  "topology": "kubernetes",
+  "addresses": {
+    "application": "https://app.example.test",
+    "content": "https://content.example.test"
+  },
+  "requiredCapabilities": [
+    "trusted-http",
+    "viewer",
+    "content-only-http",
+    "kubernetes-network-policy",
+    "authentication-email"
+  ],
+  "disabledCapabilities": ["cloudflare-provider-control-plane"],
+  "expectedNotApplicable": {
+    "cloudflare-provider-bindings": "provider_capability_not_selected"
+  }
+}

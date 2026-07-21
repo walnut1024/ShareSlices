@@ -1,0 +1,11 @@
+{
+  "name": "@shareslices/cloudflare-http-semantics-prototype",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node ./verify.mjs"
+  },
+  "dependencies": {
+    "hono": "4.12.28"
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "$schema": "../deployment.schema.json",
+  "schemaVersion": "shareslices.deployment/v1",
+  "installationId": "example-kubernetes",
+  "target": "kubernetes",
+  "shared": {
+    "database": { "ref": "secret://postgres/application", "revision": "7" },
+    "sessionSigningKeys": [
+      { "ref": "secret://signing/current", "revision": "4" }
+    ],
+    "publicOrigins": {
+      "application": "https://app.example.test",
+      "content": "https://content.example.test"
+    },
+    "recoverability": {
+      "postgresql": {
+        "owner": "database-team",
+        "encryptedLocation": "backup://postgresql/example-kubernetes",
+        "retention": "30d",
+        "observedAt": "2026-07-21T00:00:00Z",
+        "maximumAgeSeconds": 86400,
+        "rpoSeconds": 3600,
+        "rtoSeconds": 14400
+      },
+      "objectStorage": {
+        "owner": "storage-team",
+        "encryptedLocation": "backup://objects/example-kubernetes",
+        "retention": "30d",
+        "observedAt": "2026-07-21T00:00:00Z",
+        "maximumAgeSeconds": 86400,
+        "rpoSeconds": 3600,
+        "rtoSeconds": 14400
+      },
+      "iacState": {
+        "owner": "platform-team",
+        "encryptedLocation": "state://kubernetes/example-kubernetes",
+        "retention": "90d",
+        "observedAt": "2026-07-21T00:00:00Z",
+        "maximumAgeSeconds": 86400,
+        "rpoSeconds": 3600,
+        "rtoSeconds": 7200
+      },
+      "releaseBundles": {
+        "owner": "release-team",
+        "encryptedLocation": "release://example-kubernetes",
+        "retention": "90d",
+        "observedAt": "2026-07-21T00:00:00Z",
+        "maximumAgeSeconds": 86400,
+        "rpoSeconds": 0,
+        "rtoSeconds": 3600
+      },
+      "deploymentJournal": {
+        "owner": "release-team",
+        "encryptedLocation": "journal://example-kubernetes",
+        "retention": "90d",
+        "observedAt": "2026-07-21T00:00:00Z",
+        "maximumAgeSeconds": 86400,
+        "rpoSeconds": 0,
+        "rtoSeconds": 3600
+      }
+    }
+  },
+  "kubernetes": {
+    "namespace": "shareslices",
+    "objectStorage": { "ref": "secret://s3/application", "revision": "3" },
+    "email": {
+      "adapter": "smtp",
+      "smtp": { "ref": "secret://smtp/transactional", "revision": "9" }
+    },
+    "ingress": {
+      "className": "nginx",
+      "externalCdn": { "enabled": true, "provider": "enterprise-edge" }
+    }
+  }
+}

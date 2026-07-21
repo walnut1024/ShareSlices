@@ -1,0 +1,230 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shareslices.example/deploy/contract/deployment.schema.json",
+  "title": "ShareSlices production deployment configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "installationId",
+    "target",
+    "shared"
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": "shareslices.deployment/v1" },
+    "installationId": { "$ref": "#/$defs/dnsLabel" },
+    "target": { "enum": ["kubernetes", "cloudflare"] },
+    "shared": { "$ref": "#/$defs/shared" },
+    "kubernetes": { "$ref": "#/$defs/kubernetes" },
+    "cloudflare": { "$ref": "#/$defs/cloudflare" }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "target": { "const": "kubernetes" },
+        "kubernetes": { "$ref": "#/$defs/kubernetes" },
+        "cloudflare": false
+      },
+      "required": ["kubernetes"]
+    },
+    {
+      "properties": {
+        "target": { "const": "cloudflare" },
+        "kubernetes": false,
+        "cloudflare": { "$ref": "#/$defs/cloudflare" }
+      },
+      "required": ["cloudflare"]
+    }
+  ],
+  "$defs": {
+    "dnsLabel": {
+      "type": "string",
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+    },
+    "httpsUrl": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "secretReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "revision"],
+      "properties": {
+        "ref": {
+          "type": "string",
+          "pattern": "^(?:secret|kubernetes-secret|cloudflare-secret)://[A-Za-z0-9._/-]+$",
+          "maxLength": 256
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+        }
+      }
+    },
+    "recoveryEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "owner",
+        "encryptedLocation",
+        "retention",
+        "observedAt",
+        "maximumAgeSeconds",
+        "rpoSeconds",
+        "rtoSeconds"
+      ],
+      "properties": {
+        "owner": { "type": "string", "minLength": 1 },
+        "encryptedLocation": { "type": "string", "minLength": 1 },
+        "retention": { "type": "string", "minLength": 1 },
+        "observedAt": { "type": "string", "format": "date-time" },
+        "maximumAgeSeconds": { "type": "integer", "minimum": 1 },
+        "rpoSeconds": { "type": "integer", "minimum": 0 },
+        "rtoSeconds": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "shared": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "database",
+        "sessionSigningKeys",
+        "publicOrigins",
+        "recoverability"
+      ],
+      "properties": {
+        "database": { "$ref": "#/$defs/secretReference" },
+        "sessionSigningKeys": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/secretReference" }
+        },
+        "publicOrigins": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["application", "content"],
+          "properties": {
+            "application": { "$ref": "#/$defs/httpsUrl" },
+            "content": { "$ref": "#/$defs/httpsUrl" }
+          }
+        },
+        "recoverability": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "postgresql",
+            "objectStorage",
+            "iacState",
+            "releaseBundles",
+            "deploymentJournal"
+          ],
+          "properties": {
+            "postgresql": { "$ref": "#/$defs/recoveryEvidence" },
+            "objectStorage": { "$ref": "#/$defs/recoveryEvidence" },
+            "iacState": { "$ref": "#/$defs/recoveryEvidence" },
+            "releaseBundles": { "$ref": "#/$defs/recoveryEvidence" },
+            "deploymentJournal": { "$ref": "#/$defs/recoveryEvidence" }
+          }
+        }
+      }
+    },
+    "kubernetes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["namespace", "objectStorage", "email", "ingress"],
+      "properties": {
+        "namespace": { "$ref": "#/$defs/dnsLabel" },
+        "objectStorage": { "$ref": "#/$defs/secretReference" },
+        "email": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["adapter", "smtp"],
+          "properties": {
+            "adapter": { "const": "smtp" },
+            "smtp": { "$ref": "#/$defs/secretReference" }
+          }
+        },
+        "ingress": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["className", "externalCdn"],
+          "properties": {
+            "className": { "type": "string", "minLength": 1 },
+            "externalCdn": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["enabled"],
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "provider": { "type": "string", "minLength": 1 }
+              },
+              "allOf": [
+                {
+                  "if": { "properties": { "enabled": { "const": true } } },
+                  "then": { "required": ["provider"] },
+                  "else": { "not": { "required": ["provider"] } }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "cloudflare": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accountId",
+        "postgresqlOrigin",
+        "email",
+        "workers",
+        "r2",
+        "queues"
+      ],
+      "properties": {
+        "accountId": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
+        "postgresqlOrigin": { "$ref": "#/$defs/secretReference" },
+        "email": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["adapter", "resend"],
+          "properties": {
+            "adapter": { "const": "resend" },
+            "resend": { "$ref": "#/$defs/secretReference" }
+          }
+        },
+        "workers": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["application", "content", "jobs"],
+          "properties": {
+            "application": { "$ref": "#/$defs/dnsLabel" },
+            "content": { "$ref": "#/$defs/dnsLabel" },
+            "jobs": { "$ref": "#/$defs/dnsLabel" }
+          }
+        },
+        "r2": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["artifactBucket", "deploymentStateBucket"],
+          "properties": {
+            "artifactBucket": { "$ref": "#/$defs/dnsLabel" },
+            "deploymentStateBucket": { "$ref": "#/$defs/dnsLabel" }
+          }
+        },
+        "queues": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["jobs", "deadLetter"],
+          "properties": {
+            "jobs": { "$ref": "#/$defs/dnsLabel" },
+            "deadLetter": { "$ref": "#/$defs/dnsLabel" }
+          }
+        }
+      }
+    }
+  }
+}

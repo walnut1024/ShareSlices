@@ -193,7 +193,7 @@ cases:
       path: /api/users
       json:
         name: Contract
-        email: contract-success@example.com
+        email: contract-registration@example.com
         password: password123
     expect:
       status: 202

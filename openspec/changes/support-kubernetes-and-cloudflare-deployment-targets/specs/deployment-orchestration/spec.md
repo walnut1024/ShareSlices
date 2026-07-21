@@ -241,7 +241,7 @@ Only one migration execution SHALL advance the database for a release. The migra
 
 ### Requirement: Verify one product contract across deployment targets
 
-The Deployment Module SHALL maintain one versioned, machine-readable black-box verification projection for Kubernetes and Cloudflare deployments. Each route row SHALL reference its owning OpenAPI operation or documented route family, and each product-policy row SHALL reference its implemented OpenSpec requirement. The projection MUST NOT redefine HTTP status, header, authorization, or cache semantics and MUST fail validation when it drifts from those authoritative owners. It SHALL cover configured route ownership, observable status behavior, credential boundaries, security headers, cache behavior, untrusted-content isolation, and enabled core product smoke flows.
+The Deployment Module SHALL maintain one versioned, machine-readable black-box verification projection for Kubernetes and Cloudflare deployments. Each route row SHALL reference its owning OpenAPI operation or documented route family, and each product-policy row SHALL reference its implemented OpenSpec requirement. Every row SHALL declare `core`, `pre_traffic`, or `deep` verification level. Core rows MUST be read-only. A pre-traffic or deep row that creates provider or product state, starts work, changes authorization, or sends mail MUST require explicit authorization, isolated positive ownership, bounded cleanup, and evidence that identifies the selected level. The projection MUST NOT redefine HTTP status, header, authorization, or cache semantics and MUST fail validation when it drifts from those authoritative owners. It SHALL cover configured route ownership, observable status behavior, credential boundaries, security headers, cache behavior, untrusted-content isolation, and enabled core product smoke flows.
 
 A target Adapter SHALL supply target addresses and target-health observations to the shared verifier but MUST NOT waive a mandatory product-contract check because of target implementation differences. A capability explicitly disabled by deployment policy SHALL be verified as disabled or fail-closed rather than silently omitted. A release MUST NOT be marked verified while any mandatory check fails or remains indeterminate.
 
@@ -258,7 +258,7 @@ A target Adapter SHALL supply target addresses and target-health observations to
 #### Scenario: Verify the Cloudflare target
 
 - **WHEN** `verify` runs against a Cloudflare deployment
-- **THEN** the same mandatory product-contract checks run through its configured edge addresses with target-specific discovery limited to those addresses and health observations
+- **THEN** the same mandatory core read-only checks run through its configured edge addresses with target-specific discovery limited to those addresses and health observations; stateful Cloudflare probes run only when their explicit pre-traffic or deep level was authorized
 
 #### Scenario: Verify a disabled Gallery
 
