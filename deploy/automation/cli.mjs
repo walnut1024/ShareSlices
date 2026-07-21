@@ -23,7 +23,7 @@ export const exitCodes = Object.freeze({
   externalReconcilerRequired: 20,
 });
 
-function result(command, overrides = {}) {
+export function deploymentResult(command, overrides = {}) {
   return {
     schemaVersion: "shareslices.deployment-result/v1",
     command,
@@ -41,7 +41,7 @@ export function parseInvocation(argv) {
   if (!commands.has(command)) {
     return {
       exitCode: exitCodes.invalidInput,
-      result: result(null, {
+        result: deploymentResult(null, {
         reason: {
           code: "invalid_deployment_command",
           message: "Expected doctor, render, plan, apply, status, verify, or rollback.",
@@ -57,7 +57,7 @@ export function parseInvocation(argv) {
     if (!name?.startsWith("--") || value === undefined || value.startsWith("--")) {
       return {
         exitCode: exitCodes.invalidInput,
-        result: result(command, {
+        result: deploymentResult(command, {
           reason: {
             code: "invalid_deployment_arguments",
             message: "Options must use --name value pairs.",
@@ -69,7 +69,7 @@ export function parseInvocation(argv) {
     if (!new Set(["config", "release", "plan"]).has(key) || options[key] !== undefined) {
       return {
         exitCode: exitCodes.invalidInput,
-        result: result(command, {
+        result: deploymentResult(command, {
           reason: {
             code: "invalid_deployment_arguments",
             message: "Only one --config, --release, and --plan option is accepted.",
@@ -87,7 +87,7 @@ async function unimplementedExecution({ command, options }) {
     const config = await loadDeploymentConfig(options.config);
     return {
       exitCode: exitCodes.failed,
-      result: result(command, {
+      result: deploymentResult(command, {
         target: config.target,
         requestedRelease: options.release ?? null,
         reason: {
@@ -100,7 +100,7 @@ async function unimplementedExecution({ command, options }) {
     if (!(error instanceof DeploymentConfigError)) throw error;
     return {
       exitCode: exitCodes.invalidInput,
-      result: result(command, {
+      result: deploymentResult(command, {
         requestedRelease: options.release ?? null,
         reason: { code: error.code, message: error.message },
       }),
