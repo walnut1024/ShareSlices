@@ -1144,3 +1144,28 @@ field conflicts, and missing observation. This completes render/planning for the
 Kubernetes target only; shared task 3.7 and production-target qualification stay
 open because the Cloudflare renderer does not yet exist and no real cluster has
 passed acceptance.
+
+## Thirty-fourth-pass Kubernetes status acceptance
+
+Task 10.4 is complete. Kubernetes status combines the PostgreSQL deployment
+record and phase journal with read-only, installation-labelled Kubernetes
+Deployments, Pods, Jobs, Ingresses, and ConfigMaps. It projects desired and
+observed release IDs, release-marker drift, workload and observed generations,
+ready replica convergence, immutable runtime image IDs, configuration and route
+digests, migration Job checksum/completion, ownership mismatches, and optional
+CDN readiness.
+
+Status now also reads the actual latest row in `shareslices_migration` through
+the same read-only PostgreSQL observer. A completed Job annotation is compatible
+only when its schema head and the authoritative database schema head both equal
+the active runtime's recorded compatible head. Missing or mismatched database
+evidence is drift, not success.
+
+Pod evidence records Pod count, Ready count, container count, ready-container
+count, restart count, and observed image IDs for each workload. This preserves
+the distinction between Deployment availability and observed probe/container
+health. Unreadable provider observations remain indeterminate; unrecorded
+release markers, invalid resource digests, mismatched configuration or schema,
+and unowned resources remain explicit drift or orphan evidence. Optional CDN is
+reported disabled in direct mode and unavailable pending edge verification in
+external-CDN mode rather than inferred from rendered configuration.

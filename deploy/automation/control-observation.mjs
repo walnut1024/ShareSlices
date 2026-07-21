@@ -65,6 +65,16 @@ async function inspectControlState(client) {
 }
 
 async function inspectControlProjection(client, installationId) {
+  const migrationTable = await client.query(
+    "select to_regclass('shareslices_migration') as migration_table",
+  );
+  let databaseSchemaHead = null;
+  if (migrationTable.rows[0]?.migration_table) {
+    const migration = await client.query(
+      "select name from shareslices_migration order by name desc limit 1",
+    );
+    databaseSchemaHead = migration.rows[0]?.name ?? null;
+  }
   const releases = await client.query(
     `select slot, target, release_id, bundle_digest, configuration_digest,
             secret_revisions, compatibility, contract_revisions,
@@ -100,6 +110,7 @@ async function inspectControlProjection(client, installationId) {
     }));
   }
   return Object.freeze({
+    databaseSchemaHead,
     releaseRecords: Object.freeze(Object.fromEntries(releases.rows.map((row) => [row.slot, Object.freeze({
       target: row.target,
       releaseId: row.release_id,
@@ -337,14 +348,31 @@ export function createKubernetesStatusObserver({observeControl}) {
     let migration = null;
     const routeDigests = new Set();
     const configurationDigests = new Set();
-    const podImageIds = new Map();
+    const podEvidence = new Map();
     for (const pod of items.filter(({kind}) => kind === "Pod")) {
       const workload = pod.metadata?.labels?.["app.kubernetes.io/name"];
       if (!workload) continue;
-      const imageIds = (pod.status?.containerStatuses ?? [])
+      const statuses = pod.status?.containerStatuses ?? [];
+      const imageIds = statuses
         .map(({imageID}) => imageID)
         .filter(Boolean);
-      podImageIds.set(workload, [...(podImageIds.get(workload) ?? []), ...imageIds]);
+      const current = podEvidence.get(workload) ?? {
+        podCount: 0,
+        readyPods: 0,
+        containersReady: 0,
+        containerCount: 0,
+        restartCount: 0,
+        imageIds: [],
+      };
+      current.podCount += 1;
+      current.readyPods += pod.status?.conditions?.some(
+        ({type, status}) => type === "Ready" && status === "True",
+      ) ? 1 : 0;
+      current.containersReady += statuses.filter(({ready}) => ready === true).length;
+      current.containerCount += statuses.length;
+      current.restartCount += statuses.reduce((sum, status) => sum + (status.restartCount ?? 0), 0);
+      current.imageIds.push(...imageIds);
+      podEvidence.set(workload, current);
     }
     for (const item of items) {
       if (item.kind === "Pod") continue;
@@ -363,6 +391,14 @@ export function createKubernetesStatusObserver({observeControl}) {
       if (item.kind === "Deployment") {
         const desiredReplicas = item.spec?.replicas ?? 1;
         const workload = item.metadata?.labels?.["app.kubernetes.io/name"];
+        const pods = podEvidence.get(workload) ?? {
+          podCount: 0,
+          readyPods: 0,
+          containersReady: 0,
+          containerCount: 0,
+          restartCount: 0,
+          imageIds: [],
+        };
         const ready = item.status?.observedGeneration === item.metadata?.generation &&
           (item.status?.updatedReplicas ?? 0) === desiredReplicas &&
           (item.status?.availableReplicas ?? 0) === desiredReplicas;
@@ -372,7 +408,14 @@ export function createKubernetesStatusObserver({observeControl}) {
           generation: item.metadata?.generation ?? null,
           observedGeneration: item.status?.observedGeneration ?? null,
           ready,
-          imageIds: [...new Set(podImageIds.get(workload) ?? [])].sort(),
+          imageIds: [...new Set(pods.imageIds)].sort(),
+          probes: {
+            podCount: pods.podCount,
+            readyPods: pods.readyPods,
+            containerCount: pods.containerCount,
+            containersReady: pods.containersReady,
+            restartCount: pods.restartCount,
+          },
         });
       }
       if (item.kind === "Job" && item.metadata?.annotations?.["shareslices.dev/schema-head"]) {
@@ -397,8 +440,13 @@ export function createKubernetesStatusObserver({observeControl}) {
     )) {
       drift.push({logicalId: "kubernetes/configuration", reasonCode: "configuration_digest_mismatch"});
     }
+    const databaseSchemaHead = control.databaseSchemaHead ?? null;
+    if (active && databaseSchemaHead !== active.compatibility?.schemaHead) {
+      drift.push({logicalId: "postgresql/schema-head", reasonCode: "database_schema_head_mismatch"});
+    }
     const migrationCompatible = Boolean(active) && migration?.complete === true &&
-      migration.schemaHead === active.compatibility?.schemaHead;
+      migration.schemaHead === active.compatibility?.schemaHead &&
+      databaseSchemaHead === active.compatibility?.schemaHead;
     const allActiveAndReady = Boolean(active) && components.length > 0 &&
       components.every(({releaseId, ready}) => releaseId === active.releaseId && ready) &&
       migrationCompatible;
@@ -430,6 +478,7 @@ export function createKubernetesStatusObserver({observeControl}) {
       handoff: hasExternalHandoff ? {observed: candidateObserved} : undefined,
       components,
       migration,
+      databaseSchemaHead,
       migrationCompatible,
       routeDigests: [...routeDigests].sort(),
       configurationDigests: [...configurationDigests].sort(),

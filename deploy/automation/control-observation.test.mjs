@@ -133,6 +133,7 @@ test("Kubernetes status projects recorded release, rollout, image, migration, an
         previous: {releaseId: migrationReleaseId},
       },
       operation: {desiredReleaseId: releaseId},
+      databaseSchemaHead: "0030_deployment",
       phases: [
         {phase: "public-runtime", state: "completed"},
         {phase: "verification", state: "completed"},
@@ -159,7 +160,14 @@ test("Kubernetes status projects recorded release, rollout, image, migration, an
           apiVersion: "v1",
           kind: "Pod",
           metadata: {namespace: "shareslices", name: "shareslices-api-1", labels},
-          status: {containerStatuses: [{imageID: "registry.example.test/api@sha256:1234"}]},
+          status: {
+            conditions: [{type: "Ready", status: "True"}],
+            containerStatuses: [{
+              imageID: "registry.example.test/api@sha256:1234",
+              ready: true,
+              restartCount: 2,
+            }],
+          },
         },
         {
           apiVersion: "batch/v1",
@@ -187,7 +195,15 @@ test("Kubernetes status projects recorded release, rollout, image, migration, an
   assert.equal(result.observedReleaseId, releaseId);
   assert.equal(result.verification, "passed");
   assert.deepEqual(result.components[0].imageIds, ["registry.example.test/api@sha256:1234"]);
+  assert.deepEqual(result.components[0].probes, {
+    podCount: 1,
+    readyPods: 1,
+    containerCount: 1,
+    containersReady: 1,
+    restartCount: 2,
+  });
   assert.equal(result.migration.schemaHead, "0030_deployment");
+  assert.equal(result.databaseSchemaHead, "0030_deployment");
   assert.equal(result.migration.releaseId, migrationReleaseId);
   assert.equal(result.migrationCompatible, true);
   assert.deepEqual(result.configurationDigests, [configurationDigest]);
@@ -215,6 +231,7 @@ test("Kubernetes status blocks a GitOps runtime observed before its migration ev
         },
       },
       operation: {desiredReleaseId},
+      databaseSchemaHead: "0030_deployment",
       phases: [{phase: "private-runtime", state: "external_reconciler_required"}],
     }),
   });

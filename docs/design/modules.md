@@ -70,7 +70,11 @@ prototypes, not a supported Deployment target.
   emits a non-mutating GitOps handoff, and projects release records, operation
   phases, workload generations and image IDs, migration state, configuration
   and route digests, ownership drift, and optional-CDN readiness from read-only
-  control and cluster observations. Its current `verify` path also runs the
+  control and cluster observations. Status also reads the authoritative
+  PostgreSQL migration head and projects Pod Ready/ContainersReady counts,
+  container readiness and restart evidence instead of treating Deployment
+  availability or migration Job annotations as sufficient. Its current `verify`
+  path also runs the
   shared credential-free core HTTP checks against trusted and content origins;
   with an explicit release it also requires exact rendered-resource convergence
   and verification-contract identity before a separately fenced operation
