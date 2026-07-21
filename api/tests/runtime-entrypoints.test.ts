@@ -141,4 +141,17 @@ describe("Node runtime entrypoint authority", () => {
     }
     expect(importedEnvironmentReaders(graph)).toEqual(new Set());
   });
+
+  it("keeps Cloudflare email composition independent from process and resident startup", () => {
+    const graph = reachableSources("cloudflare/authentication-email-composition.ts");
+    const paths = [...graph.keys()].map((file) => file.slice(sourceRoot.length));
+    expect(paths.filter((path) => path === "env.ts" || path === "db/client.ts")).toEqual([]);
+    expect(paths.filter((path) => path.startsWith("maintenance/"))).toEqual([]);
+    expect(paths.filter((path) => path === "logging/index.ts")).toEqual([]);
+    for (const content of graph.values()) {
+      expect(content).not.toContain("startAuthenticationEmailDispatcher");
+      expect(content).not.toContain("process.env");
+    }
+    expect(importedEnvironmentReaders(graph)).toEqual(new Set());
+  });
 });

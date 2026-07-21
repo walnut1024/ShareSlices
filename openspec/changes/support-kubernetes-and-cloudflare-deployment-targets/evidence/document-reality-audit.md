@@ -1263,3 +1263,44 @@ resource planning, phase exclusion, incomplete ownership markers, successful
 old-Job cleanup, and rollback-resource refusal. Task 10.3 remains open because
 its acceptance is the complete direct chain through verification, release
 recording, retirement, and real-cluster evidence, not retirement alone.
+
+## Thirty-eighth-pass pre-Cloudflare-composition documentation alignment
+
+The 2026-07-22 documentation-only checkpoint compared the durable product
+contract, active design and task list, module map, current application seams,
+and current first-party Cloudflare and Resend manuals before further code work.
+It found no target-boundary change: Kubernetes and Cloudflare remain alternative
+production targets, Compose remains local/test-only, and Workers Free plus the
+separately enabled R2 subscription remains a disposable prototype profile.
+
+Two module-status statements had fallen behind the code and are corrected
+without advancing a task checkbox. First, cache-disabled Hyperdrive now exposes
+the same checked-out-client shape needed for a bounded transaction or fenced
+email attempt. This does not make advisory locks, migrations, arbitrary session
+state, or trusted processing eligible for Hyperdrive; those operations retain
+their explicit direct-mode requirement, and task 5.3 still requires live
+transaction, freshness, connection-budget, prepared-statement, timeout, and TLS
+identity evidence. Second, the shared Resend HTTPS transport, durable
+provider-attempt fence, strict non-sensitive Queue wake envelope, bounded
+Queue/scheduled drains, and binding-based authentication-email composition now
+exist. They do not constitute a production Jobs Worker or complete tasks 4.4,
+6.1, 6.5-6.7, 7.5, or the Cloudflare deployment sections: production exports,
+retry classification, reconciliation, outbox publication, provider bindings,
+IaC ownership, and live qualification remain open.
+
+The first-party refresh also confirms that Queues and Hyperdrive are available
+on Workers Free with limited allowances: Queues currently includes 10,000
+operations per day with fixed 24-hour retention, and Hyperdrive includes 100,000
+database statements per day. These mutable limits explain which bounded
+prototypes are possible; they are not production compatibility constants and do
+not offset the 10 ms Free Worker CPU ceiling or the absence of a Free Container
+allocation. Directly served Static Assets remain free, while Worker-first paths
+consume Worker allowance. Resend idempotency remains a 24-hour retry aid, and
+`resend.dev` remains restricted to test sending to the account email or
+documented simulation recipients. No domain, arbitrary-recipient, inbox, quota
+headroom, or production-readiness claim follows from the stored API key.
+
+No provider service was started during this documentation audit. Therefore no
+shutdown action or new account-state observation is claimed; the historical
+prototype baseline remains subject to a fresh read-only inventory before the
+next opt-in live experiment.

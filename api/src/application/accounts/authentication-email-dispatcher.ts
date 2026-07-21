@@ -1,5 +1,5 @@
 import { decryptAuthenticationEmail } from "./authentication-email.js";
-import type { DirectClientSource } from "../../db/connection.js";
+import type { DatabaseClientSource } from "../../db/connection.js";
 import { exceptionAttributes, type LogRecordInput } from "../../logging/log-record.js";
 import type {
   AuthenticationEmailTransportAdapter,
@@ -15,7 +15,7 @@ export type AuthenticationEmailDispatchInput = Readonly<{
   workerId: string;
   adapter: AuthenticationEmailTransportAdapter;
   timing: Readonly<{ leaseSeconds: number; heartbeatMs: number }>;
-  directClients: DirectClientSource;
+  databaseClients: DatabaseClientSource;
   encryptionKey: string;
   circuitBreakerSeconds: number;
   logger: Readonly<{ emit(input: LogRecordInput): void }>;
@@ -24,8 +24,8 @@ export type AuthenticationEmailDispatchInput = Readonly<{
 export async function dispatchOneAuthenticationEmail(
   input: AuthenticationEmailDispatchInput,
 ): Promise<boolean> {
-  const { workerId, adapter, timing, directClients, encryptionKey, circuitBreakerSeconds, logger } = input;
-  return directClients.withClient(async (client) => {
+  const { workerId, adapter, timing, databaseClients, encryptionKey, circuitBreakerSeconds, logger } = input;
+  return databaseClients.withClient(async (client) => {
     let delivery: DeliveryRow | undefined;
     let payload: ReturnType<typeof decryptAuthenticationEmail> | undefined;
     let providerAttemptId: string | undefined;

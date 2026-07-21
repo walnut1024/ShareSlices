@@ -34,7 +34,7 @@ export async function dispatchOneAuthenticationEmail(
     workerId,
     adapter,
     timing,
-    directClients,
+    databaseClients: directClients,
     encryptionKey: env.AUTH_EMAIL_ENCRYPTION_KEY,
     circuitBreakerSeconds: env.AUTH_EMAIL_CIRCUIT_BREAKER_SECONDS,
     logger: apiLogger,

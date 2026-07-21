@@ -26,7 +26,7 @@ describe("database connection composition", () => {
     expect(connection.pool.options.max).toBe(mode === "hyperdrive" ? 5 : 10);
     expect(connection.pool.options.connectionTimeoutMillis).toBe(3_000);
     expect(connection.pool.options.idleTimeoutMillis).toBe(5_000);
-    expect("withClient" in connection).toBe(mode !== "hyperdrive");
+    expect("withClient" in connection).toBe(true);
     await connection.close();
   });
 
@@ -50,7 +50,7 @@ describe("database connection composition", () => {
       connectionString: "postgres://user:password@hyperdrive.example.test/shareslices",
     });
     expect(connection.mode).toBe("hyperdrive");
-    expect("withClient" in connection).toBe(false);
+    expect("withClient" in connection).toBe(true);
   });
 
   it.each(["success", "failure"] as const)(

@@ -103,6 +103,15 @@ for the next executable deployment plan:
   target and production `render`, `plan`, and `apply` must reject it. Trusted
   background processing still requires Containers and Workers Paid. Deferring
   thumbnail generation does not remove that independent processing gate.
+- The shared Resend HTTPS Adapter, provider-attempt fencing, strict non-sensitive
+  Queue wake envelope, bounded Queue/scheduled drain seams, and binding-based
+  authentication-email composition now exist in application code. They are
+  implementation components, not a deployed Jobs Worker: no production Worker
+  export, Queue/Cron binding, Terraform/Wrangler ownership decision, provider
+  retry policy, manual reconciliation operation, or target qualification follows
+  from their presence. Queue support on Workers Free permits bounded prototypes
+  only and does not remove the Workers Paid Container gate for trusted
+  processing.
 - Supabase is only the currently observed prototype implementation of the
   operator-provided external PostgreSQL dependency, not a required ShareSlices
   vendor. A Free project may pause after low activity and is not production

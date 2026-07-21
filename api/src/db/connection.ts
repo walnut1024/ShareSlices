@@ -16,9 +16,13 @@ export type DirectDatabaseConnectionMode = Exclude<
   "hyperdrive"
 >;
 
-export type DirectClientSource = Readonly<{
-  mode: DirectDatabaseConnectionMode;
+export type DatabaseClientSource = Readonly<{
+  mode: DatabaseConnectionMode;
   withClient<T>(operation: (client: PoolClient) => Promise<T>): Promise<T>;
+}>;
+
+export type DirectClientSource = DatabaseClientSource & Readonly<{
+  mode: DirectDatabaseConnectionMode;
 }>;
 
 type DatabaseConnectionBase = Readonly<{
@@ -29,7 +33,7 @@ type DatabaseConnectionBase = Readonly<{
 }>;
 
 export type DirectDatabaseConnection = DatabaseConnectionBase & DirectClientSource;
-export type HyperdriveDatabaseConnection = DatabaseConnectionBase &
+export type HyperdriveDatabaseConnection = DatabaseConnectionBase & DatabaseClientSource &
   Readonly<{ mode: "hyperdrive" }>;
 export type DatabaseConnection =
   | DirectDatabaseConnection
@@ -77,9 +81,6 @@ export function createDatabaseConnection(input: DatabaseConnectionInput): Databa
   const pool = new PostgresPool(databasePoolConfig(input));
   const database = drizzle(pool, { schema });
   const close = () => pool.end();
-  if (input.mode === "hyperdrive") {
-    return Object.freeze({ mode: input.mode, pool, database, close });
-  }
   return Object.freeze({
     mode: input.mode,
     pool,

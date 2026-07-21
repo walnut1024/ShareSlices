@@ -69,6 +69,23 @@ describe("Cloudflare bounded Jobs drains", () => {
     }
   });
 
+  it("closes the bounded composition when dispatch fails", async () => {
+    const dispose = vi.fn(async () => undefined);
+    const dispatch = vi.fn(async () => { throw new Error("provider failure"); });
+    const handler = createCloudflareAuthenticationEmailHandler({
+      compose: () => ({ dispose }) as never,
+      dispatch,
+    });
+
+    await expect(handler(
+      createCloudflareJobWake({ lane: "authentication-email" }),
+      {},
+      context,
+    )).rejects.toThrow("provider failure");
+
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
   it("acknowledges invalid poison messages without exposing their body to a handler", async () => {
     const handler = vi.fn(async () => undefined);
     const queue = batch({ apiKey: "must-not-propagate", payload: { email: "person@example.com" } });

@@ -121,10 +121,14 @@ prototypes, not a supported Deployment target.
   feasibility evidence gates only this Adapter; failure does not weaken shared
   policy or block the Kubernetes Adapter.
 - `api/src/db/connection.ts` currently distinguishes direct Node, migration,
-  processing-Container, and cache-disabled Hyperdrive modes. Only a typed direct
-  connection exposes the checked-out-client operation used by migrations,
-  advisory-lock paths, and long-lived authentication-email lease heartbeats;
-  Hyperdrive TLS and compatibility qualification remain target work.
+  processing-Container, and cache-disabled Hyperdrive modes. Every mode exposes
+  a checked-out-client operation so one bounded transaction or fenced delivery
+  attempt stays on one PostgreSQL session. Operations that require advisory
+  locks, migration exclusion, unsupported session state, or a long-lived direct
+  connection still require a typed direct mode; adding `withClient` to the
+  Hyperdrive Adapter does not make those operations Hyperdrive-compatible.
+  Hyperdrive transaction, freshness, connection-budget, and TLS identity
+  qualification remain target work.
 - `deploy/compose/` owns the canonical non-production local and isolated test
   topology. `.mise.toml` remains the public local lifecycle entrypoint. Compose
   is not accepted by the production target discriminator and cannot provide
@@ -207,15 +211,20 @@ Status: mixed. Account entry remains a thin current HTTP/Auth/DB path. Artifact,
 - Version thumbnail reads and internal capture routing are current thin HTTP paths over `ArtifactThumbnailRepository`. The repository owns Owner-scoped immutable thumbnail lookup through a Version's pinned Content bundle and renderer revision, one-time capture-grant consumption, capture-session validation, and manifest asset lookup; a separate application Module remains deferred until a second caller or Adapter appears.
 - `UserModule` remains target. Current account entry intentionally stays in `api/src/http/account-routes.ts`, Better Auth, and focused account queries until another caller or implementation requires extraction.
 - `AdministrationModule` is a roadmap Module for user search, deactivation, reactivation, soft deletion, forced sign out, session revocation, email verification policy, and administrative audit. It stays separate because the actor and permissions differ from user-managed flows.
-- `AuthenticationEmailDelivery` is current for durable PostgreSQL queuing and the
-  SMTP Adapter. Account routes persist encrypted delivery payloads and return
-  without contacting a provider; the separate maintenance composition leases
-  pending rows, renders fixed authentication templates, invokes the current SMTP
-  Adapter, records bounded provider-acceptance outcomes, and removes terminal
-  payloads. Kubernetes manifests now compose the SMTP-backed maintenance role,
-  but live enterprise-relay qualification remains target work. Cloudflare
-  Resend HTTPS composition also remains target work. Neither transport affects
-  API readiness or owns account-entry policy.
+- `AuthenticationEmailDelivery` is current for durable PostgreSQL queuing, the
+  shared fenced dispatch core, and the SMTP and Resend HTTPS transport Adapters.
+  Account routes persist encrypted delivery payloads and return without
+  contacting a provider. A bounded dispatcher freezes the transport snapshot
+  and provider-attempt fence before the external call, records provider
+  acceptance separately from inbox delivery, and moves an unknown side-effect
+  outcome to manual reconciliation instead of blindly resending. Kubernetes
+  manifests compose the SMTP-backed maintenance role, but live enterprise-relay
+  qualification remains target work. The Cloudflare code now has strict
+  non-sensitive wake parsing, bounded Queue/scheduled drain seams, and a
+  binding-based Resend/Hyperdrive composition; the final production Worker
+  export, retry classification, manual reconciliation path, deployment wiring,
+  and verified-domain qualification remain target work. Neither transport
+  affects API readiness or owns account-entry policy.
 
 ## Gallery Modules
 

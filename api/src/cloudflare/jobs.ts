@@ -26,13 +26,19 @@ export type CloudflareScheduledDrain<Bindings> = (
 ) => Promise<void>;
 
 export function createCloudflareAuthenticationEmailHandler<Bindings>(input: Readonly<{
-  compose(bindings: Bindings, wake: CloudflareJobWake): AuthenticationEmailDispatchInput;
+  compose(bindings: Bindings, wake: CloudflareJobWake): AuthenticationEmailDispatchInput &
+    Readonly<{ dispose?(): Promise<void> }>;
   dispatch?: typeof dispatchOneAuthenticationEmail;
 }>): CloudflareJobHandler<Bindings> {
   const dispatch = input.dispatch ?? dispatchOneAuthenticationEmail;
   return async (wake, bindings) => {
     if (wake.lane !== "authentication-email") throw new Error("unexpected_job_wake_lane");
-    await dispatch(input.compose(bindings, wake));
+    const composition = input.compose(bindings, wake);
+    try {
+      await dispatch(composition);
+    } finally {
+      await composition.dispose?.();
+    }
   };
 }
 
