@@ -29,7 +29,10 @@ use thiserror::Error;
 use url::Url;
 use uuid::Uuid;
 
-use crate::object_storage::{AwsS3ObjectStorage, ObjectStorage, ObjectStorageError};
+use crate::{
+    object_storage::{AwsS3ObjectStorage, ObjectStorage, ObjectStorageError},
+    runner::{BackgroundLane, ClaimPermit, LaneRunOutcome, RunnerError, RunnerLane},
+};
 
 const RENDER_TIMEOUT: Duration = Duration::from_secs(10);
 const NETWORK_IDLE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -84,7 +87,6 @@ pub struct ThumbnailConfig {
     pub internal_api_origin: String,
     pub chromium_path: PathBuf,
     pub lease_duration: Duration,
-    pub poll_interval: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -114,47 +116,88 @@ pub enum ThumbnailError {
     LeaseLost,
 }
 
-pub async fn run_thumbnail_loop(
+pub struct ThumbnailLane {
     pool: PgPool,
     storage: AwsS3ObjectStorage,
     config: ThumbnailConfig,
-    mut shutdown: tokio::sync::watch::Receiver<bool>,
-) {
-    loop {
-        if *shutdown.borrow() {
-            return;
+}
+
+impl ThumbnailLane {
+    #[must_use]
+    pub const fn new(pool: PgPool, storage: AwsS3ObjectStorage, config: ThumbnailConfig) -> Self {
+        Self {
+            pool,
+            storage,
+            config,
         }
-        if let Err(error) = recover_expired(&pool).await {
+    }
+
+    async fn run_claim(&self, permit: ClaimPermit) -> LaneRunOutcome {
+        if permit
+            .remaining()
+            .is_some_and(|remaining| remaining <= self.config.lease_duration)
+        {
+            return LaneRunOutcome::Idle;
+        }
+        if let Err(error) = recover_expired(&self.pool).await {
             tracing::error!(event_name = "shareslices.artifact.thumbnail.lease_recovery_failed", error = %error);
         }
-        match claim_next(&pool, &config).await {
-            Ok(Some(claim)) => {
-                let result = process_with_heartbeat(&pool, &storage, &config, &claim).await;
-                if let Err(error) = result {
-                    let transient = matches!(
-                        error,
-                        ThumbnailError::Database(_)
-                            | ThumbnailError::Storage(_)
-                            | ThumbnailError::Browser(_)
-                    );
-                    if let Err(record_error) =
-                        fail_claim(&pool, &config.worker_id, &claim, &error, transient).await
-                    {
-                        tracing::error!(event_name = "shareslices.artifact.thumbnail.failure_transition_failed", error = %record_error);
-                    }
-                }
-            }
-            Ok(None) => {
-                tokio::select! {
-                    () = tokio::time::sleep(config.poll_interval) => {}
-                    result = shutdown.changed() => if result.is_err() || *shutdown.borrow() { return; }
-                }
-            }
+        let claim = match claim_next(&self.pool, &self.config).await {
+            Ok(Some(claim)) => claim,
+            Ok(None) => return LaneRunOutcome::Idle,
             Err(error) => {
                 tracing::error!(event_name = "shareslices.artifact.thumbnail.claim_failed", error = %error);
-                tokio::time::sleep(config.poll_interval).await;
+                return LaneRunOutcome::Idle;
+            }
+        };
+        let result = process_with_heartbeat(&self.pool, &self.storage, &self.config, &claim).await;
+        if let Err(error) = result {
+            let transient = matches!(
+                error,
+                ThumbnailError::Database(_)
+                    | ThumbnailError::Storage(_)
+                    | ThumbnailError::Browser(_)
+            );
+            if let Err(record_error) = fail_claim(
+                &self.pool,
+                &self.config.worker_id,
+                &claim,
+                &error,
+                transient,
+            )
+            .await
+            {
+                tracing::error!(event_name = "shareslices.artifact.thumbnail.failure_transition_failed", error = %record_error);
             }
         }
+        LaneRunOutcome::Claimed
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl BackgroundLane for ThumbnailLane {
+    fn lane(&self) -> RunnerLane {
+        RunnerLane::Thumbnail
+    }
+
+    async fn run_one(&self, permit: ClaimPermit) -> Result<LaneRunOutcome, RunnerError> {
+        Ok(self.run_claim(permit).await)
+    }
+
+    async fn has_claimable_work(&self) -> Result<bool, RunnerError> {
+        sqlx::query_scalar::<_, bool>(
+            r"
+            select exists (
+              select 1
+              from content_bundle_thumbnail_job
+              where (state = 'queued' and available_at <= now())
+                 or (state = 'running' and lease_expires_at <= now())
+            )
+            ",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|_| RunnerError::Lane("thumbnail work observation failed".to_owned()))
     }
 }
 
@@ -939,7 +982,6 @@ mod tests {
             internal_api_origin: "http://127.0.0.1:7456".to_owned(),
             chromium_path: "/missing/chromium".into(),
             lease_duration: Duration::from_secs(30),
-            poll_interval: Duration::from_millis(10),
         }
     }
 

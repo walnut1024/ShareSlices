@@ -21,9 +21,7 @@ use shareslices_worker::{
     object_storage::{AwsS3ObjectStorage, ObjectStorage},
     retry_policy::RetryPolicy,
     runner::{BackgroundLane, Runner, RunnerLane},
-    thumbnail::{
-        ThumbnailConfig, preflight_chromium, requeue_failed_browser_jobs, run_thumbnail_loop,
-    },
+    thumbnail::{ThumbnailConfig, ThumbnailLane, preflight_chromium, requeue_failed_browser_jobs},
 };
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use tokio::io::AsyncReadExt;
@@ -169,61 +167,38 @@ async fn run(config: WorkerConfig) -> Result<(), Box<dyn std::error::Error>> {
         shutdown_receiver.clone(),
     ));
     let copy_task = spawn_gallery_copy(&pool, &storage, &config, &shutdown_receiver);
-    let (thumbnail_exit_sender, thumbnail_exit_receiver) = tokio::sync::oneshot::channel();
-    let thumbnail_pool = pool.clone();
-    let thumbnail_shutdown = shutdown_receiver.clone();
-    let thumbnail_task = tokio::spawn(async move {
-        run_thumbnail_loop(
-            thumbnail_pool,
-            storage,
-            ThumbnailConfig {
-                worker_id: format!("thumbnail-worker-{}", Uuid::new_v4()),
-                internal_api_origin: config.thumbnail_internal_api_origin,
-                chromium_path: config.chromium_path,
-                lease_duration: config.lease_duration,
-                poll_interval: config.poll_interval,
-            },
-            thumbnail_shutdown,
-        )
-        .await;
-        let _ = thumbnail_exit_sender.send(());
-    });
-    let thumbnail_stopped_unexpectedly = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let shutdown_reason = Arc::clone(&thumbnail_stopped_unexpectedly);
-    let shutdown_task = tokio::spawn(coordinate_shutdown(
-        shutdown_sender,
-        thumbnail_exit_receiver,
-        shutdown_reason,
+    let thumbnail_lane = Arc::new(ThumbnailLane::new(
+        pool.clone(),
+        storage,
+        ThumbnailConfig {
+            worker_id: format!("thumbnail-worker-{}", Uuid::new_v4()),
+            internal_api_origin: config.thumbnail_internal_api_origin,
+            chromium_path: config.chromium_path,
+            lease_duration: config.lease_duration,
+        },
     ));
-    runner.run_resident(shutdown_receiver).await?;
-    shutdown_task.await?;
-    thumbnail_task.await?;
+    let thumbnail_runner = Runner::new(
+        vec![thumbnail_lane as Arc<dyn BackgroundLane>],
+        &BTreeSet::from([RunnerLane::Thumbnail]),
+        config.poll_interval,
+    )?;
+    let (processing_result, thumbnail_result, ()) = tokio::join!(
+        runner.run_resident(shutdown_receiver.clone()),
+        thumbnail_runner.run_resident(shutdown_receiver),
+        coordinate_shutdown(shutdown_sender),
+    );
+    processing_result?;
+    thumbnail_result?;
     alias_reindex_task.await?;
     safety_task.await?;
     cover_task.await?;
     copy_task.await?;
-    if thumbnail_stopped_unexpectedly.load(std::sync::atomic::Ordering::Relaxed) {
-        return Err("thumbnail loop stopped unexpectedly".into());
-    }
     pool.close().await;
     Ok(())
 }
 
-async fn coordinate_shutdown(
-    shutdown_sender: tokio::sync::watch::Sender<bool>,
-    thumbnail_exit: tokio::sync::oneshot::Receiver<()>,
-    thumbnail_stopped_unexpectedly: Arc<std::sync::atomic::AtomicBool>,
-) {
-    tokio::select! {
-        biased;
-        () = shutdown_signal() => {}
-        _ = thumbnail_exit => {
-            thumbnail_stopped_unexpectedly.store(
-                true,
-                std::sync::atomic::Ordering::Relaxed,
-            );
-        }
-    }
+async fn coordinate_shutdown(shutdown_sender: tokio::sync::watch::Sender<bool>) {
+    shutdown_signal().await;
     shutdown_sender.send_replace(true);
 }
 
