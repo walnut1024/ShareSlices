@@ -1,12 +1,6 @@
-import { randomUUID } from "node:crypto";
 import { decryptAuthenticationEmail } from "./authentication-email.js";
-import { directConnection, pool } from "../../db/client.js";
 import type { DirectClientSource } from "../../db/connection.js";
-import { readMaintenanceEnv } from "../../env.js";
-import {
-  createAuthenticationEmailSmtpAdapter
-} from "../../email/authentication-email-smtp.js";
-import { apiLogger, exceptionAttributes } from "../../logging/index.js";
+import { exceptionAttributes, type LogRecordInput } from "../../logging/log-record.js";
 import type {
   AuthenticationEmailTransportAdapter,
   PreparedAuthenticationEmailTransport,
@@ -17,28 +11,20 @@ type DeliveryRow = {
   encrypted_payload: string;
   delivery_revision: string | number;
 };
-const env = readMaintenanceEnv();
-
-const smtpAdapter = createAuthenticationEmailSmtpAdapter({
-  url: env.AUTH_EMAIL_SMTP_URL,
-  from: env.AUTH_EMAIL_FROM,
-  providerNamespace: env.AUTH_EMAIL_TRANSPORT_NAMESPACE,
-  transportRevision: env.AUTH_EMAIL_TRANSPORT_REVISION,
-  dnsTimeoutMs: env.AUTH_EMAIL_SMTP_DNS_TIMEOUT_MS,
-  connectionTimeoutMs: env.AUTH_EMAIL_SMTP_CONNECTION_TIMEOUT_MS,
-  greetingTimeoutMs: env.AUTH_EMAIL_SMTP_GREETING_TIMEOUT_MS,
-  socketTimeoutMs: env.AUTH_EMAIL_SMTP_SOCKET_TIMEOUT_MS
-});
+export type AuthenticationEmailDispatchInput = Readonly<{
+  workerId: string;
+  adapter: AuthenticationEmailTransportAdapter;
+  timing: Readonly<{ leaseSeconds: number; heartbeatMs: number }>;
+  directClients: DirectClientSource;
+  encryptionKey: string;
+  circuitBreakerSeconds: number;
+  logger: Readonly<{ emit(input: LogRecordInput): void }>;
+}>;
 
 export async function dispatchOneAuthenticationEmail(
-  workerId: string = randomUUID(),
-  adapter: AuthenticationEmailTransportAdapter = smtpAdapter,
-  timing: { leaseSeconds: number; heartbeatMs: number } = {
-    leaseSeconds: env.AUTH_EMAIL_DELIVERY_LEASE_SECONDS,
-    heartbeatMs: Math.max(100, Math.floor(env.AUTH_EMAIL_DELIVERY_LEASE_SECONDS * 1000 / 3))
-  },
-  directClients: DirectClientSource = directConnection,
+  input: AuthenticationEmailDispatchInput,
 ): Promise<boolean> {
+  const { workerId, adapter, timing, directClients, encryptionKey, circuitBreakerSeconds, logger } = input;
   return directClients.withClient(async (client) => {
     let delivery: DeliveryRow | undefined;
     let payload: ReturnType<typeof decryptAuthenticationEmail> | undefined;
@@ -61,7 +47,7 @@ export async function dispatchOneAuthenticationEmail(
          where delivery_id = $1 and phase in ('prepared', 'submitting', 'awaiting_final_acceptance')`,
         [row.id],
       );
-      apiLogger.emit({
+      logger.emit({
         severity: "WARN",
         body: "Ambiguous authentication email delivery requires manual reconciliation.",
         eventName: "shareslices.authentication_email.delivery.manual_reconciliation_required",
@@ -83,11 +69,11 @@ export async function dispatchOneAuthenticationEmail(
         await client.query("commit");
         return false;
       }
-    payload = decryptAuthenticationEmail(delivery.encrypted_payload, env.AUTH_EMAIL_ENCRYPTION_KEY);
+    payload = decryptAuthenticationEmail(delivery.encrypted_payload, encryptionKey);
     prepared = await adapter.prepare(payload, delivery.id, new Date());
     const snapshot = prepared.snapshot;
     fence = Number(delivery.delivery_revision) + 1;
-    providerAttemptId = randomUUID();
+    providerAttemptId = crypto.randomUUID();
     const claimedForSend = await client.query(
       `update authentication_email_delivery
        set state = 'sending', lease_owner = $2,
@@ -133,7 +119,7 @@ export async function dispatchOneAuthenticationEmail(
        where id = $1 and state = 'sending' and lease_owner = $2`,
       [delivery.id, workerId, timing.leaseSeconds]
     ).catch((error) => {
-      apiLogger.emit({
+      logger.emit({
         severity: "ERROR",
         body: "Authentication email delivery lease renewal failed.",
         eventName: "shareslices.authentication_email.delivery.lease_renewal_failed",
@@ -144,7 +130,6 @@ export async function dispatchOneAuthenticationEmail(
       });
     });
     }, timing.heartbeatMs);
-    heartbeat.unref();
 
     let providerMessageId: string | null;
     try {
@@ -174,7 +159,7 @@ export async function dispatchOneAuthenticationEmail(
         ) : { rowCount: 0 };
         await client.query("commit");
         if (failed.rowCount === 0) {
-          apiLogger.emit({
+          logger.emit({
             severity: "WARN",
             body: "Authentication email delivery failed after lease ownership changed.",
             eventName: "shareslices.authentication_email.delivery.outcome_after_lease_lost",
@@ -190,9 +175,9 @@ export async function dispatchOneAuthenticationEmail(
            set state = 'open', reason_code = 'provider_failure', opened_at = now(),
                resume_at = now() + ($1 * interval '1 second'), updated_at = now()
            where id = 'global'`,
-          [env.AUTH_EMAIL_CIRCUIT_BREAKER_SECONDS]
+          [circuitBreakerSeconds]
         );
-        apiLogger.emit({
+        logger.emit({
           severity: "ERROR",
           body: "Authentication email delivery requires manual reconciliation.",
           eventName: "shareslices.authentication_email.delivery.manual_reconciliation_required",
@@ -235,7 +220,7 @@ export async function dispatchOneAuthenticationEmail(
     ) : { rowCount: 0 };
     await client.query("commit");
     if (completed.rowCount === 0) {
-      apiLogger.emit({
+      logger.emit({
         severity: "WARN",
         body: "Authentication email delivery completed after lease ownership changed.",
         eventName: "shareslices.authentication_email.delivery.outcome_after_lease_lost",
@@ -246,7 +231,7 @@ export async function dispatchOneAuthenticationEmail(
       });
       return true;
     }
-    apiLogger.emit({
+    logger.emit({
       severity: "INFO",
       body: "Authentication email delivered.",
       eventName: "shareslices.authentication_email.delivery.sent",
@@ -260,51 +245,4 @@ export async function dispatchOneAuthenticationEmail(
     }
     return true;
   });
-}
-
-export async function reconcileExpiredAuthenticationEmailState(): Promise<void> {
-  await pool.query(
-    `update password_reset_grant set encrypted_code = '', claimed_at = null, claim_token = null
-     where expires_at < now() and encrypted_code <> ''`
-  );
-  await pool.query(
-    `update authentication_email_delivery d set encrypted_payload = ''
-     from email_verification_attempt a
-     where d.attempt_id = a.id and a.expires_at < now() and d.encrypted_payload <> ''`
-  );
-  await pool.query("delete from password_reset_grant where expires_at < now() - interval '24 hours'");
-  await pool.query("delete from email_verification_attempt where expires_at < now() - interval '24 hours'");
-}
-
-export function startAuthenticationEmailDispatcher(
-  options: { keepAlive?: boolean } = {},
-): () => void {
-  const workerId = randomUUID();
-  let ticks = 0;
-  const timer = setInterval(() => {
-    ticks += 1;
-    void dispatchOneAuthenticationEmail(workerId).catch((error) => {
-      apiLogger.emit({
-        severity: "ERROR",
-        body: "Authentication email dispatcher failed.",
-        eventName: "shareslices.authentication_email.dispatcher.failed",
-        attributes: exceptionAttributes(error)
-      });
-    });
-    if (ticks % 60 === 0) {
-      void reconcileExpiredAuthenticationEmailState().catch((error) => {
-        apiLogger.emit({
-          severity: "ERROR",
-          body: "Authentication email reconciliation failed.",
-          eventName: "shareslices.authentication_email.reconciliation.failed",
-          attributes: exceptionAttributes(error)
-        });
-      });
-    }
-  }, 1000);
-  if (!options.keepAlive) timer.unref();
-  return () => {
-    clearInterval(timer);
-    smtpAdapter.close();
-  };
 }

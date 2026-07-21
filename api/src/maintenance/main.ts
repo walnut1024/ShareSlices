@@ -1,4 +1,4 @@
-import { startAuthenticationEmailDispatcher } from "../application/accounts/authentication-email-dispatcher.js";
+import { startAuthenticationEmailDispatcher } from "./authentication-email-node-dispatcher.js";
 import { closeDb } from "../db/client.js";
 import { readMaintenanceEnv } from "../env.js";
 import { apiLogger, exceptionAttributes } from "../logging/index.js";

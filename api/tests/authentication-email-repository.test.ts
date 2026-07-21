@@ -6,7 +6,7 @@ import {
   acceptAuthenticationEmailDelivery,
   createVerificationAttempt
 } from "../src/db/authentication-email-repository.js";
-import { dispatchOneAuthenticationEmail } from "../src/application/accounts/authentication-email-dispatcher.js";
+import { dispatchOneAuthenticationEmail } from "../src/maintenance/authentication-email-node-dispatcher.js";
 import {
   createAuthenticationEmailSmtpAdapter,
   type AuthenticationEmailSmtpAdapter
