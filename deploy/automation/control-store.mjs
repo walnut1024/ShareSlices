@@ -1,0 +1,201 @@
+import { readFile } from "node:fs/promises";
+
+import { sha256Digest } from "./canonical.mjs";
+
+// cspell:ignore regclass
+
+const schemaUrl = new URL("./control-schema.sql", import.meta.url);
+const controlTables = [
+  "shareslices_deployment_control_metadata",
+  "shareslices_deployment_operation",
+  "shareslices_deployment_phase_journal",
+];
+
+export class DeploymentControlError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = "DeploymentControlError";
+    this.code = code;
+  }
+}
+
+export async function loadControlSchema() {
+  const sql = await readFile(schemaUrl, "utf8");
+  return Object.freeze({ sql, checksum: sha256Digest(Buffer.from(sql, "utf8")) });
+}
+
+async function existingControlTables(client) {
+  const result = await client.query(
+    "select name, to_regclass(name) is not null as present from unnest($1::text[]) name",
+    [controlTables],
+  );
+  return new Set(result.rows.filter(({ present }) => present).map(({ name }) => name));
+}
+
+export async function bootstrapControlSchema(client, expectedChecksum) {
+  const schema = await loadControlSchema();
+  if (schema.checksum !== expectedChecksum) {
+    throw new DeploymentControlError(
+      "deployment_control_artifact_mismatch",
+      "Deployment control schema artifact does not match the authorized checksum.",
+    );
+  }
+  await client.query("begin");
+  try {
+    await client.query(
+      "select pg_advisory_xact_lock(hashtext('shareslices_deployment_control_bootstrap'))",
+    );
+    const existing = await existingControlTables(client);
+    const metadataTable = controlTables[0];
+    if (existing.has(metadataTable)) {
+      if (existing.size !== controlTables.length) {
+        throw new DeploymentControlError(
+          "deployment_control_bootstrap_ambiguous",
+          "Deployment control schema is only partially installed.",
+        );
+      }
+      const metadata = await client.query(
+        "select schema_checksum, revision from shareslices_deployment_control_metadata where singleton = true",
+      );
+      if (metadata.rows.length !== 1 || metadata.rows[0].schema_checksum !== expectedChecksum) {
+        throw new DeploymentControlError(
+          "deployment_control_schema_mismatch",
+          "Installed deployment control schema checksum does not match.",
+        );
+      }
+      await client.query("commit");
+      return Object.freeze({ state: "existing", revision: Number(metadata.rows[0].revision) });
+    }
+    if (existing.size !== 0) {
+      throw new DeploymentControlError(
+        "deployment_control_bootstrap_ambiguous",
+        "Deployment control schema is only partially installed.",
+      );
+    }
+    await client.query(schema.sql);
+    await client.query(
+      "insert into shareslices_deployment_control_metadata (singleton, schema_checksum) values (true, $1)",
+      [expectedChecksum],
+    );
+    await client.query("commit");
+    return Object.freeze({ state: "installed", revision: 1 });
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  }
+}
+
+export async function acquireOperationLease(client, input) {
+  await client.query("begin");
+  try {
+    await client.query(
+      "select pg_advisory_xact_lock(hashtext('shareslices_deployment_operation:' || $1))",
+      [input.installationId],
+    );
+    const current = await client.query(
+      "select operation_id, lease_owner, lease_expires_at, fencing_token from shareslices_deployment_operation where installation_id = $1 for update",
+      [input.installationId],
+    );
+    const row = current.rows[0];
+    if (row && row.lease_expires_at > input.now && row.lease_owner !== input.owner) {
+      throw new DeploymentControlError(
+        "deployment_operation_lease_held",
+        "Another deployment operation holds the active lease.",
+      );
+    }
+    const result = await client.query(
+      `insert into shareslices_deployment_operation
+         (installation_id, target, operation_id, desired_release_id, lease_owner,
+          lease_expires_at, heartbeat_at, fencing_token, state, revision)
+       values ($1, $2, $3, $4, $5, $6, $7, 1, 'active', 1)
+       on conflict (installation_id) do update set
+         target = excluded.target, operation_id = excluded.operation_id,
+         desired_release_id = excluded.desired_release_id, lease_owner = excluded.lease_owner,
+         lease_expires_at = excluded.lease_expires_at, heartbeat_at = excluded.heartbeat_at,
+         fencing_token = shareslices_deployment_operation.fencing_token + 1,
+         state = 'active', revision = shareslices_deployment_operation.revision + 1,
+         updated_at = now()
+       returning fencing_token, revision`,
+      [
+        input.installationId,
+        input.target,
+        input.operationId,
+        input.releaseId,
+        input.owner,
+        input.leaseExpiresAt,
+        input.now,
+      ],
+    );
+    await client.query("commit");
+    return Object.freeze({
+      operationId: input.operationId,
+      fencingToken: Number(result.rows[0].fencing_token),
+      revision: Number(result.rows[0].revision),
+    });
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  }
+}
+
+export async function heartbeatOperationLease(client, lease, { now, leaseExpiresAt }) {
+  const result = await client.query(
+    `update shareslices_deployment_operation
+     set lease_expires_at = $5, heartbeat_at = $4, revision = revision + 1, updated_at = now()
+     where installation_id = $1 and operation_id = $2 and lease_owner = $3
+       and fencing_token = $6 and state = 'active' and lease_expires_at > $4
+     returning revision`,
+    [
+      lease.installationId,
+      lease.operationId,
+      lease.owner,
+      now,
+      leaseExpiresAt,
+      lease.fencingToken,
+    ],
+  );
+  if (result.rows.length !== 1) {
+    throw new DeploymentControlError(
+      "deployment_operation_lease_lost",
+      "Deployment operation lease is no longer active.",
+    );
+  }
+  return Number(result.rows[0].revision);
+}
+
+export async function recordPhaseCheckpoint(client, lease, checkpoint) {
+  const result = await client.query(
+    `insert into shareslices_deployment_phase_journal
+       (installation_id, operation_id, fencing_token, phase, state, checkpoint_digest,
+        reason_code, started_at, finished_at)
+     select $1, $2, $3, $4, $5, $6, $7,
+       case when $5 = 'running' then now() else null end,
+       case when $5 in ('completed','failed','indeterminate','external_reconciler_required') then now() else null end
+     from shareslices_deployment_operation operation
+     where operation.installation_id = $1 and operation.operation_id = $2
+       and operation.lease_owner = $8 and operation.fencing_token = $3
+       and operation.state = 'active' and operation.lease_expires_at > now()
+     on conflict (installation_id, operation_id, fencing_token, phase) do update set
+       state = excluded.state, checkpoint_digest = excluded.checkpoint_digest,
+       reason_code = excluded.reason_code,
+       started_at = coalesce(shareslices_deployment_phase_journal.started_at, excluded.started_at),
+       finished_at = excluded.finished_at, updated_at = now()
+     returning phase`,
+    [
+      lease.installationId,
+      lease.operationId,
+      lease.fencingToken,
+      checkpoint.phase,
+      checkpoint.state,
+      checkpoint.digest ?? null,
+      checkpoint.reasonCode ?? null,
+      lease.owner,
+    ],
+  );
+  if (result.rows.length !== 1) {
+    throw new DeploymentControlError(
+      "deployment_operation_stale_fence",
+      "A stale deployment operation cannot record a phase checkpoint.",
+    );
+  }
+}
