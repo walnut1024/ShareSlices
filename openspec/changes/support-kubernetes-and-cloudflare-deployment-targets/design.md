@@ -4,11 +4,24 @@
 
 ## Context
 
-ShareSlices has one canonical local Compose stack, but its checked topology and controller policy are split across the repository. The base and Gallery overlay remain at the repository root, Caddy configuration is under `deploy/compose/`, and lifecycle controllers remain under `tools/`.
+At proposal time, ShareSlices had one canonical local Compose stack whose
+checked topology and controller policy were split across the repository. Tasks
+13.1-13.3 have since moved the base, Gallery and test Compose inputs under
+`deploy/compose/` and the policy-owning controllers under
+`deploy/automation/local-compose/`; the supported `mise` commands now reach
+that implementation through policy-free wrappers under `tools/`.
 
 The Kubernetes manifests demonstrate several deployment shapes but do not form a supported production deployment. They contain fixed Service addresses, a deployable placeholder Secret, per-API-Pod migration init containers, mutable image references, incomplete public routing, and configuration validation that reasons about a cross-workload variable union instead of each runtime role.
 
-The current content-only process imports broader API configuration than its manifest supplies. The API process also starts authentication-email and reconciliation loops, while the resident Rust Runner starts all processing lanes together. These long-running process assumptions do not map directly to event-driven Cloudflare Workers and on-demand Containers.
+The proposal also began with a content-only process that imported broader API
+configuration than its manifest supplied, an API process that started
+authentication-email and reconciliation loops, and independent long-running
+Rust processing loops. Implementation is progressively separating those roles:
+the API maintenance composition is distinct, and Artifact processing plus
+thumbnail processing now run through the shared resident Runner core. The
+remaining enabled Rust lanes and bounded Cloudflare execution path still need
+to converge on that Runner contract. Long-running resident assumptions do not
+map directly to event-driven Cloudflare Workers and on-demand Containers.
 
 The product decision is not to span one installation across Kubernetes and Cloudflare. A production installation selects exactly one **deployment target**:
 

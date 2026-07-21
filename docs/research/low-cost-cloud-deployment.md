@@ -18,9 +18,9 @@ ShareSlices 不应把“兼容 Cloudflare”实现成“所有运行时必须搬
 
 [INFR:HI] 若目标是“尽快以最低固定费用上线”，首选 **Cloudflare Static Assets/R2 + Hetzner CX33 单机运行 API、PostgreSQL、Worker**，含 IPv4 与 Hetzner 的 7 个 Server Backup 槽约 **$12.59/月（税前）**，但这是单机、非高可用方案。若目标是“尽量托管、少做服务器运维”，首选 **Cloudflare Static Assets/R2 + Railway**，按本文低流量假设约 **$22–35/月**。若目标是“长期把流量面做成边缘原生”，再投入 Cloudflare 的事件驱动改造；使用 Supabase Pro 时固定基线约 **$30/月**，另加少量 Container、R2、Queue、日志和邮件用量费。
 
-## 研究边界与当前合同
+## 研究边界与当时合同
 
-本报告不修改 `PRODUCT.md`、OpenSpec、API 合同或代码，只研究部署目标和改造顺序。仓库证据如下：
+本报告不修改 `PRODUCT.md`、OpenSpec、API 合同或代码，只研究部署目标和改造顺序。以下仓库证据是 2026-07-18 的历史快照，不描述后续 OpenSpec 实施进度：
 
 - [PRODUCT.md](../../PRODUCT.md) 规定 Preview 与 Viewer 响应不缓存；Gallery 的 authorization、entry 和 asset 响应也使用 `Cache-Control: no-store`。因此本文**不把 Cloudflare CDN 命中率计入 Viewer 成本收益**。
 - [ADR 0004](../adr/0004-render-version-thumbnails-as-isolated-background-work.md) 规定缩略图由独立后台任务调用受限 Chromium，并且浏览器只能访问已提交 Manifest 内容、不能访问外部网络。
@@ -28,7 +28,7 @@ ShareSlices 不应把“兼容 Cloudflare”实现成“所有运行时必须搬
 - [模块设计](../design/modules.md) 记录 API/Worker 通过 PostgreSQL migrations、durable job states、object layout 和 Manifest 协作；Worker 是独立 Tokio 进程，内容存储是 S3 兼容 Adapter。
 - 当前 `api/package.json` 使用 `@hono/node-server`、`pg`、Drizzle、Better Auth、Nodemailer、AWS S3 SDK、Busboy 和 Archiver；`worker/Dockerfile` 安装固定版本 Chromium；`api/src/content/` 已把不可信内容 Hono app 与 PostgreSQL/S3 Adapter 分开。这意味着“只迁 Hono 路由”不等于“整个 Node API 可原样进 Workers”，但内容运行面已有较好的迁移 seam。
 - Web 的请求全部使用同源相对 `/api`，Preview、thumbnail 和 export URL 也是 `/api/...`。现有 [Compose Caddyfile](../../deploy/compose/Caddyfile) 负责把 `/api/*`、health/readiness 和静态 SPA 分流。因此 Cloudflare Web 目标不是“把 `dist/` 纯静态上传完即结束”，而是一个 edge gateway：`/api/*` 代理到 API origin，其余请求交给 Static Assets，并继续为 Preview 文档保留 `no-store`。
-- `api/src/main.ts` 启动 1 秒轮询的 authentication-email dispatcher 和 30 秒轮询的 reconciliation dispatcher；Rust `worker/src/main.rs` 同时启动 processing、thumbnail、alias reindex、Gallery safety/cover/copy 等多个长轮询 loop。这些常驻循环才是 API/Worker 无法直接 scale to zero 的首要阻碍。
+- 当时的 `api/src/main.ts` 启动 1 秒轮询的 authentication-email dispatcher 和 30 秒轮询的 reconciliation dispatcher；当时的 Rust `worker/src/main.rs` 同时启动 processing、thumbnail、alias reindex、Gallery safety/cover/copy 等多个长轮询 loop。这些常驻循环是当时 API/Worker 无法直接 scale to zero 的首要阻碍；后续角色拆分与 Runner 迁移以当前代码和模块设计为准。
 
 ### 成本计算假设
 

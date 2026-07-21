@@ -22,8 +22,10 @@ and no rendered provider resources.
 
 `deploy/automation/` owns lifecycle policy and command implementation.
 `deploy/cloudflare/` and `deploy/kubernetes/` own target-specific rendered
-inputs. `deploy/compose/` owns local Compose inputs only after the relocation in
-tasks 13.1-13.3. `deploy/tests/` owns executable contract and lifecycle tests.
+inputs. `deploy/compose/` owns the relocated local Compose inputs, while
+`deploy/automation/local-compose/` owns their lifecycle policy. The wrappers
+under `tools/` contain no composition policy. `deploy/tests/` owns executable
+contract and lifecycle tests.
 
 Secret values, Terraform state, generated release bundles, and target
 credentials must never be committed under `deploy/`.

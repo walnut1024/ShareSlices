@@ -279,3 +279,16 @@ completed Free-compatible prototypes:
 These are acceptance blockers, not reasons to weaken product behavior. Local
 Compose, provider-neutral automation, Kubernetes work, and bounded
 Free-compatible Cloudflare prototypes may continue independently.
+
+## Fourth-pass repository-state correction
+
+The 2026-07-22 pre-implementation review found no new provider-contract defect,
+but it found stale repository-state wording left behind by completed tasks
+13.1-13.3 and the first Runner migrations. The design context, Deployment Module
+status, deployment-contract ownership note, local-stack prerequisite evidence,
+and historical low-cost report now distinguish the original proposal snapshot
+from current implementation state. Compose inputs and lifecycle policy are
+already owned under `deploy/`; only policy-free compatibility wrappers remain
+under `tools/`. Artifact and thumbnail processing use the shared resident Runner
+core, while the remaining Rust lanes and bounded Cloudflare path are still open
+work. No requirement, target boundary, or qualification gate changed.

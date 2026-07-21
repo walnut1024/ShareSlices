@@ -25,12 +25,15 @@ Status: current for the runtime seams, CLI authentication and Artifact commands,
 | CLI commands into ShareSlices | current for human and Agent protocol v1 surfaces | `cli/` command Interface | Rust CLI with operating-system credential and continuation stores | In-memory credential/continuation and fake HTTP Adapters |
 | Gallery trusted API and isolated content | current | `api/src/application/gallery/` and `api/src/content/` | PostgreSQL, private object storage, and content-only Hono runtime | Focused application, route, migration, and content-runtime tests |
 | Gallery safety, cover, and copy jobs | current | checked contracts in `db/contracts/` | Rust Worker with fenced PostgreSQL leases | N/N-1 fixtures and focused Worker tests |
-| Deployment lifecycle and target composition | target | `deploy/` Deployment Module | Kubernetes or Cloudflare target Adapter | Deterministic render, lifecycle, provider-spike, and black-box contract tests |
+| Deployment lifecycle and target composition | mixed | `deploy/` Deployment Module | Kubernetes or Cloudflare target Adapter | Deterministic render, lifecycle, provider-spike, and black-box contract tests |
 
 ## Deployment Module
 
-Status: target. Existing Kubernetes files are examples, and existing Compose
-files and lifecycle policy have not yet moved completely under this Module.
+Status: mixed. Local Compose inputs and lifecycle policy are current under this
+Module, and the target-neutral contracts plus part of the shared lifecycle core
+are implemented. Existing Kubernetes files remain examples; production
+Kubernetes and Cloudflare Adapters, mutating lifecycle operations, and release
+qualification remain target work.
 
 - `PRODUCT.md` owns the mutually exclusive target choice, cross-target product
   invariants, email-provider policy, caching boundary, and rollback limits.
