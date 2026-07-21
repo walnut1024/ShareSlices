@@ -1,3 +1,4 @@
+// cspell:ignore conninfo
 import { getConnInfo } from "@hono/node-server/conninfo";
 import { BlockList, isIP } from "node:net";
 import type { TrustedIngressResolver } from "./trusted-ingress.js";

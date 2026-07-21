@@ -1,17 +1,14 @@
-import { drizzle } from "drizzle-orm/node-postgres";
-import pg from "pg";
 import { readDatabaseEnv } from "../env.js";
-import * as schema from "./schema.js";
+import { createDatabaseConnection } from "./connection.js";
 
-const { Pool } = pg;
-const env = readDatabaseEnv();
-
-export const pool = new Pool({
-  connectionString: env.DATABASE_URL
+const connection = createDatabaseConnection({
+  mode: "node-direct",
+  connectionString: readDatabaseEnv().DATABASE_URL,
 });
 
-export const db = drizzle(pool, { schema });
+export const pool = connection.pool;
+export const db = connection.database;
 
 export async function closeDb(): Promise<void> {
-  await pool.end();
+  await connection.close();
 }

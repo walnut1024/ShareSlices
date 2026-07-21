@@ -59,6 +59,7 @@ export async function dispatchOneAuthenticationEmail(
     delivery = claimed.rows[0];
     if (!delivery) {
       await client.query("commit");
+      client.release();
       return false;
     }
     await client.query(
@@ -70,14 +71,16 @@ export async function dispatchOneAuthenticationEmail(
     );
     await client.query("commit");
   } catch (error) {
-    await client.query("rollback");
+    try {
+      await client.query("rollback");
+    } finally {
+      client.release();
+    }
     throw error;
-  } finally {
-    client.release();
   }
 
   const heartbeat = setInterval(() => {
-    void pool.query(
+    void client.query(
       `update authentication_email_delivery
        set lease_expires_at = now() + ($3 * interval '1 second')
        where id = $1 and state = 'sending' and lease_owner = $2`,
@@ -99,7 +102,7 @@ export async function dispatchOneAuthenticationEmail(
   try {
     const payload = decryptAuthenticationEmail(delivery.encrypted_payload, env.AUTH_EMAIL_ENCRYPTION_KEY);
     const providerMessageId = await adapter.send(payload, delivery.id);
-    const completed = await pool.query(
+    const completed = await client.query(
       `update authentication_email_delivery
        set state = 'sent', sent_at = now(), provider_message_id = $2,
            encrypted_payload = '', lease_owner = null, lease_expires_at = null
@@ -126,7 +129,7 @@ export async function dispatchOneAuthenticationEmail(
     });
   } catch (error) {
     const retry = delivery.attempt_count + 1 < env.AUTH_EMAIL_MAX_ATTEMPTS;
-    const failed = await pool.query(
+    const failed = await client.query(
       `update authentication_email_delivery
        set state = $2,
            available_at = case when $2 = 'pending' then now() + ($3 * interval '1 second') else available_at end,
@@ -147,7 +150,7 @@ export async function dispatchOneAuthenticationEmail(
       return true;
     }
     if (!retry) {
-      await pool.query(
+      await client.query(
         `update authentication_email_circuit_breaker
          set state = 'open', reason_code = 'provider_failure', opened_at = now(),
              resume_at = now() + ($1 * interval '1 second'), updated_at = now()
@@ -173,6 +176,7 @@ export async function dispatchOneAuthenticationEmail(
     });
   } finally {
     clearInterval(heartbeat);
+    client.release();
   }
   return true;
 }
