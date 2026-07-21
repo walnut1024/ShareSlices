@@ -46,6 +46,7 @@ data:
   THUMBNAIL_INTERNAL_API_ORIGIN: http://shareslices-api:7456
   CHROMIUM_PATH: /usr/bin/chromium
   MINIMUM_CLI_VERSION: "0.1.0"
+  TRUSTED_PROXY_CIDRS: ""
   REQUIRE_EMAIL_VERIFICATION: "false"
   AUTH_EMAIL_FROM: ShareSlices <no-reply@shareslices.example.com>
   AUTH_EMAIL_DELIVERY_LEASE_SECONDS: "60"

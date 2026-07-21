@@ -1,10 +1,13 @@
 import { serve } from "@hono/node-server";
 import { readApiHttpEnv } from "./env.js";
 import { buildApp } from "./http/app.js";
+import { createNodeTrustedIngressResolver } from "./http/node-trusted-ingress.js";
 import { apiLogger } from "./logging/index.js";
 
-const app = buildApp();
 const env = readApiHttpEnv();
+const app = buildApp({}, {
+  trustedIngress: createNodeTrustedIngressResolver(env.TRUSTED_PROXY_CIDRS),
+});
 
 serve(
   {

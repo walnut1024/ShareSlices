@@ -60,6 +60,14 @@ const envFieldsSchema = z.object({
     ARTIFACT_PROCESSING_REVISION: revision,
     ARTIFACT_RENDERER_REVISION: revision,
     MINIMUM_CLI_VERSION: z.string().regex(/^\d+\.\d+\.\d+$/),
+    TRUSTED_PROXY_CIDRS: z.string().default("").transform((value, context) => {
+      const cidrs = value.split(",").map((entry) => entry.trim()).filter(Boolean);
+      if (cidrs.some((entry) => !/^[0-9A-Fa-f:.]+\/\d{1,3}$/.test(entry))) {
+        context.addIssue({ code: "custom", message: "Trusted proxy CIDRs must be comma-separated IP networks." });
+        return z.NEVER;
+      }
+      return cidrs;
+    }),
     REQUIRE_EMAIL_VERIFICATION: booleanString.default(false),
     AUTH_EMAIL_ENCRYPTION_KEY: z.string().min(32).default("development-email-encryption-key-32"),
     AUTH_EMAIL_SMTP_URL: z.string().url(),
@@ -184,6 +192,7 @@ const apiHttpEnvSchema = envFieldsSchema.pick({
   ARTIFACT_PROCESSING_REVISION: true,
   ARTIFACT_RENDERER_REVISION: true,
   MINIMUM_CLI_VERSION: true,
+  TRUSTED_PROXY_CIDRS: true,
   REQUIRE_EMAIL_VERIFICATION: true,
   AUTH_EMAIL_ENCRYPTION_KEY: true,
   AUTH_EMAIL_RESEND_SECONDS: true,

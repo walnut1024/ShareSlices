@@ -21,6 +21,7 @@ import {
 } from "../db/authentication-email-repository.js";
 import { readApiHttpEnv } from "../env.js";
 import { errorJson, type FieldError, requestId } from "./http-error.js";
+import { trustedAuthenticationHeaders } from "./trusted-ingress.js";
 
 const env = readApiHttpEnv();
 
@@ -152,10 +153,7 @@ export function accountRoutes(overrides: Partial<AccountRouteDependencies> = {})
   }
 
   function authHeaders(c: Parameters<typeof requestId>[0]): Headers {
-    const headers = new Headers(c.req.raw.headers);
-    const forwarded = c.req.header("x-forwarded-for") ?? c.req.header("cf-connecting-ip") ?? "unknown";
-    headers.set("x-forwarded-for", forwarded);
-    return headers;
+    return trustedAuthenticationHeaders(c);
   }
 
   function verificationError(c: Parameters<typeof requestId>[0], error: unknown) {

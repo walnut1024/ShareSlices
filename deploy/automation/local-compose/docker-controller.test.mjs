@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import {
@@ -99,4 +103,39 @@ test("Engine identity changes make mutation and read-only results indeterminate"
     }),
     /read-only operation.*indeterminate/,
   );
+});
+
+test("a dead owner cannot permanently block endpoint or Engine mutations", () => {
+  const root = mkdtempSync(join(tmpdir(), "shareslices-stale-lock-test-"));
+  const project = `stale-${process.pid}-${Date.now()}`;
+  const host = "unix:///tmp/docker.sock";
+  const engineId = "engine-a";
+  for (const [kind, identity] of [["endpoint", host], ["engine", engineId]]) {
+    const name = createHash("sha256")
+      .update(`${kind}\0${identity}\0${project}`)
+      .digest("hex");
+    const path = join(root, name);
+    mkdirSync(path, { mode: 0o700 });
+    writeFileSync(join(path, "owner.json"), `${JSON.stringify({ pid: 999_999_999, project })}\n`);
+  }
+
+  let mutated = false;
+  withDockerMutationController(
+    { connectionArgs: ["--host", host], host },
+    project,
+    ({ runMutation }) => {
+      runMutation("docker", ["compose", "up"]);
+      mutated = true;
+    },
+    {
+      lockRoot: root,
+      isProcessAlive: () => false,
+      executeCommand(_command, args) {
+        return args.includes("info") ? JSON.stringify(engineId) : "";
+      },
+    },
+  );
+  assert.equal(mutated, true);
+  assert.deepEqual(readdirSync(root), []);
+  rmSync(root, { recursive: true });
 });

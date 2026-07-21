@@ -48,6 +48,7 @@ import { pool } from "../db/client.js";
 import { readApiHttpEnv } from "../env.js";
 import { createConfiguredObjectStorage } from "../storage/index.js";
 import { requestId } from "./http-error.js";
+import { trustedIngressMetadata } from "./trusted-ingress.js";
 
 const env = readApiHttpEnv();
 const profile = z
@@ -513,9 +514,7 @@ export function galleryRoutes(
       await dependencies.gate.requireEligible();
       const archive = await dependencies.downloadArchive.open(
         c.req.param("gallerySlug"),
-        c.req.header("cf-connecting-ip") ??
-          c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??
-          "unknown",
+        trustedIngressMetadata(c).clientIp,
       );
       return new Response(
         Readable.toWeb(archive.body) as ReadableStream<Uint8Array>,
@@ -621,10 +620,7 @@ export function galleryRoutes(
         ...(typeof body.challengeToken === "string"
           ? { challengeToken: body.challengeToken }
           : {}),
-        remoteIp:
-          c.req.header("cf-connecting-ip") ??
-          c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??
-          "unknown",
+        remoteIp: trustedIngressMetadata(c).clientIp,
         reporterUserId: reporter,
       });
       return c.json({ accepted: true }, 202);

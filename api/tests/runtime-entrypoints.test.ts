@@ -115,4 +115,16 @@ describe("Node runtime entrypoint authority", () => {
       "readStorageEnv",
     ]));
   });
+
+  it("keeps the trusted Hono builder independent from Node and infrastructure composition", () => {
+    const graph = reachableSources("http/trusted-app.ts");
+    const paths = [...graph.keys()].map((file) => file.slice(sourceRoot.length));
+    expect(paths.filter((path) => /^(auth|db|email|maintenance|storage)\//.test(path))).toEqual([]);
+    expect(paths.filter((path) => path === "env.ts" || path === "main.ts")).toEqual([]);
+    for (const content of graph.values()) {
+      expect(content).not.toContain("@hono/node-server");
+      expect(content).not.toContain("node:");
+    }
+    expect(importedEnvironmentReaders(graph)).toEqual(new Set());
+  });
 });

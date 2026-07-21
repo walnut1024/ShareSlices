@@ -1,27 +1,15 @@
-// cspell:ignore traceparent
 import { Hono } from "hono";
-import { cors } from "hono/cors";
 import { readApiHttpEnv } from "../env.js";
-import {
-  apiLogger,
-  exceptionAttributes,
-  parseTraceParent,
-} from "../logging/index.js";
-import { httpRouteTemplate } from "../logging/http-route-template.js";
+import { apiLogger } from "../logging/index.js";
 import {
   accountRoutes,
   type AccountRouteDependencies,
 } from "./account-routes.js";
-import {
-  checkCliCompatibility,
-  cliAuthRoutes,
-  type CliAuthDependencies,
-} from "./cli-auth-routes.js";
+import { cliAuthRoutes, type CliAuthDependencies } from "./cli-auth-routes.js";
 import {
   artifactRoutes,
   type ArtifactRouteDependencies,
 } from "./artifact-routes.js";
-import { errorJson, requestId } from "./http-error.js";
 import {
   publicationViewerRoutes,
   type PublicationViewerRouteDependencies,
@@ -31,6 +19,8 @@ import {
   galleryRoutes,
   type GalleryRouteDependencies,
 } from "./gallery-routes.js";
+import { buildTrustedHttpApp } from "./trusted-app.js";
+import type { TrustedIngressResolver } from "./trusted-ingress.js";
 
 const env = readApiHttpEnv();
 
@@ -43,61 +33,24 @@ export type AppDependencies = {
   gallery?: Partial<GalleryRouteDependencies>;
 };
 
-export function buildApp(dependencies: AppDependencies = {}): Hono {
-  const app = new Hono();
-
-  app.onError((error, c) => {
-    const id = requestId(c);
-    const trace = parseTraceParent(c.req.header("traceparent"));
-    apiLogger.emit({
-      severity: "ERROR",
-      body: "HTTP request failed.",
-      eventName: "shareslices.api.http.request_failed",
-      attributes: {
-        "shareslices.request.id": id,
-        "http.request.method": c.req.method,
-        "url.path": httpRouteTemplate(new URL(c.req.url).pathname),
-        ...exceptionAttributes(error),
-      },
-      ...(trace ? { trace } : {}),
-    });
-    return errorJson(c, 500, "internal_error");
+export function buildApp(
+  dependencies: AppDependencies = {},
+  adapters: Readonly<{ trustedIngress?: TrustedIngressResolver }> = {},
+): Hono {
+  return buildTrustedHttpApp({
+    configuration: {
+      webOrigin: env.WEB_ORIGIN,
+      minimumCliVersion: dependencies.cliAuth?.minimumCliVersion ?? env.MINIMUM_CLI_VERSION,
+    },
+    logger: apiLogger,
+    trustedIngress: adapters.trustedIngress ?? (() => ({ clientIp: "unknown", source: "unknown" })),
+    routes: {
+      system: systemRoutes(dependencies.system),
+      account: accountRoutes(dependencies.account),
+      cliAuth: cliAuthRoutes(dependencies.cliAuth),
+      artifact: artifactRoutes(dependencies.artifact),
+      publicationViewer: publicationViewerRoutes(dependencies.publicationViewer),
+      gallery: galleryRoutes(dependencies.gallery),
+    },
   });
-
-  app.use(
-    "*",
-    cors({
-      origin: env.WEB_ORIGIN,
-      credentials: true,
-      allowHeaders: [
-        "Content-Type",
-        "Authorization",
-        "Idempotency-Key",
-        "If-Match",
-        "Traceparent",
-        "X-Request-Id",
-      ],
-      allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    }),
-  );
-
-  app.use("/api/*", async (c, next) => {
-    if (c.req.header("authorization")?.toLowerCase().startsWith("bearer ")) {
-      const incompatible = checkCliCompatibility(
-        c,
-        dependencies.cliAuth?.minimumCliVersion ?? env.MINIMUM_CLI_VERSION,
-      );
-      if (incompatible) return incompatible;
-    }
-    await next();
-  });
-
-  app.route("/", systemRoutes(dependencies.system));
-  app.route("/", accountRoutes(dependencies.account));
-  app.route("/", cliAuthRoutes(dependencies.cliAuth));
-  app.route("/", artifactRoutes(dependencies.artifact));
-  app.route("/", publicationViewerRoutes(dependencies.publicationViewer));
-  app.route("/", galleryRoutes(dependencies.gallery));
-
-  return app;
 }

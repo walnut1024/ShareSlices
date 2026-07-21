@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import {
   mkdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -119,9 +120,46 @@ function lockName(kind, identity, project) {
   return createHash("sha256").update(`${kind}\0${identity}\0${project}`).digest("hex");
 }
 
-function acquireLock(kind, identity, project, timeoutMs = 30_000) {
-  mkdirSync(lockRoot, { recursive: true, mode: 0o700 });
-  const path = join(lockRoot, lockName(kind, identity, project));
+function processIsAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+function reclaimStaleLock(path, project, options = {}) {
+  let owner;
+  try {
+    owner = JSON.parse(readFileSync(join(path, "owner.json"), "utf8"));
+  } catch {
+    return false;
+  }
+  if (
+    owner?.project !== project
+    || !Number.isSafeInteger(owner.pid)
+    || owner.pid <= 0
+    || (options.isProcessAlive ?? processIsAlive)(owner.pid)
+  ) {
+    return false;
+  }
+  const quarantine = `${path}.stale-${process.pid}-${Date.now()}`;
+  try {
+    renameSync(path, quarantine);
+  } catch (error) {
+    if (error?.code === "ENOENT") return true;
+    throw error;
+  }
+  rmSync(quarantine, { force: true, recursive: true });
+  return true;
+}
+
+function acquireLock(kind, identity, project, options = {}) {
+  const root = options.lockRoot ?? lockRoot;
+  const timeoutMs = options.timeoutMs ?? 30_000;
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  const path = join(root, lockName(kind, identity, project));
   const deadline = Date.now() + timeoutMs;
   while (true) {
     try {
@@ -132,6 +170,7 @@ function acquireLock(kind, identity, project, timeoutMs = 30_000) {
       return () => rmSync(path, { force: true, recursive: true });
     } catch (error) {
       if (error?.code !== "EEXIST") throw error;
+      if (reclaimStaleLock(path, project, options)) continue;
       if (Date.now() >= deadline) {
         let owner = "unknown owner";
         try {
@@ -147,11 +186,11 @@ function acquireLock(kind, identity, project, timeoutMs = 30_000) {
 }
 
 export function withDockerMutationController(snapshot, project, operation, options = {}) {
-  const releaseEndpoint = acquireLock("endpoint", snapshot.host, project, options.timeoutMs);
+  const releaseEndpoint = acquireLock("endpoint", snapshot.host, project, options);
   let releaseEngine;
   try {
     const engineId = observeEngineId(snapshot, options);
-    releaseEngine = acquireLock("engine", engineId, project, options.timeoutMs);
+    releaseEngine = acquireLock("engine", engineId, project, options);
     const confirmEngine = () => {
       const observed = observeEngineId(snapshot, options);
       if (observed !== engineId) {

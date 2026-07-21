@@ -84,11 +84,11 @@ The numbered sections group work by responsibility; they are not permission to i
 ## 4. API and Web Runtime Composition
 
 - [x] 4.1 Split configuration into validated API HTTP, maintenance, content-only, migration, Web bootstrap, and background-processing role schemas.
-- [ ] 4.2 Extract trusted HTTP and content-only Hono application builders whose business Modules are shared by Node and Cloudflare entrypoints.
+- [x] 4.2 Extract trusted HTTP and content-only Hono application builders whose business Modules are shared by Node and Cloudflare entrypoints.
 - [x] 4.3 Add distinct Node entrypoints for API HTTP, maintenance, content-only serving, and one-shot migration without importing unrelated role configuration.
 - [ ] 4.4 Add Cloudflare `fetch`, Queue, and scheduled entrypoints over the shared builders without starting resident loops in request isolates.
 - [x] 4.5 Remove authentication-email and reconciliation dispatch loops from API HTTP startup and preserve them through the maintenance composition.
-- [ ] 4.6 Add a trusted-ingress metadata Adapter that discards forged forwarding headers and normalizes Kubernetes trusted-proxy or Cloudflare runtime metadata.
+- [x] 4.6 Add a trusted-ingress metadata Adapter that discards forged forwarding headers and normalizes Kubernetes trusted-proxy or Cloudflare runtime metadata.
 - [x] 4.7 Replace environment-specific Web build arguments with a deployment-provided public runtime bootstrap that contains no Secrets and is safe to serve per installation.
 - [ ] 4.8 Add cross-entrypoint contract tests proving Node and Cloudflare return the same statuses, headers, Cookies, errors, and route behavior for shared scenarios.
 - [x] 4.9 Add dependency-graph tests proving the content-only builder has no management routes, Better Auth, credentialed CORS, email, Queue control, or mutation Adapter.
