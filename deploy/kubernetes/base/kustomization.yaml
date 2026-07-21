@@ -1,9 +1,12 @@
+# cspell:words serviceaccounts
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - configmap.yaml
-  - secret.yaml
+  - serviceaccounts.yaml
+  - migration.yaml
   - web.yaml
   - api.yaml
+  - maintenance.yaml
   - worker.yaml
   - content.yaml

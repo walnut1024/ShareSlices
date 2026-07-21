@@ -4,7 +4,6 @@ const renderedConfigurations = [
   "web/vite.config.ts",
   "deploy/compose/Caddyfile",
   "deploy/kubernetes/base/configmap.yaml",
-  "deploy/kubernetes/overlays/public-production/public-origins.yaml",
 ];
 
 for (const source of renderedConfigurations) {

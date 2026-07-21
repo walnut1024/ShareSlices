@@ -131,7 +131,7 @@ The numbered sections group work by responsibility; they are not permission to i
 ## 7. Resident and Bounded Background Processing
 
 - [x] 7.1 Add a Runner interface over all enabled Rust processing lanes with shared claim, heartbeat, fence, retry, outcome, and storage dependencies.
-- [ ] 7.2 Implement and regression-test resident mode for Kubernetes without changing current authoritative job and terminal-result behavior.
+- [x] 7.2 Implement and regression-test resident mode for Kubernetes without changing current authoritative job and terminal-result behavior.
 - [x] 7.3 Implement bounded drain mode with maximum claims, idle observation, wall deadline, lane selection, and an explicit remaining-work result.
 - [x] 7.4 Add graceful termination that stops new claims, bounds in-flight completion, and prevents a late unfenced result from committing.
 - [ ] 7.5 Add a checked database dispatch or outbox record that is committed with new asynchronous work before a Cloudflare wake-up is published.
@@ -158,16 +158,16 @@ The numbered sections group work by responsibility; they are not permission to i
 
 ## 9. Kubernetes Target Composition
 
-- [ ] 9.1 Replace environment-copy overlays with one Kustomize base and composable workload, ingress, Gallery-isolation, sizing, and optional-CDN components.
-- [ ] 9.2 Remove fixed ClusterIPs and hard-coded internal addresses and use generated names plus Kubernetes Service discovery throughout.
-- [ ] 9.3 Remove the deployable placeholder Secret and render only references to pre-created or externally synchronized role-scoped Secrets.
+- [x] 9.1 Replace environment-copy overlays with one Kustomize base and composable workload, ingress, Gallery-isolation, sizing, and optional-CDN components.
+- [x] 9.2 Remove fixed ClusterIPs and hard-coded internal addresses and use generated names plus Kubernetes Service discovery throughout.
+- [x] 9.3 Remove the deployable placeholder Secret and render only references to pre-created or externally synchronized role-scoped Secrets.
 - [ ] 9.4 Replace the API init-container migration with one release-scoped migration Job using the immutable migration artifact and checksum checks.
-- [ ] 9.5 Render separate API HTTP and maintenance Deployments so API scaling does not multiply reconciliation or SMTP dispatch loops.
-- [ ] 9.6 Render Web and content-only Deployments and Services with the content runtime isolated from the trusted API application graph.
-- [ ] 9.7 Render resident Rust processing workloads that cover every enabled lane and expose correct health and graceful-termination behavior.
+- [x] 9.5 Render separate API HTTP and maintenance Deployments so API scaling does not multiply reconciliation or SMTP dispatch loops.
+- [x] 9.6 Render Web and content-only Deployments and Services with the content runtime isolated from the trusted API application graph.
+- [x] 9.7 Render resident Rust processing workloads that cover every enabled lane and expose correct health and graceful-termination behavior.
 - [ ] 9.8 Generate complete ingress routing from the source-linked route projection, including Viewer, Gallery trusted routes, health/readiness, Preview, and forbidden internal paths.
-- [ ] 9.9 Configure probes only against endpoints implemented by each role and add validation that rejects a missing or mismatched probe path.
-- [ ] 9.10 Add explicit resources, non-root identities, read-only roots with declared writable volumes, capability drops, no privilege escalation, seccomp, and service-account-token restrictions.
+- [x] 9.9 Configure probes only against endpoints implemented by each role and add validation that rejects a missing or mismatched probe path.
+- [x] 9.10 Add explicit resources, non-root identities, read-only roots with declared writable volumes, capability drops, no privilege escalation, seccomp, and service-account-token restrictions.
 - [ ] 9.11 Add default-deny NetworkPolicies and explicit API, maintenance, Worker, content, DNS, PostgreSQL, storage, SMTP, ingress, and internal-capture traffic; require each dynamic external dependency to use stable CIDRs, an operator egress gateway/proxy, or a qualified CNI FQDN extension instead of a broad Internet CIDR plus port.
 - [ ] 9.12 Generate TLS, ingress or Gateway class, replica, rollout, disruption, and scheduling configuration from deployment input.
 - [ ] 9.13 Add deterministic render, schema, per-role environment, Secret, route, security-context, and NetworkPolicy contract tests.

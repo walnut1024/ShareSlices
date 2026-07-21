@@ -12,9 +12,14 @@ spec:
       labels:
         app.kubernetes.io/name: shareslices-web
     spec:
+      serviceAccountName: shareslices-web
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
       containers:
         - name: web
-          image: ghcr.io/walnut1024/shareslices-web:0.0.1
+          image: shareslices-web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
           env:
             - name: API_UPSTREAM
               valueFrom:
@@ -46,17 +51,26 @@ spec:
               containerPort: 8080
           readinessProbe:
             httpGet:
-              path: /
+              path: /web-health
               port: http
           livenessProbe:
             httpGet:
-              path: /
+              path: /web-health
               port: http
           volumeMounts:
             - name: caddy-config
               mountPath: /etc/caddy/Caddyfile
               subPath: Caddyfile
               readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests: {cpu: 25m, memory: 64Mi}
+            limits: {cpu: 250m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            readOnlyRootFilesystem: true
       volumes:
         - name: caddy-config
           configMap:
@@ -64,6 +78,8 @@ spec:
             items:
               - key: Caddyfile
                 path: Caddyfile
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -71,7 +87,6 @@ metadata:
   name: shareslices-web
 spec:
   type: ClusterIP
-  clusterIP: 10.96.10.10
   selector:
     app.kubernetes.io/name: shareslices-web
   ports:

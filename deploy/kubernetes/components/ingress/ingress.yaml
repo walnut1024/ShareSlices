@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: shareslices-app
+  annotations:
+    shareslices.dev/route-contract: rendered-from-release
+spec:
+  ingressClassName: replace-by-renderer
+  tls:
+    - hosts: [app.invalid]
+      secretName: shareslices-app-tls
+  rules:
+    - host: app.invalid
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: shareslices-web
+                port: {name: http}

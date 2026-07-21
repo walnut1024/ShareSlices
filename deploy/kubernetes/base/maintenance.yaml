@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shareslices-maintenance
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: shareslices-maintenance
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: shareslices-maintenance
+        app.kubernetes.io/component: maintenance
+    spec:
+      serviceAccountName: shareslices-maintenance
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: maintenance
+          image: shareslices-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          command: ["node", "dist/src/maintenance/main.js"]
+          envFrom:
+            - configMapRef: {name: shareslices-config}
+          env:
+            - {name: DATABASE_URL, valueFrom: {secretKeyRef: {name: shareslices-maintenance-secrets, key: DATABASE_URL}}}
+            - {name: AUTH_EMAIL_ENCRYPTION_KEY, valueFrom: {secretKeyRef: {name: shareslices-maintenance-secrets, key: AUTH_EMAIL_ENCRYPTION_KEY}}}
+            - {name: AUTH_EMAIL_SMTP_URL, valueFrom: {secretKeyRef: {name: shareslices-maintenance-secrets, key: AUTH_EMAIL_SMTP_URL}}}
+            - {name: IDEMPOTENCY_ENCRYPTION_KEY_CURRENT, valueFrom: {secretKeyRef: {name: shareslices-maintenance-secrets, key: IDEMPOTENCY_ENCRYPTION_KEY_CURRENT}}}
+            - {name: IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS, valueFrom: {secretKeyRef: {name: shareslices-maintenance-secrets, key: IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS, optional: true}}}
+            - {name: GALLERY_TURNSTILE_SECRET, valueFrom: {secretKeyRef: {name: shareslices-maintenance-secrets, key: GALLERY_TURNSTILE_SECRET, optional: true}}}
+            - {name: S3_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: shareslices-maintenance-secrets, key: S3_ACCESS_KEY_ID}}}
+            - {name: S3_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: shareslices-maintenance-secrets, key: S3_SECRET_ACCESS_KEY}}}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {}

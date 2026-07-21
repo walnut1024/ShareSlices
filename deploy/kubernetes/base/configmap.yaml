@@ -5,11 +5,11 @@ metadata:
 data:
   NODE_ENV: production
   PORT: "7456"
-  WEB_ORIGIN: http://10.96.10.10:8080
-  API_ORIGIN: http://10.96.10.10:8080
-  VIEWER_ORIGIN: http://10.96.10.10:8080
-  PUBLIC_API_ORIGIN: http://10.96.10.10:8080
-  PUBLIC_VIEWER_ORIGIN: http://10.96.10.10:8080
+  WEB_ORIGIN: https://app.invalid
+  API_ORIGIN: https://app.invalid
+  VIEWER_ORIGIN: https://app.invalid
+  PUBLIC_API_ORIGIN: https://app.invalid
+  PUBLIC_VIEWER_ORIGIN: https://app.invalid
   PUBLIC_GALLERY_CONTENT_ORIGIN: ""
   PUBLIC_GALLERY_TURNSTILE_SITE_KEY: ""
   GALLERY_ENABLED: "false"
@@ -27,8 +27,8 @@ data:
   GALLERY_APPEAL_READY: "false"
   GALLERY_GOVERNANCE_READY: "false"
   GALLERY_ISOLATED_CONTENT_READY: "false"
-  BETTER_AUTH_URL: http://10.96.10.10:8080
-  S3_ENDPOINT: http://10.96.10.13:9000
+  BETTER_AUTH_URL: https://app.invalid
+  S3_ENDPOINT: https://object-storage.invalid
   S3_REGION: us-east-1
   S3_BUCKET: shareslices-artifacts
   S3_FORCE_PATH_STYLE: "true"
@@ -63,9 +63,13 @@ data:
   AUTH_EMAIL_GLOBAL_HOUR: "500"
   AUTH_EMAIL_MAX_ATTEMPTS: "3"
   AUTH_EMAIL_CIRCUIT_BREAKER_SECONDS: "300"
-  API_UPSTREAM: 10.96.10.11:7456
+  API_UPSTREAM: shareslices-api:7456
   Caddyfile: |
     :8080 {
+      handle /web-health {
+        respond "ok" 200
+      }
+
       handle /runtime-config.json {
         header Cache-Control "no-store"
         header Content-Type "application/json; charset=utf-8"

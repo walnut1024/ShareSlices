@@ -12,9 +12,15 @@ spec:
       labels:
         app.kubernetes.io/name: shareslices-worker
     spec:
+      serviceAccountName: shareslices-worker
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
       containers:
         - name: worker
-          image: ghcr.io/walnut1024/shareslices-worker:0.0.1
+          image: shareslices-processing@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -24,11 +30,22 @@ spec:
             runAsUser: 10001
             seccompProfile:
               type: RuntimeDefault
+            readOnlyRootFilesystem: true
           envFrom:
             - configMapRef:
                 name: shareslices-config
-            - secretRef:
-                name: shareslices-secret
+          env:
+            - {name: DATABASE_URL, valueFrom: {secretKeyRef: {name: shareslices-worker-secrets, key: DATABASE_URL}}}
+            - {name: S3_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: shareslices-worker-secrets, key: S3_ACCESS_KEY_ID}}}
+            - {name: S3_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: shareslices-worker-secrets, key: S3_SECRET_ACCESS_KEY}}}
+            - {name: CONTENT_FINGERPRINT_KEY_CURRENT, valueFrom: {secretKeyRef: {name: shareslices-worker-secrets, key: CONTENT_FINGERPRINT_KEY_CURRENT}}}
+            - {name: CONTENT_FINGERPRINT_KEY_PREVIOUS, valueFrom: {secretKeyRef: {name: shareslices-worker-secrets, key: CONTENT_FINGERPRINT_KEY_PREVIOUS, optional: true}}}
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: "2", memory: 2Gi}
+          volumeMounts:
+            - name: worker-tmp
+              mountPath: /tmp/shareslices
           startupProbe:
             exec:
               command: ["shareslices-worker", "healthcheck"]
@@ -47,3 +64,7 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 3
+      volumes:
+        - name: worker-tmp
+          emptyDir:
+            sizeLimit: 2Gi

@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: shareslices-content
+  annotations:
+    shareslices.dev/credential-boundary: untrusted-content
+spec:
+  ingressClassName: replace-by-renderer
+  tls:
+    - hosts: [content.invalid]
+      secretName: shareslices-content-tls
+  rules:
+    - host: content.invalid
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: shareslices-content
+                port: {name: http}

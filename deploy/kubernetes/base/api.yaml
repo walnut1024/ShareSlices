@@ -12,23 +12,28 @@ spec:
       labels:
         app.kubernetes.io/name: shareslices-api
     spec:
-      initContainers:
-        - name: migrate
-          image: ghcr.io/walnut1024/shareslices-api:0.0.1
-          command: ["node", "dist/src/db/migrate.js"]
-          envFrom:
-            - configMapRef:
-                name: shareslices-config
-            - secretRef:
-                name: shareslices-secret
+      serviceAccountName: shareslices-api
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
       containers:
         - name: api
-          image: ghcr.io/walnut1024/shareslices-api:0.0.1
+          image: shareslices-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
           envFrom:
             - configMapRef:
                 name: shareslices-config
-            - secretRef:
-                name: shareslices-secret
+          env:
+            - {name: DATABASE_URL, valueFrom: {secretKeyRef: {name: shareslices-api-secrets, key: DATABASE_URL}}}
+            - {name: BETTER_AUTH_SECRET, valueFrom: {secretKeyRef: {name: shareslices-api-secrets, key: BETTER_AUTH_SECRET}}}
+            - {name: AUTH_EMAIL_ENCRYPTION_KEY, valueFrom: {secretKeyRef: {name: shareslices-api-secrets, key: AUTH_EMAIL_ENCRYPTION_KEY}}}
+            - {name: CONTENT_FINGERPRINT_KEY_CURRENT, valueFrom: {secretKeyRef: {name: shareslices-api-secrets, key: CONTENT_FINGERPRINT_KEY_CURRENT}}}
+            - {name: CONTENT_FINGERPRINT_KEY_PREVIOUS, valueFrom: {secretKeyRef: {name: shareslices-api-secrets, key: CONTENT_FINGERPRINT_KEY_PREVIOUS, optional: true}}}
+            - {name: IDEMPOTENCY_ENCRYPTION_KEY_CURRENT, valueFrom: {secretKeyRef: {name: shareslices-api-secrets, key: IDEMPOTENCY_ENCRYPTION_KEY_CURRENT}}}
+            - {name: IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS, valueFrom: {secretKeyRef: {name: shareslices-api-secrets, key: IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS, optional: true}}}
+            - {name: GALLERY_TURNSTILE_SECRET, valueFrom: {secretKeyRef: {name: shareslices-api-secrets, key: GALLERY_TURNSTILE_SECRET, optional: true}}}
+            - {name: S3_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: shareslices-api-secrets, key: S3_ACCESS_KEY_ID}}}
+            - {name: S3_SECRET_ACCESS_KEY, valueFrom: {secretKeyRef: {name: shareslices-api-secrets, key: S3_SECRET_ACCESS_KEY}}}
           ports:
             - name: http
               containerPort: 7456
@@ -40,6 +45,18 @@ spec:
             httpGet:
               path: /health
               port: http
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -47,7 +64,6 @@ metadata:
   name: shareslices-api
 spec:
   type: ClusterIP
-  clusterIP: 10.96.10.11
   selector:
     app.kubernetes.io/name: shareslices-api
   ports:

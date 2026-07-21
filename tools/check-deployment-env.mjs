@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 function difference(left, right) {
@@ -62,16 +62,12 @@ async function checkRepository() {
   const apiText = await text("api/src/env.ts");
   const workerText = await text("worker/src/config.rs");
   const composeText = await text("deploy/compose/compose.yaml");
-  const kubernetesText = (await Promise.all([
-    "deploy/kubernetes/base/configmap.yaml",
-    "deploy/kubernetes/base/secret.yaml",
-    "deploy/kubernetes/base/api.yaml",
-    "deploy/kubernetes/base/web.yaml",
-    "deploy/kubernetes/base/worker.yaml",
-    "deploy/kubernetes/overlays/intranet/addresses.yaml",
-    "deploy/kubernetes/overlays/shared-test/addresses.yaml",
-    "deploy/kubernetes/overlays/public-production/public-origins.yaml"
-  ].map(text))).join("\n");
+  const kubernetesRoot = new URL("deploy/kubernetes/", root);
+  const kubernetesFiles = (await readdir(kubernetesRoot, { recursive: true }))
+    .filter((path) => path.endsWith(".yaml"));
+  const kubernetesText = (await Promise.all(
+    kubernetesFiles.map((path) => readFile(new URL(path, kubernetesRoot), "utf8")),
+  )).join("\n");
 
   const catalog = matches(catalogText, /^#?\s*([A-Z][A-Z0-9_]+)=/gm);
   const runtime = new Set([
@@ -80,7 +76,10 @@ async function checkRepository() {
     ...matches(workerText, /"([A-Z][A-Z0-9_]+)"/g)
   ]);
   const compose = union(matches(composeText, /\$\{([A-Z][A-Z0-9_]+)/g), composeEnvironmentKeys(composeText));
-  const kubernetes = matches(kubernetesText, /^\s+(?:- name:\s+)?([A-Z][A-Z0-9_]+):/gm);
+  const kubernetes = union(
+    matches(kubernetesText, /^\s+(?:- name:\s+)?([A-Z][A-Z0-9_]+):/gm),
+    matches(kubernetesText, /\bkey:\s+([A-Z][A-Z0-9_]+)/g),
+  );
   const deployment = union(compose, kubernetes);
   const runtimeOnly = new Set(["AUTH_EMAIL_SMTP_CHECK_TO", "AUTH_EMAIL_SMTP_URL_FILE"]);
   const deploymentOnly = new Set([

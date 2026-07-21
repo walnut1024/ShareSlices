@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shareslices-external-cdn-contract
+  labels:
+    app.kubernetes.io/part-of: shareslices
+data:
+  mode: external-cdn
+  provisioning: external-prerequisite
+  routeProjection: rendered-from-release
+  cacheProjection: rendered-from-release
+  originAccess: required
+  trustedProxyEvidence: required
+  dynamicResponses: no-store

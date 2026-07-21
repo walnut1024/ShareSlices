@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shareslices-config
+data:
+  GALLERY_ENABLED: "true"
+  GALLERY_CONTENT_ORIGIN: https://content.invalid
+  PUBLIC_GALLERY_CONTENT_ORIGIN: https://content.invalid
+  GALLERY_CONTENT_REGISTRABLE_SITE: content.invalid
+  GALLERY_ISOLATED_CONTENT_READY: "false"
