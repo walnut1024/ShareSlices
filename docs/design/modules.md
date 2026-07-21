@@ -31,9 +31,15 @@ Status: current for the runtime seams, CLI authentication and Artifact commands,
 
 Status: mixed. Local Compose inputs and lifecycle policy are current under this
 Module, and the target-neutral contracts plus part of the shared lifecycle core
-are implemented. Existing Kubernetes files remain examples; production
-Kubernetes and Cloudflare Adapters, mutating lifecycle operations, and release
-qualification remain target work.
+are implemented. Kubernetes now has deterministic Kustomize composition, a
+Secret-free release renderer, route and cache projection, role-scoped runtime
+configuration, security and network-policy baselines, and a read-only Adapter
+surface for prerequisite discovery and server-side-dry-run planning. Direct
+apply, observed status, verification, rollback, GitOps handoff, optional-CDN
+acceptance, and release qualification remain target work. The Cloudflare
+production Adapter and its mutating lifecycle remain target work; the checked
+Cloudflare files currently provide provider-contract evidence and bounded
+prototypes, not a supported Deployment target.
 
 - `PRODUCT.md` owns the mutually exclusive target choice, cross-target product
   invariants, email-provider policy, caching boundary, and rollback limits.
@@ -48,7 +54,9 @@ qualification remain target work.
 - `deploy/kubernetes/` owns deterministic composition for an existing conforming
   cluster. Its Adapter supplies Kubernetes, direct PostgreSQL, private
   S3-compatible storage, trusted-ingress, optional external-CDN, and enterprise
-  SMTP mechanics without changing application policy.
+  SMTP mechanics without changing application policy. Its current read-only
+  lifecycle validates declared prerequisites and renders ordered phase bundles;
+  production mutation and target qualification are not yet current.
 - `deploy/cloudflare/` owns Cloudflare Workers, Edge/CDN, Static Assets, private
   R2, Hyperdrive, Queue, scheduled, Container, and Resend composition. Provider
   feasibility evidence gates only this Adapter; failure does not weaken shared

@@ -291,7 +291,12 @@ Viewer HTML routes represent known link state as follows:
 
 Non-content status pages do not expose the artifact name, owner, or historical content and are excluded from search indexing. Signed-in owners can preview ready versions without changing publication state.
 
-Version 0.0.1 Viewer and Preview responses are not cached so Publish and Unpublish state changes are visible immediately.
+Version 0.0.1 Viewer and Preview responses remain outwardly non-cacheable so
+Publish, Unpublish, expiry, restriction, and authorization changes are evaluated
+on every request. A qualified Deployment target may reuse bounded immutable
+Version bytes internally only after the current request passes authorization;
+that internal reuse does not make the Viewer response cacheable or bypass current
+Publication state.
 
 ## Public Website and Gallery community
 

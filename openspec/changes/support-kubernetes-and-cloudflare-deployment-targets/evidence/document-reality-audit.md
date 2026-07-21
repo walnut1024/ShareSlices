@@ -787,3 +787,41 @@ qualified provider safety window elapses, then inactivity is proven before the
 owned resource is removed. A missing schedule safety interval or an unverified
 replacement refuses authorization with a stable reason rather than delegating
 that safety decision to a target caller.
+
+## Twenty-second-pass pre-implementation documentation alignment
+
+The 2026-07-22 documentation-only review paused implementation and compared the
+current product contract, module design, active change, task state, and provider
+evidence with the current first-party Cloudflare, Supabase, and Resend manuals.
+No target-boundary change is required: Kubernetes and Cloudflare remain
+alternative production compositions, Compose remains local/test-only, and an
+optional external CDN does not turn Kubernetes into the Cloudflare target.
+
+The provider boundary also remains unchanged. Cloudflare Static Assets requests
+served directly are free and unlimited, but Worker-first routes still consume
+Workers allowance and can return `429` after Workers Free exhaustion. Containers
+still have no Free allocation and require Workers Paid; their requests also incur
+the backing Workers and Durable Objects usage. Supabase Free still provides a
+feasibility database but may pause after insufficient activity and provides no
+automatic-backup production guarantee. Resend's `resend.dev` sender remains
+test-only and can send a real test message only to the email address associated
+with the Resend account; production delivery to other recipients still requires
+an operator-owned verified domain. These are current external facts rather than
+durable ShareSlices policy and must be refreshed again at target qualification.
+
+Two repository-state ambiguities were corrected. The Deployment Module status no
+longer describes the completed Kubernetes Kustomize composition, deterministic
+renderer, security baseline, and read-only Adapter surface as mere examples; it
+also continues to distinguish those implemented pieces from the still-missing
+mutating lifecycle and target qualification. The general Viewer policy now says
+that outward Viewer and Preview responses remain non-cacheable while preserving
+the separately accepted authorization-first internal immutable-byte reuse. This
+prevents an implementation from either caching an authorization-sensitive
+response or unnecessarily deleting the explicitly approved internal cache seam.
+
+No task checkbox advances from this document review. In particular, Kubernetes
+tasks 10.1 and 10.2 still need their complete live prerequisites and real-cluster
+evidence, Cloudflare tasks 1.7-1.11 and 11-12 retain their Paid/domain/provider
+gates, and a stored Resend key alone does not prove a verified sending domain,
+tracking posture, key scope, or production acceptance. Implementation may resume
+only against these unchanged fail-closed boundaries.
