@@ -16,6 +16,14 @@ import { pool } from "../src/db/client.js";
 let smtpServer: SMTPServer;
 let smtpAdapter: AuthenticationEmailSmtpAdapter;
 let receivedMessages = 0;
+const smtpIdentity = {
+  adapter: "smtp" as const,
+  providerNamespace: "test-smtp",
+  senderIdentity: "ShareSlices <no-reply@shareslices.local>",
+  endpointIdentity: "smtp://mail.test:1025",
+  transportRevision: "test-smtp-v1",
+  serializerRevision: "authentication-email-v1" as const,
+};
 
 describe("authentication email repository", () => {
   beforeAll(async () => {
@@ -39,6 +47,8 @@ describe("authentication email repository", () => {
     smtpAdapter = createAuthenticationEmailSmtpAdapter({
       url: `smtp://127.0.0.1:${address.port}`,
       from: "ShareSlices <no-reply@shareslices.local>",
+      providerNamespace: "test-smtp",
+      transportRevision: "test-smtp-v1",
       dnsTimeoutMs: 1_000,
       connectionTimeoutMs: 1_000,
       greetingTimeoutMs: 1_000,
@@ -158,6 +168,7 @@ describe("authentication email repository", () => {
     });
 
     const adapter: AuthenticationEmailSmtpAdapter = {
+      identity: smtpIdentity,
       async send(_payload, deliveryId) {
         const initial = await pool.query<{ lease_expires_at: Date }>(
           "select lease_expires_at from authentication_email_delivery where id = $1",
@@ -195,6 +206,7 @@ describe("authentication email repository", () => {
     });
 
     const adapter: AuthenticationEmailSmtpAdapter = {
+      identity: smtpIdentity,
       async send(_payload, deliveryId) {
         await pool.query(
           `update authentication_email_delivery
@@ -236,10 +248,77 @@ describe("authentication email repository", () => {
     const before = receivedMessages;
     await expect(dispatchOneAuthenticationEmail("test-dispatcher", smtpAdapter)).resolves.toBe(true);
     const sent = await pool.query(
-      "select state, encrypted_payload, provider_message_id from authentication_email_delivery where state = 'sent' order by sent_at desc limit 1"
+      `select id, state, encrypted_payload, provider_message_id, result_classification,
+              transport_adapter, provider_namespace, sender_identity, endpoint_identity,
+              transport_configuration_revision, serializer_revision, payload_digest, local_message_id
+       from authentication_email_delivery where state = 'sent' order by sent_at desc limit 1`
     );
-    expect(sent.rows[0]).toMatchObject({ state: "sent", encrypted_payload: "" });
+    expect(sent.rows[0]).toMatchObject({
+      state: "sent",
+      encrypted_payload: "",
+      result_classification: "provider_accepted",
+      transport_adapter: "smtp",
+      provider_namespace: "test-smtp",
+      sender_identity: "ShareSlices <no-reply@shareslices.local>",
+      transport_configuration_revision: "test-smtp-v1",
+      serializer_revision: "authentication-email-v1",
+    });
+    expect(sent.rows[0].payload_digest).toMatch(/^[a-f0-9]{64}$/);
+    expect(sent.rows[0].local_message_id).toBe(`<${sent.rows[0].id}@shareslices.local>`);
     expect(sent.rows[0].provider_message_id).toMatch(/^<.+@shareslices\.local>$/);
+    const providerAttempt = await pool.query(
+      "select fence, phase, complete_submission_at from authentication_email_provider_attempt where delivery_id = $1",
+      [sent.rows[0].id]
+    );
+    expect(providerAttempt.rows).toEqual([
+      expect.objectContaining({ fence: "1", phase: "accepted", complete_submission_at: expect.any(Date) })
+    ]);
     expect(receivedMessages).toBe(before + 1);
+  });
+
+  it("routes an unknown provider outcome to manual reconciliation without automatic resend", async () => {
+    await pool.query("delete from authentication_email_delivery");
+    const email = `indeterminate-${crypto.randomUUID()}@example.com`;
+    const attempt = await createVerificationAttempt({ email, purpose: "registration" });
+    await acceptAuthenticationEmailDelivery({
+      attemptId: attempt.id,
+      email,
+      purpose: "registration",
+      sourceIp: "203.0.113.80",
+      payload: { email, otp: "123456", type: "email-verification" }
+    });
+    let sends = 0;
+    const adapter: AuthenticationEmailSmtpAdapter = {
+      identity: smtpIdentity,
+      async send() {
+        sends += 1;
+        throw new Error("response_lost_after_submission");
+      },
+      async verify() {},
+      close() {}
+    };
+
+    await expect(dispatchOneAuthenticationEmail("indeterminate-worker", adapter)).resolves.toBe(true);
+    await expect(dispatchOneAuthenticationEmail("next-worker", adapter)).resolves.toBe(false);
+
+    const delivery = await pool.query(
+      `select state, failure_reason_code, lease_owner from authentication_email_delivery where attempt_id = $1`,
+      [attempt.id]
+    );
+    expect(delivery.rows[0]).toMatchObject({
+      state: "manual_reconciliation",
+      failure_reason_code: "acceptance_indeterminate",
+      lease_owner: null
+    });
+    const providerAttempt = await pool.query(
+      `select phase, failure_reason_code from authentication_email_provider_attempt
+       where delivery_id = (select id from authentication_email_delivery where attempt_id = $1)`,
+      [attempt.id]
+    );
+    expect(providerAttempt.rows).toEqual([{
+      phase: "acceptance_indeterminate",
+      failure_reason_code: "provider_outcome_unknown"
+    }]);
+    expect(sends).toBe(1);
   });
 });

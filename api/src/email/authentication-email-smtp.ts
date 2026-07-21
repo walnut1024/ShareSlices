@@ -5,6 +5,8 @@ import { renderAuthenticationEmailMessage } from "./authentication-email-message
 export type AuthenticationEmailSmtpOptions = {
   url: string;
   from: string;
+  providerNamespace: string;
+  transportRevision: string;
   dnsTimeoutMs: number;
   connectionTimeoutMs: number;
   greetingTimeoutMs: number;
@@ -12,6 +14,14 @@ export type AuthenticationEmailSmtpOptions = {
 };
 
 export type AuthenticationEmailSmtpAdapter = {
+  identity: Readonly<{
+    adapter: "smtp";
+    providerNamespace: string;
+    senderIdentity: string;
+    endpointIdentity: string;
+    transportRevision: string;
+    serializerRevision: "authentication-email-v1";
+  }>;
   send(payload: AuthenticationEmailPayload, deliveryId: string): Promise<string>;
   verify(checkTo?: string): Promise<void>;
   close(): void;
@@ -20,6 +30,11 @@ export type AuthenticationEmailSmtpAdapter = {
 export function createAuthenticationEmailSmtpAdapter(
   options: AuthenticationEmailSmtpOptions
 ): AuthenticationEmailSmtpAdapter {
+  const endpoint = new URL(options.url);
+  endpoint.username = "";
+  endpoint.password = "";
+  endpoint.search = "";
+  endpoint.hash = "";
   const transporter: Transporter = nodemailer.createTransport({
     url: options.url,
     dnsTimeout: options.dnsTimeoutMs,
@@ -33,6 +48,14 @@ export function createAuthenticationEmailSmtpAdapter(
   });
 
   return {
+    identity: {
+      adapter: "smtp",
+      providerNamespace: options.providerNamespace,
+      senderIdentity: options.from,
+      endpointIdentity: endpoint.toString(),
+      transportRevision: options.transportRevision,
+      serializerRevision: "authentication-email-v1",
+    },
     async send(payload, deliveryId) {
       const message = renderAuthenticationEmailMessage(payload);
       const messageId = `<${deliveryId}@shareslices.local>`;
