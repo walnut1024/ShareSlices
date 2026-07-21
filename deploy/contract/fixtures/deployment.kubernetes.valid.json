@@ -62,17 +62,28 @@
   },
   "kubernetes": {
     "context": "enterprise-production",
+    "fieldManager": "shareslices-deployment",
+    "minimumVersion": "1.30.0",
     "namespace": "shareslices",
     "delivery": { "mode": "external-cdn" },
     "registry": {
       "repository": "registry.example.test/shareslices",
       "pullSecretName": "shareslices-registry"
     },
+    "releaseStore": { "ref": "secret://release-store/deploy-pull", "revision": "5" },
+    "databaseEndpoint": { "host": "db.example.test", "port": 5432, "tlsPolicy": "verify-full" },
     "objectStorage": { "ref": "secret://s3/application", "revision": "3" },
+    "objectStorageEndpoint": "https://objects.example.test",
     "email": {
       "adapter": "smtp",
-      "smtp": { "ref": "secret://smtp/transactional", "revision": "9" }
+      "smtp": { "ref": "secret://smtp/transactional", "revision": "9" },
+      "relayNamespace": "enterprise-transactional",
+      "endpointIdentity": "smtp.example.test:587",
+      "configurationRevision": "smtp-config-9",
+      "sender": "no-reply@example.test",
+      "tlsPolicy": "starttls-required"
     },
+    "connectionBudget": { "databaseMaximum": 100, "allocatedMaximum": 40 },
     "ingress": {
       "className": "nginx",
       "tls": {
@@ -85,6 +96,9 @@
       "cni": {
         "name": "cilium",
         "networkPolicyEnforced": true,
+        "clusterIdentity": "enterprise-production-cluster-1",
+        "policyRevision": "cilium-policy-v1",
+        "allowedAndDeniedFlowsPassed": true,
         "evidenceObservedAt": "2026-07-21T00:00:00Z",
         "maximumEvidenceAgeSeconds": 86400
       },

@@ -4,7 +4,7 @@ import test from "node:test";
 
 import { executeInvocation, exitCodes, parseInvocation } from "./cli.mjs";
 import { createLifecycleExecutor } from "./lifecycle.mjs";
-import { lifecycleOperations } from "./target-adapter.mjs";
+import { lifecycleOperations, TargetAdapterError } from "./target-adapter.mjs";
 
 const configPath = "deploy/contract/fixtures/deployment.cloudflare.valid.json";
 const releasePath = "deploy/contract/fixtures/release.valid.json";
@@ -164,6 +164,29 @@ test("fails before target access for invalid release or missing Adapter", async 
   );
   assert.equal(missingAdapter.exitCode, exitCodes.prerequisiteUnavailable);
   assert.equal(missingAdapter.result.reason.code, "deployment_target_adapter_unavailable");
+});
+
+test("preserves stable target Adapter reason codes while redacting unexpected failures", async () => {
+  const stable = await executeInvocation(
+    parseInvocation(["render", "--config", configPath, "--release", releasePath]),
+    executor({
+      render: async () => {
+        throw new TargetAdapterError(
+          "cloudflare_provider_conflict",
+          "Provider ownership conflicts with the selected field owner.",
+        );
+      },
+    }),
+  );
+  assert.equal(stable.result.reason.code, "cloudflare_provider_conflict");
+  assert.match(stable.result.reason.message, /ownership conflicts/);
+
+  const unexpected = await executeInvocation(
+    parseInvocation(["render", "--config", configPath, "--release", releasePath]),
+    executor({render: async () => { throw new Error("secret provider detail"); }}),
+  );
+  assert.equal(unexpected.result.reason.code, "deployment_target_operation_failed");
+  assert.doesNotMatch(unexpected.result.reason.message, /secret provider detail/);
 });
 
 test("rejects mismatched bundle identity and redacts unexpected Adapter errors", async () => {

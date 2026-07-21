@@ -8,6 +8,14 @@ export const lifecycleOperations = Object.freeze([
   "rollback",
 ]);
 
+export class TargetAdapterError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = "TargetAdapterError";
+    this.code = code;
+  }
+}
+
 export function bindTargetAdapter(adapter) {
   if (!adapter || typeof adapter !== "object") {
     throw new TypeError("Target Adapter must be an object.");

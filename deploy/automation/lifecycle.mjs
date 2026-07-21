@@ -14,7 +14,7 @@ import {
   serializeCanonicalTargetBundle,
 } from "./release.mjs";
 import { deriveDeploymentStatus } from "./status.mjs";
-import { bindTargetAdapter } from "./target-adapter.mjs";
+import { bindTargetAdapter, TargetAdapterError } from "./target-adapter.mjs";
 
 export class DeploymentLifecycleError extends Error {
   constructor(code, message, exitCode = exitCodes.failed) {
@@ -204,7 +204,8 @@ export function createLifecycleExecutor(adapterRegistry) {
       const known =
         error instanceof DeploymentLifecycleError ||
         error instanceof DeploymentConfigError ||
-        error instanceof ReleaseQualificationError;
+        error instanceof ReleaseQualificationError ||
+        error instanceof TargetAdapterError;
       const normalized = known
         ? error
         : new DeploymentLifecycleError(

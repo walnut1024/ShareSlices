@@ -99,7 +99,12 @@ export function discoverPrerequisites(config) {
     return Object.freeze({
       ...common,
       tools: ["kubectl", "kustomize"],
-      secretReferences: [...common.secretReferences, config.kubernetes.objectStorage, config.kubernetes.email.smtp],
+      secretReferences: [
+        ...common.secretReferences,
+        config.kubernetes.releaseStore,
+        config.kubernetes.objectStorage,
+        config.kubernetes.email.smtp,
+      ],
       capabilities: [...common.capabilities, "kubernetes-api", "private-s3", "enterprise-smtp"],
     });
   }

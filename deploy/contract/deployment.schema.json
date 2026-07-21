@@ -217,9 +217,11 @@
     "kubernetes": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["context", "namespace", "delivery", "registry", "objectStorage", "email", "ingress", "network", "workloads"],
+      "required": ["context", "fieldManager", "minimumVersion", "namespace", "delivery", "registry", "releaseStore", "databaseEndpoint", "objectStorage", "objectStorageEndpoint", "email", "connectionBudget", "ingress", "network", "workloads"],
       "properties": {
         "context": { "type": "string", "minLength": 1 },
+        "fieldManager": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{0,127}$" },
+        "minimumVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
         "namespace": { "$ref": "#/$defs/dnsLabel" },
         "delivery": {
           "type": "object",
@@ -236,14 +238,40 @@
             "pullSecretName": { "$ref": "#/$defs/dnsLabel" }
           }
         },
+        "releaseStore": { "$ref": "#/$defs/secretReference" },
+        "databaseEndpoint": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["host", "port", "tlsPolicy"],
+          "properties": {
+            "host": { "type": "string", "format": "hostname" },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "tlsPolicy": { "const": "verify-full" }
+          }
+        },
         "objectStorage": { "$ref": "#/$defs/secretReference" },
+        "objectStorageEndpoint": { "$ref": "#/$defs/httpsUrl" },
         "email": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["adapter", "smtp"],
+          "required": ["adapter", "smtp", "relayNamespace", "endpointIdentity", "configurationRevision", "sender", "tlsPolicy"],
           "properties": {
             "adapter": { "const": "smtp" },
-            "smtp": { "$ref": "#/$defs/secretReference" }
+            "smtp": { "$ref": "#/$defs/secretReference" },
+            "relayNamespace": { "type": "string", "minLength": 1 },
+            "endpointIdentity": { "type": "string", "pattern": "^[A-Za-z0-9.-]+:[0-9]{1,5}$" },
+            "configurationRevision": { "type": "string", "minLength": 1 },
+            "sender": { "type": "string", "format": "email" },
+            "tlsPolicy": { "enum": ["starttls-required", "tls-required"] }
+          }
+        },
+        "connectionBudget": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["databaseMaximum", "allocatedMaximum"],
+          "properties": {
+            "databaseMaximum": { "type": "integer", "minimum": 1 },
+            "allocatedMaximum": { "type": "integer", "minimum": 1 }
           }
         },
         "ingress": {
@@ -287,10 +315,13 @@
             "cni": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["name", "networkPolicyEnforced", "evidenceObservedAt", "maximumEvidenceAgeSeconds"],
+              "required": ["name", "networkPolicyEnforced", "clusterIdentity", "policyRevision", "allowedAndDeniedFlowsPassed", "evidenceObservedAt", "maximumEvidenceAgeSeconds"],
               "properties": {
                 "name": { "type": "string", "minLength": 1 },
                 "networkPolicyEnforced": { "const": true },
+                "clusterIdentity": { "type": "string", "minLength": 1 },
+                "policyRevision": { "type": "string", "minLength": 1 },
+                "allowedAndDeniedFlowsPassed": { "const": true },
                 "evidenceObservedAt": { "type": "string", "format": "date-time" },
                 "maximumEvidenceAgeSeconds": { "type": "integer", "minimum": 1 }
               }
