@@ -961,3 +961,33 @@ not apply candidate private/public bundles, does not run post-rollback core
 verification, and does not swap release records. Until those gates exist, its
 target Adapter continues to refuse rollback execution rather than treating the
 shared decision model as a completed rollback.
+
+## Twenty-eighth-pass implementation-status reconciliation
+
+The documentation-only review on 2026-07-22 stopped implementation and compared
+the durable product and vocabulary owners, module map, proposal and design
+context, task checkboxes, accumulated evidence, and the currently implemented
+Deployment Module. It found no product-boundary conflict: Kubernetes and
+Cloudflare remain alternative production targets, Compose remains local/test
+only, and neither production target is release-qualified.
+
+Four stale status descriptions were corrected. The module summary now records
+that Kubernetes has direct phased apply, read-only observation, release-bound
+core verification, and fenced active/previous release recording; it continues
+to leave deep verification, safe retirement execution, rollback, completed
+GitOps predecessor observation, optional-CDN acceptance, real-cluster acceptance,
+and target qualification open. The Worker section now distinguishes implemented
+Kubernetes resident-workload rendering from unqualified live execution. The
+authentication-email section distinguishes rendered Kubernetes SMTP composition
+from still-unproven enterprise-relay qualification. Finally, the proposal and
+design now label their superseded Kubernetes-example descriptions explicitly as
+proposal-time context instead of current repository state.
+
+No task checkbox advances from this reconciliation. In particular, tasks 3.6,
+3.7, 3.12, 3.14, 8.1-8.4, 8.8-8.9, 10.1-10.10, 11.*, 12.*, 14.*, and 15.* retain
+their remaining acceptance criteria and external gates. Production deployment
+runbooks are also intentionally absent until task 15.2 can describe a complete,
+tested lifecycle; adding optimistic procedures now would turn target design into
+unsafe operator guidance. The next implementation work must therefore continue
+from the unchecked rollback and qualification boundaries, not from the stale
+summary language corrected here.

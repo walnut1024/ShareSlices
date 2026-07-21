@@ -33,14 +33,16 @@ Status: mixed. Local Compose inputs and lifecycle policy are current under this
 Module, and the target-neutral contracts plus part of the shared lifecycle core
 are implemented. Kubernetes now has deterministic Kustomize composition, a
 Secret-free release renderer, route and cache projection, role-scoped runtime
-configuration, security and network-policy baselines, and a read-only Adapter
-surface for prerequisite discovery and server-side-dry-run planning. The shared
+configuration, security and network-policy baselines, and an Adapter surface
+for prerequisite discovery, server-side-dry-run planning, direct phased apply,
+read-only observation, and release-bound verification. The shared
 production entrypoint can consume a digest-bound authorized plan, fence and
 journal its phases in PostgreSQL, and drive Kubernetes direct server-side apply
 through migration and Deployment rollout gates. GitOps mode emits an immutable
-external-reconciler handoff without writing the cluster. Release recording,
-safe retirement, verification, rollback, completed GitOps predecessor
-observation, optional-CDN acceptance, real-cluster
+external-reconciler handoff without writing the cluster. Release-bound core
+verification can now record active and previous releases after exact rendered
+resource convergence. Safe retirement execution, deep verification, rollback,
+completed GitOps predecessor observation, optional-CDN acceptance, real-cluster
 acceptance, and release qualification remain target work. The Cloudflare
 production Adapter and its mutating lifecycle remain target work; the checked
 Cloudflare files currently provide provider-contract evidence and bounded
@@ -170,9 +172,10 @@ Status: mixed. Account entry remains a thin current HTTP/Auth/DB path. Artifact,
   without contacting a provider; the separate maintenance composition leases
   pending rows, renders fixed authentication templates, invokes the current SMTP
   Adapter, records bounded provider-acceptance outcomes, and removes terminal
-  payloads. Kubernetes enterprise SMTP and Cloudflare Resend HTTPS composition
-  remain target work; neither transport affects API readiness or owns
-  account-entry policy.
+  payloads. Kubernetes manifests now compose the SMTP-backed maintenance role,
+  but live enterprise-relay qualification remains target work. Cloudflare
+  Resend HTTPS composition also remains target work. Neither transport affects
+  API readiness or owns account-entry policy.
 
 ## Gallery Modules
 
@@ -203,9 +206,10 @@ Status: current
 ## Rust worker Modules
 
 Status: current for Upload processing, Content bundle reuse, bundle-scoped
-thumbnails, bundle-alias index rebuilding, Gallery background jobs, and resident
-and bounded Runner composition. Kubernetes workload composition remains target
-work.
+thumbnails, bundle-alias index rebuilding, Gallery background jobs, resident
+and bounded Runner composition, and Kubernetes resident-workload rendering.
+Live Kubernetes workload qualification and Cloudflare Queue/Container
+composition remain target work.
 
 - `Runner` in `worker/src/runner.rs` is the shared scheduling core for resident
   and bounded execution. A `BackgroundLane` claims at most one authoritative

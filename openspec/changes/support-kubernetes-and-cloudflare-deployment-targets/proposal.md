@@ -4,7 +4,13 @@
 
 ## Why
 
-ShareSlices has rendered Kubernetes examples but no product-supported release, verification, or rollback lifecycle. Its resident Node and Rust process composition also needs explicit runtime seams before it can use Cloudflare Workers, Queues, R2, Hyperdrive, and Containers without duplicating product policy.
+At proposal time, ShareSlices had rendered Kubernetes examples but no
+product-supported release, verification, or rollback lifecycle. Its resident
+Node and Rust process composition also needed explicit runtime seams before it
+could use Cloudflare Workers, Queues, R2, Hyperdrive, and Containers without
+duplicating product policy. This proposal describes that initiating gap; current
+implementation status is recorded in the task list, evidence, and durable module
+map.
 
 The product needs two mutually exclusive production deployment targets: a cloud-vendor-neutral Kubernetes target and a Cloudflare-managed target whose bounded processing can scale to zero. The repository's canonical Docker Compose development stack also needs clear ownership under `deploy/` while retaining the local behavior defined by the separate `local-development-stack` capability.
 

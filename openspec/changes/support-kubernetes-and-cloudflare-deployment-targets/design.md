@@ -11,7 +11,14 @@ checked topology and controller policy were split across the repository. Tasks
 `deploy/automation/local-compose/`; the supported `mise` commands now reach
 that implementation through policy-free wrappers under `tools/`.
 
-The Kubernetes manifests demonstrate several deployment shapes but do not form a supported production deployment. They contain fixed Service addresses, a deployable placeholder Secret, per-API-Pod migration init containers, mutable image references, incomplete public routing, and configuration validation that reasons about a cross-workload variable union instead of each runtime role.
+At proposal time, the Kubernetes manifests demonstrated several deployment
+shapes but did not form a supported production deployment. They contained fixed
+Service addresses, a deployable placeholder Secret, per-API-Pod migration init
+containers, mutable image references, incomplete public routing, and
+configuration validation that reasoned about a cross-workload variable union
+instead of each runtime role. The implementing tasks have replaced those inputs;
+the current implementation boundary is tracked in `docs/design/modules.md` and
+the task/evidence records below rather than inferred from this historical gap.
 
 The proposal also began with a content-only process that imported broader API
 configuration than its manifest supplied, an API process that started
@@ -22,9 +29,10 @@ thumbnail, bundle-alias index rebuilding, Gallery safety, Gallery cover, and
 Gallery copy—onto the shared `Runner`. The same core now provides a private
 bounded-drain command with explicit lane selection, maximum claims, idle
 observations, wall time, graceful cancellation, and machine-readable
-remaining-work evidence. Kubernetes workload composition and the Cloudflare
-Jobs, Queue, and Container Adapters remain target work; the shared Runner alone
-does not qualify either production composition. Long-running resident
+remaining-work evidence. Kubernetes resident-workload rendering is now current,
+while its live target qualification and the Cloudflare Jobs, Queue, and
+Container Adapters remain target work; the shared Runner alone does not qualify
+either production composition. Long-running resident
 assumptions still do not map directly to event-driven Cloudflare Workers and
 on-demand Containers.
 
