@@ -33,9 +33,18 @@ For the rollback drill, remove one live readiness capability. Every public entry
 
 ## Isolated-topology verification
 
-The opt-in local Gallery profile uses `app.localhost` for trusted Web and API traffic and `content.localhost` for content-only traffic. These hosts are separate browser sites under the same loopback environment; a port-only split on the same host is not accepted as isolation. The default Compose profile remains fail-closed.
+The canonical developer Compose topology always loads the checked Gallery-local
+overlay; it does not use an opt-in Compose profile. It routes trusted Web and API
+traffic through `app.localhost` and content-only traffic through
+`content.localhost`. These hosts are separate browser sites under the same
+loopback environment; a port-only split on the same host is not accepted as
+isolation. Loading the overlay does not by itself make Gallery available:
+eligibility and live readiness still fail closed until the checked policy,
+bootstrap, isolated-content, challenge, governance, notification, and Appeal
+requirements all pass.
 
-Start and bootstrap the local profile with an explicitly verified User ID:
+Start the canonical local topology and bootstrap Gallery with an explicitly
+verified User ID:
 
 ```sh
 mise run dev

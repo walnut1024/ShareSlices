@@ -21,6 +21,8 @@ type GalleryEnvironment = Pick<
   | "GALLERY_ISOLATED_CONTENT_READY"
 >;
 
+type GalleryContentEnvironment = Omit<GalleryEnvironment, "GALLERY_TURNSTILE_SECRET">;
+
 export type GalleryCapabilityReadiness = Readonly<{
   currentGrant: boolean;
   challengeVerifier: boolean;
@@ -45,7 +47,10 @@ export type GalleryConfiguration = Readonly<{
   readiness: GalleryCapabilityReadiness;
 }>;
 
-export function galleryConfigurationFromEnv(env: GalleryEnvironment): GalleryConfiguration {
+function configurationFromEnvironment(
+  env: GalleryContentEnvironment,
+  challengeVerifier: boolean,
+): GalleryConfiguration {
   return {
     enabled: env.GALLERY_ENABLED,
     webOrigin: new URL(env.WEB_ORIGIN),
@@ -58,7 +63,7 @@ export function galleryConfigurationFromEnv(env: GalleryEnvironment): GalleryCon
     appealPolicyRevision: env.GALLERY_APPEAL_POLICY_REVISION ?? null,
     readiness: {
       currentGrant: Boolean(env.GALLERY_GRANT_REVISION),
-      challengeVerifier: env.GALLERY_CHALLENGE_VERIFIER_READY && Boolean(env.GALLERY_TURNSTILE_SECRET),
+      challengeVerifier,
       administratorAuthority: env.GALLERY_ADMINISTRATOR_AUTHORITY_READY,
       reporting: env.GALLERY_REPORTING_READY,
       notification: env.GALLERY_NOTIFICATION_READY,
@@ -67,4 +72,17 @@ export function galleryConfigurationFromEnv(env: GalleryEnvironment): GalleryCon
       isolatedContent: env.GALLERY_ISOLATED_CONTENT_READY
     }
   };
+}
+
+export function galleryConfigurationFromEnv(env: GalleryEnvironment): GalleryConfiguration {
+  return configurationFromEnvironment(
+    env,
+    env.GALLERY_CHALLENGE_VERIFIER_READY && Boolean(env.GALLERY_TURNSTILE_SECRET),
+  );
+}
+
+export function galleryContentConfigurationFromEnv(
+  env: GalleryContentEnvironment,
+): GalleryConfiguration {
+  return configurationFromEnvironment(env, env.GALLERY_CHALLENGE_VERIFIER_READY);
 }

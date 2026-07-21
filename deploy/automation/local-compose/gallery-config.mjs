@@ -16,7 +16,7 @@ export function validateGalleryLocalConfiguration(configuration) {
     throw new Error(`Gallery local WEB_ORIGIN is invalid: ${expectedOrigin}`);
   }
 
-  for (const serviceName of ["migrate", "maintenance", "gallery-content", "web"]) {
+  for (const serviceName of ["maintenance", "gallery-content", "web"]) {
     const actual = services[serviceName]?.environment?.WEB_ORIGIN;
     if (actual !== expectedOrigin) {
       throw new Error(

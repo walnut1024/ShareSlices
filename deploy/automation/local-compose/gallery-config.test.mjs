@@ -10,7 +10,7 @@ function configuration(overrides = {}) {
   return {
     services: {
       api: { environment },
-      migrate: { environment: { WEB_ORIGIN: environment.WEB_ORIGIN } },
+      migrate: { environment: { DATABASE_URL: "postgres://database" } },
       maintenance: { environment: { WEB_ORIGIN: environment.WEB_ORIGIN } },
       "gallery-content": { environment: { WEB_ORIGIN: environment.WEB_ORIGIN } },
       web: {
@@ -29,6 +29,12 @@ test("accepts one canonical Gallery local Web endpoint", () => {
     origin: "http://app.localhost:5173",
     host: "app.localhost",
   });
+});
+
+test("does not require the one-shot migration role to receive a Web origin", () => {
+  const value = configuration();
+  assert.equal(value.services.migrate.environment.WEB_ORIGIN, undefined);
+  assert.doesNotThrow(() => validateGalleryLocalConfiguration(value));
 });
 
 test("rejects a Web origin that differs from the API", () => {

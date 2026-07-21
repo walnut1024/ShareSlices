@@ -187,8 +187,11 @@ flowchart LR
 
 ## Run the local stack
 
-Use this route to develop ShareSlices or operate a local instance. It starts
-the Web app, API, Worker, PostgreSQL, MinIO, and Mailpit.
+Use this route to develop ShareSlices or operate a local instance. It composes
+PostgreSQL, private MinIO and its one-shot initialization, Mailpit, one-shot
+database migration, the API HTTP service, the maintenance and authentication-
+email service, the isolated content HTTP service, the resident Worker, and the
+Web/Caddy entrypoint as separate local roles.
 
 ### Prerequisites
 
@@ -229,6 +232,7 @@ mise run dev-down
 | [`cli/`](cli/) | Native CLI and versioned Agent protocol |
 | [`skill/`](skill/) | Official ShareSlices agent Skill |
 | [`db/`](db/) | PostgreSQL migrations |
+| [`deploy/`](deploy/) | Local Compose topology, deployment contracts, automation, and target-specific inputs |
 | [`api/openapi/`](api/openapi/) | Checked HTTP wire contract |
 | [`openspec/specs/`](openspec/specs/) | Implemented product requirements |
 | [`docs/`](docs/) | Architecture, research, and contributor guidance |

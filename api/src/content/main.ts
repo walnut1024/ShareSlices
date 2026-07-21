@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { galleryConfigurationFromEnv } from "../application/gallery/configuration.js";
+import { galleryContentConfigurationFromEnv } from "../application/gallery/configuration.js";
 import { PostgresAdministratorReviewCredentialValidator, PostgresPublicPlayerCredentialValidator } from "../application/gallery/content-credentials.js";
 import { readGalleryRuntimeEligibility } from "../application/gallery/eligibility.js";
 import { pool } from "../db/client.js";
@@ -9,7 +9,7 @@ import { GalleryContentObjectStorage, PostgresGalleryContentLookup } from "./ada
 import { buildGalleryContentApp } from "./app.js";
 
 const env = readContentEnv();
-const configuration = galleryConfigurationFromEnv(env);
+const configuration = galleryContentConfigurationFromEnv(env);
 const liveEligible = async () =>
   (await readGalleryRuntimeEligibility(pool, configuration)).eligible;
 const app = buildGalleryContentApp({

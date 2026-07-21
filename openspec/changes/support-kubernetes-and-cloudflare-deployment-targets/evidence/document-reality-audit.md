@@ -382,3 +382,43 @@ an omitted required direct role, enabled or unknown Hyperdrive caching,
 `require`, a missing CA or qualified-equivalent identity, and absent positive or
 negative runtime evidence all produce stable unavailable checks. Provider
 observation and the complete CLI doctor remain owned by tasks 3.6 and 12.1.
+
+## Ninth-pass Compose role and operator-guide correction
+
+The 2026-07-22 pre-continuation review compared the checked Compose models,
+resolved developer topology, process entrypoints, live container environments,
+README, Gallery runbook, and current first-party platform manuals. It found no
+change to the two-target architecture or to the remaining Cloudflare acceptance
+gates, but it found two stale operator-facing descriptions and one real local
+authority leak.
+
+The canonical Compose graph already represents PostgreSQL, private MinIO,
+one-shot object-store initialization, Mailpit, one-shot migration, API HTTP,
+maintenance/authentication-email, content-only HTTP, resident processing, and
+Web/Caddy as separate roles. The previous environment anchors nevertheless gave
+migration, maintenance, and content roles configuration owned by other roles;
+the Gallery overlay also passed the Turnstile secret to content-only serving.
+The role-specific environment declarations now remove that recombination, and
+the content entrypoint consumes declared challenge readiness without receiving
+the challenge secret. Focused contract tests and a live canonical start prove
+the distinct entrypoints, one-shot completion gates, absence of Compose
+profiles, and the resulting least-authority environment inventory.
+
+The README now names the complete local role graph instead of collapsing it to
+Web, API, Worker, PostgreSQL, MinIO, and Mailpit, and its project map identifies
+`deploy/` as the owner of deployment composition and automation. The Gallery
+runbook no longer describes an opt-in or default Compose profile: the developer
+controller always loads the checked Gallery-local overlay, while Gallery
+availability remains independently fail-closed on policy, bootstrap, topology,
+and live-readiness evidence. This corrects operator language without promoting
+Compose to a production target or treating local isolation as Kubernetes or
+Cloudflare qualification.
+
+The official-contract refresh reconfirmed the remaining provider boundaries:
+Cloudflare Containers have no Workers Free allocation and are billed only under
+Workers Paid; Hyperdrive `verify-full` requires the database hostname to match
+the certificate and uses an uploaded region-specific single CA certificate;
+and `resend.dev` remains a testing sender restricted to the Resend account's own
+address or Resend's simulation recipients. Those paths exercise provider
+outcomes without qualifying an operator-owned sending domain. None of those
+facts is inferred from local Compose evidence.
