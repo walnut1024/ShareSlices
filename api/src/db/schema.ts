@@ -212,6 +212,34 @@ export const authenticationEmailCircuitBreaker = pgTable("authentication_email_c
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
 });
 
+export const cloudflareJobDispatchOutbox = pgTable(
+  "cloudflare_job_dispatch_outbox",
+  {
+    lane: text("lane").notNull(),
+    durableJobId: text("durable_job_id").notNull(),
+    state: text("state").default("pending").notNull(),
+    wakeId: text("wake_id"),
+    availableAt: timestamp("available_at", { withTimezone: true }).defaultNow().notNull(),
+    leaseOwner: text("lease_owner"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    fence: bigint("fence", { mode: "number" }).default(0).notNull(),
+    attemptCount: integer("attempt_count").default(0).notNull(),
+    failureReasonCode: text("failure_reason_code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.lane, table.durableJobId] }),
+    uniqueIndex("cloudflare_job_dispatch_outbox_wake_idx")
+      .on(table.wakeId)
+      .where(sql`${table.wakeId} is not null`),
+    index("cloudflare_job_dispatch_outbox_claim_idx")
+      .on(table.state, table.availableAt)
+      .where(sql`${table.state} = 'pending'`),
+  ],
+);
+
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
   accounts: many(account),

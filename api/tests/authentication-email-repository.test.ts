@@ -111,12 +111,18 @@ describe("authentication email repository", () => {
     await expect(acceptAuthenticationEmailDelivery(input)).resolves.toMatchObject({ status: "waiting" });
 
     const deliveries = await pool.query(
-      "select encrypted_payload from authentication_email_delivery where attempt_id = $1",
+      "select id, encrypted_payload from authentication_email_delivery where attempt_id = $1",
       [attempt.id]
     );
     expect(deliveries.rowCount).toBe(1);
     expect(deliveries.rows[0].encrypted_payload).not.toContain(email);
     expect(deliveries.rows[0].encrypted_payload).not.toContain("123456");
+    const dispatch = await pool.query(
+      `select state from cloudflare_job_dispatch_outbox
+       where lane = 'authentication-email' and durable_job_id = $1`,
+      [deliveries.rows[0].id],
+    );
+    expect(dispatch.rows).toEqual([{ state: "pending" }]);
   });
 
   it("reuses one pending verification for the same email and purpose", async () => {

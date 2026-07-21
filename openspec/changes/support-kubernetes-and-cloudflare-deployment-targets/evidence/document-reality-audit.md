@@ -1304,3 +1304,28 @@ No provider service was started during this documentation audit. Therefore no
 shutdown action or new account-state observation is claimed; the historical
 prototype baseline remains subject to a fresh read-only inventory before the
 next opt-in live experiment.
+
+## Thirty-ninth-pass transactional wake-outbox acceptance
+
+Task 7.5 is complete. Migration `0030` creates one non-sensitive PostgreSQL
+dispatch record in the same transaction as each authentication-email, Artifact
+processing, bundle-thumbnail, Gallery-safety, Gallery-cover, or Gallery-copy job
+insert, including jobs produced by either the Node API or Rust Worker. The
+trigger path stores only the lane and durable job ID; it stores no email body,
+recipient, credential, Artifact bytes, or authoritative job payload.
+
+The bounded publisher claims records with `FOR UPDATE SKIP LOCKED`, assigns one
+stable wake UUID, increments a fence, releases the transaction before the Queue
+call, and records publication only while the owner, fence, and wake still match.
+An indeterminate Queue response returns the row to pending while preserving the
+same wake UUID, so a later publication creates only an at-least-once duplicate
+wake. PostgreSQL job state remains authoritative. Focused integration coverage
+proves trigger installation for all six producer tables, real
+authentication-email insertion, strict wake shape, fenced completion, and
+same-identity replay after a simulated lost Queue response.
+
+This does not complete Queue deployment or recovery. Target-specific binding,
+scheduled recovery and pruning, DLQ visibility, stale/lost/reordered wake
+drills, and the Container controller remain tasks 4.4, 7.7-7.10, 11, and 12.
+The outbox itself does not qualify a Cloudflare target or start a provider
+resource.

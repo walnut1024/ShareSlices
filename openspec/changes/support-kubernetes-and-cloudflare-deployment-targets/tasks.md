@@ -134,7 +134,7 @@ The numbered sections group work by responsibility; they are not permission to i
 - [x] 7.2 Implement and regression-test resident mode for Kubernetes without changing current authoritative job and terminal-result behavior.
 - [x] 7.3 Implement bounded drain mode with maximum claims, idle observation, wall deadline, lane selection, and an explicit remaining-work result.
 - [x] 7.4 Add graceful termination that stops new claims, bounds in-flight completion, and prevents a late unfenced result from committing.
-- [ ] 7.5 Add a checked database dispatch or outbox record that is committed with new asynchronous work before a Cloudflare wake-up is published.
+- [x] 7.5 Add a checked database dispatch or outbox record that is committed with new asynchronous work before a Cloudflare wake-up is published.
 - [x] 7.6 Define a bounded non-sensitive Queue wake schema and producer that never includes authoritative state, credentials, raw Artifact bytes, or email payloads.
 - [ ] 7.7 Implement the Queue consumer and Container controller with a stable bounded slot pool so each wake rereads PostgreSQL, starts or nudges one Durable Object-backed Container, records controller handoff separately from job completion, and never creates one Container identity per job.
 - [ ] 7.8 Implement scheduled dispatch recovery, expired-lease recovery, dead-letter visibility, and a PostgreSQL-backed scheduled-execution gate whose closed state makes late or duplicate Cron invocations fenced no-ops.
