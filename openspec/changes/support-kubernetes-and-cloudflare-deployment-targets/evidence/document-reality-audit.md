@@ -310,3 +310,26 @@ Tasks 7.1, 7.3, and 7.4 now have focused and live local evidence. Task 7.2 remai
 open until the Kubernetes workload actually composes and regression-tests the
 resident mode. These shared runtime results still do not qualify Cloudflare
 Jobs, Queues, or Containers.
+
+## Sixth-pass primary-narrative correction
+
+The 2026-07-22 documentation audit found that the fifth-pass Runner evidence
+and `docs/design/modules.md` matched the code and completed tasks, but the
+opening context in `design.md` still described only Artifact and thumbnail
+lanes as migrated and still called bounded drain future work. The primary
+design narrative now records all six resident lanes and the implemented
+bounded-drain contract, while keeping Kubernetes workload composition and the
+Cloudflare Jobs, Queue, and Container Adapters explicitly unqualified.
+
+The same audit corrected `deploy/contract/README.md`: the checked `fixtures/`
+directory contains valid deployment/release fixtures and topology-specific
+verification fixtures. Invalid, mixed-target, Compose-as-production, and
+Secret-bearing cases are derived and rejected by `deploy/tests/contracts.test.mjs`;
+there are no separate invalid fixture files.
+
+A focused first-party refresh reconfirmed the implementation-relevant external
+boundaries: Containers have no Workers Free allocation; directly served Static
+Assets are free while `run_worker_first` requests consume Worker allowance and
+may return `429` on Free exhaustion; Hyperdrive `verify-full` adds hostname
+matching beyond `require`; and `resend.dev` remains restricted test mode with a
+24-hour idempotency window. No target, task, or acceptance gate was relaxed.

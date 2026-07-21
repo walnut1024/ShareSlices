@@ -16,12 +16,17 @@ The Kubernetes manifests demonstrate several deployment shapes but do not form a
 The proposal also began with a content-only process that imported broader API
 configuration than its manifest supplied, an API process that started
 authentication-email and reconciliation loops, and independent long-running
-Rust processing loops. Implementation is progressively separating those roles:
-the API maintenance composition is distinct, and Artifact processing plus
-thumbnail processing now run through the shared resident Runner core. The
-remaining enabled Rust lanes and bounded Cloudflare execution path still need
-to converge on that Runner contract. Long-running resident assumptions do not
-map directly to event-driven Cloudflare Workers and on-demand Containers.
+Rust processing loops. Implementation has separated the API maintenance
+composition and moved every currently enabled Rust lane—Artifact processing,
+thumbnail, bundle-alias index rebuilding, Gallery safety, Gallery cover, and
+Gallery copy—onto the shared `Runner`. The same core now provides a private
+bounded-drain command with explicit lane selection, maximum claims, idle
+observations, wall time, graceful cancellation, and machine-readable
+remaining-work evidence. Kubernetes workload composition and the Cloudflare
+Jobs, Queue, and Container Adapters remain target work; the shared Runner alone
+does not qualify either production composition. Long-running resident
+assumptions still do not map directly to event-driven Cloudflare Workers and
+on-demand Containers.
 
 The product decision is not to span one installation across Kubernetes and Cloudflare. A production installation selects exactly one **deployment target**:
 
@@ -58,7 +63,13 @@ into a hybrid target or reduce Kubernetes eligibility.
 
 ### Verified provider-contract baseline
 
-This design was checked against the official platform contracts available on 2026-07-19 and reality-rechecked on 2026-07-21. These facts are compatibility inputs, not permanent assumptions. The claim-level evidence, qualification gates, corrections, and complete official-source index are in [the official platform audit](evidence/official-platform-audit.md) and [the document reality audit](evidence/document-reality-audit.md).
+This design was checked against the official platform contracts available on
+2026-07-19, reality-rechecked on 2026-07-21, and given a focused Runner,
+Containers, Hyperdrive TLS, Static Assets, and Resend refresh on 2026-07-22.
+These facts are compatibility inputs, not permanent assumptions. The
+claim-level evidence, qualification gates, corrections, and complete
+official-source index are in [the official platform audit](evidence/official-platform-audit.md)
+and [the document reality audit](evidence/document-reality-audit.md).
 
 The [current prototype execution baseline](evidence/current-prototype-execution-baseline.md) separately records mutable account observations and the work they permit. Account login, an enabled R2 subscription, a visible Supabase project, a `workers.dev` hostname, or a successful `resend.dev` request is prototype evidence only. None of those observations replaces Workers Paid Container entitlement, owned production zones, distinct registrable sites, a verified Resend sending domain, or target-specific release qualification.
 

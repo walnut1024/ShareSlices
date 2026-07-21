@@ -18,7 +18,9 @@ and no rendered provider resources.
   changing outward HTTP contracts.
 - `verification-scenarios.json` defines shared black-box checks and explicit
   `not_applicable` behavior.
-- `fixtures/` contains deterministic valid and invalid contract examples.
+- `fixtures/` contains deterministic valid and verification examples. Contract
+  tests derive invalid, mixed-target, Compose-as-production, and Secret-bearing
+  cases from those checked inputs and require schema rejection.
 
 `deploy/automation/` owns lifecycle policy and command implementation.
 `deploy/cloudflare/` and `deploy/kubernetes/` own target-specific rendered
