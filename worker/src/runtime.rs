@@ -849,10 +849,13 @@ mod tests {
             send.send_replace(true);
         });
 
-        tokio::time::timeout(Duration::from_millis(100), runner.run_resident(receive))
-            .await
-            .expect("worker stops promptly")
-            .expect("resident result");
+        tokio::time::timeout(
+            Duration::from_millis(100),
+            runner.run_resident(receive, Duration::from_millis(50)),
+        )
+        .await
+        .expect("worker stops promptly")
+        .expect("resident result");
     }
 
     #[tokio::test]
@@ -878,10 +881,13 @@ mod tests {
             send.send_replace(true);
         });
 
-        tokio::time::timeout(Duration::from_millis(100), runner.run_resident(receive))
-            .await
-            .expect("active attempt finishes before shutdown")
-            .expect("resident result");
+        tokio::time::timeout(
+            Duration::from_millis(100),
+            runner.run_resident(receive, Duration::from_millis(50)),
+        )
+        .await
+        .expect("active attempt finishes before shutdown")
+        .expect("resident result");
 
         let remaining = store.claims.lock().expect("claims lock");
         assert_eq!(remaining.len(), 1);

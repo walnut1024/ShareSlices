@@ -166,8 +166,8 @@ Status: current
 
 Status: current for Upload processing, Content bundle reuse, bundle-scoped
 thumbnails, bundle-alias index rebuilding, Gallery background jobs, and resident
-Runner composition. The bounded-drain command, lane selection, and explicit
-termination-budget integration remain target work.
+and bounded Runner composition. Kubernetes workload composition remains target
+work.
 
 - `Runner` in `worker/src/runner.rs` is the shared scheduling core for resident
   and bounded execution. A `BackgroundLane` claims at most one authoritative
@@ -175,9 +175,12 @@ termination-budget integration remain target work.
   terminal-outcome semantics, and exposes a read-only remaining-work check.
   The resident Worker currently runs Artifact processing, thumbnail, bundle
   alias, Gallery safety, Gallery cover, and Gallery copy lanes through this
-  interface. The library-level bounded loop exists, but no production command
-  yet selects lanes, supplies all drain bounds, or emits its machine-readable
-  outcome; that path must not be described as Cloudflare-ready.
+  interface. The private `drain` command selects an explicit enabled lane set,
+  requires maximum claims, idle observations, and wall time, and emits a
+  machine-readable outcome with conservative remaining-work evidence. Resident
+  shutdown and bounded wall expiry stop new claims and bound the current future;
+  unfinished durable attempts remain recoverable through lane-owned leases and
+  fences. This shared runtime behavior alone is not Cloudflare qualification.
 
 - `ArtifactProcessingModule` owns one processing attempt from claimed job to ready version or failed terminal result. It hides archive reading, normalization, structured validation reporting, manifest generation, staging writes, concurrency limits, and commit ordering.
 - `ArchiveModule` is an internal Module for safe archive traversal and normalization. It validates raw paths before filtering supported system metadata, removes at most one common wrapper directory, resolves a dynamic root HTML entry, and retains each immutable `sourcePath` beside its normalized `effectivePath`.

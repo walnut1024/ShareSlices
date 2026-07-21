@@ -162,6 +162,7 @@ impl Runner {
     pub async fn run_resident(
         &self,
         mut shutdown: watch::Receiver<bool>,
+        shutdown_grace: Duration,
     ) -> Result<RunnerOutcome, RunnerError> {
         let mut claims = 0;
         let mut idle_observations = 0;
@@ -178,13 +179,40 @@ impl Runner {
                         .outcome(claims, idle_observations, RunnerStopReason::Shutdown)
                         .await;
                 }
-                if lane
-                    .run_one(ClaimPermit {
-                        wall_deadline: None,
-                    })
-                    .await?
-                    == LaneRunOutcome::Claimed
-                {
+                let run = lane.run_one(ClaimPermit {
+                    wall_deadline: None,
+                });
+                tokio::pin!(run);
+                let lane_outcome = tokio::select! {
+                    result = &mut run => result?,
+                    changed = shutdown.changed() => {
+                        if changed.is_err() || *shutdown.borrow() {
+                            match tokio::time::timeout(shutdown_grace, &mut run).await {
+                                Ok(result) => {
+                                    let outcome = result?;
+                                    if outcome == LaneRunOutcome::Claimed {
+                                        claims += 1;
+                                    }
+                                    return self.outcome(
+                                        claims,
+                                        idle_observations,
+                                        RunnerStopReason::Shutdown,
+                                    ).await;
+                                }
+                                Err(_) => {
+                                    return Ok(RunnerOutcome {
+                                        claims,
+                                        idle_observations,
+                                        remaining_work: true,
+                                        stop_reason: RunnerStopReason::Shutdown,
+                                    });
+                                }
+                            }
+                        }
+                        continue;
+                    }
+                };
+                if lane_outcome == LaneRunOutcome::Claimed {
                     claims += 1;
                     pass_claims += 1;
                 }
@@ -244,13 +272,21 @@ impl Runner {
                 {
                     break;
                 }
-                if lane
-                    .run_one(ClaimPermit {
-                        wall_deadline: Some(limits.wall_deadline),
-                    })
-                    .await?
-                    == LaneRunOutcome::Claimed
-                {
+                let run = lane.run_one(ClaimPermit {
+                    wall_deadline: Some(limits.wall_deadline),
+                });
+                let outcome = match tokio::time::timeout_at(limits.wall_deadline, run).await {
+                    Ok(result) => result?,
+                    Err(_) => {
+                        return Ok(RunnerOutcome {
+                            claims,
+                            idle_observations,
+                            remaining_work: true,
+                            stop_reason: RunnerStopReason::WallDeadline,
+                        });
+                    }
+                };
+                if outcome == LaneRunOutcome::Claimed {
                     claims += 1;
                     pass_claims += 1;
                 }
@@ -299,6 +335,23 @@ mod tests {
         lane: RunnerLane,
         outcomes: Mutex<VecDeque<LaneRunOutcome>>,
         calls: Mutex<Vec<ClaimPermit>>,
+    }
+
+    struct BlockingLane;
+
+    #[async_trait(?Send)]
+    impl BackgroundLane for BlockingLane {
+        fn lane(&self) -> RunnerLane {
+            RunnerLane::Cleanup
+        }
+
+        async fn run_one(&self, _permit: ClaimPermit) -> Result<LaneRunOutcome, RunnerError> {
+            std::future::pending().await
+        }
+
+        async fn has_claimable_work(&self) -> Result<bool, RunnerError> {
+            Ok(true)
+        }
     }
 
     impl FakeLane {
@@ -421,12 +474,64 @@ mod tests {
         .expect("runner");
         let (sender, receiver) = watch::channel(false);
         sender.send_replace(true);
-        let outcome = runner.run_resident(receiver).await.expect("resident");
+        let outcome = runner
+            .run_resident(receiver, Duration::from_millis(10))
+            .await
+            .expect("resident");
 
         assert_eq!(outcome.claims, 0);
         assert_eq!(outcome.stop_reason, RunnerStopReason::Shutdown);
         assert!(outcome.remaining_work);
         assert!(lane.calls.lock().expect("calls").is_empty());
+    }
+
+    #[tokio::test]
+    async fn resident_shutdown_bounds_an_in_flight_lane() {
+        let runner = Runner::new(
+            vec![Arc::new(BlockingLane) as Arc<dyn BackgroundLane>],
+            &enabled([RunnerLane::Cleanup]),
+            Duration::from_secs(1),
+        )
+        .expect("runner");
+        let (sender, receiver) = watch::channel(false);
+        let shutdown = async move {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+            sender.send_replace(true);
+        };
+        let (outcome, ()) = tokio::join!(
+            runner.run_resident(receiver, Duration::from_millis(10)),
+            shutdown
+        );
+        let outcome = outcome.expect("resident");
+
+        assert_eq!(outcome.stop_reason, RunnerStopReason::Shutdown);
+        assert!(outcome.remaining_work);
+    }
+
+    #[tokio::test]
+    async fn wall_deadline_cancels_an_in_flight_lane_and_reports_remaining_work() {
+        let runner = Runner::new(
+            vec![Arc::new(BlockingLane) as Arc<dyn BackgroundLane>],
+            &enabled([RunnerLane::Cleanup]),
+            Duration::from_millis(1),
+        )
+        .expect("runner");
+        let (_sender, receiver) = watch::channel(false);
+        let outcome = runner
+            .run_drain(
+                DrainLimits {
+                    maximum_claims: 1,
+                    maximum_idle_observations: 1,
+                    wall_deadline: Instant::now() + Duration::from_millis(10),
+                },
+                receiver,
+            )
+            .await
+            .expect("drain");
+
+        assert_eq!(outcome.claims, 0);
+        assert_eq!(outcome.stop_reason, RunnerStopReason::WallDeadline);
+        assert!(outcome.remaining_work);
     }
 
     #[test]

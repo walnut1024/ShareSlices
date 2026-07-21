@@ -301,13 +301,12 @@ processing, thumbnail, bundle-alias index rebuilding, Gallery safety, Gallery co
 and Gallery copy through `BackgroundLane` and the shared `Runner`; those
 resident lane migrations are no longer open work.
 
-This does **not** complete the bounded Cloudflare execution contract. The shared
-library has a bounded drain loop, but the Worker still has no production command
-that validates lane selection and maximum claims, idle observations, and wall
-time, applies a termination reserve consistently before every claim, and emits
-the machine-readable remaining-work outcome expected by the Jobs/Container
-composition. Kubernetes workload composition and explicit bounded in-flight
-termination behavior are also still pending. Tasks 7.1-7.4 therefore remain
-unchecked until those shared semantics and entrypoints are implemented and
-verified; the corrected resident inventory must not be used as Cloudflare
-qualification evidence.
+At that checkpoint this did **not** complete the bounded Cloudflare execution
+contract because the production command and explicit in-flight deadline were
+still absent. The next implementation batch added explicit lane selection,
+maximum claims, idle observations, wall time, a machine-readable remaining-work
+outcome, and bounded cancellation for resident shutdown and bounded expiry.
+Tasks 7.1, 7.3, and 7.4 now have focused and live local evidence. Task 7.2 remains
+open until the Kubernetes workload actually composes and regression-tests the
+resident mode. These shared runtime results still do not qualify Cloudflare
+Jobs, Queues, or Containers.

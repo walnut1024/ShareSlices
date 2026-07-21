@@ -12,6 +12,7 @@ use runtime::{
 use shareslices_worker::{
     bundle_alias::BundleAliasLane,
     content_fingerprint::{FingerprintError, FingerprintKey},
+    drain_command::DrainCommand,
     gallery_copy_job::GalleryCopyLane,
     gallery_cover_job::GalleryCoverLane,
     gallery_safety_job::GallerySafetyLane,
@@ -20,7 +21,7 @@ use shareslices_worker::{
     logging::{LogConfig, SanitizedException, Severity, WorkerEvent},
     object_storage::AwsS3ObjectStorage,
     retry_policy::RetryPolicy,
-    runner::{BackgroundLane, Runner, RunnerError, RunnerLane},
+    runner::{BackgroundLane, DrainLimits, Runner, RunnerError, RunnerLane},
     thumbnail::{ThumbnailConfig, ThumbnailLane, preflight_chromium, requeue_failed_browser_jobs},
 };
 use sqlx::{PgPool, postgres::PgPoolOptions};
@@ -28,8 +29,9 @@ use uuid::Uuid;
 
 #[tokio::main]
 async fn main() {
-    let command = std::env::args().nth(1);
-    if command.as_deref() == Some("healthcheck") {
+    let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+    let command = arguments.first().map(String::as_str);
+    if command == Some("healthcheck") {
         let chromium_path = std::env::var_os("CHROMIUM_PATH").map_or_else(
             || std::path::PathBuf::from("chromium"),
             std::path::PathBuf::from,
@@ -44,8 +46,20 @@ async fn main() {
         }
         return;
     }
-    if let Some(command) = command.as_deref()
+    let drain_command = if command == Some("drain") {
+        match DrainCommand::parse(&arguments[1..]) {
+            Ok(command) => Some(command),
+            Err(error) => {
+                eprintln!("invalid drain command: {error}");
+                std::process::exit(2);
+            }
+        }
+    } else {
+        None
+    };
+    if let Some(command) = command
         && command != "requeue-failed-thumbnails"
+        && command != "drain"
     {
         eprintln!("unknown worker command: {command}");
         std::process::exit(2);
@@ -65,8 +79,10 @@ async fn main() {
         std::process::exit(2);
     }
 
-    let result = if command.as_deref() == Some("requeue-failed-thumbnails") {
+    let result = if command == Some("requeue-failed-thumbnails") {
         requeue_failed_thumbnails(&config).await
+    } else if let Some(command) = drain_command {
+        run_bounded(config, command).await
     } else {
         run(config).await
     };
@@ -188,12 +204,12 @@ async fn run(config: WorkerConfig) -> Result<(), Box<dyn std::error::Error>> {
         copy_result,
         (),
     ) = tokio::join!(
-        runner.run_resident(shutdown_receiver.clone()),
-        thumbnail_runner.run_resident(shutdown_receiver.clone()),
-        alias_runner.run_resident(shutdown_receiver.clone()),
-        safety_runner.run_resident(shutdown_receiver.clone()),
-        cover_runner.run_resident(shutdown_receiver.clone()),
-        copy_runner.run_resident(shutdown_receiver),
+        runner.run_resident(shutdown_receiver.clone(), config.lease_duration),
+        thumbnail_runner.run_resident(shutdown_receiver.clone(), config.lease_duration),
+        alias_runner.run_resident(shutdown_receiver.clone(), config.lease_duration),
+        safety_runner.run_resident(shutdown_receiver.clone(), config.lease_duration),
+        cover_runner.run_resident(shutdown_receiver.clone(), config.lease_duration),
+        copy_runner.run_resident(shutdown_receiver, config.lease_duration),
         coordinate_shutdown(shutdown_sender),
     );
     processing_result?;
@@ -202,6 +218,94 @@ async fn run(config: WorkerConfig) -> Result<(), Box<dyn std::error::Error>> {
     safety_result?;
     cover_result?;
     copy_result?;
+    pool.close().await;
+    Ok(())
+}
+
+async fn run_bounded(
+    config: WorkerConfig,
+    command: DrainCommand,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if command.lanes.contains(&RunnerLane::Thumbnail) {
+        preflight_chromium(&config.chromium_path)?;
+    }
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&config.database_url)
+        .await?;
+    let storage = configured_storage(&config);
+    let store = Arc::new(PostgresJobStore::new(pool.clone()));
+    let (current_fingerprint_key, previous_fingerprint_key) = fingerprint_keys(&config)?;
+    let runtime: Arc<ProductionRuntime> = Arc::new(WorkerRuntime::new(
+        Arc::clone(&store),
+        processing_input_source(
+            pool.clone(),
+            &config,
+            current_fingerprint_key.clone(),
+            previous_fingerprint_key,
+        ),
+        StorageAttemptProcessor::new(storage.clone()),
+        RetryPolicy::new(jitter),
+        RuntimeConfig {
+            worker_id: format!("bounded-worker-{}", Uuid::new_v4()),
+            lease_duration: config.lease_duration,
+            heartbeat_interval: config.heartbeat_interval,
+            write_concurrency: config.write_concurrency,
+            recovery_limit: config.recovery_limit,
+            configured_max_attempts: config.job_max_attempts,
+        },
+    ));
+    let mut lanes: Vec<Arc<dyn BackgroundLane>> = vec![
+        runtime,
+        Arc::new(ThumbnailLane::new(
+            pool.clone(),
+            storage.clone(),
+            ThumbnailConfig {
+                worker_id: format!("bounded-thumbnail-worker-{}", Uuid::new_v4()),
+                internal_api_origin: config.thumbnail_internal_api_origin.clone(),
+                chromium_path: config.chromium_path.clone(),
+                lease_duration: config.lease_duration,
+            },
+        )),
+        Arc::new(BundleAliasLane::new(
+            Arc::clone(&store),
+            storage.clone(),
+            current_fingerprint_key,
+        )),
+        Arc::new(GallerySafetyLane::new(
+            pool.clone(),
+            Arc::new(storage.clone()),
+            format!("bounded-gallery-safety-worker-{}", Uuid::new_v4()),
+            config.lease_duration,
+        )),
+        Arc::new(GalleryCoverLane::new(pool.clone())),
+        Arc::new(GalleryCopyLane::new(
+            pool.clone(),
+            Arc::new(storage),
+            format!("bounded-gallery-copy-worker-{}", Uuid::new_v4()),
+            config.lease_duration,
+        )),
+    ];
+    lanes.retain(|lane| command.lanes.contains(&lane.lane()));
+    let runner = Runner::new(lanes, &command.lanes, config.poll_interval)?;
+    let (shutdown_sender, shutdown_receiver) = tokio::sync::watch::channel(false);
+    let drain = runner.run_drain(
+        DrainLimits {
+            maximum_claims: command.maximum_claims,
+            maximum_idle_observations: command.maximum_idle_observations,
+            wall_deadline: tokio::time::Instant::now() + command.wall_time,
+        },
+        shutdown_receiver,
+    );
+    tokio::pin!(drain);
+    let outcome = tokio::select! {
+        result = &mut drain => result?,
+        () = shutdown_signal() => {
+            shutdown_sender.send_replace(true);
+            drain.await?
+        }
+    };
+    println!("{}", serde_json::to_string(&outcome)?);
     pool.close().await;
     Ok(())
 }
