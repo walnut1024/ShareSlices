@@ -11,20 +11,24 @@ import {TargetAdapterError} from "../automation/target-adapter.mjs";
 import {runCoreVerification} from "../automation/verify.mjs";
 import {renderKubernetesBundle} from "./render.mjs";
 
-// cspell:ignore ciliumnetworkpolicies gitops ingressclass networkpolicies poddisruptionbudgets serviceaccounts
+// cspell:ignore ciliumnetworkpolicies gitops ingressclass ingressclasses networkpolicies poddisruptionbudgets serviceaccounts
 const requiredApiResources = Object.freeze([
   "configmaps", "deployments.apps", "ingresses.networking.k8s.io", "jobs.batch",
-  "networkpolicies.networking.k8s.io", "poddisruptionbudgets.policy", "serviceaccounts", "services",
+  "ingressclasses.networking.k8s.io", "networkpolicies.networking.k8s.io", "pods",
+  "poddisruptionbudgets.policy", "secrets", "serviceaccounts", "services",
 ]);
 
 const requiredPermissions = Object.freeze([
   ["get", "configmaps"], ["list", "configmaps"], ["patch", "configmaps"],
   ["get", "deployments.apps"], ["list", "deployments.apps"], ["patch", "deployments.apps"],
   ["get", "jobs.batch"], ["list", "jobs.batch"], ["create", "jobs.batch"], ["delete", "jobs.batch"],
-  ["get", "ingresses.networking.k8s.io"], ["patch", "ingresses.networking.k8s.io"],
+  ["get", "ingresses.networking.k8s.io"], ["list", "ingresses.networking.k8s.io"], ["patch", "ingresses.networking.k8s.io"],
+  ["get", "ingressclasses.networking.k8s.io"],
   ["get", "networkpolicies.networking.k8s.io"], ["patch", "networkpolicies.networking.k8s.io"],
+  ["get", "pods"], ["list", "pods"], ["create", "pods"], ["delete", "pods"],
   ["get", "poddisruptionbudgets.policy"], ["patch", "poddisruptionbudgets.policy"],
-  ["get", "services"], ["patch", "services"], ["get", "serviceaccounts"], ["patch", "serviceaccounts"],
+  ["get", "secrets"], ["get", "services"], ["patch", "services"],
+  ["get", "serviceaccounts"], ["patch", "serviceaccounts"],
 ]);
 
 function defaultKubectl(arguments_, {input} = {}) {

@@ -4,6 +4,8 @@ import test from "node:test";
 
 import {createKubernetesAdapter} from "./adapter.mjs";
 
+// cspell:ignore ingressclasses
+
 // cspell:ignore gitops networkpolicies poddisruptionbudgets serviceaccounts
 
 const config = JSON.parse(await readFile(
@@ -45,7 +47,8 @@ function successfulKubectl(calls) {
         status: 0,
         stdout: [
           "configmaps", "deployments.apps", "ingresses.networking.k8s.io", "jobs.batch",
-          "networkpolicies.networking.k8s.io", "poddisruptionbudgets.policy", "serviceaccounts", "services",
+          "ingressclasses.networking.k8s.io", "networkpolicies.networking.k8s.io", "pods",
+          "poddisruptionbudgets.policy", "secrets", "serviceaccounts", "services",
         ].join("\n"),
         stderr: "",
       };
@@ -102,6 +105,28 @@ test("doctor fails closed for stale conformance, denied permissions, missing Sec
     "kubernetes-network-conformance",
     "kubernetes-smtp-dns",
   ]));
+});
+
+test("doctor checks status and rollback Pod permissions before mutation", async () => {
+  const calls = [];
+  const adapter = createKubernetesAdapter({
+    runKubectl: successfulKubectl(calls),
+    resolveHost: async () => ["192.0.2.10"],
+    now: () => new Date("2026-07-21T12:00:00Z"),
+  });
+  const result = await adapter.doctor({config});
+  assert.equal(result.checks.find(({id}) => id === "kubernetes-permissions").state, "available");
+  const commands = calls.map((arguments_) => arguments_.join(" "));
+  for (const permission of [
+    "auth can-i list pods",
+    "auth can-i create pods",
+    "auth can-i delete pods",
+    "auth can-i list jobs.batch",
+    "auth can-i list ingresses.networking.k8s.io",
+    "auth can-i get secrets",
+  ]) {
+    assert.equal(commands.some((command) => command.includes(permission)), true, permission);
+  }
 });
 
 test("doctor never treats CNI API discovery as network enforcement evidence", async () => {
