@@ -45,8 +45,8 @@ resource convergence. Compatibility-aware direct rollback now restores the
 recorded prior configuration and runtime without applying its migration, verifies
 the result, and swaps active/previous records under a fenced operation; GitOps
 rollback emits an immutable migration-free handoff without writing the cluster.
-Safe retirement execution, deep verification, optional-CDN acceptance, real-cluster
-acceptance, and release qualification remain target work. The Cloudflare
+Deep verification, optional-CDN acceptance, real-cluster acceptance, and release
+qualification remain target work. The Cloudflare
 production Adapter and its mutating lifecycle remain target work; the checked
 Cloudflare files currently provide provider-contract evidence and bounded
 prototypes, not a supported Deployment target.
@@ -79,8 +79,8 @@ prototypes, not a supported Deployment target.
   with an explicit release it also requires exact rendered-resource convergence
   and verification-contract identity before a separately fenced operation
   records active and previous releases. Authorized deep verification, network
-  probe qualification on a real cluster, retirement, and target qualification
-  are not yet current. Direct
+  probe qualification on a real cluster, and target qualification are not yet
+  current. Direct
   rollback now requires a separately
   generated rollback plan bound to the exact observed revision, revalidates it
   after acquiring the PostgreSQL lease, proves retained image pulls and current
@@ -99,6 +99,17 @@ prototypes, not a supported Deployment target.
   and must be denied access to an isolated in-cluster listener. They mount no
   business Secret, heartbeat the operation lease before mutation, and delete
   only resources whose installation, release, owner, and nonce still match.
+  After a replacement release is recorded active, direct apply can also retire
+  an older release-owned ConfigMap, Deployment, Ingress, or completed Job. The
+  observer inventories installation-labelled resources, retains active and
+  previous release resources without making the plan destructive, and treats
+  incomplete ownership markers as unowned drift. Retirement rereads the exact
+  resource identity, digest, installation, release, and owner, asserts the live
+  deployment lease before every mutation, scales an old Deployment to zero
+  before deletion, refuses active Jobs and resource kinds not explicitly
+  reviewed for retirement, and
+  confirms absence after deletion. This path remains unqualified until the
+  complete direct lifecycle passes on a real conforming cluster.
   Direct and external-CDN delivery are mutually validated compositions. The
   external-CDN render adds only a provider-neutral contract containing origin
   access strategy, trusted-proxy source ranges and client-address header,

@@ -146,3 +146,22 @@ test("can journal every ordered immutable GitOps handoff without claiming conver
     2,
   );
 });
+
+test("does not execute resources retained for rollback", async () => {
+  const runtime = harness();
+  const result = await applyDeploymentPlan({
+    plan: plan({
+      actions: [
+        {logicalId: "runtime/previous-api", phase: "retirement", action: "retain"},
+        {logicalId: "runtime/old-api", phase: "retirement", action: "retire"},
+      ],
+    }),
+    authorizedPlanDigest: `sha256:${"a".repeat(64)}`,
+    ...runtime,
+  });
+  assert.equal(result.outcome, "succeeded");
+  assert.deepEqual(
+    runtime.calls.filter(([operation]) => operation === "execute"),
+    [["execute", "retirement"]],
+  );
+});

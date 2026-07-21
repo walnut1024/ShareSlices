@@ -60,9 +60,18 @@ A direct database path or egress boundary that can be proven only from a Contain
 
 ### Requirement: Bound Cloudflare cost-driving resources
 
-Cloudflare deployment configuration SHALL explicitly bound every cost-driving execution control, including Queue consumer concurrency and retry policy, scheduled-trigger frequency, Container instance type, runner-slot count, `max_instances`, drain limits, `sleepAfter`, and the public route families that invoke Worker code before Static Assets. The optional Viewer byte cache SHALL remain disabled unless selected explicitly after representative measurement. The target MUST NOT describe Static Assets as an availability fallback for a Worker-first route: when the applicable Worker allowance is exhausted, that route may return a provider `429` instead of serving a matching asset.
+Cloudflare deployment configuration SHALL explicitly bound every cost-driving execution control, including per-role Worker CPU limits, Queue consumer concurrency and retry policy, scheduled-trigger frequency, Container instance type, runner-slot count, `max_instances`, drain limits, `sleepAfter`, and the public route families that invoke Worker code before Static Assets. The optional Viewer byte cache SHALL remain disabled unless selected explicitly after representative measurement. The target MUST NOT describe Static Assets as an availability fallback for a Worker-first route: when the applicable Worker allowance is exhausted, that route may return a provider `429` instead of serving a matching asset.
 
 `plan` and `status` SHALL report the current paid-plan prerequisite, configured maxima, observed quota headroom when available through the pinned provider interface, and stable warnings for approaching limits. They MUST NOT promise a free deployment, a fixed monthly bill, or exact future provider spend. Missing bounds or a configured maximum above a declared operator safety cap SHALL block activation.
+
+Every explicitly authorized live prototype SHALL finish by disabling or removing
+its public routes, triggers, consumers, Workers, and other continuously invocable
+resources, then rereading provider inventory. A private prerequisite MAY remain
+only with a recorded owner, purpose, expiry, and no public or active trigger.
+Prototype evidence without this shutdown and inventory evidence SHALL be
+incomplete. Production operations SHALL document only provider budget alerts or
+spend controls actually observed for the qualified account and MUST NOT present
+an alert, CPU limit, or configured maximum as a universal hard billing cap.
 
 #### Scenario: Container concurrency is unbounded
 

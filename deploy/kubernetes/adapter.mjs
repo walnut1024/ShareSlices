@@ -20,10 +20,10 @@ const requiredApiResources = Object.freeze([
 ]);
 
 const requiredPermissions = Object.freeze([
-  ["get", "configmaps"], ["list", "configmaps"], ["patch", "configmaps"],
-  ["get", "deployments.apps"], ["list", "deployments.apps"], ["patch", "deployments.apps"],
+  ["get", "configmaps"], ["list", "configmaps"], ["patch", "configmaps"], ["delete", "configmaps"],
+  ["get", "deployments.apps"], ["list", "deployments.apps"], ["patch", "deployments.apps"], ["delete", "deployments.apps"],
   ["get", "jobs.batch"], ["list", "jobs.batch"], ["create", "jobs.batch"], ["delete", "jobs.batch"],
-  ["get", "ingresses.networking.k8s.io"], ["list", "ingresses.networking.k8s.io"], ["patch", "ingresses.networking.k8s.io"],
+  ["get", "ingresses.networking.k8s.io"], ["list", "ingresses.networking.k8s.io"], ["patch", "ingresses.networking.k8s.io"], ["delete", "ingresses.networking.k8s.io"],
   ["get", "ingressclasses.networking.k8s.io"],
   ["get", "networkpolicies.networking.k8s.io"], ["patch", "networkpolicies.networking.k8s.io"],
   ["get", "pods"], ["list", "pods"], ["create", "pods"], ["delete", "pods"],
@@ -72,6 +72,32 @@ function versionAtLeast(actual, minimum) {
 
 function commandFor(config, ...arguments_) {
   return ["--context", config.kubernetes.context, "--namespace", config.kubernetes.namespace, ...arguments_];
+}
+
+function parseLogicalResource(logicalId) {
+  const parts = logicalId.split("/");
+  if (parts.length < 4) throw new TypeError("Kubernetes logical resource identity is invalid.");
+  const name = parts.pop();
+  const namespace = parts.pop();
+  const kind = parts.pop();
+  return {apiVersion: parts.join("/"), kind, namespace, name};
+}
+
+function releaseMarker(releaseId) {
+  return releaseId.slice("sha256:".length, "sha256:".length + 12);
+}
+
+function exactRetirementOwnership(observed, identity, config, action, retainedMarkers) {
+  const labels = observed.metadata?.labels ?? {};
+  return observed.apiVersion === identity.apiVersion &&
+    observed.kind === identity.kind &&
+    observed.metadata?.namespace === identity.namespace &&
+    observed.metadata?.name === identity.name &&
+    labels["shareslices.dev/installation"] === config.installationId &&
+    labels["shareslices.dev/owner"] === "deployment-module" &&
+    /^[a-f0-9]{12}$/.test(labels["shareslices.dev/release"] ?? "") &&
+    !retainedMarkers.has(labels["shareslices.dev/release"]) &&
+    observed.metadata?.annotations?.["shareslices.dev/resource-digest"] === action.observedDigest;
 }
 
 function secretNames(config) {
@@ -342,12 +368,83 @@ export function createKubernetesAdapter({
       plan: deploymentPlan,
       authorizedPlanDigest,
       observe,
-      executePhase: async ({phase, assertLease}) => {
+      executePhase: async ({phase, actions, assertLease}) => {
         if (phase === "retirement") {
-          throw new TargetAdapterError(
-            "kubernetes_retirement_requires_verified_inventory",
-            "Kubernetes retirement requires separately verified inventory and inactivity evidence.",
-          );
+          const current = await observe();
+          const active = current.releaseRecords?.active;
+          if (active?.releaseId !== release.releaseId) {
+            throw new TargetAdapterError(
+              "kubernetes_retirement_requires_verified_replacement",
+              "Kubernetes retirement requires the replacement release to be recorded active.",
+            );
+          }
+          const retainedMarkers = new Set([
+            releaseMarker(active.releaseId),
+            ...(current.releaseRecords?.previous?.releaseId
+              ? [releaseMarker(current.releaseRecords.previous.releaseId)]
+              : []),
+          ]);
+          const retired = [];
+          for (const action of actions) {
+            if (action.action !== "retire" || !/^sha256:[a-f0-9]{64}$/.test(action.observedDigest ?? "")) {
+              throw new TargetAdapterError(
+                "kubernetes_retirement_not_authorized",
+                "Kubernetes retirement action is not positively authorized.",
+              );
+            }
+            const candidate = current.resources.find(({logicalId}) => logicalId === action.logicalId);
+            if (
+              candidate?.owner !== "deployment-module" ||
+              candidate.retention !== "active" ||
+              candidate.digest !== action.observedDigest
+            ) {
+              throw new TargetAdapterError(
+                "kubernetes_retirement_ownership_unproven",
+                "Kubernetes retirement candidate is unowned or retained for rollback.",
+              );
+            }
+            const identity = parseLogicalResource(action.logicalId);
+            if (!["ConfigMap", "Deployment", "Ingress", "Job"].includes(identity.kind)) {
+              throw new TargetAdapterError(
+                "kubernetes_retirement_kind_requires_review",
+                "Kubernetes resource kind requires reviewed retirement.",
+              );
+            }
+            const resourceName = `${identity.kind.toLowerCase()}/${identity.name}`;
+            const getResource = () => runKubectl(commandFor(config, "get", resourceName, "--output=json"));
+            const read = getResource();
+            if (read.status !== 0) continue;
+            let observed;
+            try { observed = JSON.parse(read.stdout); } catch {
+              throw new TargetAdapterError("kubernetes_retirement_observation_invalid", "Kubernetes retirement ownership observation is unreadable.");
+            }
+            if (!exactRetirementOwnership(observed, identity, config, action, retainedMarkers)) {
+              throw new TargetAdapterError(
+                "kubernetes_retirement_ownership_unproven",
+                "Kubernetes retirement candidate ownership or digest changed.",
+              );
+            }
+            if (identity.kind === "Job" && (observed.status?.active ?? 0) !== 0) {
+              throw new TargetAdapterError(
+                "kubernetes_retirement_resource_active",
+                "Kubernetes Job remains active and cannot be retired.",
+              );
+            }
+            if (identity.kind === "Deployment") {
+              await assertLease();
+              const scaled = runKubectl(commandFor(config, "scale", resourceName, "--replicas=0"));
+              if (scaled.status !== 0) throw new TargetAdapterError("kubernetes_retirement_detach_failed", "Kubernetes workload traffic could not be detached.");
+              const inactive = runKubectl(commandFor(config, "wait", "--for=jsonpath={.status.replicas}=0", resourceName, "--timeout=300s"));
+              if (inactive.status !== 0) throw new TargetAdapterError("kubernetes_retirement_inactivity_unproven", "Kubernetes workload inactivity was not observed.");
+            }
+            await assertLease();
+            const removed = runKubectl(commandFor(config, "delete", resourceName, "--wait=true", "--timeout=300s"));
+            if (removed.status !== 0) throw new TargetAdapterError("kubernetes_retirement_delete_failed", "Kubernetes owned resource retirement failed.");
+            if (getResource().status === 0) throw new TargetAdapterError("kubernetes_retirement_inactivity_unproven", "Kubernetes retired resource remains observable.");
+            retired.push(action.logicalId);
+          }
+          const evidence = Object.freeze({kind: "kubernetes-retirement/v1", retired: Object.freeze(retired.sort())});
+          return {checkpointDigest: sha256Digest(evidence), evidence};
         }
         const bundlePhase = bundle.phases.find(({id}) => id === phaseMapping[phase]);
         if (!bundlePhase) {

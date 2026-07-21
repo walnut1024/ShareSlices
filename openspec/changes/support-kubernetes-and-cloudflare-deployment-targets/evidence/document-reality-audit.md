@@ -5,6 +5,11 @@
 Audit date: 2026-07-21. Rechecked against the repository and linked first-party
 manuals on 2026-07-22.
 
+This file is a chronological audit log. Later dated acceptance entries supersede
+earlier implementation-status statements; the current executable boundary lives
+in `docs/design/modules.md`, and current mutable account observations live in
+`evidence/current-prototype-execution-baseline.md`.
+
 ## Scope and method
 
 This audit compares the active change's proposal, design, delta specifications,
@@ -1200,3 +1205,61 @@ hardening, lease assertions, complete success cleanup, cleanup after probe
 failure, and refusal to delete changed ownership. Task 10.3 remains open until
 verified release retirement and the complete direct-apply acceptance chain are
 implemented and exercised on a real conforming cluster.
+
+## Thirty-sixth-pass pre-coding document alignment
+
+The 2026-07-22 documentation-only review stopped implementation and compared the
+durable deployment contract, current module map, active design and tasks, current
+prototype baseline, and current first-party Cloudflare, Resend, and Supabase
+manuals. It found no reason to change the two-target architecture: Kubernetes
+and Cloudflare remain mutually exclusive production compositions, Compose
+remains local/test-only, and optional Kubernetes CDN delivery does not select
+the Cloudflare target.
+
+One current-status defect was corrected. The design checkpoint still listed
+Kubernetes network probes as missing after the Adapter and module map recorded
+their local implementation. It now states that the probes exist but remain
+unqualified until they pass on a real conforming cluster. Safe retirement, deep
+verification, optional-CDN acceptance, real-cluster acceptance, and release
+qualification remain open; no task checkbox advances from this correction.
+
+The Cloudflare cost and shutdown contract was also made executable in the plan.
+The current Containers pricing page still shows no Free allocation and bounded
+included usage under Workers Paid, while Workers documentation recommends
+per-invocation CPU limits against runaway usage. The Cloudflare specification
+and tasks now require per-role Worker CPU limits, an emergency route/trigger
+shutdown procedure, and a prototype teardown checklist with post-cleanup
+inventory. Provider alerts or spend controls may be documented only when
+actually observed and are never described as a universal hard billing cap.
+
+The other external conclusions remain current: Static Assets requests that do
+not invoke Worker code are not billed as Worker requests, Worker-first requests
+remain subject to the Workers allowance and may return `429`, Queues Free has a
+smaller fixed retention envelope than Paid, `resend.dev` can send real test mail
+only to the Resend account address, and Supabase Free may pause after low
+activity and does not include the production backup contract. These are dated
+provider facts to refresh before live work, not durable ShareSlices guarantees.
+
+## Thirty-seventh-pass Kubernetes retirement acceptance
+
+The Kubernetes observer now inventories all installation-labelled managed
+resource kinds in addition to the desired bundle. Only resources with exact
+installation, Deployment Module owner, release, and desired-state digest markers
+are treated as owned. Active and previous release resources receive rollback
+retention and produce a non-executable, non-destructive `retain` plan action;
+unknown or incomplete markers remain reported orphans and keep ordinary apply
+fail-closed.
+
+After the replacement release is recorded active, direct retirement rereads the
+candidate and binds its API version, kind, namespace, name, digest, installation,
+release, and owner to the authorized plan. It automatically handles only old
+ConfigMaps, Deployments, Ingresses, and completed Jobs. Deployments scale to zero
+before removal, active Jobs and other kinds require review, the operation lease
+is asserted before each mutation, and deletion must be confirmed by absence.
+Rollback-retained or changed resources are never mutated.
+
+Focused tests and the complete deployment configuration gate cover retained
+resource planning, phase exclusion, incomplete ownership markers, successful
+old-Job cleanup, and rollback-resource refusal. Task 10.3 remains open because
+its acceptance is the complete direct chain through verification, release
+recording, retirement, and real-cluster evidence, not retirement alone.

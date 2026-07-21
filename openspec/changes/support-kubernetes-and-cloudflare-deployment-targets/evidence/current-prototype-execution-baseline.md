@@ -116,6 +116,8 @@ qualified or production-ready.
 
 - [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/)
 - [Containers pricing and plan requirement](https://developers.cloudflare.com/containers/pricing/)
+- [Static Assets billing and Free-plan Worker-first behavior](https://developers.cloudflare.com/workers/static-assets/billing-and-limitations/)
+- [Queues pricing and Free-plan retention](https://developers.cloudflare.com/queues/platform/pricing/)
 - [Workers Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)
 - [R2 public-bucket controls](https://developers.cloudflare.com/r2/buckets/public-buckets/)
 - [Supabase Free project pausing](https://supabase.com/docs/guides/platform/free-project-pausing)

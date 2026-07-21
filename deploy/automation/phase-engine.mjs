@@ -10,7 +10,7 @@ export class PhaseEngineError extends Error {
 
 function executableActions(plan, phase) {
   return plan.actions.filter(({ phase: actionPhase, action }) =>
-    actionPhase === phase && !["unchanged", "report_orphan"].includes(action));
+    actionPhase === phase && !["unchanged", "report_orphan", "retain"].includes(action));
 }
 
 export async function applyDeploymentPlan({

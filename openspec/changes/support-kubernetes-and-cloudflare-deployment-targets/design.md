@@ -92,10 +92,12 @@ for the next executable deployment plan:
   topology only. Compose is regression evidence, not a production target or
   production-target qualification evidence.
 - Kubernetes is the only production target with an implemented mutating
-  lifecycle path. It still lacks complete deep verification, network probes,
-  retirement, optional-CDN acceptance, real-cluster acceptance, and release
-  qualification. It therefore remains unavailable as a supported release
-  target.
+  lifecycle path. Its direct path now includes isolated pre-traffic network
+  probes, but those probes have not yet passed on a real conforming cluster. It
+  also implements conservative retirement of positively owned resources outside
+  the active and rollback releases. It still lacks complete deep verification,
+  optional-CDN acceptance, real-cluster acceptance, and release qualification.
+  It therefore remains unavailable as a supported release target.
 - The current Cloudflare account can exercise only bounded Workers
   Free-compatible prototypes plus separately enabled R2. This is not a third
   target and production `render`, `plan`, and `apply` must reject it. Trusted
@@ -120,6 +122,8 @@ provider resource. Provider facts are refreshed immediately before a live
 prototype and again before qualification.
 
 - [Cloudflare Containers](https://developers.cloudflare.com/containers/) require Workers Paid. A Container is controlled through a Durable Object, runs a `linux/amd64` image, uses ephemeral disk, defaults to a ten-minute `sleepAfter`, and receives `SIGTERM` before a fifteen-minute forced shutdown. Queue and scheduled handlers must explicitly address or start that Container; a Queue is not itself a Container scheduler. [Container SSH](https://developers.cloudflare.com/containers/ssh/) is enabled by default, so production images explicitly disable it and provide no authorized keys.
+- [Cloudflare Containers pricing](https://developers.cloudflare.com/containers/pricing/) currently provides no Free allocation and includes bounded Container usage with Workers Paid. Container, Worker, Durable Object, logging, and network dimensions remain separately relevant to cost. This dated provider fact justifies the Paid qualification gate but is not a fixed-price product promise; `doctor` and `plan` refresh entitlement and configured cost bounds before live use.
+- [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/) recommends a per-invocation CPU limit to reduce runaway-bill and denial-of-wallet exposure. Every live prototype and production Worker therefore declares a bounded CPU limit appropriate to its role, and operator documentation includes the provider controls and alerts that were actually observed rather than assuming a universal spend cap.
 - [Cloudflare Queue delivery](https://developers.cloudflare.com/queues/reference/delivery-guarantees/) is at least once, and a Queue-consumer invocation has a finite platform duration. The Queue handler therefore acknowledges only controller handoff; PostgreSQL, not the Queue acknowledgment, determines processing success and recovery.
 - [Workers limits](https://developers.cloudflare.com/workers/platform/limits/) include a 128 MB isolate limit, Cloudflare-account-plan-dependent inbound request limits, bundle and Static Assets limits, and bounded Queue or scheduled invocations. The request-body tiers follow the Cloudflare account plan (for example Free or Pro), not the separate Workers Free/Paid entitlement. The current default 50 MiB ShareSlices Upload fits the documented 100 MB minimum request-body tier, but that value is release-static evidence rather than a live account measurement. Deployment validation must classify provider-observed, release-static, and operator-evidenced facts and compare the configured Upload policy and generated Web assets with the qualified applicable values.
 - [Hyperdrive](https://developers.cloudflare.com/hyperdrive/reference/supported-databases-and-features/) supports the repository's `pg` and Drizzle path when `nodejs_compat` and a supported compatibility date are used, but it does not support advisory locks, `LISTEN`/`NOTIFY`, SQL-level prepared-statement management, or arbitrary session state. Its cache is enabled by default and is not invalidated by writes, so this target explicitly provisions cache-disabled configurations. The current first-party TLS contract says PostgreSQL `require` validates the certificate chain against WebPKI but does not perform the hostname match added by `verify-full`. Production qualification therefore selects `verify-full` or a subsequently qualified equivalent, proves hostname and certificate validation including a negative case, and never treats `pg_stat_ssl` or encryption alone as authenticated origin identity.

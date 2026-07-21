@@ -104,6 +104,93 @@ test("Kubernetes observation refuses unowned matching names", async () => {
   );
 });
 
+test("Kubernetes observation exposes only older positively owned resources as retirement candidates", async () => {
+  const desired = {
+    apiVersion: "apps/v1",
+    kind: "Deployment",
+    metadata: {namespace: "shareslices", name: "shareslices-api", annotations: {"shareslices.dev/resource-digest": digest("a")}},
+  };
+  const older = {
+    apiVersion: "batch/v1",
+    kind: "Job",
+    metadata: {
+      namespace: "shareslices",
+      name: "shareslices-migrate-old",
+      resourceVersion: "9",
+      labels: {
+        "shareslices.dev/installation": "example",
+        "shareslices.dev/release": "cccccccccccc",
+        "shareslices.dev/owner": "deployment-module",
+      },
+      annotations: {"shareslices.dev/resource-digest": digest("c")},
+    },
+  };
+  const previous = structuredClone(older);
+  previous.metadata.name = "shareslices-migrate-previous";
+  previous.metadata.labels["shareslices.dev/release"] = "bbbbbbbbbbbb";
+  const observe = createKubernetesStateObserver({
+    observeControl: async () => ({
+      controlSchema: {state: "present", revision: "control-8"},
+      releaseRecords: {active: {releaseId: digest("a")}, previous: {releaseId: digest("b")}},
+    }),
+  });
+  let calls = 0;
+  const result = await observe({
+    config: {
+      installationId: "example",
+      kubernetes: {context: "cluster", namespace: "shareslices", network: {egress: {mode: "stable-cidrs"}}},
+    },
+    bundle: {phases: [{resources: [desired]}]},
+    runKubectl: () => {
+      calls += 1;
+      if (calls === 1) return {status: 0, stdout: JSON.stringify({
+        ...desired,
+        metadata: {...desired.metadata, resourceVersion: "8", labels: {
+          "shareslices.dev/installation": "example",
+          "shareslices.dev/owner": "deployment-module",
+        }},
+      })};
+      return {status: 0, stdout: JSON.stringify({items: [older, previous]})};
+    },
+  });
+  const byName = Object.fromEntries(result.resources.map((resource) => [resource.logicalId, resource]));
+  assert.equal(byName["batch/v1/Job/shareslices/shareslices-migrate-old"].retention, "active");
+  assert.equal(byName["batch/v1/Job/shareslices/shareslices-migrate-previous"].retention, "rollback");
+});
+
+test("Kubernetes observation never owns an old resource without complete retirement markers", async () => {
+  const observe = createKubernetesStateObserver({
+    observeControl: async () => ({
+      controlSchema: {state: "present", revision: "control-incomplete-markers"},
+      releaseRecords: {},
+    }),
+  });
+  const result = await observe({
+    config: {installationId: "example", kubernetes: {context: "cluster", namespace: "shareslices"}},
+    bundle: {phases: []},
+    runKubectl: () => ({
+      status: 0,
+      stderr: "",
+      stdout: JSON.stringify({items: [{
+        apiVersion: "batch/v1",
+        kind: "Job",
+        metadata: {
+          namespace: "shareslices",
+          name: "shareslices-migrate-untrusted",
+          labels: {
+            "shareslices.dev/installation": "example",
+            "shareslices.dev/release": "not-a-release",
+            "shareslices.dev/owner": "deployment-module",
+          },
+          annotations: {},
+        },
+      }]}),
+    }),
+  });
+  assert.equal(result.resources[0].owner, "unknown");
+  assert.equal(result.resources[0].digest, null);
+});
+
 test("Kubernetes status projects recorded release, rollout, image, migration, and digest evidence", async () => {
   const releaseId = digest("a");
   const migrationReleaseId = digest("f");

@@ -239,6 +239,129 @@ test("direct apply executes authorized phases with migration and rollout gates",
   assert.equal(calls.filter(({input}) => input).every(({input}) => input.includes("shareslices.dev/resource-digest")), true);
 });
 
+test("direct apply retires only an old positively owned inactive resource after replacement verification", async () => {
+  const logicalId = "batch/v1/Job/shareslices/shareslices-old-migration";
+  const observedDigest = digest("d");
+  const oldReleaseId = digest("7");
+  const calls = [];
+  let deleted = false;
+  let leaseAssertions = 0;
+  const adapter = createKubernetesAdapter({
+    runKubectl: (arguments_) => {
+      calls.push(arguments_);
+      const command = arguments_.join(" ");
+      if (command.includes(" get job/shareslices-old-migration --output=json")) {
+        if (deleted) return {status: 1, stdout: "", stderr: "not found"};
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            apiVersion: "batch/v1",
+            kind: "Job",
+            metadata: {
+              namespace: "shareslices",
+              name: "shareslices-old-migration",
+              labels: {
+                "shareslices.dev/installation": config.installationId,
+                "shareslices.dev/owner": "deployment-module",
+                "shareslices.dev/release": oldReleaseId.slice(7, 19),
+              },
+              annotations: {"shareslices.dev/resource-digest": observedDigest},
+            },
+            status: {active: 0, succeeded: 1},
+          }),
+          stderr: "",
+        };
+      }
+      if (command.includes(" delete job/shareslices-old-migration ")) {
+        deleted = true;
+        return {status: 0, stdout: "job.batch/shareslices-old-migration deleted\n", stderr: ""};
+      }
+      return {status: 0, stdout: "resource/name\n", stderr: ""};
+    },
+    observeState: async () => ({
+      revision: "retirement-observed-1",
+      controlSchema: {state: "present", checksum: digest("6")},
+      releaseRecords: {
+        active: {releaseId: release.releaseId},
+        previous: {releaseId: digest("8")},
+      },
+      resources: [{
+        logicalId,
+        digest: observedDigest,
+        owner: "deployment-module",
+        retention: "active",
+      }],
+    }),
+    applyPlan: async ({executePhase}) => ({
+      outcome: "succeeded",
+      phases: [{
+        phase: "retirement",
+        ...(await executePhase({
+          phase: "retirement",
+          actions: [{logicalId, action: "retire", observedDigest}],
+          assertLease: async () => { leaseAssertions += 1; },
+        })),
+      }],
+    }),
+  });
+  const bundle = await adapter.render({config, release});
+  const result = await adapter.apply({
+    config,
+    release,
+    bundle,
+    plan: {planDigest: digest("5")},
+    authorizedPlanDigest: digest("5"),
+  });
+  assert.equal(result.outcome, "succeeded");
+  assert.equal(deleted, true);
+  assert.equal(leaseAssertions, 1);
+  assert.equal(result.phases[0].evidence.kind, "kubernetes-retirement/v1");
+  assert.deepEqual(result.phases[0].evidence.retired, [logicalId]);
+  assert.equal(calls.filter((arguments_) => arguments_.includes("delete")).length, 1);
+});
+
+test("direct apply refuses retirement of a rollback-retained resource without a cluster mutation", async () => {
+  const logicalId = "batch/v1/Job/shareslices/shareslices-previous-migration";
+  const calls = [];
+  const adapter = createKubernetesAdapter({
+    runKubectl: (arguments_) => {
+      calls.push(arguments_);
+      return {status: 0, stdout: "resource/name\n", stderr: ""};
+    },
+    observeState: async () => ({
+      revision: "retirement-observed-2",
+      controlSchema: {state: "present", checksum: digest("6")},
+      releaseRecords: {
+        active: {releaseId: release.releaseId},
+        previous: {releaseId: digest("8")},
+      },
+      resources: [{
+        logicalId,
+        digest: digest("d"),
+        owner: "deployment-module",
+        retention: "rollback",
+      }],
+    }),
+    applyPlan: async ({executePhase}) => executePhase({
+      phase: "retirement",
+      actions: [{logicalId, action: "retire", observedDigest: digest("d")}],
+      assertLease: async () => undefined,
+    }),
+  });
+  const bundle = await adapter.render({config, release});
+  await assert.rejects(
+    adapter.apply({
+      config,
+      release,
+      bundle,
+      plan: {planDigest: digest("5")},
+      authorizedPlanDigest: digest("5"),
+    }),
+    (error) => error.code === "kubernetes_retirement_ownership_unproven",
+  );
+  assert.equal(calls.length, 0);
+});
+
 test("GitOps apply returns an immutable handoff without mutating Kubernetes", async () => {
   const gitops = structuredClone(config);
   gitops.kubernetes.reconciliation = {mode: "gitops", owner: "external"};

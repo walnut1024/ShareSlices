@@ -39,11 +39,11 @@ function compareResources(desired, observed) {
     actions.push({
       logicalId: resource.logicalId,
       phase: "retirement",
-      action: owned && !retained ? "retire" : "report_orphan",
+      action: owned && retained ? "retain" : owned ? "retire" : "report_orphan",
       desiredDigest: null,
       observedDigest: resource.digest,
       securitySensitive: false,
-      destructive: !owned || retained,
+      destructive: !owned,
     });
   }
   return actions.sort((left, right) => {

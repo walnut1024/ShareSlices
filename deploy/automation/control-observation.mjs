@@ -8,7 +8,7 @@ import {loadControlSchema} from "./control-store.mjs";
 import {parseSecretReference, withResolvedSecret} from "./secrets.mjs";
 import {TargetAdapterError} from "./target-adapter.mjs";
 
-// cspell:ignore millis regclass
+// cspell:ignore ciliumnetworkpolicies millis networkpolicies poddisruptionbudgets regclass serviceaccounts
 const {Client} = pg;
 const controlTables = Object.freeze([
   "shareslices_deployment_control_metadata",
@@ -228,7 +228,9 @@ export function createKubernetesStateObserver({observeControl}) {
     const control = await observeControl({config});
     const resources = [];
     const versions = [];
+    const desiredIdentities = new Set();
     for (const desired of bundle.phases.flatMap((phase) => phase.resources)) {
+      desiredIdentities.add(resourceIdentity(desired));
       const result = runKubectl([
         "--context", config.kubernetes.context,
         "--namespace", config.kubernetes.namespace,
@@ -267,6 +269,66 @@ export function createKubernetesStateObserver({observeControl}) {
         retention: "active",
       });
       versions.push(`${resourceIdentity(desired)}:${observed.metadata.resourceVersion ?? "unknown"}:${digest}`);
+    }
+    const managedKinds = [
+      "configmaps", "deployments.apps", "jobs.batch", "ingresses.networking.k8s.io",
+      "networkpolicies.networking.k8s.io", "poddisruptionbudgets.policy",
+      "serviceaccounts", "services",
+      ...(config.kubernetes.network?.egress?.mode === "cni-fqdn-policy"
+        ? ["ciliumnetworkpolicies.cilium.io"]
+        : []),
+    ];
+    const listed = runKubectl([
+      "--context", config.kubernetes.context,
+      "--namespace", config.kubernetes.namespace,
+      "get", managedKinds.join(","),
+      `--selector=shareslices.dev/installation=${config.installationId}`,
+      "--output=json",
+    ]);
+    if (listed.status !== 0) {
+      throw new TargetAdapterError(
+        "kubernetes_inventory_observation_unavailable",
+        "Kubernetes release inventory could not be observed.",
+      );
+    }
+    let inventory;
+    try {
+      inventory = JSON.parse(listed.stdout);
+    } catch {
+      throw new TargetAdapterError(
+        "kubernetes_inventory_observation_invalid",
+        "Kubernetes returned an unreadable release inventory.",
+      );
+    }
+    for (const observed of inventory.items ?? []) {
+      const logicalId = resourceIdentity(observed);
+      if (desiredIdentities.has(logicalId)) continue;
+      const labels = observed.metadata?.labels ?? {};
+      const digest = observed.metadata?.annotations?.["shareslices.dev/resource-digest"] ?? null;
+      const releaseId = releaseForSuffix(control, labels["shareslices.dev/release"]);
+      const retainedReleaseIds = new Set([
+        control.releaseRecords?.active?.releaseId,
+        control.releaseRecords?.previous?.releaseId,
+      ].filter(Boolean));
+      const owner = labels["shareslices.dev/installation"] === config.installationId &&
+        labels["shareslices.dev/owner"] === "deployment-module" &&
+        /^[a-f0-9]{12}$/.test(labels["shareslices.dev/release"] ?? "") &&
+        /^sha256:[a-f0-9]{64}$/.test(digest ?? "")
+        ? "deployment-module"
+        : "unknown";
+      resources.push({
+        logicalId,
+        digest,
+        owner,
+        retention: releaseId && retainedReleaseIds.has(releaseId) ? "rollback" : "active",
+        releaseId,
+        ownershipMarkers: {
+          installation: labels["shareslices.dev/installation"] ?? null,
+          release: labels["shareslices.dev/release"] ?? null,
+          owner: labels["shareslices.dev/owner"] ?? null,
+        },
+      });
+      versions.push(`${logicalId}:${observed.metadata.resourceVersion ?? "unknown"}:${digest ?? "missing"}`);
     }
     const revision = sha256Digest({control: control.controlSchema.revision, resources: versions.sort()});
     return Object.freeze({

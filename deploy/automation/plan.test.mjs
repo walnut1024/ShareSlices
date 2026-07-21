@@ -194,6 +194,36 @@ test("refuses replacement of a deployment-owned durable resource", () => {
   assert.deepEqual(plan.refusalReasons, ["destructive_change_requires_review"]);
 });
 
+test("retains rollback resources without making an ordinary plan destructive", () => {
+  const plan = buildDeploymentPlan({
+    desired,
+    observed: {
+      revision: "observed-rollback-retained",
+      controlSchema: {state: "present", checksum},
+      resources: [
+        {
+          logicalId: "database/external",
+          digest: "external-1",
+          owner: "external-prerequisite",
+          retention: "external",
+        },
+        {
+          logicalId: "runtime/previous-api",
+          digest: "api-previous",
+          owner: "deployment-module",
+          retention: "rollback",
+        },
+      ],
+    },
+    controlSchemaChecksum: checksum,
+  });
+  const retained = plan.actions.find(({logicalId}) => logicalId === "runtime/previous-api");
+  assert.equal(retained.action, "retain");
+  assert.equal(retained.destructive, false);
+  assert.equal(plan.outcome, "ready");
+  assert.deepEqual(plan.refusalReasons, []);
+});
+
 test("plan digest binds the exact observed revision and is deterministic", () => {
   const input = {
     desired,

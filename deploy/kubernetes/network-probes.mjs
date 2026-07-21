@@ -3,6 +3,8 @@ import {stringify} from "yaml";
 import {sha256Digest} from "../automation/canonical.mjs";
 import {TargetAdapterError} from "../automation/target-adapter.mjs";
 
+// cspell:ignore automount
+
 const probeScript = `
 const net = require("node:net");
 const probes = JSON.parse(process.env.SHARESLICES_NETWORK_PROBES);
