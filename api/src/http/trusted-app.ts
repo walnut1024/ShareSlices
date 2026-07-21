@@ -32,12 +32,14 @@ export type TrustedHttpRoutes = Readonly<{
   gallery: Hono;
 }>;
 
-export function buildTrustedHttpApp(input: Readonly<{
+export type TrustedHttpAppInput = Readonly<{
   configuration: TrustedHttpConfiguration;
   logger: TrustedHttpLogger;
   routes: TrustedHttpRoutes;
   trustedIngress: TrustedIngressResolver;
-}>): Hono {
+}>;
+
+export function buildTrustedHttpApp(input: TrustedHttpAppInput): Hono {
   const app = new Hono();
 
   app.use("*", trustedIngressMiddleware(input.trustedIngress));

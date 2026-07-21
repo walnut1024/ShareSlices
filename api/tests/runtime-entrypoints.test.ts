@@ -127,4 +127,18 @@ describe("Node runtime entrypoint authority", () => {
     }
     expect(importedEnvironmentReaders(graph)).toEqual(new Set());
   });
+
+  it("keeps Cloudflare entrypoints free of Node startup and resident loops", () => {
+    const graph = reachableSources("cloudflare/runtime.ts");
+    const paths = [...graph.keys()].map((file) => file.slice(sourceRoot.length));
+    expect(paths.filter((path) => path === "env.ts" || path === "main.ts")).toEqual([]);
+    expect(paths.filter((path) => path.startsWith("maintenance/"))).toEqual([]);
+    expect(paths.filter((path) => path.includes("dispatcher"))).toEqual([]);
+    for (const content of graph.values()) {
+      expect(content).not.toContain("@hono/node-server");
+      expect(content).not.toContain("setInterval");
+      expect(content).not.toContain("node:");
+    }
+    expect(importedEnvironmentReaders(graph)).toEqual(new Set());
+  });
 });
