@@ -289,6 +289,25 @@ status, deployment-contract ownership note, local-stack prerequisite evidence,
 and historical low-cost report now distinguish the original proposal snapshot
 from current implementation state. Compose inputs and lifecycle policy are
 already owned under `deploy/`; only policy-free compatibility wrappers remain
-under `tools/`. Artifact and thumbnail processing use the shared resident Runner
-core, while the remaining Rust lanes and bounded Cloudflare path are still open
-work. No requirement, target boundary, or qualification gate changed.
+under `tools/`. At that checkpoint Artifact and thumbnail processing used the
+shared resident Runner core. No requirement, target boundary, or qualification
+gate changed.
+
+## Fifth-pass Runner-state correction
+
+The 2026-07-22 review after the next implementation batch found one stale
+statement in the fourth-pass snapshot. The resident Worker now runs Artifact
+processing, thumbnail, bundle-alias index rebuilding, Gallery safety, Gallery cover,
+and Gallery copy through `BackgroundLane` and the shared `Runner`; those
+resident lane migrations are no longer open work.
+
+This does **not** complete the bounded Cloudflare execution contract. The shared
+library has a bounded drain loop, but the Worker still has no production command
+that validates lane selection and maximum claims, idle observations, and wall
+time, applies a termination reserve consistently before every claim, and emits
+the machine-readable remaining-work outcome expected by the Jobs/Container
+composition. Kubernetes workload composition and explicit bounded in-flight
+termination behavior are also still pending. Tasks 7.1-7.4 therefore remain
+unchecked until those shared semantics and entrypoints are implemented and
+verified; the corrected resident inventory must not be used as Cloudflare
+qualification evidence.
