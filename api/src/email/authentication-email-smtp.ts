@@ -1,6 +1,12 @@
 import nodemailer, { type Transporter } from "nodemailer";
 import type { AuthenticationEmailPayload } from "../application/accounts/authentication-email.js";
 import { renderAuthenticationEmailMessage } from "./authentication-email-message.js";
+import {
+  authenticationEmailProviderPayload,
+  canonicalJson,
+  sha256Hex,
+  type AuthenticationEmailTransportAdapter,
+} from "./authentication-email-transport.js";
 
 export type AuthenticationEmailSmtpOptions = {
   url: string;
@@ -13,7 +19,7 @@ export type AuthenticationEmailSmtpOptions = {
   socketTimeoutMs: number;
 };
 
-export type AuthenticationEmailSmtpAdapter = {
+export type AuthenticationEmailSmtpAdapter = AuthenticationEmailTransportAdapter & {
   identity: Readonly<{
     adapter: "smtp";
     providerNamespace: string;
@@ -55,6 +61,27 @@ export function createAuthenticationEmailSmtpAdapter(
       endpointIdentity: endpoint.toString(),
       transportRevision: options.transportRevision,
       serializerRevision: "authentication-email-v1",
+    },
+    async prepare(payload, deliveryId) {
+      const providerPayload = authenticationEmailProviderPayload(options.from, payload);
+      return {
+        snapshot: {
+          adapter: "smtp",
+          providerNamespace: options.providerNamespace,
+          senderIdentity: options.from,
+          endpointIdentity: endpoint.toString(),
+          transportRevision: options.transportRevision,
+          serializerRevision: "authentication-email-v1",
+          payloadDigest: await sha256Hex(canonicalJson(providerPayload)),
+          providerIdempotencyKey: null,
+          providerSafeReplayUntil: null,
+          localMessageId: `<${deliveryId}@shareslices.local>`,
+        },
+        send: async () => ({
+          classification: "provider_accepted",
+          providerMessageId: await this.send(payload, deliveryId),
+        }),
+      };
     },
     async send(payload, deliveryId) {
       const message = renderAuthenticationEmailMessage(payload);

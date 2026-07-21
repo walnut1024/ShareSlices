@@ -1,5 +1,10 @@
 import type { AuthenticationEmailPayload } from "../application/accounts/authentication-email.js";
-import { renderAuthenticationEmailMessage } from "./authentication-email-message.js";
+import {
+  authenticationEmailProviderPayload,
+  canonicalJson,
+  sha256Hex,
+  type AuthenticationEmailTransportAdapter,
+} from "./authentication-email-transport.js";
 
 export const RESEND_API_URL = "https://api.resend.com/emails";
 export const RESEND_IDEMPOTENCY_RETENTION_MS = 24 * 60 * 60 * 1_000;
@@ -55,31 +60,73 @@ const permanentTypes = new Set([
   "security_error",
 ]);
 
-function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
-
 function senderDomain(from: string): string | null {
   const address = from.match(/(?:<)?[^<>\s@]+@([^<>\s@]+)>?$/)?.[1];
   return address?.toLowerCase() ?? null;
-}
-
-async function sha256Hex(value: string): Promise<string> {
-  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 export function resendPayload(
   from: string,
   payload: AuthenticationEmailPayload,
 ): ResendPayload {
-  const message = renderAuthenticationEmailMessage(payload);
-  return { from, to: [payload.email], ...message };
+  return authenticationEmailProviderPayload(from, payload);
+}
+
+export class ResendAuthenticationEmailTransportError extends Error {
+  constructor(public readonly outcome: Exclude<ResendSendOutcome["kind"], "provider_accepted">) {
+    super(outcome);
+    this.name = "ResendAuthenticationEmailTransportError";
+  }
+}
+
+export function createAuthenticationEmailResendAdapter(options: Readonly<{
+  apiKey: string;
+  from: string;
+  providerNamespace: string;
+  transportRevision: string;
+  safetyMarginMs: number;
+  fetch?: typeof fetch;
+}>): AuthenticationEmailTransportAdapter {
+  return {
+    async prepare(payload, deliveryId, preSendAt) {
+      const providerPayload = resendPayload(options.from, payload);
+      const frozen = await freezeResendTransport({
+        logicalDeliveryId: deliveryId,
+        payload: providerPayload,
+        providerNamespace: options.providerNamespace,
+        senderDomain: senderDomain(options.from) ?? "",
+        transportRevision: options.transportRevision,
+        preSendAtMs: preSendAt.getTime(),
+        safetyMarginMs: options.safetyMarginMs,
+      });
+      return {
+        snapshot: {
+          adapter: "resend",
+          providerNamespace: frozen.providerNamespace,
+          senderIdentity: options.from,
+          endpointIdentity: RESEND_API_URL,
+          transportRevision: frozen.transportRevision,
+          serializerRevision: "authentication-email-v1",
+          payloadDigest: frozen.payloadDigest,
+          providerIdempotencyKey: frozen.idempotencyKey,
+          providerSafeReplayUntil: new Date(frozen.providerSafeReplayUntilMs),
+          localMessageId: `<${deliveryId}@shareslices.local>`,
+        },
+        async send() {
+          const result = await sendWithResend({
+            apiKey: options.apiKey,
+            frozen,
+            payload: providerPayload,
+            ...(options.fetch ? { fetch: options.fetch } : {}),
+          });
+          if (result.kind !== "provider_accepted") {
+            throw new ResendAuthenticationEmailTransportError(result.kind);
+          }
+          return { classification: "provider_accepted", providerMessageId: result.providerMessageId };
+        },
+      };
+    },
+  };
 }
 
 export async function freezeResendTransport(input: Readonly<{

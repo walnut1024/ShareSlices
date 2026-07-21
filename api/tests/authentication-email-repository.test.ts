@@ -11,6 +11,7 @@ import {
   createAuthenticationEmailSmtpAdapter,
   type AuthenticationEmailSmtpAdapter
 } from "../src/email/authentication-email-smtp.js";
+import { createAuthenticationEmailResendAdapter } from "../src/email/authentication-email-resend.js";
 import { pool } from "../src/db/client.js";
 
 let smtpServer: SMTPServer;
@@ -24,6 +25,27 @@ const smtpIdentity = {
   transportRevision: "test-smtp-v1",
   serializerRevision: "authentication-email-v1" as const,
 };
+
+function smtpAdapterWithSend(
+  send: AuthenticationEmailSmtpAdapter["send"],
+): AuthenticationEmailSmtpAdapter {
+  return {
+    identity: smtpIdentity,
+    send,
+    async prepare(payload, deliveryId, preSendAt) {
+      const prepared = await smtpAdapter.prepare(payload, deliveryId, preSendAt);
+      return {
+        snapshot: prepared.snapshot,
+        send: async () => ({
+          classification: "provider_accepted",
+          providerMessageId: await send(payload, deliveryId),
+        }),
+      };
+    },
+    async verify() {},
+    close() {},
+  };
+}
 
 describe("authentication email repository", () => {
   beforeAll(async () => {
@@ -167,9 +189,7 @@ describe("authentication email repository", () => {
       payload: { email, otp: "123456", type: "email-verification" }
     });
 
-    const adapter: AuthenticationEmailSmtpAdapter = {
-      identity: smtpIdentity,
-      async send(_payload, deliveryId) {
+    const adapter = smtpAdapterWithSend(async (_payload, deliveryId) => {
         const initial = await pool.query<{ lease_expires_at: Date }>(
           "select lease_expires_at from authentication_email_delivery where id = $1",
           [deliveryId]
@@ -182,10 +202,7 @@ describe("authentication email repository", () => {
         expect(renewed.rows[0]!.lease_expires_at.getTime())
           .toBeGreaterThan(initial.rows[0]!.lease_expires_at.getTime());
         return `<${deliveryId}@shareslices.local>`;
-      },
-      async verify() {},
-      close() {}
-    };
+    });
 
     await expect(dispatchOneAuthenticationEmail("lease-test", adapter, {
       leaseSeconds: 0.3,
@@ -205,9 +222,7 @@ describe("authentication email repository", () => {
       payload: { email, otp: "123456", type: "email-verification" }
     });
 
-    const adapter: AuthenticationEmailSmtpAdapter = {
-      identity: smtpIdentity,
-      async send(_payload, deliveryId) {
+    const adapter = smtpAdapterWithSend(async (_payload, deliveryId) => {
         await pool.query(
           `update authentication_email_delivery
            set lease_owner = 'replacement-worker', lease_expires_at = now() + interval '1 minute'
@@ -215,10 +230,7 @@ describe("authentication email repository", () => {
           [deliveryId]
         );
         return `<${deliveryId}@shareslices.local>`;
-      },
-      async verify() {},
-      close() {}
-    };
+    });
 
     await expect(dispatchOneAuthenticationEmail("original-worker", adapter, {
       leaseSeconds: 1,
@@ -288,15 +300,10 @@ describe("authentication email repository", () => {
       payload: { email, otp: "123456", type: "email-verification" }
     });
     let sends = 0;
-    const adapter: AuthenticationEmailSmtpAdapter = {
-      identity: smtpIdentity,
-      async send() {
+    const adapter = smtpAdapterWithSend(async () => {
         sends += 1;
         throw new Error("response_lost_after_submission");
-      },
-      async verify() {},
-      close() {}
-    };
+    });
 
     await expect(dispatchOneAuthenticationEmail("indeterminate-worker", adapter)).resolves.toBe(true);
     await expect(dispatchOneAuthenticationEmail("next-worker", adapter)).resolves.toBe(false);
@@ -320,5 +327,44 @@ describe("authentication email repository", () => {
       failure_reason_code: "provider_outcome_unknown"
     }]);
     expect(sends).toBe(1);
+  });
+
+  it("freezes Resend idempotency evidence before the bounded provider call", async () => {
+    await pool.query("delete from authentication_email_delivery");
+    const email = "delivered+shareslices@resend.dev";
+    const attempt = await createVerificationAttempt({ email, purpose: "registration" });
+    await acceptAuthenticationEmailDelivery({
+      attemptId: attempt.id,
+      email,
+      purpose: "registration",
+      sourceIp: "203.0.113.81",
+      payload: { email, otp: "123456", type: "email-verification" }
+    });
+    const adapter = createAuthenticationEmailResendAdapter({
+      apiKey: "test-secret-key",
+      from: "ShareSlices <onboarding@resend.dev>",
+      providerNamespace: "test-team",
+      transportRevision: "resend-test-v1",
+      safetyMarginMs: 300_000,
+      fetch: async () => Response.json({ id: "resend-message-1" })
+    });
+
+    await expect(dispatchOneAuthenticationEmail("resend-worker", adapter)).resolves.toBe(true);
+
+    const delivery = await pool.query(
+      `select state, transport_adapter, provider_namespace, provider_idempotency_key,
+              provider_safe_replay_until, provider_message_id, result_classification
+       from authentication_email_delivery where attempt_id = $1`,
+      [attempt.id]
+    );
+    expect(delivery.rows[0]).toMatchObject({
+      state: "sent",
+      transport_adapter: "resend",
+      provider_namespace: "test-team",
+      provider_message_id: "resend-message-1",
+      result_classification: "provider_accepted"
+    });
+    expect(delivery.rows[0].provider_idempotency_key).toMatch(/^shareslices-email-v1\//);
+    expect(delivery.rows[0].provider_safe_replay_until).toBeInstanceOf(Date);
   });
 });

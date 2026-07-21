@@ -1,14 +1,16 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { decryptAuthenticationEmail } from "./authentication-email.js";
 import { directConnection, pool } from "../../db/client.js";
 import type { DirectClientSource } from "../../db/connection.js";
 import { readMaintenanceEnv } from "../../env.js";
 import {
-  createAuthenticationEmailSmtpAdapter,
-  type AuthenticationEmailSmtpAdapter
+  createAuthenticationEmailSmtpAdapter
 } from "../../email/authentication-email-smtp.js";
 import { apiLogger, exceptionAttributes } from "../../logging/index.js";
-import { renderAuthenticationEmailMessage } from "../../email/authentication-email-message.js";
+import type {
+  AuthenticationEmailTransportAdapter,
+  PreparedAuthenticationEmailTransport,
+} from "../../email/authentication-email-transport.js";
 
 type DeliveryRow = {
   id: string;
@@ -30,7 +32,7 @@ const smtpAdapter = createAuthenticationEmailSmtpAdapter({
 
 export async function dispatchOneAuthenticationEmail(
   workerId: string = randomUUID(),
-  adapter: AuthenticationEmailSmtpAdapter = smtpAdapter,
+  adapter: AuthenticationEmailTransportAdapter = smtpAdapter,
   timing: { leaseSeconds: number; heartbeatMs: number } = {
     leaseSeconds: env.AUTH_EMAIL_DELIVERY_LEASE_SECONDS,
     heartbeatMs: Math.max(100, Math.floor(env.AUTH_EMAIL_DELIVERY_LEASE_SECONDS * 1000 / 3))
@@ -42,6 +44,7 @@ export async function dispatchOneAuthenticationEmail(
     let payload: ReturnType<typeof decryptAuthenticationEmail> | undefined;
     let providerAttemptId: string | undefined;
     let fence: number | undefined;
+    let prepared: PreparedAuthenticationEmailTransport;
     try {
       await client.query("begin");
     const recovered = await client.query<{ id: string }>(
@@ -81,33 +84,34 @@ export async function dispatchOneAuthenticationEmail(
         return false;
       }
     payload = decryptAuthenticationEmail(delivery.encrypted_payload, env.AUTH_EMAIL_ENCRYPTION_KEY);
-    const message = renderAuthenticationEmailMessage(payload);
-    const payloadDigest = createHash("sha256").update(JSON.stringify({
-      from: adapter.identity.senderIdentity,
-      to: [payload.email],
-      ...message,
-    })).digest("hex");
+    prepared = await adapter.prepare(payload, delivery.id, new Date());
+    const snapshot = prepared.snapshot;
     fence = Number(delivery.delivery_revision) + 1;
     providerAttemptId = randomUUID();
     const claimedForSend = await client.query(
       `update authentication_email_delivery
        set state = 'sending', lease_owner = $2,
            lease_expires_at = now() + ($3 * interval '1 second'), attempt_count = attempt_count + 1,
-           delivery_revision = $4, transport_adapter = coalesce(transport_adapter, 'smtp'),
-           provider_namespace = coalesce(provider_namespace, $5),
-           sender_identity = coalesce(sender_identity, $6), endpoint_identity = coalesce(endpoint_identity, $7),
-           transport_configuration_revision = coalesce(transport_configuration_revision, $8),
-           serializer_revision = coalesce(serializer_revision, $9), payload_digest = coalesce(payload_digest, $10),
-           local_message_id = coalesce(local_message_id, $11)
+           delivery_revision = $4, transport_adapter = coalesce(transport_adapter, $5),
+           provider_namespace = coalesce(provider_namespace, $6),
+           sender_identity = coalesce(sender_identity, $7), endpoint_identity = coalesce(endpoint_identity, $8),
+           transport_configuration_revision = coalesce(transport_configuration_revision, $9),
+           serializer_revision = coalesce(serializer_revision, $10), payload_digest = coalesce(payload_digest, $11),
+           local_message_id = coalesce(local_message_id, $12),
+           provider_idempotency_key = coalesce(provider_idempotency_key, $13),
+           provider_safe_replay_until = coalesce(provider_safe_replay_until, $14)
        where id = $1 and state = 'pending'
          and (transport_adapter is null or (
-           transport_adapter = 'smtp' and provider_namespace = $5 and sender_identity = $6
-           and endpoint_identity = $7 and transport_configuration_revision = $8
-           and serializer_revision = $9 and payload_digest = $10 and local_message_id = $11
+           transport_adapter = $5 and provider_namespace = $6 and sender_identity = $7
+           and endpoint_identity = $8 and transport_configuration_revision = $9
+           and serializer_revision = $10 and payload_digest = $11 and local_message_id = $12
+           and provider_idempotency_key is not distinct from $13
+           and provider_safe_replay_until is not distinct from $14
          ))`,
-      [delivery.id, workerId, timing.leaseSeconds, fence, adapter.identity.providerNamespace,
-        adapter.identity.senderIdentity, adapter.identity.endpointIdentity, adapter.identity.transportRevision,
-        adapter.identity.serializerRevision, payloadDigest, `<${delivery.id}@shareslices.local>`]
+      [delivery.id, workerId, timing.leaseSeconds, fence, snapshot.adapter, snapshot.providerNamespace,
+        snapshot.senderIdentity, snapshot.endpointIdentity, snapshot.transportRevision,
+        snapshot.serializerRevision, snapshot.payloadDigest, snapshot.localMessageId,
+        snapshot.providerIdempotencyKey, snapshot.providerSafeReplayUntil]
     );
     if (claimedForSend.rowCount !== 1) throw new Error("authentication_email_transport_snapshot_conflict");
     await client.query(
@@ -142,9 +146,10 @@ export async function dispatchOneAuthenticationEmail(
     }, timing.heartbeatMs);
     heartbeat.unref();
 
-    let providerMessageId: string;
+    let providerMessageId: string | null;
     try {
-      providerMessageId = await adapter.send(payload, delivery.id);
+      const result = await prepared.send();
+      providerMessageId = result.providerMessageId;
     } catch (error) {
       try {
         await client.query("begin");

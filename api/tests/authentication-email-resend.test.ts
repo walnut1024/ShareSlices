@@ -3,6 +3,7 @@ import {
   RESEND_API_URL,
   RESEND_IDEMPOTENCY_RETENTION_MS,
   RESEND_USER_AGENT,
+  createAuthenticationEmailResendAdapter,
   freezeResendTransport,
   resendPayload,
   sendWithResend,
@@ -27,6 +28,41 @@ async function frozen() {
 }
 
 describe("authentication email Resend transport", () => {
+  it("prepares a bounded shared transport with the frozen provider request", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ id: "message-1" }));
+    const adapter = createAuthenticationEmailResendAdapter({
+      apiKey: "secret-key",
+      from: "ShareSlices <onboarding@resend.dev>",
+      providerNamespace: "team-a",
+      transportRevision: "test-v1",
+      safetyMarginMs: 300_000,
+      fetch,
+    });
+    const prepared = await adapter.prepare(
+      { email: "delivered+shareslices@resend.dev", otp: "123456", type: "email-verification" },
+      "delivery-123",
+      new Date(1_000_000),
+    );
+
+    expect(prepared.snapshot).toMatchObject({
+      adapter: "resend",
+      providerNamespace: "team-a",
+      senderIdentity: "ShareSlices <onboarding@resend.dev>",
+      endpointIdentity: RESEND_API_URL,
+      transportRevision: "test-v1",
+      serializerRevision: "authentication-email-v1",
+      localMessageId: "<delivery-123@shareslices.local>",
+    });
+    expect(prepared.snapshot.providerIdempotencyKey).toMatch(/^shareslices-email-v1\//);
+    expect(prepared.snapshot.providerSafeReplayUntil).toEqual(
+      new Date(1_000_000 + RESEND_IDEMPOTENCY_RETENTION_MS - 300_000),
+    );
+    await expect(prepared.send()).resolves.toEqual({
+      classification: "provider_accepted",
+      providerMessageId: "message-1",
+    });
+  });
+
   it("freezes deterministic identity and a non-extendable replay cutoff", async () => {
     const first = await frozen();
     const second = await frozen();
