@@ -1,5 +1,6 @@
 import nodemailer, { type Transporter } from "nodemailer";
 import type { AuthenticationEmailPayload } from "../application/accounts/authentication-email.js";
+import { renderAuthenticationEmailMessage } from "./authentication-email-message.js";
 
 export type AuthenticationEmailSmtpOptions = {
   url: string;
@@ -15,31 +16,6 @@ export type AuthenticationEmailSmtpAdapter = {
   verify(checkTo?: string): Promise<void>;
   close(): void;
 };
-
-type AuthenticationEmailMessage = { subject: string; text: string; html: string };
-
-function messageFor(payload: AuthenticationEmailPayload): AuthenticationEmailMessage {
-  if (payload.type === "password-changed") {
-    return {
-      subject: "Your ShareSlices password was changed",
-      text: "Your ShareSlices password was changed. If you did not make this change, contact your administrator.",
-      html: "<p>Your ShareSlices password was changed.</p><p>If you did not make this change, contact your administrator.</p>"
-    };
-  }
-
-  if (payload.type !== "email-verification" && payload.type !== "forget-password") {
-    throw new Error(`Unsupported authentication email type: ${payload.type}`);
-  }
-  const registration = payload.type === "email-verification";
-  const subject = registration ? "Verify your ShareSlices email" : "Reset your ShareSlices password";
-  const action = registration ? "verify your email" : "reset your password";
-  const code = payload.otp ?? "";
-  return {
-    subject,
-    text: `Use this code to ${action}: ${code}\n\nThis code expires in 10 minutes. If you did not request this, ignore this email.`,
-    html: `<p>Use this code to ${action}:</p><p><strong>${code}</strong></p><p>This code expires in 10 minutes.</p><p>If you did not request this, ignore this email.</p>`
-  };
-}
 
 export function createAuthenticationEmailSmtpAdapter(
   options: AuthenticationEmailSmtpOptions
@@ -58,7 +34,7 @@ export function createAuthenticationEmailSmtpAdapter(
 
   return {
     async send(payload, deliveryId) {
-      const message = messageFor(payload);
+      const message = renderAuthenticationEmailMessage(payload);
       const messageId = `<${deliveryId}@shareslices.local>`;
       const result = await transporter.sendMail({
         from: options.from,

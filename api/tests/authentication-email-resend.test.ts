@@ -1,0 +1,106 @@
+import { describe, expect, it, vi } from "vitest";
+import {
+  RESEND_API_URL,
+  RESEND_IDEMPOTENCY_RETENTION_MS,
+  RESEND_USER_AGENT,
+  freezeResendTransport,
+  resendPayload,
+  sendWithResend,
+} from "../src/email/authentication-email-resend.js";
+
+const payload = resendPayload("ShareSlices <onboarding@resend.dev>", {
+  email: "delivered+shareslices@resend.dev",
+  otp: "123456",
+  type: "email-verification",
+});
+
+async function frozen() {
+  return freezeResendTransport({
+    logicalDeliveryId: "delivery-123",
+    payload,
+    providerNamespace: "team-a",
+    senderDomain: "resend.dev",
+    transportRevision: "test-v1",
+    preSendAtMs: 1_000_000,
+    safetyMarginMs: 300_000,
+  });
+}
+
+describe("authentication email Resend transport", () => {
+  it("freezes deterministic identity and a non-extendable replay cutoff", async () => {
+    const first = await frozen();
+    const second = await frozen();
+    expect(first).toEqual(second);
+    expect(first.idempotencyKey).toMatch(/^shareslices-email-v1\/[a-f0-9]{64}$/);
+    expect(first.providerSafeReplayUntilMs).toBe(
+      1_000_000 + RESEND_IDEMPOTENCY_RETENTION_MS - 300_000,
+    );
+  });
+
+  it("refuses a declared sender domain that differs from the request", async () => {
+    await expect(freezeResendTransport({
+      logicalDeliveryId: "delivery-123",
+      payload,
+      providerNamespace: "team-a",
+      senderDomain: "example.com",
+      transportRevision: "test-v1",
+      preSendAtMs: 1_000_000,
+      safetyMarginMs: 300_000,
+    })).rejects.toThrow("resend_sender_domain_mismatch");
+  });
+
+  it("sends the minimal stable HTTPS request without attachments", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ id: "message-1" }));
+    const result = await sendWithResend({ apiKey: "secret-key", frozen: await frozen(), payload, fetch });
+
+    expect(result).toEqual({ kind: "provider_accepted", providerMessageId: "message-1", status: 200 });
+    expect(fetch).toHaveBeenCalledOnce();
+    const [url, init = {}] = fetch.mock.calls[0]!;
+    expect(url).toBe(RESEND_API_URL);
+    expect(init.headers).toMatchObject({
+      Authorization: "Bearer secret-key",
+      "Content-Type": "application/json",
+      "User-Agent": RESEND_USER_AGENT,
+    });
+    expect(JSON.parse(init.body as string)).toEqual(payload);
+    expect(JSON.parse(init.body as string)).not.toHaveProperty("attachments");
+  });
+
+  it("refuses changed provider bytes under a frozen idempotency key", async () => {
+    await expect(sendWithResend({
+      apiKey: "secret-key",
+      frozen: await frozen(),
+      payload: { ...payload, text: "changed" },
+      fetch: vi.fn(),
+    })).rejects.toThrow("resend_payload_changed");
+  });
+
+  it.each([
+    ["invalid_idempotent_request", 409, "permanent_failure"],
+    ["concurrent_idempotent_requests", 409, "retryable"],
+    ["daily_quota_exceeded", 429, "quota_exceeded"],
+    ["monthly_quota_exceeded", 429, "quota_exceeded"],
+    ["rate_limit_exceeded", 429, "retryable"],
+    ["invalid_api_key", 403, "permanent_failure"],
+    ["future_error", 400, "indeterminate"],
+  ] as const)("classifies %s conservatively", async (name, status, kind) => {
+    const result = await sendWithResend({
+      apiKey: "secret-key",
+      frozen: await frozen(),
+      payload,
+      fetch: async () => Response.json({ name }, { status }),
+    });
+    expect(result.kind).toBe(kind);
+  });
+
+  it("treats a network outcome as indeterminate and never returns the key", async () => {
+    const result = await sendWithResend({
+      apiKey: "secret-key",
+      frozen: await frozen(),
+      payload,
+      fetch: async () => { throw new Error("network failed with secret-key"); },
+    });
+    expect(result).toEqual({ kind: "indeterminate", errorType: "network_error", status: null, retryAfter: null });
+    expect(JSON.stringify(result)).not.toContain("secret-key");
+  });
+});
