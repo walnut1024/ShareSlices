@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import { documentMetadataController } from "./document-metadata";
 import { classifyRoute, resolveCanonicalLocation } from "./routing";
+import { initializeWebRuntimeConfig } from "./runtime-config";
 import "./styles.css";
 
 const requestedLocation =
@@ -12,6 +13,7 @@ if (canonicalLocation !== requestedLocation) {
   window.history.replaceState(null, "", canonicalLocation);
 }
 documentMetadataController.begin(classifyRoute(window.location.pathname));
+await initializeWebRuntimeConfig();
 
 const root = document.getElementById("root");
 

@@ -4,9 +4,15 @@
 		respond 204
 	}
 
+	handle /runtime-config.json {
+		header Cache-Control "no-store"
+		header Content-Type "application/json; charset=utf-8"
+		respond `{"apiOrigin":"{$PUBLIC_API_ORIGIN}","viewerOrigin":"{$PUBLIC_VIEWER_ORIGIN}","galleryContentOrigin":"{$PUBLIC_GALLERY_CONTENT_ORIGIN}","galleryTurnstileSiteKey":"{$PUBLIC_GALLERY_TURNSTILE_SITE_KEY}"}` 200
+	}
+
 	@nonCanonical {
 		not host {$WEB_CANONICAL_HOST}
-		not path /web-health
+		not path /web-health /runtime-config.json
 	}
 	redir @nonCanonical {$WEB_ORIGIN}{uri} 308
 

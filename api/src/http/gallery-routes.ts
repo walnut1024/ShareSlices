@@ -45,10 +45,11 @@ import {
   type GovernanceDecisionKind,
 } from "../application/gallery/governance.js";
 import { pool } from "../db/client.js";
-import { env } from "../env.js";
+import { readApiHttpEnv } from "../env.js";
 import { createConfiguredObjectStorage } from "../storage/index.js";
 import { requestId } from "./http-error.js";
 
+const env = readApiHttpEnv();
 const profile = z
   .object({
     displayName: z.string(),

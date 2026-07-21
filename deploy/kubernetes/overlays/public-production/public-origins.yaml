@@ -6,6 +6,10 @@ data:
   WEB_ORIGIN: https://app.shareslices.example.com
   API_ORIGIN: https://api.shareslices.example.com
   VIEWER_ORIGIN: https://view.shareslices.example.com
+  PUBLIC_API_ORIGIN: https://api.shareslices.example.com
+  PUBLIC_VIEWER_ORIGIN: https://view.shareslices.example.com
+  PUBLIC_GALLERY_CONTENT_ORIGIN: https://content.shareslices-cdn.net
+  PUBLIC_GALLERY_TURNSTILE_SITE_KEY: replace-with-public-site-key
   GALLERY_ENABLED: "true"
   GALLERY_CONTENT_ORIGIN: https://content.shareslices-cdn.net
   GALLERY_CONTENT_REGISTRABLE_SITE: shareslices-cdn.net
@@ -23,6 +27,12 @@ data:
   BETTER_AUTH_URL: https://api.shareslices.example.com
   Caddyfile: |
     :8080 {
+      handle /runtime-config.json {
+        header Cache-Control "no-store"
+        header Content-Type "application/json; charset=utf-8"
+        respond `{"apiOrigin":"{$PUBLIC_API_ORIGIN}","viewerOrigin":"{$PUBLIC_VIEWER_ORIGIN}","galleryContentOrigin":"{$PUBLIC_GALLERY_CONTENT_ORIGIN}","galleryTurnstileSiteKey":"{$PUBLIC_GALLERY_TURNSTILE_SITE_KEY}"}` 200
+      }
+
       handle /internal/* {
         respond 404
       }

@@ -8,12 +8,29 @@ The numbered sections group work by responsibility; they are not permission to i
 
 - Complete and archive `consolidate-local-development-stack` before moving Compose files or ownership.
 - Task 2.11 may create the non-Compose module skeleton before that dependency, but only 13.1-13.3 move Compose inputs, controller policy, or ownership. Execute 13.1-13.3 immediately after the dependency and before either production target relies on the local harness.
-- Complete 4.1-4.9 and the related runtime seams in section 7 before 4.10 and 13.4-13.10 update and accept the Compose role graph.
+- Complete the provider-neutral and Node-side runtime seams in 4.1-4.3,
+  4.5-4.7, 4.9, and 7.1-7.4 before 4.10 and 13.4-13.10 update and
+  accept the Compose role graph. Cloudflare-only entrypoints and parity work in
+  4.4 and 4.8, and Cloudflare wake/Container work in 7.5-7.10 and 7.13, do not
+  block Compose or Kubernetes. Task 7.11's Kubernetes resident-mode behavior
+  must pass before Kubernetes processing is accepted; its Cloudflare thumbnail
+  behavior remains independently gated by 1.8 and the Cloudflare tasks.
 - Complete the shared lifecycle and release contracts in sections 2, 3, and 8 before target lifecycle work in sections 10 and 12.
 - After those shared gates, Kubernetes composition/lifecycle work in sections 9-10 and Cloudflare composition/lifecycle work in sections 11-12 may proceed independently. Container-, Resend-domain-, or rollout-dependent Cloudflare work must retain its corresponding section 1 gate and cannot be counted as qualified from a Free-account or `resend.dev` prototype.
 - Complete cross-target verification and durable operator documentation in sections 14-15 only after the selected target paths and the canonical Compose harness they rely on are implemented.
 - A failed Cloudflare feasibility gate blocks Cloudflare capability completion and final archive, but it does not block Kubernetes implementation. If Kubernetes must ship first, move the unimplemented Cloudflare capability into a follow-up change rather than archiving it as implemented.
-- While qualification uses Workers Free, tasks 1.7 and 1.8 and every Container-dependent assertion in 1.10 remain pending rather than blocking independent Free-compatible prototypes. This sequencing does not waive the processing or thumbnail gates and does not permit the Cloudflare target to be marked complete.
+- While prototype execution uses Workers Free, tasks 1.7 and 1.8 and every
+  Container-dependent assertion in 1.10 remain pending rather than blocking
+  independent Free-compatible prototypes. Task 1.7 gates trusted background
+  processing; task 1.8 separately gates thumbnail generation and may be deferred
+  without hiding the unavailable capability. This sequencing does not waive
+  either gate and does not permit the Cloudflare target to be marked complete.
+- Treat Workers Free plus the separately enabled R2 subscription only as a
+  prototype execution profile. It is not a third target or a production input;
+  production `render`, `plan`, and `apply` must reject it. After every live
+  prototype, remove or disable all public or continuously invocable resources,
+  re-inventory actual provider state, and record an owner and expiry for any
+  private prerequisite deliberately retained for the next bounded prototype.
 - While no operator-owned sending domain exists, the Resend prototype may use `resend.dev` simulation addresses for API-shape, error, quota-header, idempotency, replay-cutoff, namespace-refusal, and redaction tests. Task 1.9 remains pending until a verified custom domain, disabled-tracking evidence, domain-scoped sending-access credentials, same-team/domain key rotation, and real provider-acceptance evidence pass.
 - While no operator-owned Cloudflare zones and distinct registrable sites exist, `workers.dev` may be used only for disposable provider-interface prototypes. Production ingress, trusted/content site isolation, custom-domain activation, and full Cloudflare acceptance remain pending. Buying or creating those external assets is not part of this change.
 - Recheck the mutable observations in `evidence/current-prototype-execution-baseline.md` before every live provider prototype. An authenticated CLI, R2 Paid, an active Supabase Free project, or an available Resend key grants no implicit permission to choose resources, expose public routes, retain billable services, or mark a production gate complete.
@@ -26,11 +43,11 @@ The numbered sections group work by responsibility; they are not permission to i
 - [x] 1.4 Prototype cache-disabled Hyperdrive for authentication, authorization, Viewer, Gallery, and job-state paths and identify every operation that requires a direct PostgreSQL connection.
 - [x] 1.5 Prototype bounded streaming Upload, export, Download, range reads, and private R2 multipart/object operations without buffering complete accepted payloads in Worker isolate memory.
 - [x] 1.6 Classify configurable Upload and generated Static Assets limits as provider-observed, release-static, or operator-evidenced; compare the configuration and generated build against the applicable qualified values and reject excesses. Do not describe a dated official table as a live account observation or treat R2 multipart as bypassing one inbound request limit.
-- [ ] 1.7 Build separate disposable spikes for a trusted Rust processing Container with direct TLS PostgreSQL and a secretless Rust/Chromium thumbnail Container using a read-only browser capture capability plus a separate controller/output capability through a private execution broker.
-- [ ] 1.8 Record evidence that the managed thumbnail Container and split-capability broker provide non-root, no-host-authority, no-privilege-escalation, capability, system-call, per-operation egress, audience separation, and termination isolation equivalent to the thumbnail contract; fail the Cloudflare thumbnail gate if they cannot.
+- [ ] 1.7 Build a disposable trusted Rust processing Container spike with direct TLS PostgreSQL, bounded execution, least-privilege credentials, qualified whole-Container egress controls, graceful termination, and no browser runtime. This independently gates the Cloudflare target's required background-processing lanes and remains pending while the account lacks Workers Paid.
+- [ ] 1.8 Build a separate disposable secretless Rust/Chromium thumbnail Container spike using a read-only browser capture capability plus a distinct controller/output capability through a private execution broker. Record evidence for non-root execution, no host authority, no privilege escalation, capability and system-call restrictions, per-operation egress, audience separation, and termination isolation equivalent to the thumbnail contract. This task may be deferred while Free-compatible prototypes continue, but thumbnail readiness MUST report unavailable and the Cloudflare target MUST remain unqualified until it passes; fail the Cloudflare thumbnail gate if equivalent isolation cannot be proven.
 - [ ] 1.9 Prove Resend HTTPS acceptance with required `User-Agent`, verified-domain sending-access key, disabled tracking, logical-delivery idempotency, same-team/domain key rotation, cross-team retry refusal, accepted provider message ID, error-type and quota classification, 24-hour indeterminate handling, and redacted logs.
 - [ ] 1.10 In disposable minimal scripts, prove only the provider interfaces needed before implementation: first-script bootstrap constraints; zero-percent App/Content version selection and fetch-Service-Binding version-ID evidence; version-scoped Secret behavior; Jobs `exports` incompatibility with version upload; immediate Jobs deployment identity and Secret preservation; Queue pause/resume and Cron attach/detach control-plane behavior; Container image availability, mixed rollout and retained-image rollback; Worker rollback/version-retention limits; and repeated Terraform/Wrangler ownership operations for Cron, Queue consumers, routes, custom domains, and bindings. Record provisional or blocked results per interface. Integrated nonce/fence, cross-storage quiescence, candidate compensation, full release verification, and end-to-end rollback are implementation acceptance in 11.20, 12.3-12.9, and 15.11 rather than duplicate feasibility prototypes.
-- [ ] 1.11 Publish the prototype and field-ownership support matrix; a failed gate stops only Cloudflare-target implementation and MUST NOT block Kubernetes delivery or trigger a target-specific product-policy workaround.
+- [ ] 1.11 Publish the prototype and field-ownership support matrix; distinguish Workers Free, R2 subscription, Workers Paid, and owned-domain prerequisites instead of collapsing them into one plan label. Record final provider inventory and cleanup evidence, including the owner and expiry of any intentionally retained private prerequisite. A failed gate stops only Cloudflare-target implementation and MUST NOT block Kubernetes delivery or trigger a target-specific product-policy workaround.
 
 ## 2. Product Vocabulary and Deployment Contracts
 
@@ -66,15 +83,15 @@ The numbered sections group work by responsibility; they are not permission to i
 
 ## 4. API and Web Runtime Composition
 
-- [ ] 4.1 Split configuration into validated API HTTP, maintenance, content-only, migration, Web bootstrap, and background-processing role schemas.
+- [x] 4.1 Split configuration into validated API HTTP, maintenance, content-only, migration, Web bootstrap, and background-processing role schemas.
 - [ ] 4.2 Extract trusted HTTP and content-only Hono application builders whose business Modules are shared by Node and Cloudflare entrypoints.
-- [ ] 4.3 Add distinct Node entrypoints for API HTTP, maintenance, content-only serving, and one-shot migration without importing unrelated role configuration.
+- [x] 4.3 Add distinct Node entrypoints for API HTTP, maintenance, content-only serving, and one-shot migration without importing unrelated role configuration.
 - [ ] 4.4 Add Cloudflare `fetch`, Queue, and scheduled entrypoints over the shared builders without starting resident loops in request isolates.
-- [ ] 4.5 Remove authentication-email and reconciliation dispatch loops from API HTTP startup and preserve them through the maintenance composition.
+- [x] 4.5 Remove authentication-email and reconciliation dispatch loops from API HTTP startup and preserve them through the maintenance composition.
 - [ ] 4.6 Add a trusted-ingress metadata Adapter that discards forged forwarding headers and normalizes Kubernetes trusted-proxy or Cloudflare runtime metadata.
-- [ ] 4.7 Replace environment-specific Web build arguments with a deployment-provided public runtime bootstrap that contains no Secrets and is safe to serve per installation.
+- [x] 4.7 Replace environment-specific Web build arguments with a deployment-provided public runtime bootstrap that contains no Secrets and is safe to serve per installation.
 - [ ] 4.8 Add cross-entrypoint contract tests proving Node and Cloudflare return the same statuses, headers, Cookies, errors, and route behavior for shared scenarios.
-- [ ] 4.9 Add dependency-graph tests proving the content-only builder has no management routes, Better Auth, credentialed CORS, email, Queue control, or mutation Adapter.
+- [x] 4.9 Add dependency-graph tests proving the content-only builder has no management routes, Better Auth, credentialed CORS, email, Queue control, or mutation Adapter.
 - [ ] 4.10 Keep the canonical Compose graph synchronized with the new API HTTP, maintenance/authentication-email, content-only, one-shot migration, resident processing, and Web roles; never recombine role authority only for local convenience.
 
 ## 5. PostgreSQL and Object-Storage Adapters

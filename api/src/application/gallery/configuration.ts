@@ -1,5 +1,26 @@
 import type { ApiEnv } from "../../env.js";
 
+type GalleryEnvironment = Pick<
+  ApiEnv,
+  | "WEB_ORIGIN"
+  | "API_ORIGIN"
+  | "GALLERY_ENABLED"
+  | "GALLERY_CONTENT_ORIGIN"
+  | "GALLERY_CONTENT_REGISTRABLE_SITE"
+  | "GALLERY_MANAGEMENT_COOKIE_DOMAIN"
+  | "GALLERY_NETWORK_POLICY"
+  | "GALLERY_GRANT_REVISION"
+  | "GALLERY_APPEAL_POLICY_REVISION"
+  | "GALLERY_CHALLENGE_VERIFIER_READY"
+  | "GALLERY_TURNSTILE_SECRET"
+  | "GALLERY_ADMINISTRATOR_AUTHORITY_READY"
+  | "GALLERY_REPORTING_READY"
+  | "GALLERY_NOTIFICATION_READY"
+  | "GALLERY_APPEAL_READY"
+  | "GALLERY_GOVERNANCE_READY"
+  | "GALLERY_ISOLATED_CONTENT_READY"
+>;
+
 export type GalleryCapabilityReadiness = Readonly<{
   currentGrant: boolean;
   challengeVerifier: boolean;
@@ -24,7 +45,7 @@ export type GalleryConfiguration = Readonly<{
   readiness: GalleryCapabilityReadiness;
 }>;
 
-export function galleryConfigurationFromEnv(env: ApiEnv): GalleryConfiguration {
+export function galleryConfigurationFromEnv(env: GalleryEnvironment): GalleryConfiguration {
   return {
     enabled: env.GALLERY_ENABLED,
     webOrigin: new URL(env.WEB_ORIGIN),

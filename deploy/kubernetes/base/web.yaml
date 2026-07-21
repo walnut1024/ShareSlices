@@ -21,6 +21,26 @@ spec:
                 configMapKeyRef:
                   name: shareslices-config
                   key: API_UPSTREAM
+            - name: PUBLIC_API_ORIGIN
+              valueFrom:
+                configMapKeyRef:
+                  name: shareslices-config
+                  key: PUBLIC_API_ORIGIN
+            - name: PUBLIC_VIEWER_ORIGIN
+              valueFrom:
+                configMapKeyRef:
+                  name: shareslices-config
+                  key: PUBLIC_VIEWER_ORIGIN
+            - name: PUBLIC_GALLERY_CONTENT_ORIGIN
+              valueFrom:
+                configMapKeyRef:
+                  name: shareslices-config
+                  key: PUBLIC_GALLERY_CONTENT_ORIGIN
+            - name: PUBLIC_GALLERY_TURNSTILE_SITE_KEY
+              valueFrom:
+                configMapKeyRef:
+                  name: shareslices-config
+                  key: PUBLIC_GALLERY_TURNSTILE_SITE_KEY
           ports:
             - name: http
               containerPort: 8080

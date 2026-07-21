@@ -2,7 +2,15 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { readEnv } from "../src/env.js";
+import {
+  readApiHttpEnv,
+  readBackgroundProcessingEnv,
+  readContentEnv,
+  readEnv,
+  readMaintenanceEnv,
+  readMigrationEnv,
+  readWebBootstrapEnv,
+} from "../src/env.js";
 import { galleryConfigurationFromEnv } from "../src/application/gallery/configuration.js";
 
 const validEnv = {
@@ -43,6 +51,70 @@ afterEach(() => {
 });
 
 describe("API environment", () => {
+  it("validates each runtime role without requiring another role's settings", () => {
+    const without = (...keys: string[]) => Object.fromEntries(
+      Object.entries(validEnv).filter(([key]) => !keys.includes(key)),
+    );
+
+    expect(readApiHttpEnv(without("AUTH_EMAIL_SMTP_URL", "AUTH_EMAIL_FROM")))
+      .not.toHaveProperty("AUTH_EMAIL_SMTP_URL");
+    expect(readMaintenanceEnv(without(
+      "BETTER_AUTH_SECRET",
+      "BETTER_AUTH_URL",
+      "VIEWER_ORIGIN",
+      "CONTENT_FINGERPRINT_KEY_CURRENT",
+      "CONTENT_FINGERPRINT_KEY_CURRENT_REVISION",
+      "CONTENT_IDENTITY_REVISION",
+      "ARTIFACT_PROCESSING_REVISION",
+      "ARTIFACT_RENDERER_REVISION",
+      "MINIMUM_CLI_VERSION",
+      "PORT",
+      "WORKER_JOB_POLL_INTERVAL_MS",
+      "WORKER_JOB_LEASE_SECONDS",
+      "WORKER_JOB_HEARTBEAT_SECONDS",
+      "WORKER_JOB_MAX_ATTEMPTS",
+    ))).not.toHaveProperty("BETTER_AUTH_SECRET");
+    expect(readContentEnv(without(
+      "AUTH_EMAIL_SMTP_URL",
+      "AUTH_EMAIL_FROM",
+      "BETTER_AUTH_SECRET",
+      "BETTER_AUTH_URL",
+      "VIEWER_ORIGIN",
+      "CONTENT_FINGERPRINT_KEY_CURRENT",
+      "CONTENT_FINGERPRINT_KEY_CURRENT_REVISION",
+      "IDEMPOTENCY_ENCRYPTION_KEY_CURRENT",
+      "IDEMPOTENCY_ENCRYPTION_KEY_CURRENT_REVISION",
+      "CONTENT_IDENTITY_REVISION",
+      "ARTIFACT_PROCESSING_REVISION",
+      "ARTIFACT_RENDERER_REVISION",
+      "MINIMUM_CLI_VERSION",
+      "PORT",
+      "WORKER_JOB_POLL_INTERVAL_MS",
+      "WORKER_JOB_LEASE_SECONDS",
+      "WORKER_JOB_HEARTBEAT_SECONDS",
+      "WORKER_JOB_MAX_ATTEMPTS",
+    ))).not.toHaveProperty("AUTH_EMAIL_ENCRYPTION_KEY");
+    expect(readMigrationEnv({ DATABASE_URL: validEnv.DATABASE_URL, NODE_ENV: "test" }))
+      .toEqual({ DATABASE_URL: validEnv.DATABASE_URL, NODE_ENV: "test" });
+    expect(readWebBootstrapEnv({
+      PUBLIC_API_ORIGIN: validEnv.API_ORIGIN,
+      PUBLIC_VIEWER_ORIGIN: validEnv.VIEWER_ORIGIN,
+    })).toEqual({ PUBLIC_API_ORIGIN: validEnv.API_ORIGIN, PUBLIC_VIEWER_ORIGIN: validEnv.VIEWER_ORIGIN });
+    expect(readBackgroundProcessingEnv(without(
+      "AUTH_EMAIL_SMTP_URL",
+      "AUTH_EMAIL_FROM",
+      "BETTER_AUTH_SECRET",
+      "BETTER_AUTH_URL",
+      "WEB_ORIGIN",
+      "API_ORIGIN",
+      "VIEWER_ORIGIN",
+      "IDEMPOTENCY_ENCRYPTION_KEY_CURRENT",
+      "IDEMPOTENCY_ENCRYPTION_KEY_CURRENT_REVISION",
+      "MINIMUM_CLI_VERSION",
+      "PORT",
+    ))).not.toHaveProperty("BETTER_AUTH_SECRET");
+  });
+
   it("keeps Gallery disabled with fail-closed capability defaults", () => {
     const gallery = galleryConfigurationFromEnv(readEnv(validEnv));
     expect(gallery).toMatchObject({

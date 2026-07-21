@@ -6,15 +6,18 @@ import { createConfiguredObjectStorage } from "../storage/index.js";
 import { GalleryReconciliation } from "../application/gallery/reconciliation.js";
 import { GalleryRollbackCoordinator } from "../application/gallery/rollback-coordinator.js";
 import { pool } from "../db/client.js";
-import { env } from "../env.js";
+import { readMaintenanceEnv } from "../env.js";
 import { evaluateGalleryEligibility } from "../application/gallery/eligibility.js";
 import { galleryConfigurationFromEnv } from "../application/gallery/configuration.js";
 import { observeGalleryCapabilityReadiness } from "../application/gallery/runtime-readiness.js";
 
 const intervalMilliseconds = 30_000;
 const batchSize = 100;
+const env = readMaintenanceEnv();
 
-export function startReconciliationDispatcher(): () => void {
+export function startReconciliationDispatcher(
+  options: { keepAlive?: boolean } = {},
+): () => void {
   const artifactRepositories = createArtifactRepositories();
   const module = new ReconciliationModule({
     repository: createReconciliationRepository(),
@@ -67,6 +70,6 @@ export function startReconciliationDispatcher(): () => void {
   };
   void run();
   const timer = setInterval(() => void run(), intervalMilliseconds);
-  timer.unref();
+  if (!options.keepAlive) timer.unref();
   return () => clearInterval(timer);
 }

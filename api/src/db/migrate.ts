@@ -3,9 +3,11 @@ import { readdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { apiLogger, exceptionAttributes } from "../logging/index.js";
+import { readMigrationEnv } from "../env.js";
 import { pool } from "./client.js";
 
 async function main(): Promise<void> {
+  readMigrationEnv();
   const migrationsDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "../../../db/migrations");
   const migrationFiles = (await readdir(migrationsDirectory)).filter((file) => file.endsWith(".sql")).sort();
 

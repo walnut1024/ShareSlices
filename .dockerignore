@@ -11,7 +11,10 @@ target
 coverage
 docs
 openspec
-deploy
+deploy/*
+!deploy/compose/
+deploy/compose/*
+!deploy/compose/Caddyfile
 **/tests
 **/*.test.ts
 **/*.test.tsx

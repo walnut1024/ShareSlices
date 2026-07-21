@@ -1,7 +1,9 @@
 import { serve } from "@hono/node-server";
 import { buildApp } from "../src/http/app.js";
 import { AuthenticationEmailDeliveryError, encryptAuthenticationEmail } from "../src/application/accounts/authentication-email.js";
-import { env } from "../src/env.js";
+import { readApiHttpEnv } from "../src/env.js";
+
+const env = readApiHttpEnv();
 
 const dependencyFailure = () => Promise.reject(new Error("contract fixture dependency failure"));
 const registrationEmail = "contract-registration@example.com";

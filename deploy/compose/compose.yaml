@@ -155,6 +155,24 @@ services:
       retries: 30
     restart: unless-stopped
 
+  maintenance:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    command: ["node", "dist/src/maintenance/main.js"]
+    environment: *api-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      object-storage-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "try{process.kill(1,0)}catch{process.exit(1)}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   gallery-content:
     build:
       context: .
@@ -232,6 +250,10 @@ services:
       API_UPSTREAM: api:7456
       WEB_ORIGIN: ${WEB_ORIGIN:-http://127.0.0.1:5173}
       WEB_CANONICAL_HOST: ${WEB_CANONICAL_HOST:-127.0.0.1}
+      PUBLIC_API_ORIGIN: ${API_ORIGIN:-http://127.0.0.1:7456}
+      PUBLIC_VIEWER_ORIGIN: ${VIEWER_ORIGIN:-http://127.0.0.1:5173}
+      PUBLIC_GALLERY_CONTENT_ORIGIN: ${GALLERY_CONTENT_ORIGIN:-}
+      PUBLIC_GALLERY_TURNSTILE_SITE_KEY: ""
     ports:
       - "127.0.0.1:${WEB_PORT:-5173}:8080"
     volumes:

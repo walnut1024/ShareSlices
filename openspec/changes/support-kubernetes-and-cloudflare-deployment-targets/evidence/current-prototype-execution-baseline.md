@@ -11,7 +11,7 @@ Observed on 2026-07-21 with non-mutating account and CLI commands. Mutable provi
 | Dependency | Current observation | Work allowed now | Work that remains blocked |
 | --- | --- | --- | --- |
 | Cloudflare authentication | Wrangler 4.112.0 is authenticated to the intended account | Read-only discovery and disposable Free-compatible Worker interface prototypes | Authentication alone does not prove plan entitlement, quota headroom, production routing, or target qualification |
-| Cloudflare plan | Billing evidence shows R2 Paid but no Workers Paid subscription | Workers Free-compatible Static Assets, Worker, R2, Queue, Hyperdrive, and control-plane prototypes within observed limits | Cloudflare Containers, trusted processing, thumbnail isolation, Container rollout and rollback, and full Cloudflare acceptance |
+| Cloudflare entitlements | Billing evidence shows an active R2 subscription but no Workers Paid subscription; Worker execution therefore remains on Workers Free | Workers Free-compatible Static Assets, Worker, R2, Queue, Hyperdrive, and control-plane prototypes within observed limits and the separately metered R2 subscription | Cloudflare Containers, trusted processing, thumbnail isolation, Container rollout and rollback, and full Cloudflare acceptance; R2 enablement does not upgrade Workers |
 | Cloudflare hostname | The account has a `workers.dev` subdomain | Disposable route prototypes that are removed after evidence collection | Production ingress, the separate trusted/content registrable-site boundary, Gallery eligibility, and custom-domain qualification |
 | R2 | R2 is enabled and prior disposable bucket operations succeeded | Private R2 binding, streaming, multipart, range, and object-contract prototypes | R2 availability does not qualify the complete target or permit public bucket exposure |
 | PostgreSQL | Supabase CLI can see one active Free project; this repository is not linked to it | Explicitly configured, disposable database and Hyperdrive compatibility probes that use operator-supplied references | Automatic project selection, production durability, backup and recovery claims, and uninterrupted availability; Free projects may pause after low activity |
@@ -20,16 +20,40 @@ Observed on 2026-07-21 with non-mutating account and CLI commands. Mutable provi
 
 ## Execution rule
 
-Implementation may continue on local Compose, Kubernetes, provider-neutral contracts, and Cloudflare interfaces supported by the current Free account. Each live Cloudflare prototype must use positively owned disposable resources, avoid production traffic, retain redacted evidence, and remove or disable public and billable resources after the check.
+Implementation may continue on local Compose, Kubernetes, provider-neutral
+contracts, and Cloudflare interfaces supported by the current combination of
+Workers Free and the separately enabled R2 subscription. This is a prototype
+execution profile, not a third Deployment target and not a reduced Cloudflare
+production target. It MUST NOT be accepted by production `render`, `plan`, or
+`apply`, and its evidence cannot qualify Kubernetes or Cloudflare.
+
+Each live Cloudflare prototype must use positively owned disposable resources,
+avoid production traffic, retain redacted evidence, and remove or disable every
+public route, trigger, consumer, Worker, and other continuously invocable or
+billable resource immediately after evidence collection. A retained private R2
+object, Hyperdrive configuration, or external database is permitted only when a
+named later prototype requires it, its owner and expiry are recorded, and it has
+no public ingress or active trigger. Final prototype cleanup must re-inventory
+the account rather than infer cleanup from successful delete commands.
 
 The following tasks remain incomplete until their real prerequisites exist:
 
-- Tasks 1.7 and 1.8 and every Container-dependent part of task 1.10
+- Task 1.7's required trusted-processing Container, task 1.8's independently
+  deferrable thumbnail Container, and every Container-dependent part of task
+  1.10
 - Task 1.9's verified-domain and credential-rotation acceptance
 - Production-domain and distinct-site work in sections 11, 12, and 15
 - Thumbnail-capability and full Cloudflare-target acceptance
 
-Deferring thumbnail generation does not make the full Cloudflare target Free-compatible. The Cloudflare target still requires trusted background processing, and the selected design implements that processing with Containers available only through Workers Paid. A prototype release may report thumbnail and processing capabilities unavailable, but it must not report the Cloudflare target qualified or production-ready.
+Deferring thumbnail generation does not make the full Cloudflare target
+Free-compatible. The Cloudflare target still requires trusted background
+processing, and the selected design implements that processing with Containers
+available only through Workers Paid. Trusted processing and thumbnail generation
+therefore have separate gates: task 1.7 cannot be satisfied by omitting
+thumbnails, and task 1.8 can remain deferred only while thumbnail readiness is
+reported unavailable. A Free-compatible prototype may report processing and
+thumbnail capabilities unavailable, but it must not report the Cloudflare target
+qualified or production-ready.
 
 ## Sources
 

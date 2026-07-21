@@ -648,7 +648,13 @@ their evidence cannot qualify a production target or bypass a later phase.
 4. **Extract runtime composition seams.**
    - Split HTTP serving from Node maintenance execution.
    - Add role-specific configuration and dependency composition.
-   - Add Node and Worker HTTP entrypoints over the same Hono builders.
+   - Add Node HTTP entrypoints over the same Hono builders first, then accept
+     the local Compose role graph and Kubernetes resident composition without
+     waiting for Cloudflare-only runtime work.
+   - Add Worker HTTP, Queue, and scheduled entrypoints only after their
+     database, storage, email, ingress-metadata, and bounded-processing Adapters
+     exist; then prove Node/Worker parity. Cloudflare-only entrypoints and
+     parity evidence do not gate the alternative Kubernetes target.
    - Add S3/R2, SMTP/Resend, Hyperdrive/direct PostgreSQL, and trusted-request-metadata Adapters.
    - Add resident and bounded Rust Runners over current processing Modules.
    - Move Web public configuration to deployment-provided runtime bootstrap data.
@@ -663,7 +669,15 @@ their evidence cannot qualify a production target or bypass a later phase.
 
 6. **Add the Cloudflare target.**
    - Add IaC for ShareSlices-owned durable resources inside existing accounts and zones.
-   - Package App, content, and jobs Workers, Static Assets, trusted processing images, and secretless thumbnail images from immutable release artifacts.
+   - Package App, content, and jobs Workers, Static Assets, and trusted
+     processing images from immutable release artifacts. Qualify the trusted
+     processing Container independently from thumbnail generation because the
+     former is required for the target's background work even when thumbnail
+     readiness is reported unavailable.
+   - Package and qualify the secretless thumbnail image and split-capability
+     broker as a separate capability milestone. Free-compatible prototype work
+     may continue while this milestone is deferred, but the target cannot be
+     called release-qualified until it passes.
    - Wire external PostgreSQL, private R2, Queues, schedules, and the Resend Adapter.
    - Re-run production composition qualification, then implement phased private prerequisites, unreachable bootstrap when required, staged versioned-Secret upload, access-controlled candidate verification, candidate-only first-install activation, failed-candidate removal, trigger and route activation, release recording, status, separate Worker/Container rollback, and owned-resource retirement.
 
@@ -683,6 +697,9 @@ The old Kubernetes example interface is removed only after the new renderer, mig
 - Kubernetes external CDN support is provider-neutral initially and does not provision a CDN account.
 - Cloudflare uses separate App, content, and jobs Workers plus on-demand trusted processing Containers and secretless Rust/Chromium thumbnail Containers.
 - Cloudflare uses external PostgreSQL, private R2, cache-disabled Hyperdrive, and Resend through a sending-access API key.
+- Workers Free plus a separately enabled R2 subscription is only a disposable
+  prototype execution profile. It is not a production Deployment target or a
+  reduced Cloudflare target, and production lifecycle operations reject it.
 - The content Worker uses a separate registrable site; a sibling management subdomain is insufficient.
 - PostgreSQL remains authoritative; D1 and Queue-owned business state are excluded.
 - Pinned Terraform owns the declared long-lived Cloudflare fields; pinned Wrangler owns Worker versions, version bindings, Durable Object migrations, Container configuration, and deployments; the Deployment Module owns its private release-state object.
@@ -694,6 +711,10 @@ The old Kubernetes example interface is removed only after the new renderer, mig
 - Compose remains the single non-production development and integration-test topology; it is not accepted by the production target discriminator or deployment lifecycle.
 - `deploy/` owns Compose inputs and automation, while `mise run dev`, `dev-status`, `dev-logs`, and `dev-down` remain the only supported interactive lifecycle and preserve the canonical local origins and developer data by default.
 - Local email uses Mailpit through the SMTP Adapter. The endpoint-and-Engine-locked `shareslices-test` project owns and removes only its test state, API and Web E2E use its dynamically discovered parameterized endpoints, and local verification reports provider-only checks as `not_applicable` rather than qualifying Kubernetes or Cloudflare.
+- Live provider prototypes remove or disable public routes, triggers, consumers,
+  Workers, and other continuously invocable resources after evidence capture.
+  Any private prerequisite retained for the next bounded prototype has an
+  explicit owner and expiry and is included in a final provider-state inventory.
 
 ## Open Questions
 

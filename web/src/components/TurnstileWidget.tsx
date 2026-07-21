@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { getWebRuntimeConfig } from "../runtime-config";
 
 declare global {
   interface Window {
@@ -15,8 +16,7 @@ export function TurnstileWidget({
   onToken: (token: string) => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
-  const siteKey = (import.meta as ImportMeta & { env?: Record<string, string> })
-    .env?.VITE_GALLERY_TURNSTILE_SITE_KEY;
+  const siteKey = getWebRuntimeConfig().galleryTurnstileSiteKey;
 
   useEffect(() => {
     if (!siteKey || !container.current) return;

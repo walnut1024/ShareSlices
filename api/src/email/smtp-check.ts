@@ -1,7 +1,8 @@
-import { env } from "../env.js";
+import { readSmtpProbeEnv } from "../env.js";
 import { apiLogger, exceptionAttributes } from "../logging/index.js";
 import { createAuthenticationEmailSmtpAdapter } from "./authentication-email-smtp.js";
 
+const env = readSmtpProbeEnv();
 const adapter = createAuthenticationEmailSmtpAdapter({
   url: env.AUTH_EMAIL_SMTP_URL,
   from: env.AUTH_EMAIL_FROM,

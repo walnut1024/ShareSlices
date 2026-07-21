@@ -203,3 +203,26 @@ further implementation:
 - The execution dependencies now mark `workers.dev` and `resend.dev` as
   prototype-only while owned production zones, distinct registrable sites, and
   a verified Resend sending domain are absent.
+
+## Second-pass clarification before runtime implementation
+
+A second documentation pass on 2026-07-21 found one remaining ambiguity rather
+than a new architecture defect: “the current Free account” collapsed independent
+Cloudflare entitlements. The observed account has Workers Free execution and a
+separately enabled R2 subscription; R2 enablement neither grants Workers Paid nor
+makes Containers available. The execution baseline, design defaults, and task
+dependencies now use those separate names.
+
+The same correction makes the current low-cost setup explicitly a disposable
+prototype execution profile. It is not a third Deployment target, a production
+configuration value, or a partially qualified Cloudflare target. Production
+`render`, `plan`, and `apply` must reject that profile. Live prototypes must
+remove or disable every public or continuously invocable resource after evidence
+capture, re-inventory provider state, and attach an owner and expiry to any
+private prerequisite deliberately retained for the next bounded experiment.
+
+This clarification matches the current first-party contracts: Containers have
+no Workers Free allocation, R2 has its own usage and subscription model,
+`resend.dev` is test-only, and Supabase Free projects may pause after low
+activity. It does not change the selected Kubernetes or Cloudflare production
+architecture.

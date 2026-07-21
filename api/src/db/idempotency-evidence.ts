@@ -1,5 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import { env } from "../env.js";
+import { readIdempotencyEnv } from "../env.js";
+
+const env = readIdempotencyEnv();
 
 const ALGORITHM = "aes-256-gcm";
 const NONCE_BYTES = 12;

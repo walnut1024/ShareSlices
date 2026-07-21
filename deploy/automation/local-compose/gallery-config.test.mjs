@@ -11,6 +11,7 @@ function configuration(overrides = {}) {
     services: {
       api: { environment },
       migrate: { environment: { WEB_ORIGIN: environment.WEB_ORIGIN } },
+      maintenance: { environment: { WEB_ORIGIN: environment.WEB_ORIGIN } },
       "gallery-content": { environment: { WEB_ORIGIN: environment.WEB_ORIGIN } },
       web: {
         environment: {

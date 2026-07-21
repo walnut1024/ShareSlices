@@ -3,11 +3,12 @@ import { galleryConfigurationFromEnv } from "../application/gallery/configuratio
 import { PostgresAdministratorReviewCredentialValidator, PostgresPublicPlayerCredentialValidator } from "../application/gallery/content-credentials.js";
 import { readGalleryRuntimeEligibility } from "../application/gallery/eligibility.js";
 import { pool } from "../db/client.js";
-import { env } from "../env.js";
+import { readContentEnv } from "../env.js";
 import { createConfiguredObjectStorage } from "../storage/configured-object-storage.js";
 import { GalleryContentObjectStorage, PostgresGalleryContentLookup } from "./adapters.js";
 import { buildGalleryContentApp } from "./app.js";
 
+const env = readContentEnv();
 const configuration = galleryConfigurationFromEnv(env);
 const liveEligible = async () =>
   (await readGalleryRuntimeEligibility(pool, configuration)).eligible;

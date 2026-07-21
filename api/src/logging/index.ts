@@ -1,4 +1,4 @@
-import { env } from "../env.js";
+import { readRuntimeEnv } from "../env.js";
 import { createLogRecord, type LogRecordInput, type SeverityText } from "./log-record.js";
 
 export * from "./log-record.js";
@@ -43,5 +43,5 @@ export function createApiLogger(options: ApiLoggerOptions): ApiLogger {
 
 export const apiLogger = createApiLogger({
   serviceVersion: "0.0.1",
-  deploymentEnvironment: env.NODE_ENV
+  deploymentEnvironment: readRuntimeEnv().NODE_ENV
 });

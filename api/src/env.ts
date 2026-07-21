@@ -15,8 +15,7 @@ const mailbox = z.string().trim().refine((value) => {
   return addresses.length === 1 && Boolean(addresses[0]?.address);
 }, "Must contain exactly one mailbox.");
 
-const envSchema = z
-  .object({
+const envFieldsSchema = z.object({
     DATABASE_URL: z.string().url(),
     BETTER_AUTH_SECRET: z.string().min(32),
     BETTER_AUTH_URL: z.string().url(),
@@ -82,8 +81,9 @@ const envSchema = z
     AUTH_EMAIL_CIRCUIT_BREAKER_SECONDS: z.coerce.number().int().positive().default(300),
     PORT: z.coerce.number().int().positive().default(7456),
     NODE_ENV: z.enum(["development", "test", "production"]).default("development")
-  })
-  .superRefine((value, context) => {
+  });
+
+export const envSchema = envFieldsSchema.superRefine((value, context) => {
     for (const [keyField, revisionField] of [
       ["CONTENT_FINGERPRINT_KEY_PREVIOUS", "CONTENT_FINGERPRINT_KEY_PREVIOUS_REVISION"],
       ["IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS", "IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS_REVISION"]
@@ -143,14 +143,285 @@ const envSchema = z
 
 export type ApiEnv = z.infer<typeof envSchema>;
 
-export function readEnv(source: NodeJS.ProcessEnv = process.env): ApiEnv {
+const apiHttpEnvSchema = envFieldsSchema.pick({
+  DATABASE_URL: true,
+  BETTER_AUTH_SECRET: true,
+  BETTER_AUTH_URL: true,
+  WEB_ORIGIN: true,
+  API_ORIGIN: true,
+  VIEWER_ORIGIN: true,
+  GALLERY_ENABLED: true,
+  GALLERY_CONTENT_ORIGIN: true,
+  GALLERY_CONTENT_REGISTRABLE_SITE: true,
+  GALLERY_MANAGEMENT_COOKIE_DOMAIN: true,
+  GALLERY_NETWORK_POLICY: true,
+  GALLERY_GRANT_REVISION: true,
+  GALLERY_APPEAL_POLICY_REVISION: true,
+  GALLERY_CHALLENGE_VERIFIER_READY: true,
+  GALLERY_TURNSTILE_SECRET: true,
+  GALLERY_ADMINISTRATOR_AUTHORITY_READY: true,
+  GALLERY_REPORTING_READY: true,
+  GALLERY_NOTIFICATION_READY: true,
+  GALLERY_APPEAL_READY: true,
+  GALLERY_GOVERNANCE_READY: true,
+  GALLERY_ISOLATED_CONTENT_READY: true,
+  S3_ENDPOINT: true,
+  S3_REGION: true,
+  S3_BUCKET: true,
+  S3_ACCESS_KEY_ID: true,
+  S3_SECRET_ACCESS_KEY: true,
+  S3_FORCE_PATH_STYLE: true,
+  WORKER_JOB_MAX_ATTEMPTS: true,
+  CONTENT_FINGERPRINT_KEY_CURRENT: true,
+  CONTENT_FINGERPRINT_KEY_CURRENT_REVISION: true,
+  CONTENT_FINGERPRINT_KEY_PREVIOUS: true,
+  CONTENT_FINGERPRINT_KEY_PREVIOUS_REVISION: true,
+  IDEMPOTENCY_ENCRYPTION_KEY_CURRENT: true,
+  IDEMPOTENCY_ENCRYPTION_KEY_CURRENT_REVISION: true,
+  IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS: true,
+  IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS_REVISION: true,
+  CONTENT_IDENTITY_REVISION: true,
+  ARTIFACT_PROCESSING_REVISION: true,
+  ARTIFACT_RENDERER_REVISION: true,
+  MINIMUM_CLI_VERSION: true,
+  REQUIRE_EMAIL_VERIFICATION: true,
+  AUTH_EMAIL_ENCRYPTION_KEY: true,
+  AUTH_EMAIL_RESEND_SECONDS: true,
+  AUTH_EMAIL_PER_EMAIL_HOUR: true,
+  AUTH_EMAIL_PER_EMAIL_DAY: true,
+  AUTH_EMAIL_PER_IP_HOUR: true,
+  AUTH_EMAIL_PER_IP_DAY: true,
+  AUTH_EMAIL_GLOBAL_HOUR: true,
+  AUTH_EMAIL_CIRCUIT_BREAKER_SECONDS: true,
+  PORT: true,
+  NODE_ENV: true,
+}).superRefine((value, context) => {
+  for (const [keyField, revisionField] of [
+    ["CONTENT_FINGERPRINT_KEY_PREVIOUS", "CONTENT_FINGERPRINT_KEY_PREVIOUS_REVISION"],
+    ["IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS", "IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS_REVISION"],
+  ] as const) {
+    if (Boolean(value[keyField]) !== Boolean(value[revisionField])) {
+      context.addIssue({ code: "custom", path: [keyField], message: `${keyField} and ${revisionField} must be configured together.` });
+    }
+  }
+  if (value.GALLERY_ENABLED && (!value.GALLERY_CONTENT_ORIGIN || !value.GALLERY_CONTENT_REGISTRABLE_SITE)) {
+    context.addIssue({ code: "custom", path: ["GALLERY_CONTENT_ORIGIN"], message: "Enabled Gallery requires an explicit content Origin and registrable site." });
+  }
+  if (value.GALLERY_CHALLENGE_VERIFIER_READY && !value.GALLERY_TURNSTILE_SECRET) {
+    context.addIssue({ code: "custom", path: ["GALLERY_TURNSTILE_SECRET"], message: "Challenge-verifier readiness requires a configured Turnstile secret." });
+  }
+});
+
+const maintenanceEnvSchema = envFieldsSchema.pick({
+  DATABASE_URL: true,
+  WEB_ORIGIN: true,
+  API_ORIGIN: true,
+  GALLERY_ENABLED: true,
+  GALLERY_CONTENT_ORIGIN: true,
+  GALLERY_CONTENT_REGISTRABLE_SITE: true,
+  GALLERY_MANAGEMENT_COOKIE_DOMAIN: true,
+  GALLERY_NETWORK_POLICY: true,
+  GALLERY_GRANT_REVISION: true,
+  GALLERY_APPEAL_POLICY_REVISION: true,
+  GALLERY_CHALLENGE_VERIFIER_READY: true,
+  GALLERY_TURNSTILE_SECRET: true,
+  GALLERY_ADMINISTRATOR_AUTHORITY_READY: true,
+  GALLERY_REPORTING_READY: true,
+  GALLERY_NOTIFICATION_READY: true,
+  GALLERY_APPEAL_READY: true,
+  GALLERY_GOVERNANCE_READY: true,
+  GALLERY_ISOLATED_CONTENT_READY: true,
+  S3_ENDPOINT: true,
+  S3_REGION: true,
+  S3_BUCKET: true,
+  S3_ACCESS_KEY_ID: true,
+  S3_SECRET_ACCESS_KEY: true,
+  S3_FORCE_PATH_STYLE: true,
+  IDEMPOTENCY_ENCRYPTION_KEY_CURRENT: true,
+  IDEMPOTENCY_ENCRYPTION_KEY_CURRENT_REVISION: true,
+  IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS: true,
+  IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS_REVISION: true,
+  AUTH_EMAIL_ENCRYPTION_KEY: true,
+  AUTH_EMAIL_SMTP_URL: true,
+  AUTH_EMAIL_FROM: true,
+  AUTH_EMAIL_DELIVERY_LEASE_SECONDS: true,
+  AUTH_EMAIL_SMTP_DNS_TIMEOUT_MS: true,
+  AUTH_EMAIL_SMTP_CONNECTION_TIMEOUT_MS: true,
+  AUTH_EMAIL_SMTP_GREETING_TIMEOUT_MS: true,
+  AUTH_EMAIL_SMTP_SOCKET_TIMEOUT_MS: true,
+  AUTH_EMAIL_RETRY_DELAY_SECONDS: true,
+  AUTH_EMAIL_MAX_ATTEMPTS: true,
+  AUTH_EMAIL_CIRCUIT_BREAKER_SECONDS: true,
+  NODE_ENV: true,
+}).superRefine((value, context) => {
+  if (Boolean(value.IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS) !== Boolean(value.IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS_REVISION)) {
+    context.addIssue({ code: "custom", path: ["IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS"], message: "Previous idempotency key and revision must be configured together." });
+  }
+  if (value.GALLERY_ENABLED && (!value.GALLERY_CONTENT_ORIGIN || !value.GALLERY_CONTENT_REGISTRABLE_SITE)) {
+    context.addIssue({ code: "custom", path: ["GALLERY_CONTENT_ORIGIN"], message: "Enabled Gallery requires an explicit content Origin and registrable site." });
+  }
+  const smtpUrl = new URL(value.AUTH_EMAIL_SMTP_URL);
+  if (!(["smtp:", "smtps:"] as const).includes(smtpUrl.protocol as "smtp:" | "smtps:")) {
+    context.addIssue({ code: "custom", path: ["AUTH_EMAIL_SMTP_URL"], message: "SMTP URL must use smtp or smtps." });
+  }
+  if (smtpUrl.searchParams.get("tls.rejectUnauthorized") === "false") {
+    context.addIssue({ code: "custom", path: ["AUTH_EMAIL_SMTP_URL"], message: "SMTP TLS certificate validation cannot be disabled." });
+  }
+  if (value.NODE_ENV === "production" && smtpUrl.protocol === "smtp:" && smtpUrl.searchParams.get("requireTLS") !== "true") {
+    context.addIssue({ code: "custom", path: ["AUTH_EMAIL_SMTP_URL"], message: "Production smtp URLs must require STARTTLS." });
+  }
+});
+
+const contentEnvSchema = envFieldsSchema.pick({
+  DATABASE_URL: true,
+  WEB_ORIGIN: true,
+  API_ORIGIN: true,
+  GALLERY_ENABLED: true,
+  GALLERY_CONTENT_ORIGIN: true,
+  GALLERY_CONTENT_REGISTRABLE_SITE: true,
+  GALLERY_CONTENT_PORT: true,
+  GALLERY_MANAGEMENT_COOKIE_DOMAIN: true,
+  GALLERY_NETWORK_POLICY: true,
+  GALLERY_GRANT_REVISION: true,
+  GALLERY_APPEAL_POLICY_REVISION: true,
+  GALLERY_CHALLENGE_VERIFIER_READY: true,
+  GALLERY_TURNSTILE_SECRET: true,
+  GALLERY_ADMINISTRATOR_AUTHORITY_READY: true,
+  GALLERY_REPORTING_READY: true,
+  GALLERY_NOTIFICATION_READY: true,
+  GALLERY_APPEAL_READY: true,
+  GALLERY_GOVERNANCE_READY: true,
+  GALLERY_ISOLATED_CONTENT_READY: true,
+  S3_ENDPOINT: true,
+  S3_REGION: true,
+  S3_BUCKET: true,
+  S3_ACCESS_KEY_ID: true,
+  S3_SECRET_ACCESS_KEY: true,
+  S3_FORCE_PATH_STYLE: true,
+  NODE_ENV: true,
+}).superRefine((value, context) => {
+  if (value.GALLERY_ENABLED && (!value.GALLERY_CONTENT_ORIGIN || !value.GALLERY_CONTENT_REGISTRABLE_SITE)) {
+    context.addIssue({ code: "custom", path: ["GALLERY_CONTENT_ORIGIN"], message: "Enabled Gallery requires an explicit content Origin and registrable site." });
+  }
+});
+
+const migrationEnvSchema = envFieldsSchema.pick({ DATABASE_URL: true, NODE_ENV: true });
+const databaseEnvSchema = envFieldsSchema.pick({ DATABASE_URL: true });
+const runtimeEnvSchema = envFieldsSchema.pick({ NODE_ENV: true });
+const storageEnvSchema = envFieldsSchema.pick({
+  S3_ENDPOINT: true,
+  S3_REGION: true,
+  S3_BUCKET: true,
+  S3_ACCESS_KEY_ID: true,
+  S3_SECRET_ACCESS_KEY: true,
+  S3_FORCE_PATH_STYLE: true,
+});
+const idempotencyEnvSchema = envFieldsSchema.pick({
+  IDEMPOTENCY_ENCRYPTION_KEY_CURRENT: true,
+  IDEMPOTENCY_ENCRYPTION_KEY_CURRENT_REVISION: true,
+  IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS: true,
+  IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS_REVISION: true,
+}).superRefine((value, context) => {
+  if (Boolean(value.IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS) !== Boolean(value.IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS_REVISION)) {
+    context.addIssue({ code: "custom", path: ["IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS"], message: "Previous idempotency key and revision must be configured together." });
+  }
+});
+const smtpProbeEnvSchema = envFieldsSchema.pick({
+  AUTH_EMAIL_SMTP_URL: true,
+  AUTH_EMAIL_FROM: true,
+  AUTH_EMAIL_SMTP_CHECK_TO: true,
+  AUTH_EMAIL_SMTP_DNS_TIMEOUT_MS: true,
+  AUTH_EMAIL_SMTP_CONNECTION_TIMEOUT_MS: true,
+  AUTH_EMAIL_SMTP_GREETING_TIMEOUT_MS: true,
+  AUTH_EMAIL_SMTP_SOCKET_TIMEOUT_MS: true,
+  NODE_ENV: true,
+});
+const webBootstrapEnvSchema = z.object({
+    PUBLIC_API_ORIGIN: z.string().url(),
+    PUBLIC_VIEWER_ORIGIN: z.string().url(),
+    PUBLIC_GALLERY_CONTENT_ORIGIN: z.preprocess((value) => value === "" ? undefined : value, z.string().url().optional()),
+    PUBLIC_GALLERY_TURNSTILE_SITE_KEY: z.preprocess(
+    (value) => value === "" ? undefined : value,
+    z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).optional(),
+  ),
+});
+const backgroundProcessingEnvSchema = envFieldsSchema.pick({
+  DATABASE_URL: true,
+  S3_ENDPOINT: true,
+  S3_REGION: true,
+  S3_BUCKET: true,
+  S3_ACCESS_KEY_ID: true,
+  S3_SECRET_ACCESS_KEY: true,
+  S3_FORCE_PATH_STYLE: true,
+  WORKER_JOB_POLL_INTERVAL_MS: true,
+  WORKER_JOB_LEASE_SECONDS: true,
+  WORKER_JOB_HEARTBEAT_SECONDS: true,
+  WORKER_JOB_MAX_ATTEMPTS: true,
+  CONTENT_FINGERPRINT_KEY_CURRENT: true,
+  CONTENT_FINGERPRINT_KEY_CURRENT_REVISION: true,
+  CONTENT_FINGERPRINT_KEY_PREVIOUS: true,
+  CONTENT_FINGERPRINT_KEY_PREVIOUS_REVISION: true,
+  CONTENT_IDENTITY_REVISION: true,
+  ARTIFACT_PROCESSING_REVISION: true,
+  ARTIFACT_RENDERER_REVISION: true,
+  NODE_ENV: true,
+}).superRefine((value, context) => {
+  if (Boolean(value.CONTENT_FINGERPRINT_KEY_PREVIOUS) !== Boolean(value.CONTENT_FINGERPRINT_KEY_PREVIOUS_REVISION)) {
+    context.addIssue({ code: "custom", path: ["CONTENT_FINGERPRINT_KEY_PREVIOUS"], message: "Previous content-fingerprint key and revision must be configured together." });
+  }
+  if (value.WORKER_JOB_HEARTBEAT_SECONDS >= value.WORKER_JOB_LEASE_SECONDS) {
+    context.addIssue({ code: "custom", path: ["WORKER_JOB_HEARTBEAT_SECONDS"], message: "Worker heartbeat must be shorter than the job lease." });
+  }
+});
+
+export type ApiHttpEnv = z.infer<typeof apiHttpEnvSchema>;
+export type MaintenanceEnv = z.infer<typeof maintenanceEnvSchema>;
+export type ContentEnv = z.infer<typeof contentEnvSchema>;
+export type MigrationEnv = z.infer<typeof migrationEnvSchema>;
+export type DatabaseEnv = z.infer<typeof databaseEnvSchema>;
+export type RuntimeEnv = z.infer<typeof runtimeEnvSchema>;
+export type StorageEnv = z.infer<typeof storageEnvSchema>;
+export type IdempotencyEnv = z.infer<typeof idempotencyEnvSchema>;
+export type SmtpProbeEnv = z.infer<typeof smtpProbeEnvSchema>;
+export type WebBootstrapEnv = z.infer<typeof webBootstrapEnvSchema>;
+export type BackgroundProcessingEnv = z.infer<typeof backgroundProcessingEnvSchema>;
+
+function withSmtpUrl(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const directUrl = source.AUTH_EMAIL_SMTP_URL?.trim();
   const urlFile = source.AUTH_EMAIL_SMTP_URL_FILE?.trim();
   if (Boolean(directUrl) === Boolean(urlFile)) {
     throw new Error("Configure exactly one of AUTH_EMAIL_SMTP_URL or AUTH_EMAIL_SMTP_URL_FILE.");
   }
-  const smtpUrl = directUrl ?? readFileSync(urlFile!, "utf8").trim();
-  return envSchema.parse({ ...source, AUTH_EMAIL_SMTP_URL: smtpUrl });
+  return {
+    ...source,
+    AUTH_EMAIL_SMTP_URL: directUrl ?? readFileSync(urlFile!, "utf8").trim(),
+  };
 }
 
-export const env = readEnv();
+export const readApiHttpEnv = (source: NodeJS.ProcessEnv = process.env): ApiHttpEnv =>
+  apiHttpEnvSchema.parse(source);
+export const readMaintenanceEnv = (source: NodeJS.ProcessEnv = process.env): MaintenanceEnv =>
+  maintenanceEnvSchema.parse(withSmtpUrl(source));
+export const readContentEnv = (source: NodeJS.ProcessEnv = process.env): ContentEnv =>
+  contentEnvSchema.parse(source);
+export const readMigrationEnv = (source: NodeJS.ProcessEnv = process.env): MigrationEnv =>
+  migrationEnvSchema.parse(source);
+export const readDatabaseEnv = (source: NodeJS.ProcessEnv = process.env): DatabaseEnv =>
+  databaseEnvSchema.parse(source);
+export const readRuntimeEnv = (source: NodeJS.ProcessEnv = process.env): RuntimeEnv =>
+  runtimeEnvSchema.parse(source);
+export const readStorageEnv = (source: NodeJS.ProcessEnv = process.env): StorageEnv =>
+  storageEnvSchema.parse(source);
+export const readIdempotencyEnv = (source: NodeJS.ProcessEnv = process.env): IdempotencyEnv =>
+  idempotencyEnvSchema.parse(source);
+export const readSmtpProbeEnv = (source: NodeJS.ProcessEnv = process.env): SmtpProbeEnv =>
+  smtpProbeEnvSchema.parse(withSmtpUrl(source));
+export const readWebBootstrapEnv = (source: NodeJS.ProcessEnv = process.env): WebBootstrapEnv =>
+  webBootstrapEnvSchema.parse(source);
+export const readBackgroundProcessingEnv = (
+  source: NodeJS.ProcessEnv = process.env,
+): BackgroundProcessingEnv => backgroundProcessingEnvSchema.parse(source);
+
+export function readEnv(source: NodeJS.ProcessEnv = process.env): ApiEnv {
+  return envSchema.parse(withSmtpUrl(source));
+}

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { decryptAuthenticationEmail } from "./authentication-email.js";
 import { pool } from "../../db/client.js";
-import { env } from "../../env.js";
+import { readMaintenanceEnv } from "../../env.js";
 import {
   createAuthenticationEmailSmtpAdapter,
   type AuthenticationEmailSmtpAdapter
@@ -9,6 +9,7 @@ import {
 import { apiLogger, exceptionAttributes } from "../../logging/index.js";
 
 type DeliveryRow = { id: string; encrypted_payload: string; attempt_count: number };
+const env = readMaintenanceEnv();
 
 const smtpAdapter = createAuthenticationEmailSmtpAdapter({
   url: env.AUTH_EMAIL_SMTP_URL,
@@ -190,7 +191,9 @@ export async function reconcileExpiredAuthenticationEmailState(): Promise<void> 
   await pool.query("delete from email_verification_attempt where expires_at < now() - interval '24 hours'");
 }
 
-export function startAuthenticationEmailDispatcher(): () => void {
+export function startAuthenticationEmailDispatcher(
+  options: { keepAlive?: boolean } = {},
+): () => void {
   const workerId = randomUUID();
   let ticks = 0;
   const timer = setInterval(() => {
@@ -214,7 +217,7 @@ export function startAuthenticationEmailDispatcher(): () => void {
       });
     }
   }, 1000);
-  timer.unref();
+  if (!options.keepAlive) timer.unref();
   return () => {
     clearInterval(timer);
     smtpAdapter.close();

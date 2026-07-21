@@ -2,8 +2,10 @@ import { APIError } from "better-auth/api";
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { auth } from "../auth/auth.js";
-import { env } from "../env.js";
+import { readApiHttpEnv } from "../env.js";
 import { errorJson, requestId } from "./http-error.js";
+
+const env = readApiHttpEnv();
 
 const CLI_CLIENT_ID = "shareslices-cli";
 const versionPattern = /^\d+\.\d+\.\d+$/;

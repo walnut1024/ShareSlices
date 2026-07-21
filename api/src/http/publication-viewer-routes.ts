@@ -18,10 +18,12 @@ import {
   createArtifactThumbnailRepository,
   type ArtifactThumbnailRepository,
 } from "../db/artifact-thumbnail-repository.js";
-import { env } from "../env.js";
+import { readApiHttpEnv } from "../env.js";
 import { createConfiguredObjectStorage } from "../storage/index.js";
 import type { ObjectBody, ObjectStorage } from "../storage/object-storage.js";
 import { errorJson, requestId } from "./http-error.js";
+
+const env = readApiHttpEnv();
 
 export type PublicationViewerRouteDependencies = {
   authApi: Pick<typeof auth.api, "getSession">;

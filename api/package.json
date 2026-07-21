@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "start": "tsx src/main.ts",
+    "start:maintenance": "tsx src/maintenance/main.ts",
     "smtp:check": "tsx src/email/smtp-check.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",

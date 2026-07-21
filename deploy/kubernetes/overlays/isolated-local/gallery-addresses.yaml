@@ -7,6 +7,10 @@ data:
   WEB_ORIGIN: https://app.shareslices.test
   API_ORIGIN: https://api.shareslices.test
   VIEWER_ORIGIN: https://view.shareslices.test
+  PUBLIC_API_ORIGIN: https://api.shareslices.test
+  PUBLIC_VIEWER_ORIGIN: https://view.shareslices.test
+  PUBLIC_GALLERY_CONTENT_ORIGIN: https://content.slices-content.test
+  PUBLIC_GALLERY_TURNSTILE_SITE_KEY: 1x00000000000000000000AA
   BETTER_AUTH_URL: https://api.shareslices.test
   GALLERY_ENABLED: "true"
   GALLERY_CONTENT_ORIGIN: https://content.slices-content.test

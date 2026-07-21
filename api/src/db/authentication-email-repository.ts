@@ -9,9 +9,11 @@ import {
   type VerificationAttempt,
   type VerificationPurpose
 } from "../application/accounts/authentication-email.js";
-import { env } from "../env.js";
+import { readApiHttpEnv } from "../env.js";
 import { apiLogger } from "../logging/index.js";
 import { pool } from "./client.js";
+
+const env = readApiHttpEnv();
 
 export type DeliveryResult =
   | { status: "accepted"; resendAvailableIn: number }

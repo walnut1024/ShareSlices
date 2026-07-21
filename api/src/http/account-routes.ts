@@ -19,8 +19,10 @@ import {
   releasePasswordResetGrant,
   terminateVerificationAttempt
 } from "../db/authentication-email-repository.js";
-import { env } from "../env.js";
+import { readApiHttpEnv } from "../env.js";
 import { errorJson, type FieldError, requestId } from "./http-error.js";
+
+const env = readApiHttpEnv();
 
 type AuthUser = {
   id: string;

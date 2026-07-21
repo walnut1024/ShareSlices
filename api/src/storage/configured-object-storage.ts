@@ -1,9 +1,8 @@
 import { S3Client } from "@aws-sdk/client-s3";
-import type { ApiEnv } from "../env.js";
-import { env } from "../env.js";
+import { readStorageEnv, type StorageEnv } from "../env.js";
 import { AwsS3ObjectStorage } from "./aws-s3-object-storage.js";
 
-export function createConfiguredObjectStorage(config: ApiEnv = env): AwsS3ObjectStorage {
+export function createConfiguredObjectStorage(config: StorageEnv = readStorageEnv()): AwsS3ObjectStorage {
   return new AwsS3ObjectStorage({
     client: new S3Client({
       endpoint: config.S3_ENDPOINT,

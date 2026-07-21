@@ -268,7 +268,7 @@ export async function runApiTests() {
         );
         mutateDocker([
           ...testComposeArgs,
-          "up", "-d", "--build", "--wait", "api", "worker", "web",
+          "up", "-d", "--build", "--wait", "api", "maintenance", "worker", "web",
         ]);
         run(
           "uv",

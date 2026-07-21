@@ -10,10 +10,12 @@ import { ArtifactRecoveryError, ArtifactRecoveryService } from "../application/a
 import { RawFingerprintCandidates } from "../application/artifacts/raw-fingerprint.js";
 import type { ArtifactRepositories } from "../application/artifacts/repositories.js";
 import { createArtifactRepositories } from "../db/artifact-repositories.js";
-import { env } from "../env.js";
+import { readApiHttpEnv } from "../env.js";
 import { createConfiguredObjectStorage } from "../storage/index.js";
 import { errorJson, type FieldError, requestId } from "./http-error.js";
 import { MultipartUploadError, parseArtifactMultipartUpload } from "./multipart-upload.js";
+
+const env = readApiHttpEnv();
 
 export type ArtifactRouteDependencies = {
   authApi: Pick<typeof auth.api, "getSession">;

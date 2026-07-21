@@ -1,7 +1,7 @@
 // cspell:ignore traceparent
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { env } from "../env.js";
+import { readApiHttpEnv } from "../env.js";
 import {
   apiLogger,
   exceptionAttributes,
@@ -31,6 +31,8 @@ import {
   galleryRoutes,
   type GalleryRouteDependencies,
 } from "./gallery-routes.js";
+
+const env = readApiHttpEnv();
 
 export type AppDependencies = {
   account?: Partial<AccountRouteDependencies>;

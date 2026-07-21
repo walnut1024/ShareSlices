@@ -14,8 +14,10 @@ import {
   createVerificationAttempt,
   findLatestVerificationAttempt
 } from "../db/authentication-email-repository.js";
-import { env } from "../env.js";
+import { readApiHttpEnv } from "../env.js";
 import * as schema from "../db/schema.js";
+
+const env = readApiHttpEnv();
 
 export const auth = betterAuth({
   baseURL: env.BETTER_AUTH_URL,

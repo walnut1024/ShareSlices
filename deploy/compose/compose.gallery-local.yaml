@@ -29,6 +29,9 @@ services:
   api:
     environment: *gallery-local-environment
 
+  maintenance:
+    environment: *gallery-local-environment
+
   gallery-content:
     environment: *gallery-local-environment
     networks:
@@ -40,6 +43,7 @@ services:
     environment:
       WEB_ORIGIN: http://app.localhost:5173
       WEB_CANONICAL_HOST: app.localhost
-    build:
-      args:
-        VITE_GALLERY_TURNSTILE_PUBLIC_SITE_ID: 1x00000000000000000000AA
+      PUBLIC_API_ORIGIN: http://app.localhost:5173
+      PUBLIC_VIEWER_ORIGIN: http://app.localhost:5173
+      PUBLIC_GALLERY_CONTENT_ORIGIN: http://content.localhost:7460
+      PUBLIC_GALLERY_TURNSTILE_SITE_KEY: 1x00000000000000000000AA
