@@ -1,0 +1,4 @@
+# The test topology deliberately does not enable the Gallery-local authority
+# overlay. This extension field gives the ordered test file list a stable,
+# independently digestible identity without changing the base role graph.
+x-shareslices-topology: isolated-test

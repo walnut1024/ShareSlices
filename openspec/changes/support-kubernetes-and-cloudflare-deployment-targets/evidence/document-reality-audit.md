@@ -185,9 +185,10 @@ further implementation:
   provisional until repeated Terraform/Wrangler survival and drift evidence
   selects one owner.
 - Task 1.1 was reopened for an executable Terraform constraint, dependency lock,
-  checksums, provider-schema digest, and required-field checks. Task 1.6 now
-  accurately distinguishes provider-observed, release-static, and
-  operator-evidenced limits.
+  checksums, provider-schema digest, and required-field checks. That evidence was
+  subsequently added and the task completed. Task 1.6 now accurately
+  distinguishes provider-observed, release-static, and operator-evidenced
+  limits.
 - Resend's current documented default rate and the account-specific live header
   are no longer described as contradictory.
 - Hyperdrive/direct PostgreSQL qualification now requires explicit hostname and

@@ -4,7 +4,7 @@
 
 调研日期：2026-07-18
 
-> **状态：已被后续方案取代。** 本文保留为早期调研记录，不再作为实现或部署决策依据。当前方案以 [OpenSpec change](../../openspec/changes/support-kubernetes-and-cloudflare-deployment-targets/proposal.md) 为准：Kubernetes 与 Cloudflare 是互斥的生产部署目标，Kubernetes 的外部 CDN 可选，Cloudflare 使用 Resend，并允许在每次鉴权后复用内部不可变 Viewer 字节缓存。本文的混合部署建议、Cloudflare SMTP 讨论、Viewer 全面禁用内部缓存的推论，以及具体价格与额度快照均不得直接转化为实现要求。
+> **状态：历史调研，已被取代。** 本文保留当时的方案比较和价格快照，不再作为实现、部署或预算决策依据。[产品合同](../../PRODUCT.md#deployment-choices) 定义当前支持边界，[模块设计](../design/modules.md) 定义当前与目标架构。本文提出的混合部署、Cloudflare SMTP、Viewer 全面禁用内部缓存，以及具体价格与额度均不得直接转化为实现要求。使用任何价格或厂商限制前，必须重新查询对应的一手资料。
 
 ## 结论
 

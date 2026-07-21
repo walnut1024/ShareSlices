@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validateGalleryLocalConfiguration } from "./check-gallery-local-config.mjs";
+import { validateGalleryLocalConfiguration } from "./gallery-config.mjs";
 
 function configuration(overrides = {}) {
   const environment = {

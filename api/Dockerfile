@@ -6,7 +6,8 @@ RUN npm install --global pnpm@11.9.0
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY api/package.json api/package.json
-RUN pnpm install --frozen-lockfile --filter @shareslices/api...
+RUN pnpm install --frozen-lockfile --filter @shareslices/api... --ignore-scripts \
+    && pnpm --filter @shareslices/api... rebuild
 
 COPY tsconfig.base.json ./
 COPY api/ api/

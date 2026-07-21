@@ -61,7 +61,7 @@ async function checkRepository() {
   const catalogText = await text(".env.example");
   const apiText = await text("api/src/env.ts");
   const workerText = await text("worker/src/config.rs");
-  const composeText = await text("compose.yaml");
+  const composeText = await text("deploy/compose/compose.yaml");
   const kubernetesText = (await Promise.all([
     "deploy/kubernetes/base/configmap.yaml",
     "deploy/kubernetes/base/secret.yaml",

@@ -47,6 +47,8 @@ into a hybrid target or reduce Kubernetes eligibility.
 
 This design was checked against the official platform contracts available on 2026-07-19 and reality-rechecked on 2026-07-21. These facts are compatibility inputs, not permanent assumptions. The claim-level evidence, qualification gates, corrections, and complete official-source index are in [the official platform audit](evidence/official-platform-audit.md) and [the document reality audit](evidence/document-reality-audit.md).
 
+The [current prototype execution baseline](evidence/current-prototype-execution-baseline.md) separately records mutable account observations and the work they permit. Account login, an enabled R2 subscription, a visible Supabase project, a `workers.dev` hostname, or a successful `resend.dev` request is prototype evidence only. None of those observations replaces Workers Paid Container entitlement, owned production zones, distinct registrable sites, a verified Resend sending domain, or target-specific release qualification.
+
 - [Cloudflare Containers](https://developers.cloudflare.com/containers/) require Workers Paid. A Container is controlled through a Durable Object, runs a `linux/amd64` image, uses ephemeral disk, defaults to a ten-minute `sleepAfter`, and receives `SIGTERM` before a fifteen-minute forced shutdown. Queue and scheduled handlers must explicitly address or start that Container; a Queue is not itself a Container scheduler. [Container SSH](https://developers.cloudflare.com/containers/ssh/) is enabled by default, so production images explicitly disable it and provide no authorized keys.
 - [Cloudflare Queue delivery](https://developers.cloudflare.com/queues/reference/delivery-guarantees/) is at least once, and a Queue-consumer invocation has a finite platform duration. The Queue handler therefore acknowledges only controller handoff; PostgreSQL, not the Queue acknowledgment, determines processing success and recovery.
 - [Workers limits](https://developers.cloudflare.com/workers/platform/limits/) include a 128 MB isolate limit, plan-dependent inbound request limits, bundle and Static Assets limits, and bounded Queue or scheduled invocations. The current default 50 MiB ShareSlices Upload fits the documented 100 MB minimum request-body tier, but that value is release-static evidence rather than a live account measurement. Deployment validation must classify provider-observed, release-static, and operator-evidenced facts and compare the configured Upload policy and generated Web assets with the qualified applicable values.
@@ -132,8 +134,9 @@ deploy/
 ├── compose/                         canonical non-production composition
 │   ├── compose.yaml                 base services and role graph
 │   ├── compose.gallery-local.yaml   canonical isolated-content overlay
+│   ├── compose.test.yaml            test-only composition extension
+│   ├── test.env                     checked non-sensitive test inputs
 │   ├── Caddyfile                    trusted local Web/API routing
-│   └── test/                        isolated integration-test inputs
 ├── contract/
 │   ├── deployment.schema.json       discriminated deployment input
 │   ├── release.schema.json          immutable build/release identity
