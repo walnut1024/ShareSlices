@@ -57,6 +57,7 @@ test("retires only positively owned active resources outside rollback retention"
         releaseId: "release-0",
         trafficAttached: true,
         scheduleAttached: true,
+        scheduleSafetyWindowSeconds: 900,
       },
       {
         logicalId: "runtime/previous",
@@ -75,6 +76,7 @@ test("retires only positively owned active resources outside rollback retention"
     logicalId: "runtime/api",
     trafficAttached: true,
     scheduleAttached: true,
+    scheduleSafetyWindowSeconds: 900,
   }]);
 });
 
@@ -84,12 +86,15 @@ test("orders traffic and schedule detachment before inactivity proof and removal
       logicalId: "runtime/api",
       trafficAttached: true,
       scheduleAttached: true,
+      scheduleSafetyWindowSeconds: 900,
     }),
     {
       logicalId: "runtime/api",
+      scheduleSafetyWindowSeconds: 900,
       steps: [
         "detach_traffic",
         "detach_schedule",
+        "wait_schedule_safety_window",
         "verify_inactive",
         "remove_owned_resource",
       ],
@@ -104,15 +109,36 @@ test("ordinary retirement refuses unowned and retained resources", () => {
       logicalId: "runtime/api",
       trafficAttached: false,
       scheduleAttached: false,
+      scheduleSafetyWindowSeconds: 0,
     }],
   };
-  assert.deepEqual(authorizeRetirement(result, "unknown/resource"), {
+  assert.deepEqual(authorizeRetirement(result, "unknown/resource", { releaseVerified: true }), {
     authorized: false,
     reasonCode: "resource_ownership_unproven",
   });
-  assert.deepEqual(authorizeRetirement(result, "postgresql/external"), {
+  assert.deepEqual(authorizeRetirement(result, "postgresql/external", { releaseVerified: true }), {
     authorized: false,
     reasonCode: "resource_retirement_not_permitted",
   });
-  assert.equal(authorizeRetirement(result, "runtime/api").authorized, true);
+  assert.deepEqual(authorizeRetirement(result, "runtime/api"), {
+    authorized: false,
+    reasonCode: "replacement_release_not_verified",
+  });
+  assert.equal(authorizeRetirement(result, "runtime/api", { releaseVerified: true }).authorized, true);
+});
+
+test("refuses scheduled retirement without a qualified safety window", () => {
+  const result = {
+    orphans: [],
+    retirementCandidates: [{
+      logicalId: "runtime/jobs",
+      trafficAttached: false,
+      scheduleAttached: true,
+      scheduleSafetyWindowSeconds: null,
+    }],
+  };
+  assert.deepEqual(
+    authorizeRetirement(result, "runtime/jobs", { releaseVerified: true }),
+    { authorized: false, reasonCode: "retirement_safety_window_unknown" },
+  );
 });

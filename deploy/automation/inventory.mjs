@@ -41,6 +41,9 @@ export function inspectReleaseInventory({
         logicalId: resource.logicalId,
         trafficAttached: resource.trafficAttached === true,
         scheduleAttached: resource.scheduleAttached === true,
+        scheduleSafetyWindowSeconds: resource.scheduleAttached === true
+          ? resource.scheduleSafetyWindowSeconds ?? null
+          : 0,
       });
     }
   }
@@ -56,12 +59,21 @@ export function inspectReleaseInventory({
 export function buildRetirementSequence(candidate) {
   const steps = [];
   if (candidate.trafficAttached) steps.push("detach_traffic");
-  if (candidate.scheduleAttached) steps.push("detach_schedule");
+  if (candidate.scheduleAttached) {
+    steps.push("detach_schedule", "wait_schedule_safety_window");
+  }
   steps.push("verify_inactive", "remove_owned_resource");
-  return Object.freeze({ logicalId: candidate.logicalId, steps: Object.freeze(steps) });
+  return Object.freeze({
+    logicalId: candidate.logicalId,
+    scheduleSafetyWindowSeconds: candidate.scheduleSafetyWindowSeconds,
+    steps: Object.freeze(steps),
+  });
 }
 
-export function authorizeRetirement(inventoryResult, logicalId) {
+export function authorizeRetirement(inventoryResult, logicalId, { releaseVerified = false } = {}) {
+  if (!releaseVerified) {
+    return Object.freeze({ authorized: false, reasonCode: "replacement_release_not_verified" });
+  }
   if (inventoryResult.orphans.some((orphan) => orphan.logicalId === logicalId)) {
     return Object.freeze({ authorized: false, reasonCode: "resource_ownership_unproven" });
   }
@@ -69,6 +81,13 @@ export function authorizeRetirement(inventoryResult, logicalId) {
     .find((resource) => resource.logicalId === logicalId);
   if (!candidate) {
     return Object.freeze({ authorized: false, reasonCode: "resource_retirement_not_permitted" });
+  }
+  if (
+    candidate.scheduleAttached &&
+    (!Number.isSafeInteger(candidate.scheduleSafetyWindowSeconds) ||
+      candidate.scheduleSafetyWindowSeconds < 0)
+  ) {
+    return Object.freeze({ authorized: false, reasonCode: "retirement_safety_window_unknown" });
   }
   return Object.freeze({ authorized: true, sequence: buildRetirementSequence(candidate) });
 }

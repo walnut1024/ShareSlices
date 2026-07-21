@@ -753,3 +753,37 @@ the live installation, operation, owner, target, and fencing token. They contain
 only target, immutable release/bundle/configuration digests, and sorted logical
 Secret revision identities. Embedded Secret values, malformed digests, equal
 active/previous releases, or a stale fence fail before the mirror is changed.
+
+## Twentieth-pass recoverability-evidence acceptance
+
+Task 3.15 now validates complete recoverability evidence for PostgreSQL, object
+storage, IaC state, release bundles, and the deployment journal. Missing owner,
+encrypted location, retention, observation time, maximum age, RPO, or RTO is
+invalid rather than accidentally current; missing, future-dated, and stale
+observations remain distinct fail-closed results.
+
+The consistency cut is represented by one canonical marker binding installation,
+database revision, object revision, creation time, and content-derived cut ID.
+The Deployment Module writes that exact marker through write-once database,
+object-storage, and recovery-manifest stores, then reads all three back and
+requires byte-equivalent identities and a valid recreated digest. A repeated run
+is idempotent when every store already contains the same marker. An unknown write
+outcome, missing copy, changed revision, mismatched cut, or invalid store
+interface fails without claiming recoverability or repairing evidence by
+overwriting an existing marker.
+
+## Twenty-first-pass release inventory and retirement acceptance
+
+Task 3.13 classifies expected release resources, digest drift, ownership-marker
+mismatch, and resources absent from inventory without treating an untrusted
+resource as deployment-owned. Only a superseded resource declared as
+Deployment-Module-owned, active-retention, and outside every retained rollback
+release becomes a retirement candidate; external prerequisites, durable data,
+rollback artifacts, unknown resources, and marker mismatches remain report-only.
+
+Retirement authorization now additionally requires the replacement release to
+be verified. Traffic is detached first, then scheduling is detached and its
+qualified provider safety window elapses, then inactivity is proven before the
+owned resource is removed. A missing schedule safety interval or an unverified
+replacement refuses authorization with a stable reason rather than delegating
+that safety decision to a target caller.
