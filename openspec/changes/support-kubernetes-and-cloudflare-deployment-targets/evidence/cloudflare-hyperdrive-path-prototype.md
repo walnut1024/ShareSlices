@@ -71,3 +71,37 @@ database remain isolated for later prototype tasks.
 This evidence completes task 1.4. It does not qualify migrations, the direct
 Container database Adapter, R2 streaming, release automation, or production
 capacity.
+
+## Production TLS follow-up
+
+On 2026-07-21, a bounded Wrangler update attempted to change the retained
+Hyperdrive configuration from `require` to `verify-full` while preserving its
+cache-disabled setting. Cloudflare rejected the update with API error `2007`
+because `ca_certificate_id` was absent. No public Worker, route, trigger, Queue,
+or Container was created by this attempt, and the retained configuration was
+not intentionally downgraded or treated as qualified.
+
+This result matches the current first-party configuration contract:
+
+- Hyperdrive `require` validates a WebPKI certificate chain but does not add the
+  hostname match required by this change;
+- `verify-full` requires an uploaded CA certificate and its
+  `ca_certificate_id`;
+- the uploaded CA must be the database's region-specific single certificate,
+  not a multi-certificate global bundle; and
+- Supabase exposes the project server root certificate in the dashboard's
+  Database SSL Configuration section.
+
+Task 5.3 therefore remains pending. Its live qualification must first obtain the
+correct Supabase CA through an operator-authorized path, upload it as a
+Cloudflare certificate-authority resource, configure Hyperdrive with
+`verify-full`, prove the expected hostname succeeds, and prove a wrong-host or
+untrusted-certificate case fails. The CA resource identifier may be recorded as
+non-secret inventory; database credentials and certificate contents must not be
+written to release evidence.
+
+Official references:
+
+- <https://developers.cloudflare.com/hyperdrive/configuration/tls-ssl-certificates-for-hyperdrive/>
+- <https://developers.cloudflare.com/api/resources/hyperdrive/>
+- <https://supabase.com/docs/guides/platform/ssl-enforcement>
