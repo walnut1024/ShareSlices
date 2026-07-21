@@ -8,6 +8,8 @@ and no rendered provider resources.
   only logical Secret references.
 - `command-result.schema.json` defines the stable machine result returned by
   every production lifecycle command.
+- `recovery-marker.schema.json` binds PostgreSQL, object storage, and a recovery
+  manifest to the same known consistency cut.
 - `release.schema.json` records immutable release identity, compatibility,
   inventory, ownership, and qualified provider metadata.
 - `route-projection.json` maps ingress route families back to OpenAPI operations

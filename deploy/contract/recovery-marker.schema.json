@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shareslices.example/deploy/contract/recovery-marker.schema.json",
+  "title": "ShareSlices recovery consistency marker",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "installationId",
+    "cutId",
+    "databaseRevision",
+    "objectRevision",
+    "createdAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "shareslices.recovery-marker/v1" },
+    "installationId": { "type": "string", "minLength": 1 },
+    "cutId": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "databaseRevision": { "type": "string", "minLength": 1 },
+    "objectRevision": { "type": "string", "minLength": 1 },
+    "createdAt": { "type": "string", "format": "date-time" }
+  }
+}

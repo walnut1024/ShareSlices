@@ -18,6 +18,7 @@ const schemas = Object.fromEntries(
       "deployment.schema.json",
       "command-result.schema.json",
       "release.schema.json",
+      "recovery-marker.schema.json",
       "route-projection.schema.json",
       "cache-projection.schema.json",
       "verification-scenarios.schema.json",
@@ -160,6 +161,17 @@ test("immutable release schema rejects mutable or unverifiable provider identity
       assert.equal(artifact.providerIdentity.verifiedContentDigest, artifact.contentDigest);
     }
   }
+});
+
+test("recovery marker schema binds one database/object consistency cut", () => {
+  assertValid("recovery-marker.schema.json", {
+    schemaVersion: "shareslices.recovery-marker/v1",
+    installationId: "example",
+    cutId: `sha256:${"a".repeat(64)}`,
+    databaseRevision: "lsn:0/16B6C50",
+    objectRevision: "inventory:42",
+    createdAt: "2026-07-22T01:00:00.000Z",
+  });
 });
 
 test("route and cache projections retain authoritative owners and safe cache boundaries", async () => {
