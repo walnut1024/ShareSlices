@@ -39,10 +39,11 @@ export function validateGalleryLocalConfiguration(configuration) {
   return { origin: expectedOrigin, host: canonicalHost };
 }
 
-function resolvedComposeConfiguration() {
+function resolvedComposeConfiguration({ connectionArgs = [], environment = process.env } = {}) {
   const result = spawnSync(
     "docker",
     [
+      ...connectionArgs,
       "compose",
       "--project-directory",
       repositoryRoot,
@@ -56,7 +57,7 @@ function resolvedComposeConfiguration() {
       "--format",
       "json",
     ],
-    { cwd: repositoryRoot, encoding: "utf8" },
+    { cwd: repositoryRoot, encoding: "utf8", env: environment },
   );
   if (result.status !== 0) {
     throw new Error(result.stderr.trim() || "Could not resolve Gallery local Compose configuration.");
@@ -64,8 +65,8 @@ function resolvedComposeConfiguration() {
   return JSON.parse(result.stdout);
 }
 
-export function runGalleryConfigurationCheck() {
-  const canonical = validateGalleryLocalConfiguration(resolvedComposeConfiguration());
+export function runGalleryConfigurationCheck(options) {
+  const canonical = validateGalleryLocalConfiguration(resolvedComposeConfiguration(options));
   console.log(`Gallery local canonical Web origin: ${canonical.origin}`);
 }
 

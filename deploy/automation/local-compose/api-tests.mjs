@@ -14,6 +14,11 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import {
+  dockerEnvironment,
+  withDockerMutationController,
+} from "./docker-controller.mjs";
+
 export const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 export const testEnvironmentFile = fileURLToPath(
   new URL("../../compose/test.env", import.meta.url),
@@ -70,11 +75,7 @@ export function resolveLocalDockerHost() {
 }
 
 export function dockerChildEnvironment({ dockerConfig, dockerHost }) {
-  return Object.freeze({
-    DOCKER_CONFIG: dockerConfig,
-    DOCKER_HOST: dockerHost,
-    PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
-  });
+  return dockerEnvironment({ dockerConfig, host: dockerHost });
 }
 
 function resolveDockerPlugin(pluginName) {
@@ -206,6 +207,11 @@ export async function runApiTests() {
     dockerConfig,
     dockerHost: resolveLocalDockerHost(),
   });
+  const dockerSnapshot = Object.freeze({
+    connectionArgs: Object.freeze(["--host", resolveLocalDockerHost()]),
+    dockerConfig,
+    host: resolveLocalDockerHost(),
+  });
   const processEnv = processChildEnvironment(testRoot);
   const migrationEnv = {
     ...processEnv,
@@ -216,8 +222,6 @@ export async function runApiTests() {
   };
   const contractProcessEnv = {
     ...processEnv,
-    ...dockerEnv,
-    SHARESLICES_TEST_COMPOSE_ARGS_JSON: JSON.stringify(testComposeArgs),
   };
   const cleanup = commandsForApiTests()[0];
   let interruptedSignal;
@@ -233,39 +237,57 @@ export async function runApiTests() {
   let primaryError;
   let cleanupError;
   try {
-    for (const [command, args] of commandsForApiTests()) {
-      run(command, args, dockerEnv);
-      if (interruptedSignal) throw new Error(`API tests interrupted by ${interruptedSignal}`);
-    }
-    run(
-      "node",
-      ["api/node_modules/tsx/dist/cli.mjs", "api/src/db/migrate.ts"],
-      migrationEnv,
-    );
-    run("pnpm", ["--dir", "api", "run", "test"], processEnv);
-    run(
-      "uv",
-      ["run", "pytest", "api/tests/test_account_entry_contract.py"],
-      contractProcessEnv,
-    );
-    run(
-      "docker",
-      [...testComposeArgs, "up", "-d", "--build", "--wait", "api", "worker", "web"],
-      dockerEnv,
-    );
-    run(
-      "uv",
-      ["run", "pytest", "api/tests/artifact_flow_contract.py"],
-      contractProcessEnv,
-    );
+    withDockerMutationController(dockerSnapshot, "shareslices-test", ({ runMutation }) => {
+      const mutateDocker = (args) => runMutation(
+        "docker",
+        [...dockerSnapshot.connectionArgs, ...args],
+        { cwd: repositoryRoot, env: dockerEnv, stdio: "inherit" },
+      );
+      try {
+        for (const [command, args] of commandsForApiTests()) {
+          if (command === "docker") mutateDocker(args);
+          else run(command, args, dockerEnv);
+          if (interruptedSignal) throw new Error(`API tests interrupted by ${interruptedSignal}`);
+        }
+        run(
+          "node",
+          ["api/node_modules/tsx/dist/cli.mjs", "api/src/db/migrate.ts"],
+          migrationEnv,
+        );
+        mutateDocker([
+          ...testComposeArgs,
+          "exec", "-T", "postgres", "psql", "-U", "shareslices", "-d", "shareslices_test",
+          "-c",
+          "delete from authentication_email_delivery; delete from password_reset_grant; delete from email_verification_attempt; update authentication_email_circuit_breaker set state = 'closed', reason_code = null, opened_at = null, resume_at = null;",
+        ]);
+        run("pnpm", ["--dir", "api", "run", "test"], processEnv);
+        run(
+          "uv",
+          ["run", "pytest", "api/tests/test_account_entry_contract.py"],
+          contractProcessEnv,
+        );
+        mutateDocker([
+          ...testComposeArgs,
+          "up", "-d", "--build", "--wait", "api", "worker", "web",
+        ]);
+        run(
+          "uv",
+          ["run", "pytest", "api/tests/artifact_flow_contract.py"],
+          contractProcessEnv,
+        );
+      } catch (error) {
+        primaryError = error;
+      } finally {
+        try {
+          mutateDocker(cleanup[1]);
+        } catch (error) {
+          cleanupError = error;
+        }
+      }
+    }, { cwd: repositoryRoot, env: dockerEnv });
   } catch (error) {
-    primaryError = error;
+    primaryError ??= error;
   } finally {
-    try {
-      run(cleanup[0], cleanup[1], dockerEnv);
-    } catch (error) {
-      cleanupError = error;
-    }
     process.off("SIGINT", recordSigint);
     process.off("SIGTERM", recordSigterm);
     rmSync(testRoot, { recursive: true, force: true });

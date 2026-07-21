@@ -52,13 +52,13 @@ test("every test Compose invocation uses the fixed project, files, project direc
   assert.equal(testComposeArgs.includes(".env"), false);
 });
 
-test("Docker children inherit only the frozen endpoint, isolated config, and executable path", () => {
+test("Docker children inherit only the isolated config and executable path because the endpoint is an explicit argument", () => {
   const environment = dockerChildEnvironment({
     dockerConfig: "/tmp/isolated-docker-config",
     dockerHost: "unix:///var/run/docker.sock",
   });
-  assert.deepEqual(Object.keys(environment).sort(), ["DOCKER_CONFIG", "DOCKER_HOST", "PATH"]);
-  assert.equal(environment.DOCKER_HOST, "unix:///var/run/docker.sock");
+  assert.deepEqual(Object.keys(environment).sort(), ["DOCKER_CONFIG", "PATH"]);
+  assert.equal(environment.DOCKER_HOST, undefined);
   assert.equal(environment.DOCKER_CONFIG, "/tmp/isolated-docker-config");
   for (const forbidden of [
     "CI",

@@ -1,8 +1,13 @@
-import { spawnSync } from "node:child_process";
 import net from "node:net";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { runGalleryConfigurationCheck } from "./gallery-config.mjs";
+import {
+  dockerEnvironment,
+  resolveDockerSnapshot,
+  runPinnedReadOnly,
+  withDockerMutationController,
+} from "./docker-controller.mjs";
 
 export const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 export const developerComposeArgs = [
@@ -38,16 +43,6 @@ export function commandFor(action, extraArgs = []) {
   }
 }
 
-function run(command, args, options = {}) {
-  const result = spawnSync(command, args, {
-    cwd: repositoryRoot,
-    stdio: "inherit",
-    ...options,
-  });
-  if (result.error) throw result.error;
-  if (result.status !== 0) process.exit(result.status ?? 1);
-}
-
 async function checkHttp(name, url) {
   const response = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(5_000) });
   if (!response.ok) throw new Error(`${name} returned HTTP ${response.status}`);
@@ -78,16 +73,31 @@ export async function verifyLocalStack() {
 
 async function main() {
   const [action = "up", ...extraArgs] = process.argv.slice(2);
+  const snapshot = resolveDockerSnapshot({ workingDirectory: repositoryRoot });
+  const environment = dockerEnvironment(snapshot);
+  const dockerArgs = [...snapshot.connectionArgs, ...commandFor(action, extraArgs)];
   if (action === "up") {
-    runGalleryConfigurationCheck();
-    run("docker", commandFor(action));
+    runGalleryConfigurationCheck({ connectionArgs: snapshot.connectionArgs, environment });
+    withDockerMutationController(snapshot, "shareslices", ({ runMutation }) => {
+      runMutation("docker", dockerArgs, { cwd: repositoryRoot, env: environment, stdio: "inherit" });
+    }, { cwd: repositoryRoot, env: environment });
     await verifyLocalStack();
     console.log("\nShareSlices: http://app.localhost:5173");
     console.log("Mailpit:     http://127.0.0.1:8025");
     console.log("Gallery admin: mise run ops-gallery-bootstrap -- --administrator-user-id <user-id>");
     return;
   }
-  run("docker", commandFor(action, extraArgs));
+  if (action === "down") {
+    withDockerMutationController(snapshot, "shareslices", ({ runMutation }) => {
+      runMutation("docker", dockerArgs, { cwd: repositoryRoot, env: environment, stdio: "inherit" });
+    }, { cwd: repositoryRoot, env: environment });
+  } else {
+    runPinnedReadOnly(snapshot, "docker", dockerArgs, {
+      cwd: repositoryRoot,
+      env: environment,
+      runOptions: { cwd: repositoryRoot, env: environment, stdio: "inherit" },
+    });
+  }
   if (action === "status") await verifyLocalStack();
 }
 

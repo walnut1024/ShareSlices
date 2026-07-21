@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from contextlib import ExitStack
-import json
 import os
 from pathlib import Path
 import re
@@ -22,26 +21,6 @@ PROJECT_ROOT = ROOT.parent.parent
 
 def runtime_setting(name: str, default: str) -> str:
     return os.environ.get(name, default)
-
-
-def isolated_compose_command() -> list[str]:
-    raw_arguments = os.environ.get("SHARESLICES_TEST_COMPOSE_ARGS_JSON")
-    if raw_arguments is None:
-        raise RuntimeError("SHARESLICES_TEST_COMPOSE_ARGS_JSON is required")
-    arguments = json.loads(raw_arguments)
-    if not isinstance(arguments, list) or not all(isinstance(value, str) for value in arguments):
-        raise RuntimeError("SHARESLICES_TEST_COMPOSE_ARGS_JSON must contain a string array")
-    if not arguments or arguments[0] != "compose":
-        raise RuntimeError("The isolated test command must select Docker Compose explicitly")
-    return ["docker", *arguments]
-
-
-def isolated_docker_environment() -> dict[str, str]:
-    required = ("DOCKER_CONFIG", "DOCKER_HOST", "PATH")
-    missing = [name for name in required if name not in os.environ]
-    if missing:
-        raise RuntimeError(f"Missing isolated Docker environment: {', '.join(missing)}")
-    return {name: os.environ[name] for name in required}
 
 
 def replace_string(value: Any, old: str, new: str) -> Any:
@@ -210,16 +189,6 @@ def live_servers(contract: dict[str, Any]) -> dict[str, str]:
     mailpit_url = contract["mailpit_url"]
     response = requests.get(f"{mailpit_url}/readyz", timeout=2)
     assert response.status_code == 200, "Mailpit is not ready"
-    subprocess.run(
-        [
-            *isolated_compose_command(), "exec", "-T", "postgres", "psql", "-U", "shareslices", "-d", "shareslices_test",
-            "-c", "delete from authentication_email_delivery; delete from password_reset_grant; delete from email_verification_attempt; update authentication_email_circuit_breaker set state = 'closed', reason_code = null, opened_at = null, resume_at = null;",
-        ],
-        cwd=PROJECT_ROOT,
-        check=True,
-        env=isolated_docker_environment(),
-        stdout=subprocess.DEVNULL,
-    )
     processes: list[subprocess.Popen[str]] = []
 
     for name, verification in [("default", "false"), ("smtp", "true")]:
