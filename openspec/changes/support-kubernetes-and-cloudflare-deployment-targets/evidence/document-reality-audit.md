@@ -226,3 +226,22 @@ no Workers Free allocation, R2 has its own usage and subscription model,
 `resend.dev` is test-only, and Supabase Free projects may pause after low
 activity. It does not change the selected Kubernetes or Cloudflare production
 architecture.
+
+## Third-pass correction before database implementation
+
+The 2026-07-21 refresh found that Cloudflare's current Hyperdrive TLS pages no
+longer support this audit's earlier claim that first-party default-mode behavior
+is contradictory. They now consistently state that PostgreSQL `require`
+validates the server certificate against WebPKI, while `verify-full` additionally
+matches the database hostname. The design, delta specification, and database
+prototype evidence now reflect that contract. Production qualification remains
+stricter than the default and requires `verify-full` or a subsequently qualified
+equivalent plus a negative hostname or certificate test; `pg_stat_ssl` alone
+still proves only encryption.
+
+The same refresh identified a previously unstated availability and cost edge:
+Workers Static Assets requests are free when served directly, but a path matched
+by `assets.run_worker_first` invokes Worker code. On Workers Free, exhaustion of
+the Worker request allowance returns `429` rather than falling back to the
+matching Static Asset. The Cloudflare cost contract and tasks now require this
+route consumption and failure mode to be planned and tested.

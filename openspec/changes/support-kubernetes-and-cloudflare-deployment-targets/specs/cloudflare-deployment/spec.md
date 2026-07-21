@@ -60,7 +60,7 @@ A direct database path or egress boundary that can be proven only from a Contain
 
 ### Requirement: Bound Cloudflare cost-driving resources
 
-Cloudflare deployment configuration SHALL explicitly bound every cost-driving execution control, including Queue consumer concurrency and retry policy, scheduled-trigger frequency, Container instance type, runner-slot count, `max_instances`, drain limits, and `sleepAfter`. The optional Viewer byte cache SHALL remain disabled unless selected explicitly after representative measurement.
+Cloudflare deployment configuration SHALL explicitly bound every cost-driving execution control, including Queue consumer concurrency and retry policy, scheduled-trigger frequency, Container instance type, runner-slot count, `max_instances`, drain limits, `sleepAfter`, and the public route families that invoke Worker code before Static Assets. The optional Viewer byte cache SHALL remain disabled unless selected explicitly after representative measurement. The target MUST NOT describe Static Assets as an availability fallback for a Worker-first route: when the applicable Worker allowance is exhausted, that route may return a provider `429` instead of serving a matching asset.
 
 `plan` and `status` SHALL report the current paid-plan prerequisite, configured maxima, observed quota headroom when available through the pinned provider interface, and stable warnings for approaching limits. They MUST NOT promise a free deployment, a fixed monthly bill, or exact future provider spend. Missing bounds or a configured maximum above a declared operator safety cap SHALL block activation.
 
@@ -73,6 +73,11 @@ Cloudflare deployment configuration SHALL explicitly bound every cost-driving ex
 
 - **WHEN** `plan` or `status` evaluates a valid Cloudflare installation
 - **THEN** it reports paid prerequisites, configured cost-driving maxima, available quota headroom evidence, and uncertainty without presenting an exact bill
+
+#### Scenario: Worker-first allowance is exhausted
+
+- **WHEN** a public route is configured to invoke Worker code before Static Assets and the applicable Worker allowance is exhausted
+- **THEN** verification expects fail-closed provider behavior, records the resulting unavailability, and does not claim that Static Assets will serve the request as a fallback
 
 ### Requirement: Route trusted traffic through an App Worker
 
@@ -161,7 +166,7 @@ Every object read or mutation MUST first pass the same account, Version, Publica
 
 The Cloudflare target SHALL use the configured external PostgreSQL database as the sole durable authority for account, authorization, Artifact, Version, Publication, Gallery, job, attempt, lease, fence, outbox, reconciliation, idempotency, and release-compatible migration state. D1, Durable Objects, Queues, Worker memory, Cache API, and Container disk MUST NOT become a parallel business source of truth.
 
-Authoritative and read-after-write database paths, including authentication, sessions, permissions, and job state, MUST use a cache-disabled Hyperdrive configuration or a verified direct connection. Every path SHALL select an explicit qualified TLS verification mode and prove hostname/certificate validation with a negative test; observing encrypted transport alone MUST NOT be recorded as authenticated origin identity. Where first-party default-mode documentation conflicts, the default SHALL remain `unknown` and ineligible. An operation requiring advisory locks, unsupported session state, or another semantic not proven through Hyperdrive MUST use one verified direct PostgreSQL connection path for the complete operation. One logical transaction MUST NOT be split across Hyperdrive and direct connections. Schema migration SHALL run as an explicit one-shot release phase through the direct path and MUST NOT run in a request handler.
+Authoritative and read-after-write database paths, including authentication, sessions, permissions, and job state, MUST use a cache-disabled Hyperdrive configuration or a verified direct connection. Every path SHALL select an explicit qualified TLS verification mode that verifies both the certificate chain and database hostname and SHALL prove that behavior with a negative test; observing encrypted transport alone MUST NOT be recorded as authenticated origin identity. The current Hyperdrive `require` mode validates against WebPKI but lacks the hostname match provided by `verify-full`, so it MUST NOT satisfy production origin-identity qualification by itself. An operation requiring advisory locks, unsupported session state, or another semantic not proven through Hyperdrive MUST use one verified direct PostgreSQL connection path for the complete operation. One logical transaction MUST NOT be split across Hyperdrive and direct connections. Schema migration SHALL run as an explicit one-shot release phase through the direct path and MUST NOT run in a request handler.
 
 Each trusted non-browser Rust processing Container SHALL use a separately verified direct TLS PostgreSQL path and MUST NOT treat a Hyperdrive Worker binding as a socket available inside the Container. If such a Container uses a public database endpoint, its outbound policy SHALL deny every hostname except declared Runner dependencies and SHALL verify the effective PostgreSQL destination, hostname, and certificate using least-privilege database credentials. Because non-HTTP PostgreSQL traffic requires Container Internet, the path SHALL use Internet enabled together with an exact `allowedHosts` host allowlist and staged destination verification. That allowlist applies to the whole Container and MUST NOT be reported as port-level, per-process, stable-egress-IP, or Chromium isolation evidence.
 

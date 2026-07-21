@@ -9,7 +9,10 @@ PostgreSQL `17.6` project in `ap-southeast-1`.
 
 The repository migration `db/migrations/0001_account_entry.sql` was applied to
 the disposable database. A cache-disabled Hyperdrive configuration used TLS
-mode `require` and the provider's direct PostgreSQL endpoint. Cloudflare
+mode `require` and the provider's direct PostgreSQL endpoint. Under the current
+Cloudflare contract this mode validates the certificate chain against WebPKI,
+but it does not add the hostname match provided by `verify-full`; this prototype
+therefore does not qualify production origin identity. Cloudflare
 accepted a minimum origin connection limit of `5`; it rejected the attempted
 value `3` with provider error code `2021` and documented the accepted range as
 `5` through `20`.
@@ -50,6 +53,11 @@ The verifier Worker and its recurring trigger were deleted immediately after
 the passing run. The database Worker was retained only through task 1.4 and was
 then deleted. The isolated Hyperdrive configuration and disposable database
 remain temporarily available for later feasibility checks.
+
+The `pg_stat_ssl` result proves encrypted transport only. Task 5.3 must repeat
+the runtime path with `verify-full` or a subsequently qualified equivalent and
+must include a wrong-host or untrusted-certificate negative case before this
+evidence can support production database qualification.
 
 ## Official contract alignment
 
