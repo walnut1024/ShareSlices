@@ -31,6 +31,14 @@ test("API contracts clean only their dedicated project before provisioning", () 
   ]);
 });
 
+test("API infrastructure startup has a bounded Compose wait", () => {
+  const startup = commandsForApiTests()[1][1];
+  assert.deepEqual(
+    startup.slice(startup.indexOf("--wait"), startup.indexOf("--wait") + 3),
+    ["--wait", "--wait-timeout", "120"],
+  );
+});
+
 test("every test Compose invocation uses the fixed project, files, project directory, and env fixture", () => {
   for (const [command, args] of commandsForApiTests()) {
     assert.equal(command, "docker");

@@ -18,6 +18,10 @@ import {
   dockerEnvironment,
   withDockerMutationController,
 } from "./docker-controller.mjs";
+import {
+  composeFeatureBaseline,
+  verifyComposeCapabilities,
+} from "./compose-capabilities.mjs";
 
 export const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 export const testEnvironmentFile = fileURLToPath(
@@ -118,7 +122,12 @@ export function commandsForApiTests() {
     ["docker", [...testComposeArgs, "down", "--volumes", "--remove-orphans"]],
     [
       "docker",
-      [...testComposeArgs, "up", "-d", "--wait", "postgres", "object-storage", "mailpit"],
+      [
+        ...testComposeArgs,
+        "up", "-d", "--wait", "--wait-timeout",
+        String(composeFeatureBaseline.waitTimeoutSeconds),
+        "postgres", "object-storage", "mailpit",
+      ],
     ],
     ["docker", [...testComposeArgs, "run", "--rm", "object-storage-init"]],
     [
@@ -237,6 +246,11 @@ export async function runApiTests() {
   let primaryError;
   let cleanupError;
   try {
+    verifyComposeCapabilities({
+      connectionArgs: dockerSnapshot.connectionArgs,
+      composeArgs: testComposeArgs,
+      environment: dockerEnv,
+    });
     withDockerMutationController(dockerSnapshot, "shareslices-test", ({ runMutation }) => {
       const mutateDocker = (args) => runMutation(
         "docker",
@@ -268,7 +282,9 @@ export async function runApiTests() {
         );
         mutateDocker([
           ...testComposeArgs,
-          "up", "-d", "--build", "--wait", "api", "maintenance", "worker", "web",
+          "up", "-d", "--build", "--wait", "--wait-timeout",
+          String(composeFeatureBaseline.waitTimeoutSeconds),
+          "api", "maintenance", "worker", "web",
         ]);
         run(
           "uv",

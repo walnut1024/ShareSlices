@@ -422,3 +422,14 @@ and `resend.dev` remains a testing sender restricted to the Resend account's own
 address or Resend's simulation recipients. Those paths exercise provider
 outcomes without qualifying an operator-owned sending domain. None of those
 facts is inferred from local Compose evidence.
+
+The same local run qualified Docker Compose `5.1.2` against the checked
+capability baseline. The controller now refuses its first mutation unless the
+selected client exposes `up --wait`, `--wait-timeout`, and machine-readable JSON
+`ps`, and accepts the topology's long-form `service_healthy` and
+`service_completed_successfully` conditions through quiet model validation.
+Every startup uses a 120-second wait bound, verifies all eight resident roles
+as running and healthy from parsed `ps` evidence, and then independently probes
+Web, API, content, Mailpit, and SMTP from the host. The recorded version is
+evidence, not an exact-version lock: another version must pass the same feature
+checks before mutation.

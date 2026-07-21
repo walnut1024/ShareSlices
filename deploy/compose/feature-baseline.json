@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "qualifiedComposeVersion": "5.1.2",
+  "upOptions": ["--wait", "--wait-timeout"],
+  "psFormat": "json",
+  "dependencyConditions": ["service_healthy", "service_completed_successfully"],
+  "waitTimeoutSeconds": 120
+}

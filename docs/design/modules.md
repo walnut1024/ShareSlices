@@ -62,6 +62,13 @@ qualification remain target work.
   topology. `.mise.toml` remains the public local lifecycle entrypoint. Compose
   is not accepted by the production target discriminator and cannot provide
   Kubernetes or Cloudflare qualification evidence.
+- `deploy/compose/feature-baseline.json` records Docker Compose `5.1.2` as the
+  currently exercised baseline and requires bounded `up --wait` with
+  `--wait-timeout`, long-form healthy/completed dependency conditions, and JSON
+  `ps`. The controller admits another Compose version only after capability
+  probes and quiet validation of the selected checked model pass before its
+  first mutation; post-start machine state and host HTTP/SMTP probes remain
+  separate gates.
 - `docs/operations/` owns operator procedures and prerequisite responsibilities.
   It does not become an executable second deployment implementation.
 

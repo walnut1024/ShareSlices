@@ -3,6 +3,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { runGalleryConfigurationCheck } from "./gallery-config.mjs";
 import {
+  assertResidentServicesReady,
+  composeFeatureBaseline,
+  inspectComposeServices,
+  verifyComposeCapabilities,
+} from "./compose-capabilities.mjs";
+import {
   dockerEnvironment,
   resolveDockerSnapshot,
   runPinnedReadOnly,
@@ -27,11 +33,25 @@ export const localEndpoints = {
   mailpit: "http://127.0.0.1:8025/readyz",
   web: "http://app.localhost:5173/web-health",
 };
+export const residentServices = Object.freeze([
+  "postgres",
+  "object-storage",
+  "mailpit",
+  "api",
+  "maintenance",
+  "gallery-content",
+  "worker",
+  "web",
+]);
 
 export function commandFor(action, extraArgs = []) {
   switch (action) {
     case "up":
-      return [...developerComposeArgs, "up", "-d", "--build", "--force-recreate", "--wait"];
+      return [
+        ...developerComposeArgs,
+        "up", "-d", "--build", "--force-recreate", "--wait",
+        "--wait-timeout", String(composeFeatureBaseline.waitTimeoutSeconds),
+      ];
     case "down":
       return [...developerComposeArgs, "down"];
     case "status":
@@ -71,16 +91,33 @@ export async function verifyLocalStack() {
   await checkTcp("SMTP", "127.0.0.1", 1025);
 }
 
+function verifyComposeState(snapshot, environment) {
+  const records = inspectComposeServices({
+    connectionArgs: snapshot.connectionArgs,
+    composeArgs: developerComposeArgs,
+    environment,
+  });
+  assertResidentServicesReady(records, residentServices);
+}
+
 async function main() {
   const [action = "up", ...extraArgs] = process.argv.slice(2);
   const snapshot = resolveDockerSnapshot({ workingDirectory: repositoryRoot });
   const environment = dockerEnvironment(snapshot);
   const dockerArgs = [...snapshot.connectionArgs, ...commandFor(action, extraArgs)];
+  if (action === "up" || action === "down") {
+    verifyComposeCapabilities({
+      connectionArgs: snapshot.connectionArgs,
+      composeArgs: developerComposeArgs,
+      environment,
+    });
+  }
   if (action === "up") {
     runGalleryConfigurationCheck({ connectionArgs: snapshot.connectionArgs, environment });
     withDockerMutationController(snapshot, "shareslices", ({ runMutation }) => {
       runMutation("docker", dockerArgs, { cwd: repositoryRoot, env: environment, stdio: "inherit" });
     }, { cwd: repositoryRoot, env: environment });
+    verifyComposeState(snapshot, environment);
     await verifyLocalStack();
     console.log("\nShareSlices: http://app.localhost:5173");
     console.log("Mailpit:     http://127.0.0.1:8025");
@@ -98,7 +135,10 @@ async function main() {
       runOptions: { cwd: repositoryRoot, env: environment, stdio: "inherit" },
     });
   }
-  if (action === "status") await verifyLocalStack();
+  if (action === "status") {
+    verifyComposeState(snapshot, environment);
+    await verifyLocalStack();
+  }
 }
 
 export function runDeveloperComposeCli() {
@@ -108,4 +148,4 @@ export function runDeveloperComposeCli() {
   });
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) runDeveloperComposeCli();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) runDeveloperComposeCli();

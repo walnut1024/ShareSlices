@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { composeFeatureBaseline } from "./compose-capabilities.mjs";
 import { commandFor, developerComposeArgs, localEndpoints } from "./developer.mjs";
 
 test("reports stable trusted and isolated local origins", () => {
@@ -13,6 +14,7 @@ test("up always uses the canonical Gallery-enabled Compose stack", () => {
   assert.deepEqual(commandFor("up"), [
     ...developerComposeArgs,
     "up", "-d", "--build", "--force-recreate", "--wait",
+    "--wait-timeout", String(composeFeatureBaseline.waitTimeoutSeconds),
   ]);
 });
 
