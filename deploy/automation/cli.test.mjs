@@ -60,6 +60,7 @@ test("emits one stable JSON result and exposes stable exit categories", async ()
       code: "deployment_command_not_implemented",
       message: "The target Adapter for this deployment command is not implemented yet.",
     },
+    data: null,
   });
   assert.deepEqual(exitCodes, {
     succeeded: 0,
@@ -91,9 +92,11 @@ test("allows a target Adapter to supply a successful structured result", async (
         requestedRelease: null,
         outcome: "succeeded",
         reason: null,
+        data: { state: "observed" },
       },
     }),
   );
   assert.equal(execution.exitCode, 0);
   assert.equal(execution.result.target, "kubernetes");
+  assert.deepEqual(execution.result.data, { state: "observed" });
 });

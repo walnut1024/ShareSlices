@@ -31,6 +31,7 @@ function result(command, overrides = {}) {
     requestedRelease: null,
     outcome: "failed",
     reason: null,
+    data: null,
     ...overrides,
   };
 }

@@ -10,7 +10,8 @@
     "target",
     "requestedRelease",
     "outcome",
-    "reason"
+    "reason",
+    "data"
   ],
   "properties": {
     "schemaVersion": { "const": "shareslices.deployment-result/v1" },
@@ -44,6 +45,10 @@
         "code": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
         "message": { "type": "string", "minLength": 1 }
       }
+    },
+    "data": {
+      "type": ["object", "null"],
+      "description": "Secret-free command-specific output such as digests, observed status, handoff metadata, or evidence references."
     }
   }
 }

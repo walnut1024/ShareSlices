@@ -106,6 +106,7 @@ test("deployment command results retain stable commands, outcomes, and reason co
     requestedRelease: null,
     outcome: "succeeded",
     reason: null,
+    data: { checks: [] },
   });
   assertValid("command-result.schema.json", {
     schemaVersion: "shareslices.deployment-result/v1",
@@ -117,6 +118,7 @@ test("deployment command results retain stable commands, outcomes, and reason co
       code: "invalid_deployment_command",
       message: "The command is invalid.",
     },
+    data: null,
   });
   assertInvalid("command-result.schema.json", {
     schemaVersion: "shareslices.deployment-result/v1",
@@ -125,6 +127,7 @@ test("deployment command results retain stable commands, outcomes, and reason co
     requestedRelease: null,
     outcome: "succeeded",
     reason: null,
+    data: null,
   });
 });
 

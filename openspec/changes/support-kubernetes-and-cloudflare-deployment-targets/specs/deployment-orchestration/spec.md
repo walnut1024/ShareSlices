@@ -50,6 +50,15 @@ The Deployment Module SHALL expose non-interactive `doctor`, `render`, `plan`, `
 
 `doctor` SHALL validate target prerequisites and configuration. `render` SHALL produce the complete desired release representation. `plan` SHALL compare that desired release with observed target state. `apply` SHALL converge release-owned resources in their declared order. `status` SHALL report observed state. `verify` SHALL exercise the deployed contract. `rollback` SHALL restore a compatible prior application release without reversing database migrations.
 
+Every command SHALL return the common versioned result envelope plus a
+Secret-free command-specific `data` object or `null`. The object SHALL carry the
+minimum machine-readable output needed by the next authorized step: prerequisite
+results for `doctor`, bundle and digest identity for `render`, plan and observed
+revision identity for `plan`, phase or handoff results for `apply`, projected
+state for `status`, evidence references for `verify`, and compatibility or phase
+results for `rollback`. Target Adapters MUST NOT print a second provider-specific
+result format around that envelope.
+
 When a target explicitly delegates reconciliation to an external owner, `apply` or `rollback` SHALL stop at the target's immutable handoff boundary, return the stable outcome `external_reconciler_required`, and MUST NOT claim convergence. Only observation of the requested release and every required phase gate MAY advance status to converged. This exception does not authorize the Deployment Module to write an external Git repository or assume ordering behavior from an unspecified reconciler.
 
 `doctor`, `render`, `plan`, and `status` MUST NOT mutate the deployment target or ShareSlices application data.
