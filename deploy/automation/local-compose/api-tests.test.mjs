@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+// cspell:words userconfig
 import { mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +13,7 @@ import {
   prepareIsolatedDockerConfig,
   processChildEnvironment,
   repositoryRoot,
+  resolveLocalDockerHost,
   testComposeArgs,
   testComposeArgsWithOwnership,
   testComposeArgsWithRuntime,
@@ -138,6 +140,20 @@ test("Docker children inherit only the isolated config and executable path becau
   }
 });
 
+test("automated tests accept only an explicitly discovered local Docker socket", () => {
+  assert.equal(resolveLocalDockerHost({
+    candidates: ["/tmp/not-a-socket", "/tmp/local.sock"],
+    isSocket: (path) => path.endsWith("local.sock"),
+  }), "unix:///tmp/local.sock");
+  assert.throws(
+    () => resolveLocalDockerHost({
+      candidates: ["tcp://remote.example.test:2376"],
+      isSocket: () => false,
+    }),
+    /remote and caller-selected Docker endpoints are refused/,
+  );
+});
+
 test("test processes exclude caller application, provider, CI, and agent variables", () => {
   const environment = processChildEnvironment("/tmp/shareslices-test-root", testEndpoints, {
     HOME: "/tmp/test-home",
@@ -149,6 +165,9 @@ test("test processes exclude caller application, provider, CI, and agent variabl
     DATABASE_URL: "postgres://caller-secret",
     RESEND_API_KEY: "caller-resend-secret",
     CODEX_THREAD_ID: "caller-agent-state",
+    NODE_OPTIONS: "--require=/tmp/caller-shell-override.cjs",
+    npm_config_userconfig: "/tmp/caller-npmrc",
+    UNRELATED_DEPLOY_SECRET: "caller-unrelated-secret",
   });
 
   assert.equal(environment.HOME, "/tmp/test-home");
@@ -161,6 +180,11 @@ test("test processes exclude caller application, provider, CI, and agent variabl
   assert.equal(environment.RESEND_API_KEY, undefined);
   assert.equal(environment.CI, undefined);
   assert.equal(environment.CODEX_THREAD_ID, undefined);
+  assert.equal(environment.NODE_OPTIONS, undefined);
+  assert.equal(environment.npm_config_userconfig, undefined);
+  assert.equal(environment.UNRELATED_DEPLOY_SECRET, undefined);
+  assert.equal(environment.S3_BUCKET, "shareslices-test-artifacts");
+  assert.equal(environment.AUTH_EMAIL_FROM, "ShareSlices Test <no-reply@shareslices.local>");
 });
 
 test("Web E2E receives only frozen isolated Web, API, and Mailpit endpoints", () => {

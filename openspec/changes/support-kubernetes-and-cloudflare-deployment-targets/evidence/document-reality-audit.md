@@ -577,3 +577,32 @@ renamed, or reason-code-divergent row fails the deployment-contract gate. This
 completes the read/write routing and local provider-applicability boundary; the
 larger controller matrix and cold lifecycle acceptance remain tasks 13.9 and
 13.10.
+
+## Fourteenth-pass Compose controller matrix acceptance
+
+Task 13.9 exercised the checked developer topology with the actual selected
+Docker Compose parser using only `config --quiet`; the command returned zero
+stdout bytes, so no resolved developer model or interpolated value entered the
+evidence. Full JSON model inspection remains confined to the hermetic test
+fixture and is validated in memory without a persisted model, environment dump,
+hash, or after-the-fact redaction path.
+
+The focused matrix now contains 50 passing controller tests. It covers exact
+ordered developer and test file lists, project directory and project names,
+relative client/TLS path freezing, mutable context exclusion, explicit Engine
+identity bracketing, reset before/during/after mutation, lock release followed by
+replacement-Engine recovery, and same-Engine alias coalescing. It also proves
+that automated tests discover only a local Unix socket, exclude caller Docker,
+Compose, application, provider, CI, agent, shell-injection, package-manager, and
+unrelated Secret-like variables, while retaining the exact checked fixture
+values.
+
+The same matrix covers the pinned Compose feature baseline, quiet validation
+before mutation, readiness failure, canonical developer-volume preservation,
+two-phase dynamic loopback allocation, duplicate-port rejection, endpoint-layer
+non-recreation, external/shared-resource rejection, fixed-project ownership,
+positive-only crash recovery, exact leftover diagnostics, cleanup-error
+preservation, distinct browser sites, developer-default endpoint rejection, and
+production-target rejection. Together with the task 13.7 live `SIGKILL` recovery
+and task 13.8 live E2E isolation runs, this completes task 13.9 without claiming
+the cold lifecycle sequence required by task 13.10.

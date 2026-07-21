@@ -103,9 +103,11 @@ function existingSocket(path) {
   }
 }
 
-export function resolveLocalDockerHost() {
-  const candidates = ["/var/run/docker.sock", join(homedir(), ".docker/run/docker.sock")];
-  const socket = candidates.find(existingSocket);
+export function resolveLocalDockerHost({
+  candidates = ["/var/run/docker.sock", join(homedir(), ".docker/run/docker.sock")],
+  isSocket = existingSocket,
+} = {}) {
+  const socket = candidates.find(isSocket);
   if (!socket) {
     throw new Error(
       `No supported local Docker socket found (${candidates.join(", ")}); remote and caller-selected Docker endpoints are refused.`,
