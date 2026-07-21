@@ -175,7 +175,7 @@ The numbered sections group work by responsibility; they are not permission to i
 ## 10. Kubernetes Lifecycle, GitOps, and Optional CDN
 
 - [ ] 10.1 Implement read-only Kubernetes `doctor` checks for explicit context, namespace, supported APIs, permissions, declared CNI and egress mechanism, current conformance evidence, ingress/TLS, dependency metadata, Secrets, SMTP configuration, images, release-store access, and connection budget; never report API or CNI presence as enforcement proof.
-- [ ] 10.2 Implement deterministic phased `render` and `kubectl apply --server-side --dry-run=server` planning with an explicit field manager, conflict reporting, and no persistence for prerequisites, migration, workloads, ingress, and optional edge.
+- [x] 10.2 Implement deterministic phased `render` and `kubectl apply --server-side --dry-run=server` planning with an explicit field manager, conflict reporting, and no persistence for prerequisites, migration, workloads, ingress, and optional edge.
 - [ ] 10.3 Implement direct `apply` ordering for policies and configuration, isolated pre-traffic allowed/denied network probes with cleanup, one-shot migration, private workloads, trusted runtimes, ingress, verification, retirement, and release recording.
 - [ ] 10.4 Implement Kubernetes `status` from observed image IDs, generations, probes, migration head, configuration and route digests, release marker, and optional capabilities.
 - [x] 10.5 Implement Kubernetes `rollback` from the prior immutable runtime and configuration bundle against the current schema and verify that it never reruns the prior migration or applies a down migration.

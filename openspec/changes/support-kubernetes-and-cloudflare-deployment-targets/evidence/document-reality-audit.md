@@ -1121,3 +1121,26 @@ fail, the direct composition omits the CDN contract, the external composition
 contains it, both retain the same Kubernetes runtimes, and no Cloudflare runtime
 appears. Task 10.9 remains open because these deterministic contracts do not
 prove a real edge obeys them or matches direct-origin behavior.
+
+## Thirty-third-pass Kubernetes render and planning acceptance
+
+Task 10.2 is complete. Kubernetes rendering deterministically emits Secret-free
+prerequisite/configuration, migration, private workload, and public
+ingress/delivery phases from one immutable release and validated configuration.
+Direct and external-CDN delivery select only their matching composition.
+
+Planning submits every non-empty phase to the explicitly configured Kubernetes
+context and namespace with server-side apply dry-run, the declared field
+manager, stdin input, and no persistence. A server field-ownership conflict is
+reported with a stable redacted reason instead of exposing provider stderr.
+Planning then binds the authoritative control/cluster observation revision and
+canonical target-bundle digest into the reviewed plan; absence of authoritative
+observation fails closed rather than being inferred as a first installation.
+
+Renderer, Kustomize, Adapter, and contract tests cover deterministic output,
+phase order, immutable image identities, role-specific Secrets, one migration
+Job, direct versus optional-edge selection, dry-run arguments, zero persistence,
+field conflicts, and missing observation. This completes render/planning for the
+Kubernetes target only; shared task 3.7 and production-target qualification stay
+open because the Cloudflare renderer does not yet exist and no real cluster has
+passed acceptance.
