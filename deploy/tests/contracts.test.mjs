@@ -97,6 +97,22 @@ test("production deployment schema accepts exactly one target and logical Secret
   const unsafeOrigin = clone(cloudflare);
   unsafeOrigin.shared.publicOrigins.application = "http://public.example.test";
   assertInvalid("deployment.schema.json", unsafeOrigin);
+
+  const missingNetwork = clone(kubernetes);
+  delete missingNetwork.kubernetes.network;
+  assertInvalid("deployment.schema.json", missingNetwork);
+
+  const unenforcedNetworkPolicy = clone(kubernetes);
+  unenforcedNetworkPolicy.kubernetes.network.cni.networkPolicyEnforced = false;
+  assertInvalid("deployment.schema.json", unenforcedNetworkPolicy);
+
+  const implicitExternalEgress = clone(kubernetes);
+  implicitExternalEgress.kubernetes.network.egress = {mode: "unrestricted"};
+  assertInvalid("deployment.schema.json", implicitExternalEgress);
+
+  const emptyGatewaySelector = clone(kubernetes);
+  emptyGatewaySelector.kubernetes.network.egress.gateway.podLabels = {};
+  assertInvalid("deployment.schema.json", emptyGatewaySelector);
 });
 
 test("deployment command results retain stable commands, outcomes, and reason codes", () => {

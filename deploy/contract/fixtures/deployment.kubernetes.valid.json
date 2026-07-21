@@ -70,6 +70,29 @@
     "ingress": {
       "className": "nginx",
       "externalCdn": { "enabled": true, "provider": "enterprise-edge" }
+    },
+    "network": {
+      "cni": {
+        "name": "cilium",
+        "networkPolicyEnforced": true,
+        "evidenceObservedAt": "2026-07-21T00:00:00Z",
+        "maximumEvidenceAgeSeconds": 86400
+      },
+      "dns": {
+        "namespace": "kube-system",
+        "podLabels": { "k8s-app": "kube-dns" }
+      },
+      "ingressController": {
+        "namespace": "ingress-nginx",
+        "podLabels": { "app.kubernetes.io/component": "controller" }
+      },
+      "egress": {
+        "mode": "egress-gateway",
+        "gateway": {
+          "namespace": "shareslices-egress",
+          "podLabels": { "app.kubernetes.io/name": "shareslices-egress-gateway" }
+        }
+      }
     }
   }
 }

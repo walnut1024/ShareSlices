@@ -6,3 +6,4 @@ components:
   - ../../components/ingress
   - ../../components/gallery-isolation
   - ../../components/sizing-production
+  - ../../components/network-policy

@@ -66,3 +66,32 @@ test("direct and external-CDN overlays differ only by the explicit CDN contract 
   assert.match(external, /provisioning: external-prerequisite/);
   assert.doesNotMatch(external, /cloudflare/i);
 });
+
+test("production overlays deny by default and expose only declared network paths", () => {
+  for (const root of ["overlays/direct", "overlays/external-cdn"]) {
+    const output = render(root);
+    assert.match(output, /name: shareslices-default-deny/);
+    assert.match(output, /podSelector: \{\}\n  policyTypes:\n  - Ingress\n  - Egress/);
+    assert.match(output, /name: shareslices-web-ingress/);
+    assert.match(output, /name: shareslices-content-ingress/);
+    assert.match(output, /name: shareslices-api-ingress/);
+    assert.match(output, /name: shareslices-web-api-egress/);
+    assert.match(output, /name: shareslices-worker-api-egress/);
+    assert.match(output, /name: shareslices-dns-egress/);
+    for (const policy of [
+      "api-external-egress",
+      "maintenance-external-egress",
+      "content-external-egress",
+      "worker-external-egress",
+      "migration-database-egress",
+    ]) {
+      assert.match(output, new RegExp(`name: shareslices-${policy}`));
+    }
+    assert.match(output, /port: 53\n      protocol: UDP/);
+    assert.match(output, /port: 53\n      protocol: TCP/);
+    assert.match(output, /shareslices\.dev\/ingress-controller: replace-by-renderer/);
+    assert.match(output, /shareslices\.dev\/egress-gateway: replace-by-renderer/);
+    assert.match(output, /app\.kubernetes\.io\/name: shareslices-worker[\s\S]+port: 7456/);
+    assert.doesNotMatch(output, /0\.0\.0\.0\/0/);
+  }
+});

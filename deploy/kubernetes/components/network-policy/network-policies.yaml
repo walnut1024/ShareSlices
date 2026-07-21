@@ -1,0 +1,195 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: shareslices-default-deny
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: shareslices-web-ingress
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: shareslices-web}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: replace-by-renderer}
+          podSelector:
+            matchLabels: {shareslices.dev/ingress-controller: replace-by-renderer}
+      ports:
+        - {protocol: TCP, port: 8080}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: shareslices-content-ingress
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: shareslices-content}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: replace-by-renderer}
+          podSelector:
+            matchLabels: {shareslices.dev/ingress-controller: replace-by-renderer}
+      ports:
+        - {protocol: TCP, port: 7460}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: shareslices-api-ingress
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: shareslices-api}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: shareslices-web}
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: shareslices-worker}
+      ports:
+        - {protocol: TCP, port: 7456}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: shareslices-web-api-egress
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: shareslices-web}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: shareslices-api}
+      ports:
+        - {protocol: TCP, port: 7456}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: shareslices-worker-api-egress
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: shareslices-worker}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: shareslices-api}
+      ports:
+        - {protocol: TCP, port: 7456}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: shareslices-dns-egress
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: replace-by-renderer}
+          podSelector:
+            matchLabels: {shareslices.dev/dns: replace-by-renderer}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: shareslices-api-external-egress
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: shareslices-api}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: replace-by-renderer}
+          podSelector:
+            matchLabels: {shareslices.dev/egress-gateway: replace-by-renderer}
+      ports:
+        - {protocol: TCP, port: 443}
+        - {protocol: TCP, port: 5432}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: shareslices-maintenance-external-egress
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: shareslices-maintenance}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: replace-by-renderer}
+          podSelector:
+            matchLabels: {shareslices.dev/egress-gateway: replace-by-renderer}
+      ports:
+        - {protocol: TCP, port: 443}
+        - {protocol: TCP, port: 5432}
+        - {protocol: TCP, port: 587}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: shareslices-content-external-egress
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: shareslices-content}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: replace-by-renderer}
+          podSelector:
+            matchLabels: {shareslices.dev/egress-gateway: replace-by-renderer}
+      ports:
+        - {protocol: TCP, port: 443}
+        - {protocol: TCP, port: 5432}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: shareslices-worker-external-egress
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: shareslices-worker}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: replace-by-renderer}
+          podSelector:
+            matchLabels: {shareslices.dev/egress-gateway: replace-by-renderer}
+      ports:
+        - {protocol: TCP, port: 443}
+        - {protocol: TCP, port: 5432}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: shareslices-migration-database-egress
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: shareslices-migrate}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: replace-by-renderer}
+          podSelector:
+            matchLabels: {shareslices.dev/egress-gateway: replace-by-renderer}
+      ports:
+        - {protocol: TCP, port: 5432}
