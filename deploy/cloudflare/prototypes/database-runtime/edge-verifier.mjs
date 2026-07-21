@@ -35,6 +35,12 @@ async function verify(env) {
     jobState: "passed",
   });
   assert.equal(pathEvidence.transactionRollback, "passed");
+  assert.deepEqual(pathEvidence.semantics, {
+    namedPreparedStatement: "passed",
+    transactionLocalState: "passed",
+    statementTimeout: "passed",
+    workerPoolMaxConnections: 1,
+  });
   assert.ok(
     ["rejected", "observed_succeeded_but_unsupported"].includes(
       pathEvidence.advisoryLock,

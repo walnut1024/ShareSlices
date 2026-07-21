@@ -72,6 +72,13 @@ This evidence completes task 1.4. It does not qualify migrations, the direct
 Container database Adapter, R2 streaming, release automation, or production
 capacity.
 
+The next disposable run also has explicit checks for the repository driver's
+named prepared statements, transaction-local state reset, PostgreSQL statement
+timeout propagation, and a one-connection Worker-side pool. These checks are
+committed but not yet recorded as passing live evidence. They do not replace
+the provider configuration's origin-connection limit or the production TLS
+negative test.
+
 ## Production TLS follow-up
 
 On 2026-07-21, a bounded Wrangler update attempted to change the retained

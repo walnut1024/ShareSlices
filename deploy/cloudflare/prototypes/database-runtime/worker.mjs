@@ -6,6 +6,8 @@ import { Hono } from "hono";
 import pg from "pg";
 import * as schema from "../../../../api/src/db/schema.ts";
 
+// cspell:ignore millis
+
 const { Pool } = pg;
 const app = new Hono();
 
@@ -47,7 +49,59 @@ function createPool(context) {
   return new Pool({
     connectionString: context.env.HYPERDRIVE.connectionString,
     max: 1,
+    connectionTimeoutMillis: 5_000,
+    idleTimeoutMillis: 5_000,
   });
+}
+
+async function verifyHyperdriveSemantics(client, probeId) {
+  const preparedQuery = {
+    name: "shareslices-hyperdrive-prototype-v1",
+    text: "select $1::text as value",
+    values: [probeId],
+  };
+  const firstPrepared = await client.query(preparedQuery);
+  const secondPrepared = await client.query(preparedQuery);
+
+  await client.query("begin");
+  let localTimeout;
+  try {
+    await client.query("set local statement_timeout = '100ms'");
+    localTimeout = await client.query("show statement_timeout");
+  } finally {
+    await client.query("rollback");
+  }
+  const resetTimeout = await client.query("show statement_timeout");
+
+  let timeout = "failed";
+  await client.query("begin");
+  try {
+    await client.query("set local statement_timeout = '100ms'");
+    await client.query("select pg_sleep(0.25)");
+  } catch (error) {
+    if (error && typeof error === "object" && error.code === "57014") {
+      timeout = "passed";
+    } else {
+      throw error;
+    }
+  } finally {
+    await client.query("rollback");
+  }
+
+  return {
+    namedPreparedStatement:
+      firstPrepared.rows[0]?.value === probeId &&
+      secondPrepared.rows[0]?.value === probeId
+        ? "passed"
+        : "failed",
+    transactionLocalState:
+      localTimeout.rows[0]?.statement_timeout === "100ms" &&
+      resetTimeout.rows[0]?.statement_timeout !== "100ms"
+        ? "passed"
+        : "failed",
+    statementTimeout: timeout,
+    workerPoolMaxConnections: 1,
+  };
 }
 
 function createAuthentication(pool, context) {
@@ -142,6 +196,7 @@ app.post("/prototype/hyperdrive-paths", async (context) => {
       "select count(*)::int as count from verification where id = $1",
       [probeId],
     );
+    const semantics = await verifyHyperdriveSemantics(client, probeId);
 
     let advisoryLock = "observed_succeeded_but_unsupported";
     await client.query("begin");
@@ -165,6 +220,7 @@ app.post("/prototype/hyperdrive-paths", async (context) => {
           jobState: jobState.rowCount === 0 ? "passed" : "unexpected_fixture",
         },
         transactionRollback: rollback.rows[0]?.count === 0 ? "passed" : "failed",
+        semantics,
         advisoryLock,
       },
       200,
