@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 import { diagnoseCloudflareDatabase } from "../cloudflare/database-doctor.mjs";
+import {sha256Digest} from "./canonical.mjs";
 import { deploymentResult, exitCodes } from "./cli.mjs";
 import {
   DeploymentConfigError,
@@ -55,6 +56,49 @@ async function loadRelease(path) {
   }
   serializeCanonicalRelease(release);
   return release;
+}
+
+async function loadPlan(path) {
+  if (!path) {
+    throw new DeploymentLifecycleError(
+      "deployment_plan_required",
+      "An authorized deployment plan path is required.",
+      exitCodes.invalidInput,
+    );
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(await readFile(path, "utf8"));
+  } catch {
+    throw new DeploymentLifecycleError(
+      "deployment_plan_unreadable",
+      "Deployment plan could not be read as JSON.",
+      exitCodes.invalidInput,
+    );
+  }
+  const plan = parsed?.schemaVersion === "shareslices.deployment-result/v1"
+    ? parsed.data?.plan
+    : parsed;
+  if (
+    plan?.schemaVersion !== "shareslices.deployment-plan/v1" ||
+    typeof plan.planDigest !== "string" ||
+    !Array.isArray(plan.actions)
+  ) {
+    throw new DeploymentLifecycleError(
+      "deployment_plan_invalid",
+      "Deployment plan does not match the supported schema.",
+      exitCodes.invalidInput,
+    );
+  }
+  const {planDigest, ...body} = plan;
+  if (sha256Digest(body) !== planDigest) {
+    throw new DeploymentLifecycleError(
+      "deployment_plan_digest_mismatch",
+      "Deployment plan digest does not match its canonical content.",
+      exitCodes.invalidInput,
+    );
+  }
+  return plan;
 }
 
 function adapterFor(registry, target) {
@@ -199,6 +243,51 @@ export function createLifecycleExecutor(adapterRegistry) {
         ? await loadRelease(options.release)
         : null;
       requestedRelease = release?.releaseId ?? requestedRelease;
+      if (command === "apply") {
+        const plan = await loadPlan(options.plan);
+        if (plan.target !== config.target || plan.releaseId !== release.releaseId) {
+          throw new DeploymentLifecycleError(
+            "deployment_plan_identity_mismatch",
+            "Deployment plan does not match the selected target and release.",
+            exitCodes.invalidInput,
+          );
+        }
+        const bundle = validateBundleIdentity(await adapter.render({config, release}), config, release);
+        const canonical = serializeCanonicalTargetBundle(bundle);
+        if (plan.bundleDigest !== canonical.digest) {
+          throw new DeploymentLifecycleError(
+            "deployment_plan_bundle_mismatch",
+            "Deployment plan does not authorize the rendered target bundle.",
+            exitCodes.invalidInput,
+          );
+        }
+        const result = await adapter.apply({
+          config,
+          release,
+          bundle,
+          plan,
+          authorizedPlanDigest: plan.planDigest,
+        });
+        if (result?.outcome === "external_reconciler_required") {
+          return {
+            exitCode: exitCodes.externalReconcilerRequired,
+            result: deploymentResult(command, {
+              target: config.target,
+              requestedRelease: release.releaseId,
+              outcome: "external_reconciler_required",
+              reason: {
+                code: "external_reconciler_required",
+                message: "An external reconciler must apply the immutable handoff.",
+              },
+              data: {bundleDigest: canonical.digest, phases: result.phases},
+            }),
+          };
+        }
+        return successful(command, config.target, release.releaseId, {
+          bundleDigest: canonical.digest,
+          phases: result?.phases ?? [],
+        });
+      }
       return await executeReadOnly({ command, config, release, adapter });
     } catch (error) {
       const known =

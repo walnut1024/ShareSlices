@@ -4,6 +4,8 @@ import test from "node:test";
 
 import {createKubernetesAdapter} from "./adapter.mjs";
 
+// cspell:ignore gitops networkpolicies poddisruptionbudgets serviceaccounts
+
 const config = JSON.parse(await readFile(
   new URL("../contract/fixtures/deployment.kubernetes.valid.json", import.meta.url),
   "utf8",
@@ -168,4 +170,60 @@ test("plan refuses to infer first installation when authoritative observations a
     adapter.plan({config, release, bundle}),
     (error) => error.code === "kubernetes_plan_observation_unavailable",
   );
+});
+
+test("direct apply executes authorized phases with migration and rollout gates", async () => {
+  const calls = [];
+  const adapter = createKubernetesAdapter({
+    runKubectl: (arguments_, options = {}) => {
+      calls.push({arguments_, input: options.input});
+      return {status: 0, stdout: "resource/name\n", stderr: ""};
+    },
+    observeState: async () => ({revision: digest("4"), controlSchema: {state: "present", checksum: digest("6")}, resources: []}),
+    applyPlan: async ({executePhase}) => {
+      const phases = [];
+      for (const phase of ["prerequisites", "migration", "private-runtime", "public-runtime"]) {
+        phases.push({phase, ...(await executePhase({phase, actions: []}))});
+      }
+      return {outcome: "succeeded", phases};
+    },
+  });
+  const bundle = await adapter.render({config, release});
+  const result = await adapter.apply({
+    config,
+    release,
+    bundle,
+    plan: {planDigest: digest("5")},
+    authorizedPlanDigest: digest("5"),
+  });
+  assert.equal(result.outcome, "succeeded");
+  assert.equal(calls.filter(({arguments_}) => arguments_.includes("apply")).length, 4);
+  assert.equal(calls.some(({arguments_}) => arguments_.includes("--for=condition=complete")), true);
+  assert.equal(calls.filter(({arguments_}) => arguments_.includes("rollout")).length > 0, true);
+  assert.equal(calls.filter(({input}) => input).every(({input}) => input.includes("shareslices.dev/resource-digest")), true);
+});
+
+test("GitOps apply returns an immutable handoff without mutating Kubernetes", async () => {
+  const gitops = structuredClone(config);
+  gitops.kubernetes.reconciliation.mode = "gitops";
+  const calls = [];
+  const adapter = createKubernetesAdapter({
+    runKubectl: (arguments_) => {
+      calls.push(arguments_);
+      return {status: 0, stdout: "", stderr: ""};
+    },
+    observeState: async () => ({revision: digest("4"), controlSchema: {state: "present", checksum: digest("6")}, resources: []}),
+    applyPlan: async ({executePhase}) => executePhase({phase: "migration", actions: []}),
+  });
+  const bundle = await adapter.render({config: gitops, release});
+  const result = await adapter.apply({
+    config: gitops,
+    release,
+    bundle,
+    plan: {planDigest: digest("5")},
+    authorizedPlanDigest: digest("5"),
+  });
+  assert.equal(result.outcome, "external_reconciler_required");
+  assert.match(result.handoffDigest, /^sha256:/);
+  assert.equal(calls.length, 0);
 });

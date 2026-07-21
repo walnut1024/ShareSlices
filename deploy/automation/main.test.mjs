@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {exitCodes} from "./cli.mjs";
-import {createProductionExecutor, main} from "./main.mjs";
+import {createProductionExecutor, createProductionKubernetesAdapter, main} from "./main.mjs";
 import {lifecycleOperations} from "./target-adapter.mjs";
 
 function adapter(overrides = {}) {
@@ -43,4 +43,26 @@ test("production entrypoint fails closed for a target whose Adapter is not regis
   const result = JSON.parse(output[0]);
   assert.equal(result.reason.code, "deployment_target_adapter_unavailable");
   assert.equal(result.target, "cloudflare");
+});
+
+test("production Kubernetes planning requires an explicit file Secret root", async () => {
+  let observeState;
+  createProductionKubernetesAdapter({
+    environment: {},
+    createAdapter: (options) => {
+      observeState = options.observeState;
+      return {};
+    },
+  });
+  await assert.rejects(
+    observeState({
+      config: {
+        shared: {database: {ref: "secret://postgres/application", revision: "1"}},
+        kubernetes: {},
+      },
+      bundle: {phases: []},
+      runKubectl: () => ({status: 1, stdout: "", stderr: ""}),
+    }),
+    (error) => error.code === "deployment_secret_root_required",
+  );
 });

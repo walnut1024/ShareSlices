@@ -17,7 +17,7 @@ function compareResources(desired, observed) {
   for (const resource of desired) {
     const current = observedById.get(resource.logicalId);
     let action = "unchanged";
-    const prerequisite = resource.phase === "prerequisites" || resource.owner === "external-prerequisite";
+    const prerequisite = resource.owner === "external-prerequisite";
     if (prerequisite && !current) action = "prerequisite_missing";
     else if (prerequisite && current.digest !== resource.digest) action = "prerequisite_drift";
     else if (!current) action = "create";
@@ -55,6 +55,9 @@ function compareResources(desired, observed) {
 export function buildDeploymentPlan({ desired, observed, controlSchemaChecksum }) {
   if (!desired || !observed || typeof controlSchemaChecksum !== "string") {
     throw new TypeError("Desired state, observed state, and control schema checksum are required.");
+  }
+  if (!/^sha256:[a-f0-9]{64}$/.test(desired.bundleDigest ?? "")) {
+    throw new TypeError("Desired state must bind a canonical target bundle digest.");
   }
   const firstInstallation = observed.controlSchema.state === "absent";
   const actions = compareResources(desired.resources, observed.resources);
@@ -97,6 +100,7 @@ export function buildDeploymentPlan({ desired, observed, controlSchemaChecksum }
     schemaVersion: "shareslices.deployment-plan/v1",
     target: desired.target,
     releaseId: desired.releaseId,
+    bundleDigest: desired.bundleDigest,
     observedStateRevision: observed.revision,
     firstInstallation,
     actions,

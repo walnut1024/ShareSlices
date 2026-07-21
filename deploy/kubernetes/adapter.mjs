@@ -5,9 +5,11 @@ import {readFile} from "node:fs/promises";
 import {stringify} from "yaml";
 
 import {sha256Digest} from "../automation/canonical.mjs";
+import {loadControlSchema} from "../automation/control-store.mjs";
 import {TargetAdapterError} from "../automation/target-adapter.mjs";
 import {renderKubernetesBundle} from "./render.mjs";
 
+// cspell:ignore ciliumnetworkpolicies gitops ingressclass networkpolicies poddisruptionbudgets serviceaccounts
 const requiredApiResources = Object.freeze([
   "configmaps", "deployments.apps", "ingresses.networking.k8s.io", "jobs.batch",
   "networkpolicies.networking.k8s.io", "poddisruptionbudgets.policy", "serviceaccounts", "services",
@@ -111,7 +113,8 @@ export function createKubernetesAdapter({
   now = () => new Date(),
   routeProjection,
   observeState,
-  controlSchemaChecksum = `sha256:${"0".repeat(64)}`,
+  applyPlan,
+  controlSchemaChecksum,
 } = {}) {
   async function doctor({config}) {
     const checks = [];
@@ -224,7 +227,7 @@ export function createKubernetesAdapter({
     });
   }
 
-  async function plan({config, release, bundle}) {
+  async function plan({config, release, bundle, bundleDigest}) {
     const dryRuns = [];
     for (const phase of bundle.phases) {
       if (phase.resources.length === 0) continue;
@@ -268,10 +271,11 @@ export function createKubernetesAdapter({
     const desired = {
       target: "kubernetes",
       releaseId: release.releaseId,
+      bundleDigest,
       resources: bundle.phases.flatMap((phase) => phase.resources.map((resource) => ({
         logicalId: `${resource.apiVersion}/${resource.kind}/${resource.metadata.namespace}/${resource.metadata.name}`,
         phase: phaseNames[phase.id] ?? phase.id,
-        digest: sha256Digest(resource),
+        digest: resource.metadata.annotations["shareslices.dev/resource-digest"],
         owner: "deployment-module",
         retention: "active",
         securitySensitive: ["Ingress", "NetworkPolicy", "CiliumNetworkPolicy", "ServiceAccount"].includes(resource.kind),
@@ -280,7 +284,100 @@ export function createKubernetesAdapter({
     return Object.freeze({
       desired,
       observed: {...observed, dryRuns},
-      controlSchemaChecksum,
+      controlSchemaChecksum: controlSchemaChecksum ?? (await loadControlSchema()).checksum,
+    });
+  }
+
+  function documentsFor(resources) {
+    return resources.map((resource) => stringify(resource, {lineWidth: 0}).trim()).join("\n---\n") + "\n";
+  }
+
+  async function apply({config, release, bundle, plan: deploymentPlan, authorizedPlanDigest}) {
+    if (typeof applyPlan !== "function" || typeof observeState !== "function") {
+      throw new TargetAdapterError(
+        "kubernetes_apply_control_unavailable",
+        "Kubernetes apply requires authoritative deployment control.",
+      );
+    }
+    const phaseMapping = {
+      prerequisites: "prerequisites",
+      migration: "migration",
+      "private-runtime": "private-runtime",
+      "public-runtime": "ingress",
+    };
+    const observe = () => observeState({config, release, bundle, runKubectl});
+    return applyPlan({
+      config,
+      plan: deploymentPlan,
+      authorizedPlanDigest,
+      observe,
+      executePhase: async ({phase}) => {
+        if (phase === "retirement") {
+          throw new TargetAdapterError(
+            "kubernetes_retirement_requires_verified_inventory",
+            "Kubernetes retirement requires separately verified inventory and inactivity evidence.",
+          );
+        }
+        const bundlePhase = bundle.phases.find(({id}) => id === phaseMapping[phase]);
+        if (!bundlePhase) {
+          throw new TargetAdapterError(
+            "kubernetes_apply_phase_unavailable",
+            `Kubernetes bundle does not contain phase ${phase}.`,
+          );
+        }
+        const checkpointDigest = sha256Digest(bundlePhase.resources);
+        if (config.kubernetes.reconciliation.mode === "gitops") {
+          return {outcome: "external_reconciler_required", handoffDigest: checkpointDigest};
+        }
+        const applied = runKubectl(commandFor(
+          config,
+          "apply",
+          "--server-side",
+          `--field-manager=${config.kubernetes.fieldManager}`,
+          "--filename=-",
+          "--output=name",
+        ), {input: documentsFor(bundlePhase.resources)});
+        if (applied.status !== 0) {
+          throw new TargetAdapterError(
+            "kubernetes_apply_phase_failed",
+            `Kubernetes apply failed in phase ${phase}.`,
+          );
+        }
+        if (phase === "migration") {
+          const job = bundlePhase.resources.find(({kind}) => kind === "Job");
+          const waited = runKubectl(commandFor(
+            config,
+            "wait",
+            "--for=condition=complete",
+            `job/${job.metadata.name}`,
+            "--timeout=600s",
+          ));
+          if (waited.status !== 0) {
+            throw new TargetAdapterError(
+              "kubernetes_migration_incomplete",
+              "Kubernetes migration Job did not complete successfully.",
+            );
+          }
+        }
+        if (phase === "private-runtime") {
+          for (const deployment of bundlePhase.resources.filter(({kind}) => kind === "Deployment")) {
+            const rollout = runKubectl(commandFor(
+              config,
+              "rollout",
+              "status",
+              `deployment/${deployment.metadata.name}`,
+              "--timeout=600s",
+            ));
+            if (rollout.status !== 0) {
+              throw new TargetAdapterError(
+                "kubernetes_rollout_incomplete",
+                "A Kubernetes Deployment did not complete rollout.",
+              );
+            }
+          }
+        }
+        return {checkpointDigest};
+      },
     });
   }
 
@@ -294,7 +391,7 @@ export function createKubernetesAdapter({
     doctor,
     render,
     plan,
-    apply: unavailableOperation("apply"),
+    apply,
     status: unavailableOperation("status"),
     verify: unavailableOperation("verify"),
     rollback: unavailableOperation("rollback"),

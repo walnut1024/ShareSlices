@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 
+import {sha256Digest} from "./canonical.mjs";
 import { executeInvocation, exitCodes, parseInvocation } from "./cli.mjs";
 import { createLifecycleExecutor } from "./lifecycle.mjs";
+import {serializeCanonicalTargetBundle} from "./release.mjs";
 import { lifecycleOperations, TargetAdapterError } from "./target-adapter.mjs";
 
 const configPath = "deploy/contract/fixtures/deployment.cloudflare.valid.json";
@@ -113,10 +117,11 @@ test("plan binds the observed revision and refuses destructive drift", async () 
     parseInvocation(["plan", "--config", configPath, "--release", releasePath]),
     executor({
       render: async () => ({ target: "cloudflare", releaseId: release.releaseId }),
-      plan: async () => ({
+      plan: async ({bundleDigest}) => ({
         desired: {
           target: "cloudflare",
           releaseId: release.releaseId,
+          bundleDigest,
           resources: [],
         },
         observed: {
@@ -148,6 +153,40 @@ test("status projects provider observations through the common state model", asy
   );
   assert.equal(execution.exitCode, exitCodes.succeeded);
   assert.equal(execution.result.data.status.state, "verified");
+});
+
+test("apply accepts only a digest-bound plan for the rendered target bundle", async (context) => {
+  const directory = await mkdtemp(path.join(tmpdir(), "shareslices-plan-"));
+  context.after(() => rm(directory, {recursive: true, force: true}));
+  const bundle = {target: "cloudflare", releaseId: release.releaseId, resources: []};
+  const body = {
+    schemaVersion: "shareslices.deployment-plan/v1",
+    target: "cloudflare",
+    releaseId: release.releaseId,
+    bundleDigest: serializeCanonicalTargetBundle(bundle).digest,
+    observedStateRevision: "observed-1",
+    firstInstallation: false,
+    actions: [],
+    outcome: "ready",
+    refusalReasons: [],
+  };
+  const plan = {...body, planDigest: sha256Digest(body)};
+  const planPath = path.join(directory, "plan.json");
+  await writeFile(planPath, JSON.stringify(plan));
+  let request;
+  const execution = await executeInvocation(
+    parseInvocation(["apply", "--config", configPath, "--release", releasePath, "--plan", planPath]),
+    executor({
+      render: async () => bundle,
+      apply: async (value) => {
+        request = value;
+        return {outcome: "succeeded", phases: []};
+      },
+    }),
+  );
+  assert.equal(execution.exitCode, exitCodes.succeeded);
+  assert.equal(request.authorizedPlanDigest, plan.planDigest);
+  assert.equal(execution.result.data.bundleDigest, body.bundleDigest);
 });
 
 test("fails before target access for invalid release or missing Adapter", async () => {

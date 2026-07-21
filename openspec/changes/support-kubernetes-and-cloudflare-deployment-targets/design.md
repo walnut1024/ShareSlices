@@ -55,9 +55,11 @@ Both targets preserve one product implementation and one set of HTTP, PostgreSQL
 `deploy/` becomes the product-owned Deployment Module rather than a collection of examples. It owns target selection, configuration validation, deterministic rendering, release planning, deployment, observation, verification, and compatible rollback. Workflow files remain thin callers of repository `mise` tasks and do not become a second implementation of deployment policy.
 
 The design and delta specifications describe the intended post-change contract,
-not the current release inventory. The Deployment Module remains `Status:
-target` until implementation and verification are complete. A release advertises
-only a target whose required provider-neutral and target-specific qualification
+not the current release inventory. The Deployment Module is `Status: mixed` in
+the durable module map while individual implemented parts coexist with
+unfinished target work; neither production target is release-supported until
+its implementation and verification are complete. A release advertises only a
+target whose required provider-neutral and target-specific qualification
 evidence passed; an unavailable Cloudflare capability does not turn Kubernetes
 into a hybrid target or reduce Kubernetes eligibility.
 

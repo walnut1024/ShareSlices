@@ -825,3 +825,39 @@ evidence, Cloudflare tasks 1.7-1.11 and 11-12 retain their Paid/domain/provider
 gates, and a stored Resend key alone does not prove a verified sending domain,
 tracking posture, key scope, or production acceptance. Implementation may resume
 only against these unchanged fail-closed boundaries.
+
+## Twenty-third-pass production plan-application acceptance
+
+Task 3.9 now connects the previously tested phase engine to the production
+deployment entrypoint. `apply` reads a canonical plan artifact, verifies its
+content digest, target, release, and rendered bundle digest before target
+mutation, then resolves the direct PostgreSQL credential only within the
+operation boundary. The production controller performs the one authorized
+control-schema bootstrap when required, acquires or resumes the deterministic
+operation lease, re-observes the target revision, heartbeats the fence before
+mutations, and records running, completed, failed, indeterminate, or external
+handoff checkpoints in PostgreSQL.
+
+Kubernetes resources now carry an installation/owner marker and a digest of the
+desired resource before that digest annotation is attached. Planning compares
+only those checked annotations from resources whose ownership markers match;
+same-named unowned resources fail closed. The production observer reads the
+database Secret through an explicit `SHARESLICES_SECRET_ROOT`, requires its host
+to match the declared `verify-full` PostgreSQL endpoint, and combines the
+deployment-control revision with Kubernetes resource versions into the observed
+revision. Missing Secret roots or deployment principals fail without falling
+back to ambient credentials.
+
+The Kubernetes Adapter can now execute authorized direct phases with
+server-side apply, wait for the one-shot migration Job, and wait for each
+Deployment rollout. GitOps mode returns an immutable phase handoff without a
+cluster write. This does not complete Kubernetes task 10.3 or 10.6: isolated
+network probes, verification, release recording, safe retirement, observed
+status, rollback, predecessor evidence, and real-cluster acceptance remain open.
+
+The durable module map and this change design now use the same status model:
+the Deployment Module is mixed because several parts are current, while
+both production targets remain unavailable until their own complete acceptance
+gates pass. In particular, the presence of a direct mutation path is not release
+qualification, and the presence of a GitOps handoff is not evidence that an
+external reconciler promoted or converged it.

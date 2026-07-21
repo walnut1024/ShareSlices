@@ -4,9 +4,55 @@ import {pathToFileURL} from "node:url";
 
 import {createKubernetesAdapter} from "../kubernetes/adapter.mjs";
 import {executeInvocation, parseInvocation} from "./cli.mjs";
+import {
+  createFileSecretResolvers,
+  createKubernetesStateObserver,
+  createPostgresControlObserver,
+  validateSecretReferenceForFileResolution,
+} from "./control-observation.mjs";
 import {createLifecycleExecutor} from "./lifecycle.mjs";
+import {createProductionPlanApplier} from "./production-apply.mjs";
+import {TargetAdapterError} from "./target-adapter.mjs";
 
-export function createProductionExecutor({kubernetesAdapter = createKubernetesAdapter()} = {}) {
+export function createProductionKubernetesAdapter({
+  environment = process.env,
+  createAdapter = createKubernetesAdapter,
+  createControlObserver = createPostgresControlObserver,
+  createPlanApplier = createProductionPlanApplier,
+} = {}) {
+  const resolvers = () => {
+    const root = environment.SHARESLICES_SECRET_ROOT;
+    if (!root) {
+      throw new TargetAdapterError(
+        "deployment_secret_root_required",
+        "Production control observation requires SHARESLICES_SECRET_ROOT.",
+      );
+    }
+    return createFileSecretResolvers(root);
+  };
+  const observeControl = async ({config}) => {
+    validateSecretReferenceForFileResolution(config.shared.database);
+    return createControlObserver({resolvers: resolvers()})({config});
+  };
+  const applyPlan = async (input) => {
+    const owner = environment.SHARESLICES_DEPLOYMENT_PRINCIPAL;
+    if (!owner) {
+      throw new TargetAdapterError(
+        "deployment_principal_required",
+        "Production apply requires SHARESLICES_DEPLOYMENT_PRINCIPAL.",
+      );
+    }
+    return createPlanApplier({resolvers: resolvers(), owner})(input);
+  };
+  return createAdapter({
+    observeState: createKubernetesStateObserver({observeControl}),
+    applyPlan,
+  });
+}
+
+export function createProductionExecutor({
+  kubernetesAdapter = createProductionKubernetesAdapter(),
+} = {}) {
   return createLifecycleExecutor({kubernetes: kubernetesAdapter});
 }
 

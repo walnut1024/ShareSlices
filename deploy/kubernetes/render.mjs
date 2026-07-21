@@ -87,7 +87,14 @@ function configureMetadata(resource, config, release) {
     "app.kubernetes.io/managed-by": "shareslices-deployment",
     "shareslices.dev/installation": config.installationId,
     "shareslices.dev/release": releaseSuffix(release),
+    "shareslices.dev/owner": "deployment-module",
   };
+}
+
+function attachResourceDigest(resource) {
+  resource.metadata.annotations = {...(resource.metadata.annotations ?? {})};
+  delete resource.metadata.annotations["shareslices.dev/resource-digest"];
+  resource.metadata.annotations["shareslices.dev/resource-digest"] = sha256Digest(resource);
 }
 
 function configureConfigMap(resource, config, release) {
@@ -310,6 +317,7 @@ export function renderKubernetesBundle({config, release, routeProjection, render
     ...ciliumPolicies(config, release),
     ...disruptionBudgets(filtered, config, release),
   ];
+  for (const resource of all) attachResourceDigest(resource);
   const documents = all.map((resource) => stringify(resource, {lineWidth: 0}).trim()).join("\n---\n") + "\n";
   return Object.freeze({
     target: "kubernetes",

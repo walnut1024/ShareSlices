@@ -61,6 +61,7 @@
     }
   },
   "kubernetes": {
+    "reconciliation": { "mode": "direct" },
     "context": "enterprise-production",
     "fieldManager": "shareslices-deployment",
     "minimumVersion": "1.30.0",

@@ -217,12 +217,18 @@
     "kubernetes": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["context", "fieldManager", "minimumVersion", "namespace", "delivery", "registry", "releaseStore", "databaseEndpoint", "objectStorage", "objectStorageEndpoint", "email", "connectionBudget", "ingress", "network", "workloads"],
+      "required": ["context", "fieldManager", "minimumVersion", "namespace", "reconciliation", "delivery", "registry", "releaseStore", "databaseEndpoint", "objectStorage", "objectStorageEndpoint", "email", "connectionBudget", "ingress", "network", "workloads"],
       "properties": {
         "context": { "type": "string", "minLength": 1 },
         "fieldManager": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{0,127}$" },
         "minimumVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
         "namespace": { "$ref": "#/$defs/dnsLabel" },
+        "reconciliation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": { "mode": { "enum": ["direct", "gitops"] } }
+        },
         "delivery": {
           "type": "object",
           "additionalProperties": false,

@@ -7,12 +7,36 @@ const checksum = `sha256:${"c".repeat(64)}`;
 const desired = {
   target: "kubernetes",
   releaseId: `sha256:${"a".repeat(64)}`,
+  bundleDigest: `sha256:${"b".repeat(64)}`,
   resources: [
-    { logicalId: "database/external", phase: "prerequisites", digest: "external-1", durable: true },
+    {
+      logicalId: "database/external",
+      phase: "prerequisites",
+      digest: "external-1",
+      owner: "external-prerequisite",
+      durable: true,
+    },
     { logicalId: "migration/0030", phase: "migration", digest: "migration-1" },
     { logicalId: "runtime/api", phase: "public-runtime", digest: "api-2", securitySensitive: true },
   ],
 };
+
+test("requires the plan to bind a canonical target bundle digest", () => {
+  const unbound = structuredClone(desired);
+  delete unbound.bundleDigest;
+  assert.throws(
+    () => buildDeploymentPlan({
+      desired: unbound,
+      observed: {
+        revision: "observed-0",
+        controlSchema: {state: "absent"},
+        resources: [],
+      },
+      controlSchemaChecksum: checksum,
+    }),
+    /canonical target bundle digest/,
+  );
+});
 
 test("includes the one permitted first-install control-schema bootstrap", () => {
   const plan = buildDeploymentPlan({
