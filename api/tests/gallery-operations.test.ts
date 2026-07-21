@@ -47,9 +47,11 @@ describe("Gallery operations", () => {
       release: vi.fn(),
     };
     const storage = {removeStagingPrefix: vi.fn()};
-    const coordinator = new GalleryRollbackCoordinator({
-      connect: vi.fn(async () => client),
-    } as never, storage as never);
+    const withClient = vi.fn(async (operation) => operation(client));
+    const coordinator = new GalleryRollbackCoordinator(
+      { mode: "node-direct", withClient } as never,
+      storage as never,
+    );
     await coordinator.reconcileDisabled();
     const sql = statements.join("\n");
     expect(sql).toContain("gallery_safety_job");
@@ -64,7 +66,7 @@ describe("Gallery operations", () => {
     expect(sql).not.toContain("gallery_download_source_lease");
     expect(sql).not.toContain("gallery_governance");
     expect(storage.removeStagingPrefix).toHaveBeenCalledWith("staging/gallery-copy/attempt-1/");
-    expect(client.release).toHaveBeenCalledOnce();
+    expect(withClient).toHaveBeenCalledOnce();
   });
 
   it("rolls the coordinator transaction back on failure", async () => {
@@ -74,14 +76,14 @@ describe("Gallery operations", () => {
       if (calls === 3) throw new Error("database unavailable");
       return { rows: [], statement };
     });
-    const release = vi.fn();
-    const coordinator = new GalleryRollbackCoordinator({
-      connect: vi.fn(async () => ({ query, release })),
-    } as never);
+    const withClient = vi.fn(async (operation) => operation({ query }));
+    const coordinator = new GalleryRollbackCoordinator(
+      { mode: "node-direct", withClient } as never,
+    );
     await expect(coordinator.reconcileDisabled()).rejects.toThrow(
       "database unavailable",
     );
     expect(query).toHaveBeenLastCalledWith("rollback");
-    expect(release).toHaveBeenCalledOnce();
+    expect(withClient).toHaveBeenCalledOnce();
   });
 });

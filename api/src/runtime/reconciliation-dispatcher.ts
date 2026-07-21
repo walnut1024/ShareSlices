@@ -5,7 +5,7 @@ import { apiLogger, exceptionAttributes } from "../logging/index.js";
 import { createConfiguredObjectStorage } from "../storage/index.js";
 import { GalleryReconciliation } from "../application/gallery/reconciliation.js";
 import { GalleryRollbackCoordinator } from "../application/gallery/rollback-coordinator.js";
-import { pool } from "../db/client.js";
+import { directConnection, pool } from "../db/client.js";
 import { readMaintenanceEnv } from "../env.js";
 import { evaluateGalleryEligibility } from "../application/gallery/eligibility.js";
 import { galleryConfigurationFromEnv } from "../application/gallery/configuration.js";
@@ -25,9 +25,13 @@ export function startReconciliationDispatcher(
   });
   const galleryReconciliation = new GalleryReconciliation(
     pool,
+    directConnection,
     createConfiguredObjectStorage(),
   );
-  const galleryRollback = new GalleryRollbackCoordinator(pool, createConfiguredObjectStorage());
+  const galleryRollback = new GalleryRollbackCoordinator(
+    directConnection,
+    createConfiguredObjectStorage(),
+  );
   let running = false;
   const run = async () => {
     if (running) return;

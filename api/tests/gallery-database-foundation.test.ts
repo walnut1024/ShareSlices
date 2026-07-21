@@ -570,6 +570,16 @@ describe("Gallery database invariants", () => {
              ('hold-retain-pending','case-retain-pending','evidence/pending','test')`);
     const deleted: string[] = [];
     await new GalleryReconciliation(quotaPool, {
+      mode: "node-direct",
+      async withClient(operation) {
+        const directClient = await quotaPool.connect();
+        try {
+          return await operation(directClient);
+        } finally {
+          directClient.release();
+        }
+      },
+    }, {
       removeStagingPrefix: async () => ({ deletedCount: 0 }),
       deleteObject: async (key) => {
         deleted.push(key);

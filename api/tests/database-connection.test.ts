@@ -1,5 +1,6 @@
 // cspell:ignore millis
-import { describe, expect, it } from "vitest";
+import pg from "pg";
+import { describe, expect, it, vi } from "vitest";
 import {
   createDatabaseConnection,
   databasePoolConfig,
@@ -25,6 +26,7 @@ describe("database connection composition", () => {
     expect(connection.pool.options.max).toBe(mode === "hyperdrive" ? 5 : 10);
     expect(connection.pool.options.connectionTimeoutMillis).toBe(3_000);
     expect(connection.pool.options.idleTimeoutMillis).toBe(5_000);
+    expect("withClient" in connection).toBe(mode !== "hyperdrive");
     await connection.close();
   });
 
@@ -42,10 +44,44 @@ describe("database connection composition", () => {
   });
 
   it("requires the Hyperdrive Adapter to declare cache-disabled configuration", () => {
-    expect(createDatabaseConnection({
+    const connection = createDatabaseConnection({
       mode: "hyperdrive",
       cache: "disabled",
       connectionString: "postgres://user:password@hyperdrive.example.test/shareslices",
-    }).mode).toBe("hyperdrive");
+    });
+    expect(connection.mode).toBe("hyperdrive");
+    expect("withClient" in connection).toBe(false);
   });
+
+  it.each(["success", "failure"] as const)(
+    "holds one checked-out direct client for the whole %s operation and always releases it",
+    async (outcome) => {
+      const client = { query: vi.fn(), release: vi.fn() };
+      const connect = vi.spyOn(pg.Pool.prototype, "connect")
+        .mockResolvedValue(client as never);
+      const connection = createDatabaseConnection({
+        mode: "node-direct",
+        connectionString: "postgres://user:password@database.example.test/shareslices",
+      });
+      const operation = vi.fn(async (selectedClient: typeof client) => {
+        expect(selectedClient).toBe(client);
+        if (outcome === "failure") throw new Error("operation failed");
+        return "complete";
+      });
+
+      if (outcome === "failure") {
+        await expect(connection.withClient(operation as never)).rejects.toThrow(
+          "operation failed",
+        );
+      } else {
+        await expect(connection.withClient(operation as never)).resolves.toBe("complete");
+      }
+
+      expect(connect).toHaveBeenCalledOnce();
+      expect(operation).toHaveBeenCalledOnce();
+      expect(client.release).toHaveBeenCalledOnce();
+      connect.mockRestore();
+      await connection.close();
+    },
+  );
 });

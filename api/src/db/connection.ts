@@ -1,6 +1,6 @@
 // cspell:ignore millis
 import { drizzle } from "drizzle-orm/node-postgres";
-import pg, { type Pool, type PoolConfig } from "pg";
+import pg, { type Pool, type PoolClient, type PoolConfig } from "pg";
 import * as schema from "./schema.js";
 
 const { Pool: PostgresPool } = pg;
@@ -11,12 +11,29 @@ export type DatabaseConnectionMode =
   | "migration-direct"
   | "processing-direct";
 
-export type DatabaseConnection = Readonly<{
+export type DirectDatabaseConnectionMode = Exclude<
+  DatabaseConnectionMode,
+  "hyperdrive"
+>;
+
+export type DirectClientSource = Readonly<{
+  mode: DirectDatabaseConnectionMode;
+  withClient<T>(operation: (client: PoolClient) => Promise<T>): Promise<T>;
+}>;
+
+type DatabaseConnectionBase = Readonly<{
   mode: DatabaseConnectionMode;
   pool: Pool;
   database: ReturnType<typeof drizzle<typeof schema>>;
   close(): Promise<void>;
 }>;
+
+export type DirectDatabaseConnection = DatabaseConnectionBase & DirectClientSource;
+export type HyperdriveDatabaseConnection = DatabaseConnectionBase &
+  Readonly<{ mode: "hyperdrive" }>;
+export type DatabaseConnection =
+  | DirectDatabaseConnection
+  | HyperdriveDatabaseConnection;
 
 type DatabaseConnectionOptions = Readonly<{
   connectionString: string;
@@ -26,7 +43,7 @@ type DatabaseConnectionOptions = Readonly<{
 }>;
 
 export type DatabaseConnectionInput = DatabaseConnectionOptions & (
-  | Readonly<{ mode: Exclude<DatabaseConnectionMode, "hyperdrive"> }>
+  | Readonly<{ mode: DirectDatabaseConnectionMode }>
   | Readonly<{ mode: "hyperdrive"; cache: "disabled" }>
 );
 
@@ -51,13 +68,30 @@ export function databasePoolConfig(input: DatabaseConnectionInput): PoolConfig {
 }
 
 export function createDatabaseConnection(
-  input: DatabaseConnectionInput,
-): DatabaseConnection {
+  input: DatabaseConnectionOptions & Readonly<{ mode: DirectDatabaseConnectionMode }>,
+): DirectDatabaseConnection;
+export function createDatabaseConnection(
+  input: DatabaseConnectionOptions & Readonly<{ mode: "hyperdrive"; cache: "disabled" }>,
+): HyperdriveDatabaseConnection;
+export function createDatabaseConnection(input: DatabaseConnectionInput): DatabaseConnection {
   const pool = new PostgresPool(databasePoolConfig(input));
+  const database = drizzle(pool, { schema });
+  const close = () => pool.end();
+  if (input.mode === "hyperdrive") {
+    return Object.freeze({ mode: input.mode, pool, database, close });
+  }
   return Object.freeze({
     mode: input.mode,
     pool,
-    database: drizzle(pool, { schema }),
-    close: () => pool.end(),
+    database,
+    close,
+    async withClient<T>(operation: (client: PoolClient) => Promise<T>): Promise<T> {
+      const client = await pool.connect();
+      try {
+        return await operation(client);
+      } finally {
+        client.release();
+      }
+    },
   });
 }

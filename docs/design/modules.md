@@ -53,6 +53,11 @@ qualification remain target work.
   R2, Hyperdrive, Queue, scheduled, Container, and Resend composition. Provider
   feasibility evidence gates only this Adapter; failure does not weaken shared
   policy or block the Kubernetes Adapter.
+- `api/src/db/connection.ts` currently distinguishes direct Node, migration,
+  processing-Container, and cache-disabled Hyperdrive modes. Only a typed direct
+  connection exposes the checked-out-client operation used by migrations,
+  advisory-lock paths, and long-lived authentication-email lease heartbeats;
+  Hyperdrive TLS and compatibility qualification remain target work.
 - `deploy/compose/` owns the canonical non-production local and isolated test
   topology. `.mise.toml` remains the public local lifecycle entrypoint. Compose
   is not accepted by the production target discriminator and cannot provide
@@ -130,11 +135,12 @@ Status: mixed. Account entry remains a thin current HTTP/Auth/DB path. Artifact,
 - `AdministrationModule` is a roadmap Module for user search, deactivation, reactivation, soft deletion, forced sign out, session revocation, email verification policy, and administrative audit. It stays separate because the actor and permissions differ from user-managed flows.
 - `AuthenticationEmailDelivery` is current for durable PostgreSQL queuing and the
   SMTP Adapter. Account routes persist encrypted delivery payloads and return
-  without contacting a provider; a maintenance composition will lease pending
-  rows, render fixed authentication templates, invoke the selected target Email
-  Adapter, record bounded provider-acceptance outcomes, and remove terminal
-  payloads. Kubernetes uses enterprise SMTP and Cloudflare uses Resend HTTPS;
-  neither transport affects API readiness or owns account-entry policy.
+  without contacting a provider; the separate maintenance composition leases
+  pending rows, renders fixed authentication templates, invokes the current SMTP
+  Adapter, records bounded provider-acceptance outcomes, and removes terminal
+  payloads. Kubernetes enterprise SMTP and Cloudflare Resend HTTPS composition
+  remain target work; neither transport affects API readiness or owns
+  account-entry policy.
 
 ## Gallery Modules
 

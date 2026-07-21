@@ -11,7 +11,7 @@ import {
 } from "../application/accounts/authentication-email.js";
 import { readApiHttpEnv } from "../env.js";
 import { apiLogger } from "../logging/index.js";
-import { pool } from "./client.js";
+import { directConnection, pool } from "./client.js";
 
 const env = readApiHttpEnv();
 
@@ -51,9 +51,9 @@ export async function createVerificationAttempt(input: {
   synthetic?: boolean;
 }): Promise<VerificationAttempt> {
   const attempt = newVerificationAttempt(input);
-  const client = await pool.connect();
-  try {
-    await client.query("begin");
+  return directConnection.withClient(async (client) => {
+    try {
+      await client.query("begin");
     await client.query("select pg_advisory_xact_lock(hashtext($1))", [`verification:${input.purpose}:${input.email}`]);
     await client.query(
       `update email_verification_attempt set consumed_at = now()
@@ -86,12 +86,11 @@ export async function createVerificationAttempt(input: {
     );
     await client.query("commit");
     return attempt;
-  } catch (error) {
-    await client.query("rollback");
-    throw error;
-  } finally {
-    client.release();
-  }
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    }
+  });
 }
 
 export async function findVerificationAttempt(id: string): Promise<VerificationAttempt | null> {
@@ -243,9 +242,9 @@ export async function acceptAuthenticationEmailDelivery(input: {
 }): Promise<DeliveryResult> {
   const emailHash = safeHash(input.email, env.AUTH_EMAIL_ENCRYPTION_KEY);
   const sourceIpHash = safeHash(input.sourceIp || "unknown", env.AUTH_EMAIL_ENCRYPTION_KEY);
-  const client = await pool.connect();
-  try {
-    await client.query("begin");
+  return directConnection.withClient(async (client) => {
+    try {
+      await client.query("begin");
     await client.query("select pg_advisory_xact_lock(hashtext($1))", [`auth-email:${emailHash}`]);
     await client.query("select pg_advisory_xact_lock(hashtext($1))", [`auth-ip:${sourceIpHash}`]);
 
@@ -377,10 +376,9 @@ export async function acceptAuthenticationEmailDelivery(input: {
     );
     await client.query("commit");
     return { status: "accepted", resendAvailableIn: env.AUTH_EMAIL_RESEND_SECONDS };
-  } catch (error) {
-    await client.query("rollback");
-    throw error;
-  } finally {
-    client.release();
-  }
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    }
+  });
 }

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { decryptAuthenticationEmail } from "./authentication-email.js";
-import { pool } from "../../db/client.js";
+import { directConnection, pool } from "../../db/client.js";
+import type { DirectClientSource } from "../../db/connection.js";
 import { readMaintenanceEnv } from "../../env.js";
 import {
   createAuthenticationEmailSmtpAdapter,
@@ -26,12 +27,13 @@ export async function dispatchOneAuthenticationEmail(
   timing: { leaseSeconds: number; heartbeatMs: number } = {
     leaseSeconds: env.AUTH_EMAIL_DELIVERY_LEASE_SECONDS,
     heartbeatMs: Math.max(100, Math.floor(env.AUTH_EMAIL_DELIVERY_LEASE_SECONDS * 1000 / 3))
-  }
+  },
+  directClients: DirectClientSource = directConnection,
 ): Promise<boolean> {
-  const client = await pool.connect();
-  let delivery: DeliveryRow | undefined;
-  try {
-    await client.query("begin");
+  return directClients.withClient(async (client) => {
+    let delivery: DeliveryRow | undefined;
+    try {
+      await client.query("begin");
     const recovered = await client.query<{ id: string }>(
       `update authentication_email_delivery
        set state = 'pending', lease_owner = null, lease_expires_at = null
@@ -57,11 +59,10 @@ export async function dispatchOneAuthenticationEmail(
        for update skip locked limit 1`
     );
     delivery = claimed.rows[0];
-    if (!delivery) {
-      await client.query("commit");
-      client.release();
-      return false;
-    }
+      if (!delivery) {
+        await client.query("commit");
+        return false;
+      }
     await client.query(
       `update authentication_email_delivery
        set state = 'sending', lease_owner = $2,
@@ -70,16 +71,12 @@ export async function dispatchOneAuthenticationEmail(
       [delivery.id, workerId, timing.leaseSeconds]
     );
     await client.query("commit");
-  } catch (error) {
-    try {
+    } catch (error) {
       await client.query("rollback");
-    } finally {
-      client.release();
+      throw error;
     }
-    throw error;
-  }
 
-  const heartbeat = setInterval(() => {
+    const heartbeat = setInterval(() => {
     void client.query(
       `update authentication_email_delivery
        set lease_expires_at = now() + ($3 * interval '1 second')
@@ -96,10 +93,10 @@ export async function dispatchOneAuthenticationEmail(
         }
       });
     });
-  }, timing.heartbeatMs);
-  heartbeat.unref();
+    }, timing.heartbeatMs);
+    heartbeat.unref();
 
-  try {
+    try {
     const payload = decryptAuthenticationEmail(delivery.encrypted_payload, env.AUTH_EMAIL_ENCRYPTION_KEY);
     const providerMessageId = await adapter.send(payload, delivery.id);
     const completed = await client.query(
@@ -127,7 +124,7 @@ export async function dispatchOneAuthenticationEmail(
       eventName: "shareslices.authentication_email.delivery.sent",
       attributes: { "shareslices.authentication_email.delivery.id": delivery.id }
     });
-  } catch (error) {
+    } catch (error) {
     const retry = delivery.attempt_count + 1 < env.AUTH_EMAIL_MAX_ATTEMPTS;
     const failed = await client.query(
       `update authentication_email_delivery
@@ -174,11 +171,11 @@ export async function dispatchOneAuthenticationEmail(
         ...exceptionAttributes(error)
       }
     });
-  } finally {
-    clearInterval(heartbeat);
-    client.release();
-  }
-  return true;
+    } finally {
+      clearInterval(heartbeat);
+    }
+    return true;
+  });
 }
 
 export async function reconcileExpiredAuthenticationEmailState(): Promise<void> {

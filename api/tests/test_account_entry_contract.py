@@ -190,6 +190,7 @@ def live_servers(contract: dict[str, Any]) -> dict[str, str]:
     response = requests.get(f"{mailpit_url}/readyz", timeout=2)
     assert response.status_code == 200, "Mailpit is not ready"
     processes: list[subprocess.Popen[str]] = []
+    maintenance_environment: dict[str, str] | None = None
 
     for name, verification in [("default", "false"), ("smtp", "true")]:
         base_url = contract["base_url"] if name == "default" else contract["smtp_base_url"]
@@ -230,6 +231,8 @@ def live_servers(contract: dict[str, Any]) -> dict[str, str]:
                 "NODE_ENV": "test",
             }
         )
+        if name == "smtp":
+            maintenance_environment = environment.copy()
         process = subprocess.Popen(
             ["mise", "exec", "--", "pnpm", "--dir", "api", "exec", "tsx", "src/main.ts"],
             cwd=PROJECT_ROOT,
@@ -240,8 +243,33 @@ def live_servers(contract: dict[str, Any]) -> dict[str, str]:
         )
         processes.append(process)
 
+    assert maintenance_environment is not None
+    maintenance = subprocess.Popen(
+        [
+            "mise",
+            "exec",
+            "--",
+            "pnpm",
+            "--dir",
+            "api",
+            "exec",
+            "tsx",
+            "src/maintenance/main.ts",
+        ],
+        cwd=PROJECT_ROOT,
+        env=maintenance_environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    processes.append(maintenance)
+
     try:
-        for base_url, process in zip([contract["base_url"], contract["smtp_base_url"]], processes, strict=True):
+        for base_url, process in zip(
+            [contract["base_url"], contract["smtp_base_url"]],
+            processes[:2],
+            strict=True,
+        ):
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline:
                 if process.poll() is not None:
@@ -254,6 +282,10 @@ def live_servers(contract: dict[str, Any]) -> dict[str, str]:
                     time.sleep(0.05)
             else:
                 raise RuntimeError(f"Live API did not become ready at {base_url}")
+        time.sleep(0.1)
+        if maintenance.poll() is not None:
+            output = maintenance.stdout.read() if maintenance.stdout else ""
+            raise RuntimeError(f"Maintenance process exited before startup:\n{output}")
         yield {"default": contract["base_url"], "smtp": contract["smtp_base_url"], "mailpit": mailpit_url}
     finally:
         for process in processes:

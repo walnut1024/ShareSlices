@@ -64,12 +64,11 @@ export async function main(): Promise<void> {
     connectionString: env.DATABASE_URL,
     maxConnections: 1,
   });
-  let client: PoolClient | undefined;
   try {
-    client = await connection.pool.connect();
-    await runMigrations(client, await loadMigrations());
+    await connection.withClient(async (client) => {
+      await runMigrations(client, await loadMigrations());
+    });
   } finally {
-    client?.release();
     await connection.close();
   }
 }

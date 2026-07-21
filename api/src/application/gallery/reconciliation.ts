@@ -1,20 +1,22 @@
 import type { Pool } from "pg";
+import type { DirectClientSource } from "../../db/connection.js";
 import type { ObjectStorage } from "../../storage/object-storage.js";
 export class GalleryReconciliation {
   constructor(
     private readonly pool: Pool,
+    private readonly directClients: DirectClientSource,
     private readonly storage: Pick<
       ObjectStorage,
       "removeStagingPrefix" | "deleteObject"
     >,
   ) {}
   async run(limit = 100): Promise<void> {
-    const client = await this.pool.connect();
-    try {
-      await client.query("begin");
-      await client.query(
-        "select pg_advisory_xact_lock(hashtext('gallery-reconciliation'))",
-      );
+    const { attempts, evidence } = await this.directClients.withClient(async (client) => {
+      try {
+        await client.query("begin");
+        await client.query(
+          "select pg_advisory_xact_lock(hashtext('gallery-reconciliation'))",
+        );
       await client.query(
         "update gallery_download_source_lease set state='expired',ended_at=now() where state='active' and expires_at<=now()",
       );
@@ -50,13 +52,13 @@ export class GalleryReconciliation {
           [row.id],
         );
       }
-      const attempts = (
+        const attempts = (
         await client.query(
           `select attempt.object_prefix from gallery_copy_attempt attempt join gallery_copy_job job on job.id=attempt.job_id where job.state in ('ready','failed','cancelled') and attempt.state<>'running' limit $1`,
           [limit],
         )
       ).rows;
-      const evidence = (
+        const evidence = (
         await client.query(
           `select hold.id,hold.object_key
            from gallery_governance_evidence_hold hold
@@ -78,23 +80,23 @@ export class GalleryReconciliation {
           [limit],
         )
       ).rows;
-      await client.query("commit");
-      for (const row of attempts) {
-        if (String(row.object_prefix).startsWith("staging/gallery-copy/"))
-          await this.storage.removeStagingPrefix(row.object_prefix);
+        await client.query("commit");
+        return { attempts, evidence };
+      } catch (error) {
+        await client.query("rollback");
+        throw error;
       }
-      for (const row of evidence) {
-        await this.storage.deleteObject(String(row.object_key));
-        await this.pool.query(
-          "update gallery_governance_evidence_hold set release_after=coalesce(release_after,now()),released_at=now() where id=$1 and released_at is null",
-          [row.id],
-        );
-      }
-    } catch (error) {
-      await client.query("rollback");
-      throw error;
-    } finally {
-      client.release();
+    });
+    for (const row of attempts) {
+      if (String(row.object_prefix).startsWith("staging/gallery-copy/"))
+        await this.storage.removeStagingPrefix(row.object_prefix);
+    }
+    for (const row of evidence) {
+      await this.storage.deleteObject(String(row.object_key));
+      await this.pool.query(
+        "update gallery_governance_evidence_hold set release_after=coalesce(release_after,now()),released_at=now() where id=$1 and released_at is null",
+        [row.id],
+      );
     }
   }
 }
