@@ -118,7 +118,7 @@ export function createKubernetesAdapter({
     const context = runKubectl(["config", "get-contexts", config.kubernetes.context, "--no-headers", "--output=name"]);
     checks.push(context.status === 0 && context.stdout.trim() === config.kubernetes.context
       ? available("kubernetes-context", {context: config.kubernetes.context})
-      : unavailable("kubernetes-context", "configured_context_not_current"));
+      : unavailable("kubernetes-context", "configured_context_unavailable"));
 
     const version = runKubectl(commandFor(config, "version", "--output=json"));
     let serverVersion = null;
@@ -168,14 +168,24 @@ export function createKubernetesAdapter({
       : unavailable("kubernetes-ingress", "ingress_class_unavailable"));
 
     const cni = config.kubernetes.network.cni;
-    checks.push(ageIsCurrent(cni.evidenceObservedAt, cni.maximumEvidenceAgeSeconds, now)
+    const clusterIdentity = runKubectl(commandFor(
+      config,
+      "get",
+      "namespace",
+      "kube-system",
+      "--output=jsonpath={.metadata.uid}",
+    ));
+    checks.push(
+      clusterIdentity.status === 0 && clusterIdentity.stdout.trim() === cni.clusterIdentity &&
+      ageIsCurrent(cni.evidenceObservedAt, cni.maximumEvidenceAgeSeconds, now)
       ? available("kubernetes-network-conformance", {
         evidenceKind: "operator-supplied",
         clusterIdentity: cni.clusterIdentity,
         policyRevision: cni.policyRevision,
         allowedAndDeniedFlowsPassed: true,
       })
-      : unavailable("kubernetes-network-conformance", "network_conformance_evidence_stale"));
+      : unavailable("kubernetes-network-conformance", "network_conformance_evidence_unmatched_or_stale"),
+    );
     checks.push(available("kubernetes-egress-mechanism", {mode: config.kubernetes.network.egress.mode}));
 
     checks.push(config.kubernetes.connectionBudget.allocatedMaximum <= config.kubernetes.connectionBudget.databaseMaximum

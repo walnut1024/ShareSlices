@@ -46,6 +46,9 @@ function successfulKubectl(calls) {
         stderr: "",
       };
     }
+    if (command.includes(" get namespace kube-system --output=jsonpath={.metadata.uid}")) {
+      return {status: 0, stdout: "enterprise-production-cluster-1", stderr: ""};
+    }
     if (command.includes(" auth can-i ")) return {status: 0, stdout: "yes\n", stderr: ""};
     return {status: 0, stdout: "resource/name\n", stderr: ""};
   };
