@@ -67,7 +67,8 @@ async function inspectControlState(client) {
 async function inspectControlProjection(client, installationId) {
   const releases = await client.query(
     `select slot, target, release_id, bundle_digest, configuration_digest,
-            secret_revisions, operation_id, fencing_token, updated_at
+            secret_revisions, compatibility, contract_revisions,
+            operation_id, fencing_token, updated_at
        from shareslices_deployment_release_record
       where installation_id = $1 order by slot`,
     [installationId],
@@ -105,6 +106,8 @@ async function inspectControlProjection(client, installationId) {
       bundleDigest: row.bundle_digest,
       configurationDigest: row.configuration_digest,
       secretRevisions: row.secret_revisions,
+      compatibility: row.compatibility,
+      contractRevisions: row.contract_revisions,
       operationId: row.operation_id,
       fencingToken: Number(row.fencing_token),
       updatedAt: row.updated_at,

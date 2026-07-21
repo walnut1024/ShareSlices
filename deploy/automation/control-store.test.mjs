@@ -229,6 +229,8 @@ test("mirrors only Secret-free active and previous records under a live fence", 
     bundleDigest: `sha256:${character.repeat(64)}`,
     configurationDigest: `sha256:${character.repeat(64)}`,
     secretRevisions: revisions,
+    compatibility: {schemaHead: "0030", runtimeN: `runtime-${character}`},
+    contractRevisions: {jobs: "jobs-1"},
   });
   const database = client(async (text) => text.startsWith("select 1 from shareslices_deployment_operation")
     ? { rows: [{ "?column?": 1 }] }

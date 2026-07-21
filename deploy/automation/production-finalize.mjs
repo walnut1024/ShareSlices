@@ -19,6 +19,8 @@ function databaseRecord(row) {
     bundleDigest: row.bundle_digest,
     configurationDigest: row.configuration_digest,
     secretRevisions: row.secret_revisions,
+    compatibility: row.compatibility,
+    contractRevisions: row.contract_revisions,
   };
 }
 
@@ -54,7 +56,8 @@ export function createProductionReleaseFinalizer({
         owner,
       };
       const existing = await client.query(
-        `select target, release_id, bundle_digest, configuration_digest, secret_revisions
+        `select target, release_id, bundle_digest, configuration_digest, secret_revisions,
+                compatibility, contract_revisions
            from shareslices_deployment_release_record
           where installation_id = $1 and slot = 'active'`,
         [config.installationId],
@@ -66,6 +69,8 @@ export function createProductionReleaseFinalizer({
         bundleDigest,
         configurationDigest: release.configurationDigest,
         secretRevisions: release.secretRevisions,
+        compatibility: release.compatibility,
+        contractRevisions: release.contractRevisions,
       };
       await recordPhaseCheckpoint(client, lease, {
         phase: "verification",

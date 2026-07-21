@@ -44,6 +44,8 @@ create table shareslices_deployment_release_record (
   bundle_digest text not null check (bundle_digest ~ '^sha256:[a-f0-9]{64}$'),
   configuration_digest text not null check (configuration_digest ~ '^sha256:[a-f0-9]{64}$'),
   secret_revisions jsonb not null,
+  compatibility jsonb not null,
+  contract_revisions jsonb not null,
   operation_id text not null,
   fencing_token bigint not null check (fencing_token > 0),
   updated_at timestamptz not null default now(),

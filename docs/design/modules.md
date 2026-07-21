@@ -70,7 +70,10 @@ prototypes, not a supported Deployment target.
   with an explicit release it also requires exact rendered-resource convergence
   and verification-contract identity before a separately fenced operation
   records active and previous releases. Authorized deep verification, network
-  probes, rollback, retirement, and target qualification are not yet current.
+  probes, target rollback execution, retirement, and target qualification are
+  not yet current. Release records now retain the Secret-free runtime/schema and
+  contract compatibility snapshot required to evaluate an explicit rollback
+  candidate.
 - `deploy/cloudflare/` owns Cloudflare Workers, Edge/CDN, Static Assets, private
   R2, Hyperdrive, Queue, scheduled, Container, and Resend composition. Provider
   feasibility evidence gates only this Adapter; failure does not weaken shared

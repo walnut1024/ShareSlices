@@ -205,6 +205,29 @@ test("apply accepts only a digest-bound plan for the rendered target bundle", as
   assert.equal(execution.result.data.bundleDigest, body.bundleDigest);
 });
 
+test("rollback requires an explicit release and preserves refused and external handoff outcomes", async () => {
+  const missing = await executeInvocation(
+    parseInvocation(["rollback", "--config", configPath]),
+    executor(),
+  );
+  assert.equal(missing.exitCode, exitCodes.invalidInput);
+  assert.equal(missing.result.reason.code, "rollback_release_required");
+
+  const refused = await executeInvocation(
+    parseInvocation(["rollback", "--config", configPath, "--release", releasePath]),
+    executor({rollback: async () => ({outcome: "refused", refusalReasons: ["rollback_schema_incompatible"]})}),
+  );
+  assert.equal(refused.exitCode, exitCodes.refused);
+  assert.equal(refused.result.reason.code, "rollback_schema_incompatible");
+
+  const handedOff = await executeInvocation(
+    parseInvocation(["rollback", "--config", configPath, "--release", releasePath]),
+    executor({rollback: async () => ({outcome: "external_reconciler_required", phases: []})}),
+  );
+  assert.equal(handedOff.exitCode, exitCodes.externalReconcilerRequired);
+  assert.equal(handedOff.result.reason.code, "external_reconciler_required");
+});
+
 test("fails before target access for invalid release or missing Adapter", async () => {
   const invalidRelease = await executeInvocation(
     parseInvocation(["render", "--config", configPath, "--release", configPath]),

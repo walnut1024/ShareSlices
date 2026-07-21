@@ -180,7 +180,13 @@ function normalizeReleaseRecord(record, target) {
     !digestPattern.test(record.bundleDigest ?? "") ||
     !digestPattern.test(record.configurationDigest ?? "") ||
     record.target !== target ||
-    !Array.isArray(record.secretRevisions)
+    !Array.isArray(record.secretRevisions) ||
+    !record.compatibility ||
+    typeof record.compatibility !== "object" ||
+    Array.isArray(record.compatibility) ||
+    !record.contractRevisions ||
+    typeof record.contractRevisions !== "object" ||
+    Array.isArray(record.contractRevisions)
   ) {
     throw new DeploymentControlError(
       "deployment_release_record_invalid",
@@ -209,6 +215,8 @@ function normalizeReleaseRecord(record, target) {
     bundleDigest: record.bundleDigest,
     configurationDigest: record.configurationDigest,
     secretRevisions: Object.freeze(secretRevisions),
+    compatibility: Object.freeze(structuredClone(record.compatibility)),
+    contractRevisions: Object.freeze(structuredClone(record.contractRevisions)),
   });
 }
 
@@ -246,8 +254,9 @@ export async function mirrorReleaseRecords(client, lease, records) {
       await client.query(
         `insert into shareslices_deployment_release_record
            (installation_id, slot, target, release_id, bundle_digest,
-            configuration_digest, secret_revisions, operation_id, fencing_token)
-         values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)`,
+            configuration_digest, secret_revisions, compatibility,
+            contract_revisions, operation_id, fencing_token)
+         values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11)`,
         [
           lease.installationId,
           slot,
@@ -256,6 +265,8 @@ export async function mirrorReleaseRecords(client, lease, records) {
           record.bundleDigest,
           record.configurationDigest,
           JSON.stringify(record.secretRevisions),
+          JSON.stringify(record.compatibility),
+          JSON.stringify(record.contractRevisions),
           lease.operationId,
           lease.fencingToken,
         ],

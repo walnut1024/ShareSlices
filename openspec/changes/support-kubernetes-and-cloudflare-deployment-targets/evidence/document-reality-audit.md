@@ -939,3 +939,25 @@ retirement execution, optional-CDN qualification, safe failure compensation,
 and real-cluster acceptance remain open. Task 10.4 also remains open until its
 database-head and optional-capability evidence is complete, and task 14.1 still
 requires its complete address/applicability projection.
+
+## Twenty-seventh-pass rollback-authority prerequisite acceptance
+
+The deployment-control release record now stores the Secret-free compatibility
+and contract-revision snapshots needed for rollback: schema head, N/N-1 runtime
+identity, and the deployment, database, jobs, and verification contract
+revisions. Finalization preserves the prior active record with the same fields,
+and observation returns them from PostgreSQL. The control-schema checksum changes
+accordingly; no qualified production installation exists whose accepted schema
+would be migrated implicitly.
+
+The shared lifecycle now requires `rollback --release` to name one checked
+immutable candidate. It preserves target `refused` reasons and non-mutating
+`external_reconciler_required` handoffs as distinct outcomes, and rejects a
+missing candidate instead of guessing the previous release.
+
+Tasks 3.12 and 10.5 remain open. Kubernetes does not yet prove retained image
+availability or current candidate Secret revisions under a rollback lease, does
+not apply candidate private/public bundles, does not run post-rollback core
+verification, and does not swap release records. Until those gates exist, its
+target Adapter continues to refuse rollback execution rather than treating the
+shared decision model as a completed rollback.

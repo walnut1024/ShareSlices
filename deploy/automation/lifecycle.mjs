@@ -323,6 +323,53 @@ export function createLifecycleExecutor(adapterRegistry) {
           phases: result?.phases ?? [],
         });
       }
+      if (command === "rollback") {
+        if (!release) {
+          throw new DeploymentLifecycleError(
+            "rollback_release_required",
+            "Rollback requires an explicit immutable release.",
+            exitCodes.invalidInput,
+          );
+        }
+        const result = await adapter.rollback({config, release});
+        if (result?.outcome === "refused") {
+          return {
+            exitCode: exitCodes.refused,
+            result: deploymentResult(command, {
+              target: config.target,
+              requestedRelease: release.releaseId,
+              outcome: "refused",
+              reason: {
+                code: result.refusalReasons?.[0] ?? "rollback_refused",
+                message: "The requested rollback is not compatible with current deployment state.",
+              },
+              data: {rollback: result},
+            }),
+          };
+        }
+        if (result?.outcome === "external_reconciler_required") {
+          return {
+            exitCode: exitCodes.externalReconcilerRequired,
+            result: deploymentResult(command, {
+              target: config.target,
+              requestedRelease: release.releaseId,
+              outcome: "external_reconciler_required",
+              reason: {
+                code: "external_reconciler_required",
+                message: "An external reconciler must apply the immutable rollback handoff.",
+              },
+              data: {rollback: result},
+            }),
+          };
+        }
+        if (result?.outcome !== "succeeded") {
+          throw new DeploymentLifecycleError(
+            "deployment_rollback_result_invalid",
+            "Target Adapter returned an invalid rollback result.",
+          );
+        }
+        return successful(command, config.target, release.releaseId, {rollback: result});
+      }
       return await executeReadOnly({ command, config, release, adapter });
     } catch (error) {
       const known =

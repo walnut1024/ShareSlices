@@ -28,6 +28,8 @@ test("release finalization records active and previous releases under one verifi
         bundle_digest: digest("b"),
         configuration_digest: digest("c"),
         secret_revisions: [{logicalId: "database", revision: "old"}],
+        compatibility: {schemaHead: "0030", runtimeN: "runtime-old"},
+        contract_revisions: {jobs: "jobs-1"},
       }]};
       if (sql.includes("insert into shareslices_deployment_phase_journal")) return {rows: [{phase: "verification"}]};
       if (sql.includes("set state = 'completed'")) return {rows: [{revision: 2}]};
@@ -45,6 +47,8 @@ test("release finalization records active and previous releases under one verifi
       releaseId: digest("d"),
       configurationDigest: digest("e"),
       secretRevisions: [{logicalId: "database", revision: "new"}],
+      compatibility: {schemaHead: "0030", runtimeN: "runtime-new", runtimeNMinus1: "runtime-old"},
+      contractRevisions: {jobs: "jobs-1"},
     },
     bundleDigest: digest("f"),
     verification: {outcome: "passed", checks: []},
