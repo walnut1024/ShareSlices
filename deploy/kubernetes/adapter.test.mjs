@@ -237,7 +237,7 @@ test("direct apply executes authorized phases with migration and rollout gates",
 
 test("GitOps apply returns an immutable handoff without mutating Kubernetes", async () => {
   const gitops = structuredClone(config);
-  gitops.kubernetes.reconciliation.mode = "gitops";
+  gitops.kubernetes.reconciliation = {mode: "gitops", owner: "external"};
   const calls = [];
   const adapter = createKubernetesAdapter({
     runKubectl: (arguments_) => {
@@ -245,7 +245,13 @@ test("GitOps apply returns an immutable handoff without mutating Kubernetes", as
       return {status: 0, stdout: "", stderr: ""};
     },
     observeState: async () => ({revision: digest("4"), controlSchema: {state: "present", checksum: digest("6")}, resources: []}),
-    applyPlan: async ({executePhase}) => executePhase({phase: "migration", actions: []}),
+    applyPlan: async ({executePhase}) => {
+      const phases = [];
+      for (const phase of ["prerequisites", "migration", "private-runtime", "public-runtime"]) {
+        phases.push({phase, ...(await executePhase({phase, actions: []}))});
+      }
+      return {outcome: "external_reconciler_required", phases};
+    },
   });
   const bundle = await adapter.render({config: gitops, release});
   const result = await adapter.apply({
@@ -256,7 +262,16 @@ test("GitOps apply returns an immutable handoff without mutating Kubernetes", as
     authorizedPlanDigest: digest("5"),
   });
   assert.equal(result.outcome, "external_reconciler_required");
-  assert.match(result.handoffDigest, /^sha256:/);
+  assert.equal(result.phases.length, 5);
+  assert.equal(result.phases.every(({handoffDigest}) => /^sha256:/.test(handoffDigest)), true);
+  assert.equal(result.phases[0].handoff.predecessor, null);
+  assert.equal(result.phases[1].handoff.predecessor.phase, "prerequisites");
+  assert.equal(result.phases[2].handoff.predecessor.phase, "migration");
+  assert.equal(result.phases[3].handoff.predecessor.phase, "private-runtime");
+  assert.equal(result.phases[4].phase, "observation");
+  assert.equal(result.phases[4].handoff.predecessor.phase, "public-runtime");
+  assert.equal(result.phases.every(({handoff}) => handoff.reconciliationOwner === "external"), true);
+  assert.equal(result.phases.every(({handoff}) => handoff.targetBundleDigest === result.phases[0].handoff.targetBundleDigest), true);
   assert.equal(calls.length, 0);
 });
 
@@ -554,12 +569,16 @@ test("direct rollback never deletes an image-probe Pod without exact ownership",
 
 test("GitOps rollback emits prior runtime/configuration bundles without a migration or cluster mutation", async () => {
   const gitops = structuredClone(config);
-  gitops.kubernetes.reconciliation.mode = "gitops";
+  gitops.kubernetes.reconciliation = {mode: "gitops", owner: "external"};
   const candidate = rollbackReleaseFor(gitops);
+  const calls = [];
   let record;
   let observation;
   const adapter = createKubernetesAdapter({
-    runKubectl: () => ({status: 0, stdout: "", stderr: ""}),
+    runKubectl: (arguments_) => {
+      calls.push(arguments_);
+      return {status: 0, stdout: "", stderr: ""};
+    },
     observeState: async () => observation,
   });
   const bundle = await adapter.render({config: gitops, release: candidate});
@@ -596,8 +615,15 @@ test("GitOps rollback emits prior runtime/configuration bundles without a migrat
     authorizedPlanDigest: plan.planDigest,
   });
   assert.equal(result.outcome, "external_reconciler_required");
+  assert.equal(result.reconciliationOwner, "external");
+  assert.equal(result.phases.every((phase) => phase.reconciliationOwner === "external"), true);
+  assert.equal(result.phases.every((phase) => phase.targetBundleDigest === result.bundleDigest), true);
+  assert.equal(calls.length, 0);
   assert.equal(result.compatibilityEvidence.migrationIncluded, false);
   assert.equal(result.phases.some(({resources}) => resources.some(({kind}) => kind === "Job")), false);
+  assert.deepEqual(result.phases.map(({phase}) => phase), ["private-runtime", "public-runtime", "observation"]);
+  assert.equal(result.phases[1].predecessor.phase, "private-runtime");
+  assert.equal(result.phases[2].completionEvidence.kind, "rollback-release-convergence");
   assert.match(result.handoffDigest, /^sha256:/);
 });
 

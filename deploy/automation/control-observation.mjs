@@ -268,6 +268,8 @@ export function createKubernetesStateObserver({observeControl}) {
 }
 
 function releaseForSuffix(control, suffix) {
+  const desired = control.operation?.desiredReleaseId;
+  if (desired?.slice("sha256:".length, "sha256:".length + 12) === suffix) return desired;
   return Object.values(control.releaseRecords ?? {})
     .find((record) => record.releaseId.slice("sha256:".length, "sha256:".length + 12) === suffix)
     ?.releaseId ?? null;
@@ -388,7 +390,11 @@ export function createKubernetesStatusObserver({observeControl}) {
       if (configurationDigest) configurationDigests.add(configurationDigest);
     }
     const active = control.releaseRecords.active ?? null;
-    if (active && (configurationDigests.size !== 1 || !configurationDigests.has(active.configurationDigest))) {
+    const desiredReleaseId = control.operation?.desiredReleaseId ?? active?.releaseId ?? null;
+    const replacementInProgress = Boolean(active && desiredReleaseId && desiredReleaseId !== active.releaseId);
+    if (active && !replacementInProgress && (
+      configurationDigests.size !== 1 || !configurationDigests.has(active.configurationDigest)
+    )) {
       drift.push({logicalId: "kubernetes/configuration", reasonCode: "configuration_digest_mismatch"});
     }
     const migrationCompatible = Boolean(active) && migration?.complete === true &&
@@ -396,14 +402,32 @@ export function createKubernetesStatusObserver({observeControl}) {
     const allActiveAndReady = Boolean(active) && components.length > 0 &&
       components.every(({releaseId, ready}) => releaseId === active.releaseId && ready) &&
       migrationCompatible;
+    const desiredComponents = components.filter(({releaseId}) => releaseId === desiredReleaseId);
+    const desiredMigrationComplete = migration?.releaseId === desiredReleaseId && migration.complete;
+    const phaseOrderViolation = replacementInProgress && desiredComponents.length > 0 && !desiredMigrationComplete;
+    const candidateObserved = replacementInProgress && components.length > 0 &&
+      desiredComponents.length === components.length &&
+      desiredComponents.every(({ready}) => ready) &&
+      desiredMigrationComplete && drift.length === 0 && orphans.length === 0;
+    const phases = [...control.phases];
+    if (phaseOrderViolation && !phases.some(({state}) => state === "blocked")) {
+      phases.push(Object.freeze({
+        phase: "migration",
+        state: "blocked",
+        checkpointDigest: null,
+        reasonCode: "gitops_phase_order_violation",
+      }));
+    }
+    const hasExternalHandoff = control.phases.some(({state}) => state === "external_reconciler_required");
     return Object.freeze({
       target: "kubernetes",
-      desiredReleaseId: control.operation?.desiredReleaseId ?? active?.releaseId ?? null,
-      observedReleaseId: allActiveAndReady ? active.releaseId : null,
+      desiredReleaseId,
+      observedReleaseId: candidateObserved ? desiredReleaseId : allActiveAndReady ? active.releaseId : null,
       verification: control.phases.some(({phase, state}) => phase === "verification" && state === "completed")
         ? "passed"
         : "pending",
-      phases: control.phases,
+      phases,
+      handoff: hasExternalHandoff ? {observed: candidateObserved} : undefined,
       components,
       migration,
       migrationCompatible,

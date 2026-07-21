@@ -124,3 +124,25 @@ test("returns an explicit external reconciler handoff without later phases", asy
   assert.equal(result.phases.length, 1);
   assert.equal(result.phases[0].phase, "migration");
 });
+
+test("can journal every ordered immutable GitOps handoff without claiming convergence", async () => {
+  const runtime = harness();
+  runtime.executePhase = async ({phase}) => ({
+    outcome: "external_reconciler_required",
+    handoffDigest: `sha256:${phase}`,
+    continueHandoff: true,
+  });
+  const result = await applyDeploymentPlan({
+    plan: plan(),
+    authorizedPlanDigest: `sha256:${"a".repeat(64)}`,
+    ...runtime,
+  });
+  assert.equal(result.outcome, "external_reconciler_required");
+  assert.deepEqual(result.phases.map(({phase}) => phase), ["migration", "public-runtime"]);
+  assert.equal(
+    runtime.calls.filter(([operation, checkpoint]) => (
+      operation === "record" && checkpoint.state === "external_reconciler_required"
+    )).length,
+    2,
+  );
+});

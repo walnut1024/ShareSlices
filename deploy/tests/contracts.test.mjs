@@ -142,6 +142,17 @@ test("production deployment schema accepts exactly one target and logical Secret
   const inconsistentDelivery = clone(kubernetes);
   inconsistentDelivery.kubernetes.delivery.mode = "direct";
   assertInvalid("deployment.schema.json", inconsistentDelivery);
+
+  const competingDirectOwner = clone(kubernetes);
+  competingDirectOwner.kubernetes.reconciliation.owner = "external";
+  assertInvalid("deployment.schema.json", competingDirectOwner);
+
+  const competingGitOpsOwner = clone(kubernetes);
+  competingGitOpsOwner.kubernetes.reconciliation = {
+    mode: "gitops",
+    owner: "deployment-module",
+  };
+  assertInvalid("deployment.schema.json", competingGitOpsOwner);
 });
 
 test("deployment command results retain stable commands, outcomes, and reason codes", () => {

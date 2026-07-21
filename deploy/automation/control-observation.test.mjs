@@ -10,6 +10,7 @@ import {
   createKubernetesStateObserver,
   createPostgresControlObserver,
 } from "./control-observation.mjs";
+import {deriveDeploymentStatus} from "./status.mjs";
 
 const digest = (character) => `sha256:${character.repeat(64)}`;
 
@@ -192,4 +193,56 @@ test("Kubernetes status projects recorded release, rollout, image, migration, an
   assert.deepEqual(result.configurationDigests, [configurationDigest]);
   assert.deepEqual(result.routeDigests, [digest("e")]);
   assert.deepEqual(result.drift, []);
+});
+
+test("Kubernetes status blocks a GitOps runtime observed before its migration evidence", async () => {
+  const activeReleaseId = digest("a");
+  const desiredReleaseId = digest("b");
+  const labels = {
+    "app.kubernetes.io/name": "shareslices-api",
+    "shareslices.dev/installation": "example",
+    "shareslices.dev/release": "bbbbbbbbbbbb",
+    "shareslices.dev/owner": "deployment-module",
+  };
+  const observe = createKubernetesStatusObserver({
+    observeControl: async () => ({
+      controlSchema: {state: "present", revision: "control-10"},
+      releaseRecords: {
+        active: {
+          releaseId: activeReleaseId,
+          configurationDigest: digest("c"),
+          compatibility: {schemaHead: "0030_deployment"},
+        },
+      },
+      operation: {desiredReleaseId},
+      phases: [{phase: "private-runtime", state: "external_reconciler_required"}],
+    }),
+  });
+  const projection = await observe({
+    config: {
+      installationId: "example",
+      kubernetes: {context: "cluster", namespace: "shareslices", delivery: {mode: "direct"}},
+    },
+    runKubectl: () => ({
+      status: 0,
+      stderr: "",
+      stdout: JSON.stringify({items: [{
+        apiVersion: "apps/v1",
+        kind: "Deployment",
+        metadata: {
+          namespace: "shareslices",
+          name: "shareslices-api",
+          labels,
+          annotations: {"shareslices.dev/resource-digest": digest("d")},
+          generation: 2,
+        },
+        spec: {replicas: 1},
+        status: {observedGeneration: 2, updatedReplicas: 1, availableReplicas: 1},
+      }]}),
+    }),
+  });
+  const status = deriveDeploymentStatus(projection);
+  assert.equal(status.state, "phase-blocked");
+  assert.equal(status.reasonCode, "gitops_phase_order_violation");
+  assert.equal(projection.observedReleaseId, null);
 });

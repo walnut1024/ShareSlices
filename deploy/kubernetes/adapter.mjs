@@ -302,7 +302,7 @@ export function createKubernetesAdapter({
         logicalId: `${resource.apiVersion}/${resource.kind}/${resource.metadata.namespace}/${resource.metadata.name}`,
         phase: phaseNames[phase.id] ?? phase.id,
         digest: resource.metadata.annotations["shareslices.dev/resource-digest"],
-        owner: "deployment-module",
+        owner: config.kubernetes.reconciliation.owner,
         retention: "active",
         securitySensitive: ["Ingress", "NetworkPolicy", "CiliumNetworkPolicy", "ServiceAccount"].includes(resource.kind),
       }))),
@@ -332,8 +332,10 @@ export function createKubernetesAdapter({
       "private-runtime": "private-runtime",
       "public-runtime": "ingress",
     };
+    const targetBundleDigest = serializeCanonicalTargetBundle(bundle).digest;
+    const phaseById = new Map(bundle.phases.map((phase, index) => [phase.id, {phase, index}]));
     const observe = () => observeState({config, release, bundle, runKubectl});
-    return applyPlan({
+    const result = await applyPlan({
       config,
       plan: deploymentPlan,
       authorizedPlanDigest,
@@ -354,7 +356,38 @@ export function createKubernetesAdapter({
         }
         const checkpointDigest = sha256Digest(bundlePhase.resources);
         if (config.kubernetes.reconciliation.mode === "gitops") {
-          return {outcome: "external_reconciler_required", handoffDigest: checkpointDigest};
+          const current = phaseById.get(bundlePhase.id);
+          const predecessor = [...bundle.phases.slice(0, current.index)]
+            .reverse()
+            .find(({resources}) => resources.length > 0);
+          const handoff = Object.freeze({
+            schemaVersion: "shareslices.kubernetes-gitops-handoff/v1",
+            target: "kubernetes",
+            releaseId: release.releaseId,
+            reconciliationOwner: config.kubernetes.reconciliation.owner,
+            targetBundleDigest,
+            phase,
+            phaseBundleDigest: checkpointDigest,
+            predecessor: predecessor ? Object.freeze({
+              phase: predecessor.id === "ingress" ? "public-runtime" : predecessor.id,
+              phaseBundleDigest: sha256Digest(predecessor.resources),
+              requiredState: "completed",
+            }) : null,
+            completionEvidence: Object.freeze({
+              kind: "owned-resource-digests",
+              expected: Object.freeze(bundlePhase.resources.map((resource) => Object.freeze({
+                logicalId: `${resource.apiVersion}/${resource.kind}/${resource.metadata.namespace}/${resource.metadata.name}`,
+                digest: resource.metadata.annotations["shareslices.dev/resource-digest"],
+              }))),
+            }),
+            resources: bundlePhase.resources,
+          });
+          return {
+            outcome: "external_reconciler_required",
+            handoffDigest: sha256Digest(handoff),
+            continueHandoff: true,
+            handoff,
+          };
         }
         const applied = runKubectl(commandFor(
           config,
@@ -405,6 +438,42 @@ export function createKubernetesAdapter({
         }
         return {checkpointDigest};
       },
+    });
+    if (config.kubernetes.reconciliation.mode !== "gitops" || result?.outcome !== "external_reconciler_required") {
+      return result;
+    }
+    const prior = result.phases.at(-1);
+    const expected = Object.freeze(bundle.phases.flatMap(({resources}) => resources.map((resource) => Object.freeze({
+      logicalId: `${resource.apiVersion}/${resource.kind}/${resource.metadata.namespace}/${resource.metadata.name}`,
+      digest: resource.metadata.annotations["shareslices.dev/resource-digest"],
+    }))));
+    const observationHandoff = Object.freeze({
+      schemaVersion: "shareslices.kubernetes-gitops-handoff/v1",
+      target: "kubernetes",
+      releaseId: release.releaseId,
+      reconciliationOwner: config.kubernetes.reconciliation.owner,
+      targetBundleDigest,
+      phase: "observation",
+      phaseBundleDigest: sha256Digest({releaseId: release.releaseId, targetBundleDigest, expected}),
+      predecessor: prior ? Object.freeze({
+        phase: prior.phase,
+        phaseBundleDigest: prior.handoff?.phaseBundleDigest ?? prior.handoffDigest,
+        requiredState: "completed",
+      }) : null,
+      completionEvidence: Object.freeze({kind: "release-convergence", expected}),
+      resources: Object.freeze([]),
+    });
+    return Object.freeze({
+      ...result,
+      phases: Object.freeze([
+        ...result.phases,
+        Object.freeze({
+          phase: "observation",
+          outcome: "external_reconciler_required",
+          handoffDigest: sha256Digest(observationHandoff),
+          handoff: observationHandoff,
+        }),
+      ]),
     });
   }
 
@@ -721,21 +790,74 @@ export function createKubernetesAdapter({
           actions: [],
         });
       }
-      const phases = Object.freeze([
+      const phaseResources = [
         {
           phase: "private-runtime",
-          resources: Object.freeze(bundle.phases
+          resources: bundle.phases
             .filter(({id}) => ["prerequisites", "private-runtime"].includes(id))
-            .flatMap(({resources}) => resources)),
+            .flatMap(({resources}) => resources),
         },
         {
           phase: "public-runtime",
-          resources: Object.freeze(bundle.phases.find(({id}) => id === "ingress")?.resources ?? []),
+          resources: bundle.phases.find(({id}) => id === "ingress")?.resources ?? [],
         },
-      ]);
+      ];
+      const phases = [];
+      for (const current of phaseResources) {
+        const predecessor = phases.at(-1);
+        phases.push(Object.freeze({
+          schemaVersion: "shareslices.kubernetes-gitops-handoff/v1",
+          target: "kubernetes",
+          releaseId: release.releaseId,
+          reconciliationOwner: config.kubernetes.reconciliation.owner,
+          targetBundleDigest: bundleDigest,
+          phase: current.phase,
+          phaseBundleDigest: sha256Digest(current.resources),
+          predecessor: predecessor ? Object.freeze({
+            phase: predecessor.phase,
+            phaseBundleDigest: predecessor.phaseBundleDigest,
+            requiredState: "completed",
+          }) : null,
+          completionEvidence: Object.freeze({
+            kind: "owned-resource-digests",
+            expected: Object.freeze(current.resources.map((resource) => Object.freeze({
+              logicalId: `${resource.apiVersion}/${resource.kind}/${resource.metadata.namespace}/${resource.metadata.name}`,
+              digest: resource.metadata.annotations["shareslices.dev/resource-digest"],
+            }))),
+          }),
+          resources: Object.freeze(current.resources),
+        }));
+      }
+      const lastPhase = phases.at(-1);
+      phases.push(Object.freeze({
+        schemaVersion: "shareslices.kubernetes-gitops-handoff/v1",
+        target: "kubernetes",
+        releaseId: release.releaseId,
+        reconciliationOwner: config.kubernetes.reconciliation.owner,
+        targetBundleDigest: bundleDigest,
+        phase: "observation",
+        phaseBundleDigest: sha256Digest({
+          releaseId: release.releaseId,
+          bundleDigest,
+          expectedResourceDigests: phases.flatMap(({completionEvidence}) => completionEvidence.expected),
+        }),
+        predecessor: Object.freeze({
+          phase: lastPhase.phase,
+          phaseBundleDigest: lastPhase.phaseBundleDigest,
+          requiredState: "completed",
+        }),
+        completionEvidence: Object.freeze({
+          kind: "rollback-release-convergence",
+          releaseId: release.releaseId,
+          bundleDigest,
+          currentSchemaHead: control.releaseRecords.active?.compatibility?.schemaHead ?? null,
+        }),
+        resources: Object.freeze([]),
+      }));
       return Object.freeze({
         outcome: "external_reconciler_required",
         releaseId: release.releaseId,
+        reconciliationOwner: config.kubernetes.reconciliation.owner,
         bundleDigest,
         handoffDigest: sha256Digest({releaseId: release.releaseId, bundleDigest, phases}),
         compatibilityEvidence: Object.freeze({
@@ -745,7 +867,7 @@ export function createKubernetesAdapter({
           migrationIncluded: false,
           providerAvailability: "external_reconciler_required",
         }),
-        phases,
+        phases: Object.freeze(phases),
       });
     }
     if (typeof rollbackRelease !== "function") {

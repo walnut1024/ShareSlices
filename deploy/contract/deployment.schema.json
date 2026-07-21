@@ -226,8 +226,25 @@
         "reconciliation": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["mode"],
-          "properties": { "mode": { "enum": ["direct", "gitops"] } }
+          "required": ["mode", "owner"],
+          "properties": {
+            "mode": { "enum": ["direct", "gitops"] },
+            "owner": { "enum": ["deployment-module", "external"] }
+          },
+          "oneOf": [
+            {
+              "properties": {
+                "mode": { "const": "direct" },
+                "owner": { "const": "deployment-module" }
+              }
+            },
+            {
+              "properties": {
+                "mode": { "const": "gitops" },
+                "owner": { "const": "external" }
+              }
+            }
+          ]
         },
         "delivery": {
           "type": "object",

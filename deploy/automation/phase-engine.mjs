@@ -65,6 +65,7 @@ export async function applyDeploymentPlan({
 
   const completed = new Set(await control.completedPhases(lease));
   const outcomes = [];
+  let externalHandoff = false;
   for (const phase of deploymentPhases.filter((name) => name !== "control")) {
     const actions = executableActions(plan, phase);
     if (actions.length === 0) continue;
@@ -77,17 +78,16 @@ export async function applyDeploymentPlan({
     try {
       const outcome = await executePhase({ phase, actions, lease });
       if (outcome?.outcome === "external_reconciler_required") {
+        const {continueHandoff, ...handoffOutcome} = outcome;
         await control.record(lease, {
           phase,
           state: "external_reconciler_required",
           digest: outcome.handoffDigest,
         });
-        outcomes.push({ phase, ...outcome });
-        return Object.freeze({
-          outcome: "external_reconciler_required",
-          lease,
-          phases: outcomes,
-        });
+        outcomes.push({ phase, ...handoffOutcome });
+        externalHandoff = true;
+        if (continueHandoff === true) continue;
+        return Object.freeze({outcome: "external_reconciler_required", lease, phases: outcomes});
       }
       await control.assertLease(lease);
       await control.record(lease, {
@@ -105,5 +105,9 @@ export async function applyDeploymentPlan({
       throw error;
     }
   }
-  return Object.freeze({ outcome: "succeeded", lease, phases: outcomes });
+  return Object.freeze({
+    outcome: externalHandoff ? "external_reconciler_required" : "succeeded",
+    lease,
+    phases: outcomes,
+  });
 }

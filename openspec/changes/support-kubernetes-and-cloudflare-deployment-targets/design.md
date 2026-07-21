@@ -93,9 +93,9 @@ for the next executable deployment plan:
   production-target qualification evidence.
 - Kubernetes is the only production target with an implemented mutating
   lifecycle path. It still lacks complete deep verification, network probes,
-  retirement, optional-CDN acceptance, GitOps external-owner validation,
-  real-cluster acceptance, and release qualification. It therefore remains
-  unavailable as a supported release target.
+  retirement, optional-CDN acceptance, real-cluster acceptance, and release
+  qualification. It therefore remains unavailable as a supported release
+  target.
 - The current Cloudflare account can exercise only bounded Workers
   Free-compatible prototypes plus separately enabled R2. This is not a third
   target and production `render`, `plan`, and `apply` must reject it. Trusted

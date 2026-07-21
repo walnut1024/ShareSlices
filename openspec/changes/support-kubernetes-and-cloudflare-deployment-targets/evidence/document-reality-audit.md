@@ -1073,3 +1073,28 @@ configurable; `resend.dev` real test sending is restricted to the account's own
 address; and inactive Supabase Free projects may be paused. These mutable facts
 remain dated evidence and must be refreshed before live provider work and final
 qualification.
+
+## Thirty-first-pass GitOps handoff acceptance
+
+Task 10.6 is now complete in the repository. Kubernetes deployment configuration
+explicitly selects exactly one reconciliation owner: direct mode requires the
+Deployment Module owner and GitOps mode requires an external owner. Invalid
+crossed combinations fail schema validation before target access, and planned
+resource ownership plus every apply or rollback handoff records that selected
+owner.
+
+GitOps apply journals all changed immutable phases and returns their release,
+target-bundle, phase-bundle, predecessor, and exact owned-resource completion
+evidence without stopping after the first handoff. It appends an observation
+handoff for whole-release convergence. Status distinguishes the desired release
+from the active release and reports a phase-order violation when candidate
+runtime resources appear before the candidate migration checksum and schema-head
+evidence.
+
+GitOps rollback checks the authorized rollback plan and current compatibility,
+emits prior configuration/private-runtime, public-runtime/ingress, and
+observation bundles with the same explicit external owner, and emits no prior
+migration Job. Tests prove both apply and rollback make zero Kubernetes calls in
+GitOps mode; neither path writes or assumes a Git repository. The Deployment
+Module still does not claim that the external operator promoted or converged a
+handoff.
