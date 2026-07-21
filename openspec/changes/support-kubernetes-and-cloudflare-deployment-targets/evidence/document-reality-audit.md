@@ -650,3 +650,42 @@ Tasks 1.7, 1.8, 1.9, the positive Hyperdrive `verify-full` portion of 5.3, owned
 production domains, and full Cloudflare staging qualification remain open. Local
 Compose and provider-neutral implementation may continue without weakening
 those gates.
+
+## Sixteenth-pass canonical Compose lifecycle acceptance
+
+Task 13.10 exercised the complete canonical lifecycle against the real local
+Engine. A data-preserving `mise run dev-down` removed the developer containers
+and network while retaining both named volumes. A cold `mise run dev`,
+`mise run dev-status`, and a repeated `mise run dev` all passed the checked
+Compose capability gate plus the Web, API, content, Mailpit, and SMTP host
+probes. PostgreSQL retained its 77 public tables across the stop/start sequence,
+and both volume creation timestamps remained
+`2026-07-15T14:25:55+08:00`.
+
+While the developer project remained the healthy control, `mise run api-test`
+passed the API 404 suite, authentication-email SMTP contract, and complete
+Artifact-flow contract through Engine-assigned `shareslices-test` endpoints.
+The separate `mise run web-e2e` acceptance passed all 27 desktop Chromium cases
+through the same isolated controller. The latter covered account email, CLI
+authorization, Upload, Preview, Publish, Viewer, Unpublish, replacement, and
+Gallery isolation behavior without using canonical developer endpoints.
+
+Immediately before and after the final E2E run, the developer control retained
+the same eight container IDs:
+
+- `3c2e39454654` maintenance
+- `3e696224b44c` object storage
+- `3eecfaa58e53` Gallery content
+- `4f9a28efb258` Mailpit
+- `8cbd5b6861f3` PostgreSQL
+- `cd4ee5b3fd45` worker
+- `dd9ead743e02` API
+- `e204193e073c` Web
+
+The controller then removed every `shareslices-test` container, network, and
+volume. Its cleanup completed before acceptance was evaluated; no global or
+pre-emptive cleanup was used. The developer project was finally stopped through
+`mise run dev-down`, leaving no ShareSlices container running while preserving
+the two canonical named volumes and their creation timestamps. This live
+diagnostic evidence is separate from the ordinary `mise run check` gate, which
+also passed while the required local database dependency was temporarily up.
