@@ -606,3 +606,47 @@ preservation, distinct browser sites, developer-default endpoint rejection, and
 production-target rejection. Together with the task 13.7 live `SIGKILL` recovery
 and task 13.8 live E2E isolation runs, this completes task 13.9 without claiming
 the cold lifecycle sequence required by task 13.10.
+
+## Fifteenth-pass provider-state and document-alignment review
+
+Before further implementation on 2026-07-22, the durable product contract,
+deployment vocabulary, module status, proposal, design, delta specifications,
+task dependencies, provider evidence, and current local-Compose implementation
+were compared again. Current first-party Cloudflare, Resend, and Supabase manuals
+were refreshed rather than treating prior account observations or price tables as
+live facts.
+
+No architecture or policy correction is required. Kubernetes and Cloudflare
+remain mutually exclusive production targets; optional external CDN delivery
+does not turn Kubernetes into the Cloudflare target; Compose remains local and
+test-only. Cloudflare Edge/CDN remains explicit, with directly served hashed Web
+assets cacheable and every dynamic or authorization-sensitive outward response
+preserving its `no-store` contract. `_headers` applies only to Static Assets;
+Worker-generated responses must attach their own authoritative headers.
+
+The Free prototype boundary also remains unchanged. Workers Free can exercise
+Static Assets, Worker, Hyperdrive, Queue, R2, and Resend test-mode interfaces
+within their separate limits, but Cloudflare Containers have no Free allocation
+and the complete target still requires trusted processing even if thumbnail work
+is deferred. `resend.dev` can prove bounded API acceptance and documented test
+outcomes but cannot replace an operator-owned verified sending domain. Supabase
+Free is suitable only for feasibility work because low activity can pause a
+project and the plan does not establish production backup or availability
+evidence.
+
+One mutable-evidence defect was corrected. A later read-only Supabase refresh
+successfully returned one unlinked healthy Free feasibility project, superseding
+the earlier management-transport `unknown` observation. The repository is still
+unlinked, so automation must receive an exact project reference and may not
+select or create a project implicitly. Wrangler authentication and an empty R2
+bucket-list response were also reconfirmed, but neither proves Workers Paid,
+Container entitlement, quota headroom, or complete provider inventory. The
+current process still lacks an explicit `RESEND_API_KEY_FILE`; the operator's
+stored key must be injected by readable file reference rather than discovered
+from ambient state.
+
+These corrections change only execution readiness, not scope or acceptance.
+Tasks 1.7, 1.8, 1.9, the positive Hyperdrive `verify-full` portion of 5.3, owned
+production domains, and full Cloudflare staging qualification remain open. Local
+Compose and provider-neutral implementation may continue without weakening
+those gates.

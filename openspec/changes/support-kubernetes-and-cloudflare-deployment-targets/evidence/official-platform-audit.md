@@ -4,11 +4,14 @@
 
 Audit date: 2026-07-19
 
-Reality recheck: 2026-07-21. See
+Reality recheck: 2026-07-22. See
 [document-reality-audit.md](document-reality-audit.md) for corrections to
 Terraform provider pin evidence, Worker-limit source classification,
 Terraform/Wrangler Worker-field ownership, Hyperdrive TLS evidence, and current
-Resend rate-limit wording.
+Resend rate-limit wording. The refresh also reconfirmed that Containers have no
+Workers Free allocation, directly served Static Assets are free and unlimited
+but Worker-first requests consume Worker allowance, `resend.dev` remains a
+restricted testing path, and Supabase Free projects may pause after low activity.
 
 ## Scope and verdict
 

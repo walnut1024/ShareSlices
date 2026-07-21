@@ -44,6 +44,24 @@ path is supplied. Automation must not search the repository, shell history, or
 ambient environment for an alternative key, and it must never treat key presence
 as verified-domain, tracking, team-namespace, or quota evidence.
 
+## Second read-only refresh
+
+Later on 2026-07-22, a fresh Supabase CLI request succeeded and returned one
+unlinked `ACTIVE_HEALTHY` Free project intended for Cloudflare feasibility work.
+This supersedes only the earlier `unknown` inventory observation. It does not
+authorize automatic selection: the repository remains unlinked, and every live
+database prototype must still receive the exact project reference and required
+connection or certificate inputs explicitly. The project remains prototype
+infrastructure, not evidence of production availability, backups, recovery, or
+non-pausing behavior.
+
+The same refresh reconfirmed Wrangler authentication and an empty R2 bucket-list
+result. It did not prove Workers Paid, Container entitlement, quota headroom, or
+the absence of resources outside that inventory operation. The current process
+still did not expose `RESEND_API_KEY_FILE`; therefore the stored Resend key is
+operator-known but unavailable to this verifier until its explicit readable
+key-file reference is injected.
+
 ## Execution rule
 
 Implementation may continue on local Compose, Kubernetes, provider-neutral
