@@ -2,7 +2,8 @@
 
 <!-- cspell:words Hyperdrive rollouts unarchived workerd WebPKI quiescence -->
 
-Audit date: 2026-07-21
+Audit date: 2026-07-21. Rechecked against the repository and linked first-party
+manuals on 2026-07-22.
 
 ## Scope and method
 
@@ -28,7 +29,12 @@ Severity meanings:
   evidence can cause an incorrect implementation or readiness result.
 - **Low**: documentation precision or cost-model clarification.
 
-## Findings requiring reconciliation
+## Findings audited and reconciled
+
+The table below records the pre-correction findings that drove this review. It
+is historical evidence, not a list of still-open defects. The authoritative
+post-correction state is summarized under **Reconciliation applied** and the
+remaining external blockers are listed under **Current implementation gates**.
 
 | Severity | Finding | Impacted artifacts and tasks | Recommended correction | First-party sources |
 | --- | --- | --- | --- | --- |
@@ -245,3 +251,31 @@ by `assets.run_worker_first` invokes Worker code. On Workers Free, exhaustion of
 the Worker request allowance returns `429` rather than falling back to the
 matching Static Asset. The Cloudflare cost contract and tasks now require this
 route consumption and failure mode to be planned and tested.
+
+## Current implementation gates
+
+The document set is internally consistent after the reconciliation above, but
+the following gates remain deliberately open and MUST NOT be inferred from the
+completed Free-compatible prototypes:
+
+- Workers Paid plus live Cloudflare Container qualification for trusted
+  processing; thumbnail Container isolation is a separate gate and may be
+  deferred only while thumbnail readiness is unavailable.
+- Operator-owned Cloudflare zones that prove separate trusted and content
+  registrable sites; `workers.dev` is prototype-only.
+- A verified operator-owned Resend sending domain, domain-scoped sending key,
+  disabled-tracking evidence, and same-namespace key-rotation evidence;
+  `resend.dev` proves only the bounded test-mode contract.
+- Hyperdrive `verify-full` (or a subsequently qualified equivalent) with an
+  uploaded region-specific single CA certificate and a hostname/certificate
+  negative case.
+- One proven owner for every Worker-coupled field after repeated
+  Terraform/Wrangler survival and drift tests, especially Cron, Queue consumers,
+  routes, custom domains, and bindings.
+- Representative Kubernetes direct, Kubernetes external-CDN, and Cloudflare
+  staging acceptance plus the final official-manual refresh before declaring a
+  target supported.
+
+These are acceptance blockers, not reasons to weaken product behavior. Local
+Compose, provider-neutral automation, Kubernetes work, and bounded
+Free-compatible Cloudflare prototypes may continue independently.

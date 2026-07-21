@@ -57,7 +57,8 @@ qualified or production-ready.
 
 ## Sources
 
-- [Workers pricing and Container entitlement](https://developers.cloudflare.com/workers/platform/pricing/)
+- [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/)
+- [Containers pricing and plan requirement](https://developers.cloudflare.com/containers/pricing/)
 - [Workers Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)
 - [R2 public-bucket controls](https://developers.cloudflare.com/r2/buckets/public-buckets/)
 - [Supabase Free project pausing](https://supabase.com/docs/guides/platform/free-project-pausing)

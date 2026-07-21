@@ -33,6 +33,10 @@ The numbered sections group work by responsibility; they are not permission to i
   private prerequisite deliberately retained for the next bounded prototype.
 - While no operator-owned sending domain exists, the Resend prototype may use `resend.dev` simulation addresses for API-shape, error, quota-header, idempotency, replay-cutoff, namespace-refusal, and redaction tests. Task 1.9 remains pending until a verified custom domain, disabled-tracking evidence, domain-scoped sending-access credentials, same-team/domain key rotation, and real provider-acceptance evidence pass.
 - While no operator-owned Cloudflare zones and distinct registrable sites exist, `workers.dev` may be used only for disposable provider-interface prototypes. Production ingress, trusted/content site isolation, custom-domain activation, and full Cloudflare acceptance remain pending. Buying or creating those external assets is not part of this change.
+- Treat separately reported capability readiness as observability, not as a way
+  to waive target requirements. A Free-compatible prototype may report
+  processing or thumbnail readiness unavailable, but task 1.7 and task 1.8
+  still block complete Cloudflare-target qualification.
 - Recheck the mutable observations in `evidence/current-prototype-execution-baseline.md` before every live provider prototype. An authenticated CLI, R2 Paid, an active Supabase Free project, or an available Resend key grants no implicit permission to choose resources, expose public routes, retain billable services, or mark a production gate complete.
 
 ## 1. Cloudflare Prototype Feasibility Gates
