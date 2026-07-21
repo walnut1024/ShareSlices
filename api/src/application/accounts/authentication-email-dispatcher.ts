@@ -3,14 +3,56 @@ import type { DatabaseClientSource } from "../../db/connection.js";
 import { exceptionAttributes, type LogRecordInput } from "../../logging/log-record.js";
 import type {
   AuthenticationEmailTransportAdapter,
+  AuthenticationEmailTransportSnapshot,
   PreparedAuthenticationEmailTransport,
 } from "../../email/authentication-email-transport.js";
+import { ResendAuthenticationEmailTransportError } from "../../email/authentication-email-resend.js";
 
 type DeliveryRow = {
   id: string;
   encrypted_payload: string;
   delivery_revision: string | number;
+  transport_adapter: "smtp" | "resend" | null;
+  provider_namespace: string | null;
+  sender_identity: string | null;
+  endpoint_identity: string | null;
+  transport_configuration_revision: string | null;
+  serializer_revision: "authentication-email-v1" | null;
+  payload_digest: string | null;
+  provider_idempotency_key: string | null;
+  provider_safe_replay_until: Date | null;
+  local_message_id: string | null;
 };
+
+function frozenSnapshot(row: DeliveryRow): AuthenticationEmailTransportSnapshot | undefined {
+  if (!row.transport_adapter) return undefined;
+  if (
+    !row.provider_namespace || !row.sender_identity || !row.endpoint_identity
+    || !row.transport_configuration_revision || !row.serializer_revision
+    || !row.payload_digest || !row.local_message_id
+  ) throw new Error("authentication_email_transport_snapshot_incomplete");
+  return {
+    adapter: row.transport_adapter,
+    providerNamespace: row.provider_namespace,
+    senderIdentity: row.sender_identity,
+    endpointIdentity: row.endpoint_identity,
+    transportRevision: row.transport_configuration_revision,
+    serializerRevision: row.serializer_revision,
+    payloadDigest: row.payload_digest,
+    providerIdempotencyKey: row.provider_idempotency_key,
+    providerSafeReplayUntil: row.provider_safe_replay_until,
+    localMessageId: row.local_message_id,
+  };
+}
+
+function boundedRetryDelaySeconds(retryAfter: string | null, fallback: number): number {
+  if (!retryAfter) return fallback;
+  const seconds = Number(retryAfter);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.max(1, Math.min(3_600, Math.ceil(seconds)));
+  const at = Date.parse(retryAfter);
+  if (Number.isNaN(at)) return fallback;
+  return Math.max(1, Math.min(3_600, Math.ceil((at - Date.now()) / 1_000)));
+}
 export type AuthenticationEmailDispatchInput = Readonly<{
   workerId: string;
   adapter: AuthenticationEmailTransportAdapter;
@@ -58,7 +100,10 @@ export async function dispatchOneAuthenticationEmail(
       });
     }
     const claimed = await client.query<DeliveryRow>(
-      `select id, encrypted_payload, delivery_revision
+      `select id, encrypted_payload, delivery_revision, transport_adapter,
+              provider_namespace, sender_identity, endpoint_identity,
+              transport_configuration_revision, serializer_revision, payload_digest,
+              provider_idempotency_key, provider_safe_replay_until, local_message_id
        from authentication_email_delivery
        where state = 'pending' and available_at <= now()
        order by created_at
@@ -70,8 +115,33 @@ export async function dispatchOneAuthenticationEmail(
         return false;
       }
     payload = decryptAuthenticationEmail(delivery.encrypted_payload, encryptionKey);
-    prepared = await adapter.prepare(payload, delivery.id, new Date());
+    const existingSnapshot = frozenSnapshot(delivery);
+    prepared = await adapter.prepare(payload, delivery.id, new Date(), existingSnapshot);
     const snapshot = prepared.snapshot;
+    if (
+      existingSnapshot?.adapter === "resend"
+      && existingSnapshot.providerSafeReplayUntil
+      && existingSnapshot.providerSafeReplayUntil <= new Date()
+    ) {
+      await client.query(
+        `update authentication_email_delivery
+         set state = 'manual_reconciliation', failure_reason_code = 'resend_safe_replay_cutoff_elapsed',
+             lease_owner = null, lease_expires_at = null
+         where id = $1 and state = 'pending'`,
+        [delivery.id],
+      );
+      await client.query("commit");
+      logger.emit({
+        severity: "WARN",
+        body: "Authentication email safe replay cutoff elapsed before provider submission.",
+        eventName: "shareslices.authentication_email.delivery.manual_reconciliation_required",
+        attributes: {
+          "shareslices.authentication_email.delivery.id": delivery.id,
+          "shareslices.retry.reason_code": "resend_safe_replay_cutoff_elapsed",
+        },
+      });
+      return true;
+    }
     fence = Number(delivery.delivery_revision) + 1;
     providerAttemptId = crypto.randomUUID();
     const claimedForSend = await client.query(
@@ -138,6 +208,130 @@ export async function dispatchOneAuthenticationEmail(
     } catch (error) {
       try {
         await client.query("begin");
+        if (error instanceof ResendAuthenticationEmailTransportError) {
+          const outcome = error.outcome;
+          const now = new Date();
+          const safeReplayUntil = prepared.snapshot.providerSafeReplayUntil;
+          const beforeCutoff = safeReplayUntil !== null && now < safeReplayUntil;
+          const knownNotSubmitted = outcome.kind === "quota_exceeded"
+            || (outcome.kind === "retryable" && outcome.errorType === "rate_limit_exceeded");
+          const shouldRetry = outcome.kind !== "permanent_failure" && beforeCutoff;
+          const attemptPhase = knownNotSubmitted ? "known_not_submitted" : "acceptance_indeterminate";
+          await client.query(
+            `update authentication_email_provider_attempt attempt
+             set phase = $4, failure_reason_code = $5, quiescent_at = now(), updated_at = now()
+             where attempt.id = $1 and attempt.delivery_id = $2 and attempt.fence = $3
+               and attempt.phase in ('submitting', 'awaiting_final_acceptance')`,
+            [providerAttemptId, delivery.id, fence, attemptPhase, outcome.errorType],
+          );
+          if (shouldRetry) {
+            const retryDelaySeconds = boundedRetryDelaySeconds(outcome.retryAfter, timing.leaseSeconds);
+            const scheduled = await client.query(
+              `update authentication_email_delivery
+               set state = 'pending', available_at = greatest(
+                     now() + ($4 * interval '1 second'),
+                     (select maximum_call_deadline from authentication_email_provider_attempt where id = $5)
+                   ),
+                   failure_reason_code = $6, lease_owner = null, lease_expires_at = null
+               where id = $1 and state = 'sending' and lease_owner = $2 and delivery_revision = $3`,
+              [delivery.id, workerId, fence, retryDelaySeconds, providerAttemptId, outcome.errorType],
+            );
+            if (scheduled.rowCount !== 1) {
+              await client.query("rollback");
+              logger.emit({
+                severity: "WARN",
+                body: "Authentication email provider outcome arrived after lease ownership changed.",
+                eventName: "shareslices.authentication_email.delivery.outcome_after_lease_lost",
+                attributes: {
+                  "shareslices.authentication_email.delivery.id": delivery.id,
+                  "shareslices.retry.reason_code": "acceptance_indeterminate",
+                },
+              });
+              return true;
+            }
+            await client.query("commit");
+            await client.query(
+              `update authentication_email_circuit_breaker
+               set state = 'open', reason_code = 'provider_failure', opened_at = now(),
+                   resume_at = now() + ($1 * interval '1 second'), updated_at = now()
+               where id = 'global'`,
+              [circuitBreakerSeconds],
+            );
+            logger.emit({
+              severity: "WARN",
+              body: "Authentication email provider request scheduled for safe replay.",
+              eventName: "shareslices.authentication_email.delivery.retry_scheduled",
+              attributes: {
+                "shareslices.authentication_email.delivery.id": delivery.id,
+                "shareslices.retry.reason_code": outcome.errorType,
+              },
+            });
+            return true;
+          }
+          const requiresManualReconciliation = !knownNotSubmitted && outcome.kind !== "permanent_failure";
+          const terminal = await client.query(
+            `update authentication_email_delivery
+             set state = $4,
+                 result_classification = $5,
+                 failure_reason_code = $6,
+                 encrypted_payload = case when $4 = 'failed' then '' else encrypted_payload end,
+                 lease_owner = null, lease_expires_at = null
+             where id = $1 and state = 'sending' and lease_owner = $2 and delivery_revision = $3`,
+            [
+              delivery.id,
+              workerId,
+              fence,
+              requiresManualReconciliation ? "manual_reconciliation" : "failed",
+              requiresManualReconciliation ? null : "provider_rejected",
+              requiresManualReconciliation ? "acceptance_indeterminate" : outcome.errorType,
+            ],
+          );
+          if (terminal.rowCount !== 1) {
+            await client.query("rollback");
+            logger.emit({
+              severity: "WARN",
+              body: "Authentication email provider outcome arrived after lease ownership changed.",
+              eventName: "shareslices.authentication_email.delivery.outcome_after_lease_lost",
+              attributes: {
+                "shareslices.authentication_email.delivery.id": delivery.id,
+                "shareslices.retry.reason_code": "acceptance_indeterminate",
+              },
+            });
+            return true;
+          }
+          if (requiresManualReconciliation) {
+            await client.query(
+              `update authentication_email_provider_attempt
+               set phase = 'manual_reconciliation', updated_at = now()
+               where id = $1 and phase = 'acceptance_indeterminate'`,
+              [providerAttemptId],
+            );
+          } else {
+            await client.query(
+              `update authentication_email_provider_attempt
+               set phase = 'provider_rejected', updated_at = now()
+               where id = $1 and phase in ('known_not_submitted', 'acceptance_indeterminate')`,
+              [providerAttemptId],
+            );
+          }
+          await client.query("commit");
+          logger.emit({
+            severity: requiresManualReconciliation ? "ERROR" : "WARN",
+            body: requiresManualReconciliation
+              ? "Authentication email delivery requires manual reconciliation."
+              : "Authentication email provider rejected the request.",
+            eventName: requiresManualReconciliation
+              ? "shareslices.authentication_email.delivery.manual_reconciliation_required"
+              : "shareslices.authentication_email.delivery.provider_rejected",
+            attributes: {
+              "shareslices.authentication_email.delivery.id": delivery.id,
+              "shareslices.retry.reason_code": requiresManualReconciliation
+                ? "acceptance_indeterminate"
+                : outcome.errorType,
+            },
+          });
+          return true;
+        }
         const indeterminateAttempt = await client.query(
           `update authentication_email_provider_attempt attempt
            set phase = 'acceptance_indeterminate', failure_reason_code = 'provider_outcome_unknown', updated_at = now()

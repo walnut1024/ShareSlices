@@ -73,6 +73,59 @@ describe("authentication email Resend transport", () => {
     );
   });
 
+  it("restores the first frozen key and cutoff instead of extending them", async () => {
+    const adapter = createAuthenticationEmailResendAdapter({
+      apiKey: "secret-key",
+      from: "ShareSlices <onboarding@resend.dev>",
+      providerNamespace: "team-a",
+      transportRevision: "test-v1",
+      safetyMarginMs: 300_000,
+      fetch: async () => Response.json({ id: "message-1" }),
+    });
+    const first = await adapter.prepare(
+      { email: "delivered+shareslices@resend.dev", otp: "123456", type: "email-verification" },
+      "delivery-123",
+      new Date(1_000_000),
+    );
+    const replay = await adapter.prepare(
+      { email: "delivered+shareslices@resend.dev", otp: "123456", type: "email-verification" },
+      "delivery-123",
+      new Date(10_000_000),
+      first.snapshot,
+    );
+
+    expect(replay.snapshot).toEqual(first.snapshot);
+  });
+
+  it("refuses to replay a frozen request through a changed provider namespace", async () => {
+    const firstAdapter = createAuthenticationEmailResendAdapter({
+      apiKey: "secret-key",
+      from: "ShareSlices <onboarding@resend.dev>",
+      providerNamespace: "team-a",
+      transportRevision: "test-v1",
+      safetyMarginMs: 300_000,
+    });
+    const changedAdapter = createAuthenticationEmailResendAdapter({
+      apiKey: "rotated-key",
+      from: "ShareSlices <onboarding@resend.dev>",
+      providerNamespace: "team-b",
+      transportRevision: "test-v1",
+      safetyMarginMs: 300_000,
+    });
+    const first = await firstAdapter.prepare(
+      { email: "delivered+shareslices@resend.dev", otp: "123456", type: "email-verification" },
+      "delivery-123",
+      new Date(1_000_000),
+    );
+
+    await expect(changedAdapter.prepare(
+      { email: "delivered+shareslices@resend.dev", otp: "123456", type: "email-verification" },
+      "delivery-123",
+      new Date(2_000_000),
+      first.snapshot,
+    )).rejects.toThrow("authentication_email_transport_snapshot_conflict");
+  });
+
   it("refuses a declared sender domain that differs from the request", async () => {
     await expect(freezeResendTransport({
       logicalDeliveryId: "delivery-123",
@@ -127,6 +180,7 @@ describe("authentication email Resend transport", () => {
       fetch: async () => Response.json({ name }, { status }),
     });
     expect(result.kind).toBe(kind);
+    if (name === "future_error") expect(result).toMatchObject({ errorType: "unknown_error_type" });
   });
 
   it("treats a network outcome as indeterminate and never returns the key", async () => {

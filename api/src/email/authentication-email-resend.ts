@@ -73,8 +73,10 @@ export function resendPayload(
 }
 
 export class ResendAuthenticationEmailTransportError extends Error {
-  constructor(public readonly outcome: Exclude<ResendSendOutcome["kind"], "provider_accepted">) {
-    super(outcome);
+  constructor(
+    public readonly outcome: Exclude<ResendSendOutcome, Readonly<{ kind: "provider_accepted" }>>,
+  ) {
+    super(outcome.kind);
     this.name = "ResendAuthenticationEmailTransportError";
   }
 }
@@ -88,17 +90,28 @@ export function createAuthenticationEmailResendAdapter(options: Readonly<{
   fetch?: typeof fetch;
 }>): AuthenticationEmailTransportAdapter {
   return {
-    async prepare(payload, deliveryId, preSendAt) {
+    async prepare(payload, deliveryId, preSendAt, frozenSnapshot) {
       const providerPayload = resendPayload(options.from, payload);
-      const frozen = await freezeResendTransport({
-        logicalDeliveryId: deliveryId,
-        payload: providerPayload,
-        providerNamespace: options.providerNamespace,
-        senderDomain: senderDomain(options.from) ?? "",
-        transportRevision: options.transportRevision,
-        preSendAtMs: preSendAt.getTime(),
-        safetyMarginMs: options.safetyMarginMs,
-      });
+      const configuredSenderDomain = senderDomain(options.from) ?? "";
+      const frozen = frozenSnapshot
+        ? await restoreFrozenResendTransport({
+            deliveryId,
+            payload: providerPayload,
+            snapshot: frozenSnapshot,
+            providerNamespace: options.providerNamespace,
+            senderIdentity: options.from,
+            senderDomain: configuredSenderDomain,
+            transportRevision: options.transportRevision,
+          })
+        : await freezeResendTransport({
+            logicalDeliveryId: deliveryId,
+            payload: providerPayload,
+            providerNamespace: options.providerNamespace,
+            senderDomain: configuredSenderDomain,
+            transportRevision: options.transportRevision,
+            preSendAtMs: preSendAt.getTime(),
+            safetyMarginMs: options.safetyMarginMs,
+          });
       return {
         snapshot: {
           adapter: "resend",
@@ -120,12 +133,49 @@ export function createAuthenticationEmailResendAdapter(options: Readonly<{
             ...(options.fetch ? { fetch: options.fetch } : {}),
           });
           if (result.kind !== "provider_accepted") {
-            throw new ResendAuthenticationEmailTransportError(result.kind);
+            throw new ResendAuthenticationEmailTransportError(result);
           }
           return { classification: "provider_accepted", providerMessageId: result.providerMessageId };
         },
       };
     },
+  };
+}
+
+async function restoreFrozenResendTransport(input: Readonly<{
+  deliveryId: string;
+  payload: ResendPayload;
+  snapshot: import("./authentication-email-transport.js").AuthenticationEmailTransportSnapshot;
+  providerNamespace: string;
+  senderIdentity: string;
+  senderDomain: string;
+  transportRevision: string;
+}>): Promise<FrozenResendTransport> {
+  const { snapshot } = input;
+  if (
+    snapshot.adapter !== "resend"
+    || snapshot.providerNamespace !== input.providerNamespace
+    || snapshot.senderIdentity !== input.senderIdentity
+    || snapshot.endpointIdentity !== RESEND_API_URL
+    || snapshot.transportRevision !== input.transportRevision
+    || snapshot.serializerRevision !== "authentication-email-v1"
+    || snapshot.localMessageId !== `<${input.deliveryId}@shareslices.local>`
+    || !snapshot.providerIdempotencyKey
+    || !snapshot.providerSafeReplayUntil
+  ) throw new Error("authentication_email_transport_snapshot_conflict");
+  const payloadDigest = await sha256Hex(canonicalJson(input.payload));
+  if (payloadDigest !== snapshot.payloadDigest) throw new Error("resend_payload_changed");
+  if (senderDomain(input.payload.from) !== input.senderDomain.toLowerCase()) {
+    throw new Error("resend_sender_domain_mismatch");
+  }
+  return {
+    adapter: "resend",
+    providerNamespace: snapshot.providerNamespace,
+    senderDomain: input.senderDomain,
+    transportRevision: snapshot.transportRevision,
+    payloadDigest,
+    idempotencyKey: snapshot.providerIdempotencyKey,
+    providerSafeReplayUntilMs: snapshot.providerSafeReplayUntil.getTime(),
   };
 }
 
@@ -201,9 +251,13 @@ export async function sendWithResend(input: Readonly<{
     return { kind: "provider_accepted", providerMessageId: (body as { id: string }).id, status: response.status };
   }
   const candidate = body as { name?: unknown; type?: unknown };
-  const errorType = typeof candidate.name === "string"
+  const providerErrorType = typeof candidate.name === "string"
     ? candidate.name
     : typeof candidate.type === "string" ? candidate.type : "unknown_error_type";
+  const knownErrorType = retryableTypes.has(providerErrorType)
+    || quotaTypes.has(providerErrorType)
+    || permanentTypes.has(providerErrorType);
+  const errorType = knownErrorType ? providerErrorType : "unknown_error_type";
   const kind = quotaTypes.has(errorType)
     ? "quota_exceeded"
     : retryableTypes.has(errorType) || response.status >= 500 || response.status === 429

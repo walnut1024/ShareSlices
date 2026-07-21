@@ -367,4 +367,115 @@ describe("authentication email repository", () => {
     expect(delivery.rows[0].provider_idempotency_key).toMatch(/^shareslices-email-v1\//);
     expect(delivery.rows[0].provider_safe_replay_until).toBeInstanceOf(Date);
   });
+
+  it("replays an indeterminate Resend call with the original key, payload, and cutoff", async () => {
+    await pool.query("delete from authentication_email_delivery");
+    const email = "delivered+shareslices@resend.dev";
+    const attempt = await createVerificationAttempt({ email, purpose: "registration" });
+    await acceptAuthenticationEmailDelivery({
+      attemptId: attempt.id,
+      email,
+      purpose: "registration",
+      sourceIp: "203.0.113.82",
+      payload: { email, otp: "123456", type: "email-verification" },
+    });
+    const requests: Array<{ key: string | null; body: string }> = [];
+    const adapter = createAuthenticationEmailResendAdapter({
+      apiKey: "test-secret-key",
+      from: "ShareSlices <onboarding@resend.dev>",
+      providerNamespace: "test-team",
+      transportRevision: "resend-test-v1",
+      safetyMarginMs: 300_000,
+      fetch: async (_url, init) => {
+        requests.push({
+          key: new Headers(init?.headers).get("Idempotency-Key"),
+          body: String(init?.body),
+        });
+        if (requests.length === 1) throw new Error("response lost");
+        return Response.json({ id: "resend-message-replayed" });
+      },
+    });
+
+    await expect(dispatchOneAuthenticationEmail(
+      "resend-replay-1",
+      adapter,
+      { leaseSeconds: 1, heartbeatMs: 100 },
+    )).resolves.toBe(true);
+    const first = await pool.query(
+      `select id, state, provider_idempotency_key, provider_safe_replay_until
+       from authentication_email_delivery where attempt_id = $1`,
+      [attempt.id],
+    );
+    expect(first.rows[0].state).toBe("pending");
+    await pool.query(
+      "update authentication_email_delivery set available_at = now() where id = $1",
+      [first.rows[0].id],
+    );
+
+    await expect(dispatchOneAuthenticationEmail(
+      "resend-replay-2",
+      adapter,
+      { leaseSeconds: 1, heartbeatMs: 100 },
+    )).resolves.toBe(true);
+
+    const completed = await pool.query(
+      `select state, provider_idempotency_key, provider_safe_replay_until,
+              provider_message_id, result_classification
+       from authentication_email_delivery where id = $1`,
+      [first.rows[0].id],
+    );
+    expect(completed.rows[0]).toMatchObject({
+      state: "sent",
+      provider_idempotency_key: first.rows[0].provider_idempotency_key,
+      provider_safe_replay_until: first.rows[0].provider_safe_replay_until,
+      provider_message_id: "resend-message-replayed",
+      result_classification: "provider_accepted",
+    });
+    expect(requests).toHaveLength(2);
+    expect(requests[1]).toEqual(requests[0]);
+  });
+
+  it("moves an expired Resend replay to reconciliation without another provider call", async () => {
+    await pool.query("delete from authentication_email_delivery");
+    const email = "delivered+shareslices@resend.dev";
+    const attempt = await createVerificationAttempt({ email, purpose: "registration" });
+    await acceptAuthenticationEmailDelivery({
+      attemptId: attempt.id,
+      email,
+      purpose: "registration",
+      sourceIp: "203.0.113.83",
+      payload: { email, otp: "123456", type: "email-verification" },
+    });
+    let sends = 0;
+    const adapter = createAuthenticationEmailResendAdapter({
+      apiKey: "test-secret-key",
+      from: "ShareSlices <onboarding@resend.dev>",
+      providerNamespace: "test-team",
+      transportRevision: "resend-test-v1",
+      safetyMarginMs: 300_000,
+      fetch: async () => {
+        sends += 1;
+        throw new Error("response lost");
+      },
+    });
+
+    await dispatchOneAuthenticationEmail("resend-cutoff-1", adapter, { leaseSeconds: 1, heartbeatMs: 100 });
+    await pool.query(
+      `update authentication_email_delivery
+       set available_at = now(), provider_safe_replay_until = now() - interval '1 second'
+       where attempt_id = $1`,
+      [attempt.id],
+    );
+    await dispatchOneAuthenticationEmail("resend-cutoff-2", adapter, { leaseSeconds: 1, heartbeatMs: 100 });
+
+    const delivery = await pool.query(
+      "select state, failure_reason_code from authentication_email_delivery where attempt_id = $1",
+      [attempt.id],
+    );
+    expect(delivery.rows[0]).toEqual({
+      state: "manual_reconciliation",
+      failure_reason_code: "resend_safe_replay_cutoff_elapsed",
+    });
+    expect(sends).toBe(1);
+  });
 });

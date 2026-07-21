@@ -29,6 +29,7 @@ export type AuthenticationEmailTransportAdapter = Readonly<{
     payload: AuthenticationEmailPayload,
     deliveryId: string,
     preSendAt: Date,
+    frozenSnapshot?: AuthenticationEmailTransportSnapshot,
   ): Promise<PreparedAuthenticationEmailTransport>;
 }>;
 

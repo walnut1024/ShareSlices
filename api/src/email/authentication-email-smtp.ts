@@ -62,10 +62,9 @@ export function createAuthenticationEmailSmtpAdapter(
       transportRevision: options.transportRevision,
       serializerRevision: "authentication-email-v1",
     },
-    async prepare(payload, deliveryId) {
+    async prepare(payload, deliveryId, _preSendAt, frozenSnapshot) {
       const providerPayload = authenticationEmailProviderPayload(options.from, payload);
-      return {
-        snapshot: {
+      const snapshot = {
           adapter: "smtp",
           providerNamespace: options.providerNamespace,
           senderIdentity: options.from,
@@ -76,7 +75,19 @@ export function createAuthenticationEmailSmtpAdapter(
           providerIdempotencyKey: null,
           providerSafeReplayUntil: null,
           localMessageId: `<${deliveryId}@shareslices.local>`,
-        },
+        } as const;
+      if (frozenSnapshot && (
+        frozenSnapshot.adapter !== snapshot.adapter
+        || frozenSnapshot.providerNamespace !== snapshot.providerNamespace
+        || frozenSnapshot.senderIdentity !== snapshot.senderIdentity
+        || frozenSnapshot.endpointIdentity !== snapshot.endpointIdentity
+        || frozenSnapshot.transportRevision !== snapshot.transportRevision
+        || frozenSnapshot.serializerRevision !== snapshot.serializerRevision
+        || frozenSnapshot.payloadDigest !== snapshot.payloadDigest
+        || frozenSnapshot.localMessageId !== snapshot.localMessageId
+      )) throw new Error("authentication_email_transport_snapshot_conflict");
+      return {
+        snapshot: frozenSnapshot ?? snapshot,
         send: async () => ({
           classification: "provider_accepted",
           providerMessageId: await this.send(payload, deliveryId),
