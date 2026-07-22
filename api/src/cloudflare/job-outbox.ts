@@ -22,6 +22,7 @@ export type CloudflareOutboxDrainResult = Readonly<{
 export async function drainCloudflareJobOutbox(input: Readonly<{
   databaseClients: DatabaseClientSource;
   queue: CloudflareWakeQueue;
+  acceptedLanes: readonly CloudflareJobWakeLane[];
   workerId: string;
   maxMessages: number;
   leaseSeconds: number;
@@ -35,6 +36,9 @@ export async function drainCloudflareJobOutbox(input: Readonly<{
   }
   if (!Number.isSafeInteger(input.retryDelaySeconds) || input.retryDelaySeconds <= 0) {
     throw new Error("invalid_cloudflare_outbox_retry_delay_seconds");
+  }
+  if (input.acceptedLanes.length === 0 || new Set(input.acceptedLanes).size !== input.acceptedLanes.length) {
+    throw new Error("invalid_cloudflare_outbox_accepted_lanes");
   }
 
   return input.databaseClients.withClient(async (client) => {
@@ -60,9 +64,10 @@ export async function drainCloudflareJobOutbox(input: Readonly<{
         }>(
           `select lane, durable_job_id, wake_id, created_at, fence
            from cloudflare_job_dispatch_outbox
-           where state = 'pending' and available_at <= now()
+           where state = 'pending' and available_at <= now() and lane = any($1::text[])
            order by created_at, lane, durable_job_id
            for update skip locked limit 1`,
+          [input.acceptedLanes],
         );
         const row = selected.rows[0];
         if (!row) {
@@ -136,7 +141,8 @@ export async function drainCloudflareJobOutbox(input: Readonly<{
     }
     const remaining = await client.query(
       `select 1 from cloudflare_job_dispatch_outbox
-       where state in ('pending', 'publishing') limit 1`,
+       where state in ('pending', 'publishing') and lane = any($1::text[]) limit 1`,
+      [input.acceptedLanes],
     );
     return { attempted, published, remaining: (remaining.rowCount ?? 0) > 0 };
   });

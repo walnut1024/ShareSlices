@@ -45,6 +45,7 @@ export function createCloudflareJobsWorker() {
         const result = await drainCloudflareJobOutbox({
           databaseClients: connection,
           queue: bindings.JOB_WAKE_QUEUE,
+          acceptedLanes: ["authentication-email"],
           workerId: `cloudflare-scheduled:${controller.scheduledTime}`,
           maxMessages: positiveInteger("job_outbox_max_messages", bindings.JOB_OUTBOX_MAX_MESSAGES),
           leaseSeconds: positiveInteger("job_outbox_lease_seconds", bindings.JOB_OUTBOX_LEASE_SECONDS),

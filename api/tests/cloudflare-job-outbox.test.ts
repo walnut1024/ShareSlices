@@ -1,12 +1,12 @@
 // cspell:ignore nspname relnamespace tgisinternal tgname tgrelid
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { drainCloudflareJobOutbox } from "../src/cloudflare/job-outbox.js";
-import type { CloudflareJobWake } from "../src/cloudflare/job-wake.js";
+import type { CloudflareJobWake, CloudflareJobWakeLane } from "../src/cloudflare/job-wake.js";
 import { directConnection, pool } from "../src/db/client.js";
 
-const inserted: Array<{ lane: string; durableJobId: string }> = [];
+const inserted: Array<{ lane: CloudflareJobWakeLane; durableJobId: string }> = [];
 
-async function insertDispatch(lane = "artifact-processing") {
+async function insertDispatch(lane: CloudflareJobWakeLane = "artifact-processing") {
   const durableJobId = `job-${crypto.randomUUID()}`;
   await pool.query(
     `insert into cloudflare_job_dispatch_outbox(lane, durable_job_id, created_at)
@@ -55,6 +55,7 @@ describe("Cloudflare job dispatch outbox", () => {
     await expect(drainCloudflareJobOutbox({
       databaseClients: directConnection,
       queue: { send },
+      acceptedLanes: [row.lane],
       workerId: "outbox-worker-1",
       maxMessages: 1,
       leaseSeconds: 30,
@@ -90,7 +91,7 @@ describe("Cloudflare job dispatch outbox", () => {
   });
 
   it("reuses the same wake identity after an indeterminate Queue publish", async () => {
-    const row = await insertDispatch("authentication-email");
+    const row = await insertDispatch("gallery-copy");
     const wakes: unknown[] = [];
     const send = vi.fn<(message: CloudflareJobWake) => Promise<void>>(async (wake) => {
       wakes.push(wake);
@@ -99,6 +100,7 @@ describe("Cloudflare job dispatch outbox", () => {
     const input = {
       databaseClients: directConnection,
       queue: { send },
+      acceptedLanes: [row.lane],
       maxMessages: 1,
       leaseSeconds: 30,
       retryDelaySeconds: 1,
@@ -120,5 +122,30 @@ describe("Cloudflare job dispatch outbox", () => {
       [row.lane, row.durableJobId],
     );
     expect(persisted.rows[0]).toEqual({ state: "published", fence: "2", attempt_count: 2 });
+  });
+
+  it("leaves unsupported lanes pending until their consumer is registered", async () => {
+    const unsupported = await insertDispatch("artifact-processing");
+    const supported = await insertDispatch("gallery-copy");
+    const send = vi.fn<(message: CloudflareJobWake) => Promise<void>>(async () => undefined);
+
+    await expect(drainCloudflareJobOutbox({
+      databaseClients: directConnection,
+      queue: {send},
+      acceptedLanes: ["gallery-copy"],
+      workerId: "outbox-worker-1",
+      maxMessages: 2,
+      leaseSeconds: 30,
+      retryDelaySeconds: 5,
+    })).resolves.toEqual({attempted: 1, published: 1, remaining: false});
+
+    expect(send).toHaveBeenCalledOnce();
+    expect(send.mock.calls[0]![0]).toMatchObject({durableJobId: supported.durableJobId});
+    const persisted = await pool.query(
+      `select state from cloudflare_job_dispatch_outbox
+       where lane = $1 and durable_job_id = $2`,
+      [unsupported.lane, unsupported.durableJobId],
+    );
+    expect(persisted.rows).toEqual([{state: "pending"}]);
   });
 });
