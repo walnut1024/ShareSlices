@@ -165,12 +165,19 @@ describe("authentication email Resend transport", () => {
   });
 
   it.each([
+    ["invalid_idempotency_key", 400, "permanent_failure"],
     ["invalid_idempotent_request", 409, "permanent_failure"],
     ["concurrent_idempotent_requests", 409, "retryable"],
     ["daily_quota_exceeded", 429, "quota_exceeded"],
     ["monthly_quota_exceeded", 429, "quota_exceeded"],
     ["rate_limit_exceeded", 429, "retryable"],
+    ["validation_error", 422, "permanent_failure"],
+    ["missing_api_key", 401, "permanent_failure"],
+    ["restricted_api_key", 403, "permanent_failure"],
     ["invalid_api_key", 403, "permanent_failure"],
+    ["invalid_from_address", 422, "permanent_failure"],
+    ["invalid_access", 403, "permanent_failure"],
+    ["security_error", 403, "permanent_failure"],
     ["future_error", 400, "indeterminate"],
   ] as const)("classifies %s conservatively", async (name, status, kind) => {
     const result = await sendWithResend({
@@ -181,6 +188,59 @@ describe("authentication email Resend transport", () => {
     });
     expect(result.kind).toBe(kind);
     if (name === "future_error") expect(result).toMatchObject({ errorType: "unknown_error_type" });
+  });
+
+  it.each([
+    [400, "indeterminate"],
+    [500, "retryable"],
+    [503, "retryable"],
+  ] as const)("classifies a non-JSON %s response as %s", async (status, kind) => {
+    const result = await sendWithResend({
+      apiKey: "secret-key",
+      frozen: await frozen(),
+      payload,
+      fetch: async () => new Response("upstream response", {
+        status,
+        headers: { "Content-Type": "text/plain", "Retry-After": "17" },
+      }),
+    });
+    expect(result).toEqual({
+      kind,
+      errorType: "non_json_response",
+      status,
+      retryAfter: "17",
+    });
+  });
+
+  it("treats an undocumented JSON 5xx as retryable without trusting its type", async () => {
+    await expect(sendWithResend({
+      apiKey: "secret-key",
+      frozen: await frozen(),
+      payload,
+      fetch: async () => Response.json(
+        { name: "future_server_error" },
+        { status: 502, headers: { "Retry-After": "23" } },
+      ),
+    })).resolves.toEqual({
+      kind: "retryable",
+      errorType: "unknown_error_type",
+      status: 502,
+      retryAfter: "23",
+    });
+  });
+
+  it("treats a nominal success without a provider message ID as indeterminate", async () => {
+    await expect(sendWithResend({
+      apiKey: "secret-key",
+      frozen: await frozen(),
+      payload,
+      fetch: async () => Response.json({}, { status: 200 }),
+    })).resolves.toEqual({
+      kind: "indeterminate",
+      errorType: "unknown_error_type",
+      status: 200,
+      retryAfter: null,
+    });
   });
 
   it("treats a network outcome as indeterminate and never returns the key", async () => {
