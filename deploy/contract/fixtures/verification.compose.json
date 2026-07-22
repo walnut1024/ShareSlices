@@ -2,8 +2,12 @@
   "schemaVersion": "shareslices.verification-fixture/v1",
   "topology": "compose",
   "addresses": {
-    "application": "http://app.localhost:5173",
-    "content": "http://content.localhost:7460"
+    "web": "http://app.localhost:5173",
+    "api": "http://app.localhost:5173",
+    "viewer": "http://app.localhost:5173",
+    "content": "http://content.localhost:7460",
+    "origin": "http://app.localhost:5173",
+    "edge": "http://app.localhost:5173"
   },
   "requiredCapabilities": ["trusted-http", "viewer", "content-only-http"],
   "disabledCapabilities": [

@@ -2,8 +2,12 @@
   "schemaVersion": "shareslices.verification-fixture/v1",
   "topology": "kubernetes",
   "addresses": {
-    "application": "https://app.example.test",
-    "content": "https://content.example.test"
+    "web": "https://app.example.test",
+    "api": "https://app.example.test",
+    "viewer": "https://app.example.test",
+    "content": "https://content.example.test",
+    "origin": "https://origin.example.test",
+    "edge": "https://app.example.test"
   },
   "requiredCapabilities": [
     "trusted-http",

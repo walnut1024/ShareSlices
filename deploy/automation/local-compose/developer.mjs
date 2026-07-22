@@ -14,7 +14,10 @@ import {
   runPinnedReadOnly,
   withDockerMutationController,
 } from "./docker-controller.mjs";
-import { printComposeNotApplicableEvidence } from "./verification-evidence.mjs";
+import {
+  printComposeCoreVerification,
+  runComposeCoreVerification,
+} from "./verification-evidence.mjs";
 
 export const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 export const developerComposeArgs = [
@@ -90,7 +93,11 @@ export async function verifyLocalStack() {
   await checkHttp("Gallery content", localEndpoints.content);
   await checkHttp("Mailpit", localEndpoints.mailpit);
   await checkTcp("SMTP", "127.0.0.1", 1025);
-  printComposeNotApplicableEvidence();
+  const verification = await runComposeCoreVerification();
+  printComposeCoreVerification(verification);
+  if (verification.outcome !== "passed") {
+    throw new Error("The shared read-only core verification contract failed.");
+  }
 }
 
 function verifyComposeState(snapshot, environment) {

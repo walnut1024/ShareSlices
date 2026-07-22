@@ -59,6 +59,8 @@ paths:
           headers:
             X-Request-Id:
               $ref: "#/components/headers/RequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
           content:
             application/json:
               schema:
@@ -80,6 +82,8 @@ paths:
           headers:
             X-Request-Id:
               $ref: "#/components/headers/RequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
           content:
             application/json:
               schema:
@@ -96,6 +100,8 @@ paths:
           headers:
             X-Request-Id:
               $ref: "#/components/headers/RequestId"
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
           content:
             application/json:
               schema:

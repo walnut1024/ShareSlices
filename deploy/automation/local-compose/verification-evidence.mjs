@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
 
+import {runCoreVerification} from "../verify.mjs";
+
 const contractRoot = new URL("../../contract/", import.meta.url);
 
 function readJson(relativePath) {
@@ -32,5 +34,23 @@ export function composeNotApplicableEvidence() {
 export function printComposeNotApplicableEvidence(write = console.log) {
   for (const check of composeNotApplicableEvidence().checks) {
     write(`skip   ${check.id.padEnd(29)} ${check.outcome} (${check.reasonCode})`);
+  }
+}
+
+export async function runComposeCoreVerification({fetchImplementation = fetch} = {}) {
+  const fixture = readJson("fixtures/verification.compose.json");
+  return runCoreVerification({
+    topology: "compose",
+    addresses: fixture.addresses,
+    fetchImplementation,
+  });
+}
+
+export function printComposeCoreVerification(evidence, write = console.log) {
+  for (const check of evidence.checks) {
+    const label = check.outcome === "passed" ? "pass" : check.outcome === "not_applicable" ? "skip" : "fail";
+    const reason = check.reasonCode ? ` (${check.reasonCode})` : "";
+    const details = check.outcome === "failed" ? ` ${JSON.stringify(check.evidence)}` : "";
+    write(`${label.padEnd(6)} ${check.id.padEnd(38)} ${check.outcome}${reason}${details}`);
   }
 }

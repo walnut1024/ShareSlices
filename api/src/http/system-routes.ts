@@ -11,12 +11,14 @@ export function systemRoutes(overrides: Partial<SystemRouteDependencies> = {}): 
   const app = new Hono();
 
   app.get("/health", (c) => {
+    c.header("Cache-Control", "no-store");
     c.header("X-Request-Id", requestId(c));
     return c.json({ status: "ok", service: "shareslices-api" });
   });
 
   app.get("/ready", async (c) => {
     const id = requestId(c);
+    c.header("Cache-Control", "no-store");
     c.header("X-Request-Id", id);
 
     try {

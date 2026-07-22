@@ -422,7 +422,7 @@ test("status delegates to authoritative control and cluster observation", async 
   assert.equal(typeof input.runKubectl, "function");
 });
 
-test("verify runs the shared core contract against configured trusted and content origins", async () => {
+test("verify runs the shared core contract against every configured logical address role", async () => {
   let input;
   const adapter = createKubernetesAdapter({
     verifyCore: async (value) => {
@@ -432,8 +432,15 @@ test("verify runs the shared core contract against configured trusted and conten
   });
   const result = await adapter.verify({config, level: "core"});
   assert.equal(result.outcome, "passed");
-  assert.equal(input.applicationOrigin, config.shared.publicOrigins.application);
-  assert.equal(input.contentOrigin, config.shared.publicOrigins.content);
+  assert.equal(input.topology, "kubernetes");
+  assert.deepEqual(input.addresses, {
+    web: config.shared.publicOrigins.application,
+    api: config.shared.publicOrigins.application,
+    viewer: config.shared.publicOrigins.application,
+    content: config.shared.publicOrigins.content,
+    origin: config.shared.publicOrigins.application,
+    edge: config.shared.publicOrigins.application,
+  });
 });
 
 test("release-bound verify requires exact cluster convergence before fenced finalization", async () => {

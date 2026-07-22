@@ -17,10 +17,14 @@
     "addresses": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["application", "content"],
+      "required": ["web", "api", "viewer", "content", "origin", "edge"],
       "properties": {
-        "application": { "type": "string", "format": "uri" },
-        "content": { "type": "string", "format": "uri" }
+        "web": { "type": "string", "format": "uri", "pattern": "^https?://" },
+        "api": { "type": "string", "format": "uri", "pattern": "^https?://" },
+        "viewer": { "type": "string", "format": "uri", "pattern": "^https?://" },
+        "content": { "type": "string", "format": "uri", "pattern": "^https?://" },
+        "origin": { "type": "string", "format": "uri", "pattern": "^https?://" },
+        "edge": { "type": "string", "format": "uri", "pattern": "^https?://" }
       }
     },
     "requiredCapabilities": {

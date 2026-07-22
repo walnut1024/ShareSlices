@@ -27,13 +27,19 @@ export function buildGalleryContentApp(dependencies: GalleryContentDependencies 
   const app = new Hono();
   const ready = Boolean(dependencies.publicPlayer && dependencies.administratorReview && dependencies.lookup && dependencies.storage);
 
+  const systemResponse = (c: Context, body: unknown, status: 200 | 503 = 200) => {
+    c.header("Cache-Control", "no-store");
+    c.header("X-Request-Id", c.req.header("x-request-id") ?? crypto.randomUUID());
+    return c.json(body, status);
+  };
+
   app.use("*", contentAccessLog);
   app.use("/gallery-content/*", galleryContentPolicy);
 
-  app.get("/health", (c) => c.json({status: "ok", service: "shareslices-gallery-content"}));
+  app.get("/health", (c) => systemResponse(c, {status: "ok", service: "shareslices-gallery-content"}));
   app.get("/ready", (c) => ready
-    ? c.json({status: "ready"})
-    : c.json({status: "not_ready", reason: "credential_paths_unavailable"}, 503));
+    ? systemResponse(c, {status: "ready"})
+    : systemResponse(c, {status: "not_ready", reason: "credential_paths_unavailable"}, 503));
 
   const serveBound = (kind: "public" | "review") => async (c: Context) => {
     const requestId = c.req.header("x-request-id") ?? crypto.randomUUID();

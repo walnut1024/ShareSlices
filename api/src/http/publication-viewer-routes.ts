@@ -283,6 +283,7 @@ export function publicationViewerRoutes(
   }
 
   async function preview(c: Context, rawPath: string) {
+    c.header("Cache-Control", "no-store");
     if (c.req.header("authorization")) {
       return errorJson(c, 401, "unauthenticated");
     }

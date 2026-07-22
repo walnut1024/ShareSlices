@@ -604,8 +604,15 @@ export function createKubernetesAdapter({
       );
     }
     const core = await verifyCore({
-      applicationOrigin: config.shared.publicOrigins.application,
-      contentOrigin: config.shared.publicOrigins.content,
+      topology: "kubernetes",
+      addresses: {
+        web: config.shared.publicOrigins.application,
+        api: config.shared.publicOrigins.application,
+        viewer: config.shared.publicOrigins.application,
+        content: config.shared.publicOrigins.content,
+        origin: config.shared.publicOrigins.application,
+        edge: config.shared.publicOrigins.application,
+      },
     });
     if (!release) return core;
     const bundle = await render({config, release});

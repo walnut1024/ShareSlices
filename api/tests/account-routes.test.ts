@@ -48,10 +48,24 @@ describe("account routes", () => {
     const response = await app.request("/health");
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("x-request-id")).toBeTruthy();
     await expect(response.json()).resolves.toEqual({
       status: "ok",
       service: "shareslices-api"
     });
+  });
+
+  it("keeps readiness responses non-cacheable whether the database is ready or unavailable", async () => {
+    for (const checkDatabase of [
+      vi.fn().mockResolvedValue(undefined),
+      vi.fn().mockRejectedValue(new Error("database unavailable")),
+    ]) {
+      const response = await buildTestApp({system: {checkDatabase}}).request("/ready");
+      expect([200, 503]).toContain(response.status);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("x-request-id")).toBeTruthy();
+    }
   });
 
   it("rejects invalid registration shape with OpenAPI error shape", async () => {

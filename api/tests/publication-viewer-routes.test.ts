@@ -97,6 +97,7 @@ describe("Publication, Preview, and Viewer routes", () => {
     const response = await app.request("/api/versions/version-1/content/");
 
     expect(response.status).toBe(401);
+    expect(response.headers.get("cache-control")).toBe("no-store");
     expect(deps.service.preview).not.toHaveBeenCalled();
   });
 
@@ -113,6 +114,7 @@ describe("Publication, Preview, and Viewer routes", () => {
     });
 
     expect(response.status).toBe(401);
+    expect(response.headers.get("cache-control")).toBe("no-store");
     expect(deps.authApi.getSession).not.toHaveBeenCalled();
     expect(deps.service.preview).not.toHaveBeenCalled();
   });

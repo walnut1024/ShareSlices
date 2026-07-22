@@ -5,8 +5,14 @@ import { buildGalleryContentApp } from "../src/content/app.js";
 describe("content-only Gallery application", () => {
   it("has only health, readiness, public-player, and review route groups", async () => {
     const app = buildGalleryContentApp();
-    expect((await app.request("/health")).status).toBe(200);
-    expect((await app.request("/ready")).status).toBe(503);
+    const health = await app.request("/health");
+    const readiness = await app.request("/ready");
+    expect(health.status).toBe(200);
+    expect(readiness.status).toBe(503);
+    for (const response of [health, readiness]) {
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("x-request-id")).toBeTruthy();
+    }
     for (const path of ["/api/artifacts", "/api/sessions/current", "/api/admin/gallery/cases"]) {
       expect((await app.request(path)).status).toBe(404);
     }
