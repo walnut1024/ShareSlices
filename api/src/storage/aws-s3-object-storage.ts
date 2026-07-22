@@ -17,12 +17,14 @@ import type {
   CommittedObject,
   ObjectListInput,
   ObjectListResult,
+  ObjectReadOptions,
   ObjectStorage,
   ObjectWrite,
   PrefixRemovalResult,
   RawZipWriteResult,
   StoredObjectResult
 } from "./object-storage.js";
+import { validateObjectReadOptions } from "./object-storage.js";
 
 type StorageCommand =
   | GetObjectCommand
@@ -143,14 +145,21 @@ export class AwsS3ObjectStorage implements ObjectStorage {
     return { key: input.key, sizeBytes };
   }
 
-  async readCommittedObject(key: string): Promise<CommittedObject> {
+  async readCommittedObject(key: string, options: ObjectReadOptions = {}): Promise<CommittedObject> {
+    validateObjectReadOptions(options);
+    const range = options.range;
     const output = (await this.#client.send(
-      new GetObjectCommand({ Bucket: this.#bucket, Key: key })
+      new GetObjectCommand({
+        Bucket: this.#bucket,
+        Key: key,
+        ...(range ? { Range: `bytes=${range.offset}-${range.offset + range.length - 1}` } : {}),
+      })
     )) as GetObjectCommandOutput;
     return {
       body: asAsyncBody(output.Body),
       ...(output.ContentLength === undefined ? {} : { sizeBytes: output.ContentLength }),
-      ...(output.ContentType ? { contentType: output.ContentType } : {})
+      ...(output.ContentType ? { contentType: output.ContentType } : {}),
+      ...(range ? { range } : {}),
     };
   }
 

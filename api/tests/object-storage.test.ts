@@ -179,6 +179,31 @@ describe("AwsS3ObjectStorage", () => {
     ]);
   });
 
+  it("maps bounded byte ranges to S3 without changing the private object contract", async () => {
+    const send = vi.fn(async (command: unknown) => {
+      if (!(command instanceof GetObjectCommand)) throw new Error("Unexpected command");
+      return {
+        Body: Readable.from([Buffer.from("part")]),
+        ContentLength: 4,
+        ContentType: "application/octet-stream",
+      };
+    });
+    const storage = new AwsS3ObjectStorage({ client: { send }, bucket: "artifact-bucket" });
+
+    const result = await storage.readCommittedObject(
+      "committed/version-1/video.bin",
+      { range: { offset: 10, length: 4 } },
+    );
+
+    expect((send.mock.calls[0]?.[0] as GetObjectCommand).input).toEqual({
+      Bucket: "artifact-bucket",
+      Key: "committed/version-1/video.bin",
+      Range: "bytes=10-13",
+    });
+    expect(result.range).toEqual({ offset: 10, length: 4 });
+    expect(await collect(result.body)).toEqual(Buffer.from("part"));
+  });
+
   it("lists every page and deletes staging objects in bounded S3 batches", async () => {
     const send = vi.fn(async (command: unknown) => {
       if (command instanceof ListObjectsV2Command) {

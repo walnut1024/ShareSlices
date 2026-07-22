@@ -21,7 +21,30 @@ export type CommittedObject = {
   body: ObjectBody;
   sizeBytes?: number;
   contentType?: string;
+  range?: ObjectByteRange;
 };
+
+export type ObjectByteRange = {
+  offset: number;
+  length: number;
+};
+
+export type ObjectReadOptions = {
+  range?: ObjectByteRange;
+};
+
+export function validateObjectReadOptions(options: ObjectReadOptions): void {
+  const range = options.range;
+  if (!range) return;
+  if (
+    !Number.isSafeInteger(range.offset) ||
+    range.offset < 0 ||
+    !Number.isSafeInteger(range.length) ||
+    range.length <= 0
+  ) {
+    throw new Error("An object byte range requires a non-negative offset and positive length.");
+  }
+}
 
 export type PrefixRemovalResult = {
   deletedCount: number;
@@ -46,7 +69,7 @@ export type ObjectListResult = {
 export interface ObjectStorage {
   writeRawZip(input: ObjectWrite): Promise<RawZipWriteResult>;
   writeStagingObject(input: ObjectWrite): Promise<StoredObjectResult>;
-  readCommittedObject(key: string): Promise<CommittedObject>;
+  readCommittedObject(key: string, options?: ObjectReadOptions): Promise<CommittedObject>;
   listObjects(input: ObjectListInput): Promise<ObjectListResult>;
   deleteObject(key: string): Promise<void>;
   removeStagingPrefix(prefix: string): Promise<PrefixRemovalResult>;
