@@ -1,0 +1,14 @@
+{
+  "migrationId": "0030_cloudflare_job_dispatch_outbox.sql",
+  "schemaHead": "0030_cloudflare_job_dispatch_outbox.sql",
+  "runtimeN": {
+    "databaseProbe": "cloudflare-job-dispatch-outbox-v1",
+    "jobsContractRevision": "gallery-job/v1",
+    "objectLayoutRevision": "content-bundle/v1"
+  },
+  "runtimeNMinus1": {
+    "databaseProbe": "authentication-email-delivery-v0",
+    "jobsContractRevision": "gallery-job/v0",
+    "objectLayoutRevision": "content-bundle/v0"
+  }
+}

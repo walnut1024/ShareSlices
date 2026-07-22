@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shareslices.example/db/contracts/object-layout/object-layout.schema.json",
+  "title": "ShareSlices committed content-bundle manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["entryPath", "files"],
+  "properties": {
+    "entryPath": { "type": "string", "minLength": 1 },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "objectKey", "sizeBytes", "contentType", "sha256"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "objectKey": { "type": "string", "minLength": 1 },
+          "sizeBytes": { "type": "integer", "minimum": 0 },
+          "contentType": { "type": "string", "minLength": 1 },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        }
+      }
+    }
+  }
+}

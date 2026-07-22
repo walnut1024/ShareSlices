@@ -11,7 +11,9 @@
     "target",
     "artifacts",
     "migrations",
+    "migrationCompatibility",
     "compatibility",
+    "contractCompatibility",
     "contractRevisions",
     "configurationDigest",
     "routeContractDigest",
@@ -39,15 +41,21 @@
       "type": "array",
       "items": { "$ref": "#/$defs/migration" }
     },
+    "migrationCompatibility": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/migrationCompatibility" }
+    },
     "compatibility": { "$ref": "#/$defs/compatibility" },
+    "contractCompatibility": { "$ref": "#/$defs/contractCompatibility" },
     "contractRevisions": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["deployment", "database", "jobs", "verification"],
+      "required": ["deployment", "database", "jobs", "objectLayout", "verification"],
       "properties": {
         "deployment": { "type": "string", "minLength": 1 },
         "database": { "type": "string", "minLength": 1 },
         "jobs": { "type": "string", "minLength": 1 },
+        "objectLayout": { "type": "string", "minLength": 1 },
         "verification": { "type": "string", "minLength": 1 }
       }
     },
@@ -144,6 +152,53 @@
         "order": { "type": "integer", "minimum": 1 },
         "id": { "type": "string", "minLength": 1 },
         "checksum": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "migrationCompatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["order", "migrationId", "schemaHead", "runtimeN", "runtimeNMinus1", "jobsContractRevision", "objectLayoutRevision", "evidenceDigest"],
+      "properties": {
+        "order": { "type": "integer", "minimum": 1 },
+        "migrationId": { "type": "string", "minLength": 1 },
+        "schemaHead": { "type": "string", "minLength": 1 },
+        "runtimeN": { "const": "passed" },
+        "runtimeNMinus1": { "enum": ["passed", "not_applicable"] },
+        "jobsContractRevision": { "type": "string", "minLength": 1 },
+        "objectLayoutRevision": { "type": "string", "minLength": 1 },
+        "evidenceDigest": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "contractCompatibilitySide": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision", "fixtureDigest"],
+      "properties": {
+        "revision": { "type": ["string", "null"], "minLength": 1 },
+        "fixtureDigest": {
+          "anyOf": [
+            { "$ref": "#/$defs/sha256" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "contractCompatibilityPair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["current", "previous"],
+      "properties": {
+        "current": { "$ref": "#/$defs/contractCompatibilitySide" },
+        "previous": { "$ref": "#/$defs/contractCompatibilitySide" }
+      }
+    },
+    "contractCompatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jobs", "objectLayout"],
+      "properties": {
+        "jobs": { "$ref": "#/$defs/contractCompatibilityPair" },
+        "objectLayout": { "$ref": "#/$defs/contractCompatibilityPair" }
       }
     },
     "compatibility": {

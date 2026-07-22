@@ -158,6 +158,90 @@ test("derives migration and contract digests and rejects incomplete evidence", a
   );
 });
 
+test("rejects incomplete per-head database and adjacent runtime compatibility evidence", async () => {
+  const release = await fixture();
+
+  const missingHead = structuredClone(release);
+  missingHead.migrationCompatibility = [];
+  assert.throws(
+    () => serializeCanonicalRelease(missingHead),
+    (error) => error.code === "release_migration_compatibility_incomplete",
+  );
+
+  const wrongHead = structuredClone(release);
+  wrongHead.migrationCompatibility[0].schemaHead = "0000_wrong.sql";
+  assert.throws(
+    () => serializeCanonicalRelease(wrongHead),
+    (error) => error.code === "release_migration_compatibility_invalid",
+  );
+
+  const wrongJob = structuredClone(release);
+  wrongJob.migrationCompatibility[0].jobsContractRevision = "gallery-job/v0";
+  assert.throws(
+    () => serializeCanonicalRelease(wrongJob),
+    (error) => error.code === "release_migration_compatibility_invalid",
+  );
+
+  const missingPreviousObject = structuredClone(release);
+  missingPreviousObject.contractCompatibility.objectLayout.previous.fixtureDigest = null;
+  assert.throws(
+    () => serializeCanonicalRelease(missingPreviousObject),
+    (error) => error.code === "release_adjacent_contract_incomplete",
+  );
+
+  const firstInstall = structuredClone(release);
+  firstInstall.compatibility.runtimeNMinus1 = null;
+  for (const evidence of firstInstall.migrationCompatibility) {
+    evidence.runtimeNMinus1 = "not_applicable";
+  }
+  for (const pair of Object.values(firstInstall.contractCompatibility)) {
+    pair.previous = {revision: null, fixtureDigest: null};
+  }
+  assert.doesNotThrow(() => serializeCanonicalRelease(firstInstall));
+});
+
+test("binds checked migration, job, and object-layout fixtures into the release", async () => {
+  const release = await fixture();
+  for (const migration of release.migrations) {
+    const migrationBytes = await readFile(new URL(
+      `../../db/migrations/${migration.id}`,
+      import.meta.url,
+    ));
+    assert.equal(migration.checksum, sha256Digest(migrationBytes));
+  }
+  for (const evidence of release.migrationCompatibility) {
+    const migrationFixture = await readFile(new URL(
+      `../contract/fixtures/migration-compatibility/${evidence.migrationId}.json`,
+      import.meta.url,
+    ));
+    assert.equal(evidence.evidenceDigest, sha256Digest(migrationFixture));
+  }
+
+  const fixturePaths = {
+    jobs: {
+      current: "../../db/contracts/gallery-jobs/fixtures/gallery-job-v1.json",
+      previous: "../../db/contracts/gallery-jobs/fixtures/gallery-job-v0.json",
+    },
+    objectLayout: {
+      current: "../../db/contracts/object-layout/fixtures/content-bundle-v1.json",
+      previous: "../../db/contracts/object-layout/fixtures/content-bundle-v0.json",
+    },
+  };
+  for (const [contract, sides] of Object.entries(fixturePaths)) {
+    for (const [side, relativePath] of Object.entries(sides)) {
+      const bytes = await readFile(new URL(relativePath, import.meta.url));
+      assert.equal(release.contractCompatibility[contract][side].fixtureDigest, sha256Digest(bytes));
+    }
+  }
+});
+
+test("keeps the checked release fixture canonically self-consistent", async () => {
+  const release = await fixture();
+  const body = structuredClone(release);
+  delete body.releaseId;
+  assert.equal(release.releaseId, sha256Digest(body));
+});
+
 test("publishes immutable bundles and verifies OCI digests before retention", async () => {
   const base = await fixture();
   const input = completeCloudflareInputs(base);

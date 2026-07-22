@@ -1,7 +1,7 @@
 {
   "$schema": "../release.schema.json",
   "schemaVersion": "shareslices.release/v1",
-  "releaseId": "sha256:a6daf667e65eeaa6a0ff7330fd75a48192e2d2a475ff407bb24f4c7f742ae633",
+  "releaseId": "sha256:1770e606478e6297a8ef85745b0d76734e47d870e20256ca1347fa98e90588ae",
   "previousReleaseId": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "sourceRevision": "0123456789abcdef0123456789abcdef01234567",
   "target": "cloudflare",
@@ -34,22 +34,72 @@
   "migrations": [
     {
       "order": 1,
-      "id": "0001_account_entry.sql",
-      "checksum": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      "id": "0029_authentication_email_transport_attempts.sql",
+      "checksum": "sha256:9a00d21096371ed0c842b92e329399e8f0acf425a20121bf1c2d2b01176d8c7c"
+    },
+    {
+      "order": 2,
+      "id": "0030_cloudflare_job_dispatch_outbox.sql",
+      "checksum": "sha256:4e854508115103dffe42465ccd1ddf3dd9588f87b9082edbc6adaa818240dc5c"
+    }
+  ],
+  "migrationCompatibility": [
+    {
+      "order": 1,
+      "migrationId": "0029_authentication_email_transport_attempts.sql",
+      "schemaHead": "0029_authentication_email_transport_attempts.sql",
+      "runtimeN": "passed",
+      "runtimeNMinus1": "passed",
+      "jobsContractRevision": "gallery-job/v1",
+      "objectLayoutRevision": "content-bundle/v1",
+      "evidenceDigest": "sha256:fc82614708c905af42680795cd47a8a8eb9ce2da2327afd1e27fa38e7499714c"
+    },
+    {
+      "order": 2,
+      "migrationId": "0030_cloudflare_job_dispatch_outbox.sql",
+      "schemaHead": "0030_cloudflare_job_dispatch_outbox.sql",
+      "runtimeN": "passed",
+      "runtimeNMinus1": "passed",
+      "jobsContractRevision": "gallery-job/v1",
+      "objectLayoutRevision": "content-bundle/v1",
+      "evidenceDigest": "sha256:ddedd1bf186d35e87452eff286816e421fa4182be5f338eb1c0892a46f154cb8"
     }
   ],
   "compatibility": {
-    "schemaHead": "0018_gallery_permission_grant",
+    "schemaHead": "0030_cloudflare_job_dispatch_outbox.sql",
     "runtimeN": "release-aaaaaaaaaaaa",
     "runtimeNMinus1": "release-bbbbbbbbbbbb",
     "minimumDeploymentSchemaVersion": "shareslices.deployment/v1",
     "migrationPrefixesCompatibleWithNMinus1": true,
     "adjacentArtifactsCompatible": true
   },
+  "contractCompatibility": {
+    "jobs": {
+      "current": {
+        "revision": "gallery-job/v1",
+        "fixtureDigest": "sha256:aa10255f2b1ca2bd3631f6a6be9f8de3c40e73303368e25f6f91696f5e407f93"
+      },
+      "previous": {
+        "revision": "gallery-job/v0",
+        "fixtureDigest": "sha256:e608a2d528552eab750067deb00a03b42f8b06bd3b3cd71cdf694136a42ca5f3"
+      }
+    },
+    "objectLayout": {
+      "current": {
+        "revision": "content-bundle/v1",
+        "fixtureDigest": "sha256:4e909220eca81f8c39f4d5a404dcf9a2cfa14e1e3dfd1de612aaeda1f2b4ddcf"
+      },
+      "previous": {
+        "revision": "content-bundle/v0",
+        "fixtureDigest": "sha256:57c24b5bedc0df3e618873ccbf49b87440fd327d37a7df67f9b6c2b362b3f173"
+      }
+    }
+  },
   "contractRevisions": {
     "deployment": "shareslices.deployment/v1",
-    "database": "0018_gallery_permission_grant",
+    "database": "0030_cloudflare_job_dispatch_outbox.sql",
     "jobs": "gallery-job/v1",
+    "objectLayout": "content-bundle/v1",
     "verification": "shareslices.verification/v1"
   },
   "configurationDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",

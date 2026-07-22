@@ -1,0 +1,14 @@
+{
+  "migrationId": "0029_authentication_email_transport_attempts.sql",
+  "schemaHead": "0029_authentication_email_transport_attempts.sql",
+  "runtimeN": {
+    "databaseProbe": "authentication-email-provider-attempt-v1",
+    "jobsContractRevision": "gallery-job/v1",
+    "objectLayoutRevision": "content-bundle/v1"
+  },
+  "runtimeNMinus1": {
+    "databaseProbe": "authentication-email-delivery-v0",
+    "jobsContractRevision": "gallery-job/v0",
+    "objectLayoutRevision": "content-bundle/v0"
+  }
+}

@@ -65,6 +65,73 @@ export class ReleaseQualificationError extends Error {
   }
 }
 
+function requireCompatibilityEvidence(release) {
+  const entries = release.migrationCompatibility;
+  if (!Array.isArray(entries) || entries.length !== release.migrations.length) {
+    throw new ReleaseQualificationError(
+      "release_migration_compatibility_incomplete",
+      "Every release migration must have one ordered compatibility result.",
+    );
+  }
+  const evidenceDigests = new Set();
+  for (let index = 0; index < release.migrations.length; index += 1) {
+    const migration = release.migrations[index];
+    const evidence = entries[index];
+    const expectedNMinus1 = release.compatibility.runtimeNMinus1 === null
+      ? "not_applicable"
+      : "passed";
+    if (
+      evidence.order !== migration.order
+      || evidence.migrationId !== migration.id
+      || evidence.schemaHead !== migration.id
+      || evidence.runtimeN !== "passed"
+      || evidence.runtimeNMinus1 !== expectedNMinus1
+      || evidence.jobsContractRevision !== release.contractRevisions.jobs
+      || evidence.objectLayoutRevision !== release.contractRevisions.objectLayout
+      || evidenceDigests.has(evidence.evidenceDigest)
+    ) {
+      throw new ReleaseQualificationError(
+        "release_migration_compatibility_invalid",
+        `Migration compatibility evidence is incomplete or inconsistent at order ${index + 1}.`,
+      );
+    }
+    evidenceDigests.add(evidence.evidenceDigest);
+  }
+  const finalHead = entries.at(-1)?.schemaHead ?? release.compatibility.schemaHead;
+  if (
+    finalHead !== release.compatibility.schemaHead
+    || release.contractRevisions.database !== release.compatibility.schemaHead
+  ) {
+    throw new ReleaseQualificationError(
+      "release_schema_range_invalid",
+      "The declared database contract and final migration head must describe one schema range.",
+    );
+  }
+
+  for (const name of ["jobs", "objectLayout"]) {
+    const pair = release.contractCompatibility[name];
+    if (
+      pair.current.revision !== release.contractRevisions[name]
+      || pair.current.fixtureDigest === null
+    ) {
+      throw new ReleaseQualificationError(
+        "release_adjacent_contract_incomplete",
+        `Current ${name} contract compatibility evidence is incomplete.`,
+      );
+    }
+    const expectsPrevious = release.compatibility.runtimeNMinus1 !== null;
+    if (
+      expectsPrevious !== (pair.previous.revision !== null)
+      || expectsPrevious !== (pair.previous.fixtureDigest !== null)
+    ) {
+      throw new ReleaseQualificationError(
+        "release_adjacent_contract_incomplete",
+        `Previous ${name} contract compatibility evidence does not match the N-1 runtime window.`,
+      );
+    }
+  }
+}
+
 export function serializeCanonicalRelease(release) {
   if (!validateRelease(release)) {
     throw new ReleaseQualificationError(
@@ -72,6 +139,7 @@ export function serializeCanonicalRelease(release) {
       "Release does not match the immutable release contract.",
     );
   }
+  requireCompatibilityEvidence(release);
   return canonicalBytes(release);
 }
 

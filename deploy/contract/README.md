@@ -10,7 +10,8 @@ and no rendered provider resources.
   every production lifecycle command.
 - `recovery-marker.schema.json` binds PostgreSQL, object storage, and a recovery
   manifest to the same known consistency cut.
-- `release.schema.json` records immutable release identity, compatibility,
+- `release.schema.json` records immutable release identity, per-migration-head
+  N/N-1 compatibility evidence, adjacent job and object-layout fixtures,
   inventory, ownership, and qualified provider metadata.
 - `artifact-publication.schema.json` defines the operator-supplied immutable
   release store and OCI registry boundary, distinct build-push and deploy-pull
@@ -25,6 +26,10 @@ and no rendered provider resources.
 - `fixtures/` contains deterministic valid and verification examples. Contract
   tests derive invalid, mixed-target, Compose-as-production, and Secret-bearing
   cases from those checked inputs and require schema rejection.
+- `fixtures/migration-compatibility/` records the database probes and contract
+  revisions exercised at each intermediate migration head in a release. The
+  release binds these files and the language-neutral fixtures under
+  `db/contracts/` by digest.
 
 `deploy/automation/` owns lifecycle policy and command implementation.
 `deploy/cloudflare/` and `deploy/kubernetes/` own target-specific rendered

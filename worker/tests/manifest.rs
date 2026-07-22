@@ -1,4 +1,21 @@
 use shareslices_worker::manifest::{ManifestAsset, ReadyManifest};
+use std::{fs, path::Path};
+
+#[test]
+fn current_and_previous_object_layout_fixtures_remain_readable() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../db/contracts/object-layout/fixtures");
+    for name in ["content-bundle-v1.json", "content-bundle-v0.json"] {
+        let bytes = fs::read(root.join(name)).expect("read checked object-layout fixture");
+        let manifest: ReadyManifest =
+            serde_json::from_slice(&bytes).expect("parse current or N-1 object-layout fixture");
+        assert!(!manifest.entry_path.is_empty());
+        assert!(!manifest.files.is_empty());
+        assert_eq!(
+            manifest.to_json().expect("serialize checked fixture"),
+            serde_json::to_vec(&manifest).expect("serialize checked fixture")
+        );
+    }
+}
 
 #[test]
 fn manifest_serialization_is_path_sorted_and_deterministic() {

@@ -73,7 +73,7 @@ rather than numeric section order:
    email.
 2. **Close the shared data and release foundations without waiting on live
    provider qualification.** Finish the locally reproducible parts of 5.3 and
-   5.6, complete 5.5 and 5.7-5.9, then 8.1-8.3 and 8.8-8.9. In particular,
+   5.6, and complete 5.5 and 5.7-5.9. In particular,
    finish the private R2 Adapter plus core streaming and non-exposure coverage
    before composing concrete App and content Workers. Complete migration
    checksums, ancestry, per-prefix failure coverage, and N/N-1 evidence in
@@ -82,7 +82,10 @@ rather than numeric section order:
    origin identity, freshness, and connection budget. Keep only the
    thumbnail/Gallery-cover and other Container-dependent portion of 5.6 open
    until those paths exist; neither external evidence gap blocks independent
-   migration, email, Kubernetes, or Free-compatible Worker work.
+   migration, email, Kubernetes, or Free-compatible Worker work. Do not finish
+   target artifact tasks 8.1-8.4 before the runtime entrypoints they package
+   exist, and keep cross-target workflow and CI tasks 8.8-8.9 open until their
+   applicable target paths are present.
 3. **Finish the shared email lifecycle and independently usable runtime
    paths.** Complete 6.1-6.8 and 6.12, including Kubernetes SMTP behavior and
    the provider-neutral transport suite. The bounded Resend implementation may
@@ -100,12 +103,18 @@ rather than numeric section order:
    partial evidence for 4.4; do not add another accepted wake lane until its
    consumer is registered and tested under 7.7-7.9. Local or disposable
    Free-compatible work may advance 11.5-11.8 and 11.16-11.18, but it cannot
-   satisfy paid, owned-domain, production-ingress, or full-target gates.
+   satisfy paid, owned-domain, production-ingress, or full-target gates. Build
+   the shared environment-neutral Web/Static Assets artifact in 8.2 here once
+   both entrypoint compositions can consume it; add the applicable deterministic
+   artifact checks from 8.9 without marking that cross-target task complete.
 5. **Make Kubernetes independently releasable first.** Complete 10.1 and
-   10.3, use 14.1-14.3 as the common core gate, then complete 10.9-10.10 and
-   the applicable deep, drift, failure, SMTP, recovery, and runbook work in
-   sections 14-15. Cloudflare feasibility, paid entitlement, or domain work
-   must not delay Kubernetes direct or external-CDN acceptance.
+   10.3, build and publish the Kubernetes artifacts in 8.1, and add the
+   Kubernetes-facing thin workflow and determinism coverage from 8.8-8.9.
+   Use 14.1-14.3 as the common core gate, then complete 10.9-10.10 and the
+   applicable deep, drift, failure, SMTP, recovery, and runbook work in
+   sections 14-15. Keep 8.8-8.9 unchecked until the Cloudflare-facing workflow
+   and checks also exist. Cloudflare feasibility, paid entitlement, or domain
+   work must not delay Kubernetes direct or external-CDN acceptance.
 6. **Resume the externally gated Cloudflare lane only when each prerequisite
    exists.** Workers Paid gates 1.7, 1.8, Container-dependent 1.10 evidence,
    7.7-7.10, 7.13, 8.4, 11.9-11.12, and the corresponding lifecycle work. An
@@ -188,7 +197,7 @@ rather than numeric section order:
 - [ ] 5.6 Preserve bounded streaming and multipart behavior across S3 and R2 and add parity tests for Upload, committed content, export, thumbnails, Gallery covers, and cleanup; cover R2 same-key write-rate limits with immutable staging keys or conditional/idempotent finalization rather than concurrent blind writes.
 - [x] 5.7 Add negative tests proving neither target returns public bucket addresses, raw object keys, signed storage URLs, raw Uploads, staging objects, or arbitrary objects.
 - [x] 5.8 Add immutable migration checksums and ordered-ancestry validation while retaining per-file transactions and testing failure after every committed migration prefix.
-- [ ] 5.9 Add N/N-1 database and cross-runtime compatibility fixtures for every intermediate migration head and reject releases whose schema range or job/object contract is incomplete.
+- [x] 5.9 Add N/N-1 database and cross-runtime compatibility fixtures for every intermediate migration head and reject releases whose schema range or job/object contract is incomplete.
 - [ ] 5.10 Define the private broker HTTP wire contract under `api/openapi/` and project it into `deploy/contract/`; implement claim, heartbeat, private R2 access, output upload, and fenced commit outside the secretless Chromium Container, atomically exchange a single-use browser bootstrap grant for a short-lived HttpOnly/SameSite-strict/path-scoped read session, and keep the distinct controller/output capability outside every Artifact-visible surface.
 - [ ] 5.11 Add adversarial broker tests for bootstrap-grant replay, capture-session scope and expiry, capability audience and operation confusion, another Version, attempt, path, redirect, browser scheme, inherited descriptor, stale fence, and direct database or R2 access.
 - [ ] 5.12 Define the route-free Jobs release-verification `fetch` contract under the checked private `api/openapi/` ownership model and project it into `deploy/contract/`; bind it only through the verifier Worker's explicit Service Binding and require release/fence/nonce scope. Return and verify the executing Jobs Worker version or deployment, embedded release-bundle identity, ordinary-configuration and `exports` digest, configured image reference, and observed migration head. Make each actual Container instance return its embedded build/release/contract identity plus class, stable slot, provider instance, release, fence, and nonce; map the build identity to the release's image digest/provider reference and require every production-capable slot with no prior-image instance selectable. Bound every synthetic database/broker/Container/R2 exercise to a dedicated release/fence/nonce-owned non-product namespace. Add a PostgreSQL terminal nonce and probe sub-fence checked at every authoritative database commit, nonce-scoped active-invocation leases, bounded cross-storage quiescence before final inventory/cleanup, and a tombstone retained through the observed maximum of Queue retention, send/retry delay and schedule, active-invocation lease, interrupted recovery, and cross-storage side-effect intervals plus safety margin; prove Queue pause is not reported as draining in-flight work and no real business record, public route, production Queue, Cron, or general administration caller can reach or be mutated by the harness.

@@ -1,0 +1,19 @@
+{
+  "entryPath": "index.html",
+  "files": [
+    {
+      "path": "assets/app.css",
+      "objectKey": "content-bundles/current/assets/assets/app.css",
+      "sizeBytes": 24,
+      "contentType": "text/css",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "path": "index.html",
+      "objectKey": "content-bundles/current/assets/index.html",
+      "sizeBytes": 42,
+      "contentType": "text/html",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    }
+  ]
+}

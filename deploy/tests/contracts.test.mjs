@@ -24,6 +24,7 @@ const schemas = Object.fromEntries(
       "cache-projection.schema.json",
       "verification-scenarios.schema.json",
       "verification-fixture.schema.json",
+      "../../db/contracts/object-layout/object-layout.schema.json",
     ].map(async (name) => [name, await readJson(name)]),
   ),
 );
@@ -227,6 +228,14 @@ test("immutable release schema rejects mutable or unverifiable provider identity
   incompatible.compatibility.migrationPrefixesCompatibleWithNMinus1 = false;
   assertInvalid("release.schema.json", incompatible);
 
+  const missingMigrationEvidence = clone(release);
+  delete missingMigrationEvidence.migrationCompatibility;
+  assertInvalid("release.schema.json", missingMigrationEvidence);
+
+  const missingObjectContract = clone(release);
+  delete missingObjectContract.contractRevisions.objectLayout;
+  assertInvalid("release.schema.json", missingObjectContract);
+
   const artifactNames = release.artifacts.map(({ name }) => name);
   assert.equal(new Set(artifactNames).size, artifactNames.length);
   assert.deepEqual(
@@ -238,6 +247,18 @@ test("immutable release schema rejects mutable or unverifiable provider identity
       assert.equal(artifact.providerIdentity.verifiedContentDigest, artifact.contentDigest);
     }
   }
+});
+
+test("current and N-1 object-layout fixtures satisfy the language-neutral contract", async () => {
+  const schemaName = "../../db/contracts/object-layout/object-layout.schema.json";
+  for (const revision of ["v1", "v0"]) {
+    const fixture = await readJson(`../../db/contracts/object-layout/fixtures/content-bundle-${revision}.json`);
+    assertValid(schemaName, fixture);
+  }
+
+  const unsafe = await readJson("../../db/contracts/object-layout/fixtures/content-bundle-v1.json");
+  unsafe.files[0].sha256 = "not-a-digest";
+  assertInvalid(schemaName, unsafe);
 });
 
 test("artifact publication contract separates credentials and refuses mutable storage", async () => {

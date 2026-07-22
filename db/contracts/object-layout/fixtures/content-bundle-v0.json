@@ -1,0 +1,12 @@
+{
+  "entryPath": "index.html",
+  "files": [
+    {
+      "path": "index.html",
+      "objectKey": "content-bundles/legacy/assets/index.html",
+      "sizeBytes": 18,
+      "contentType": "text/html",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ]
+}
