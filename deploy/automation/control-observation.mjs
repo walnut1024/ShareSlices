@@ -71,7 +71,7 @@ async function inspectControlProjection(client, installationId) {
   let databaseSchemaHead = null;
   if (migrationTable.rows[0]?.migration_table) {
     const migration = await client.query(
-      "select name from shareslices_migration order by name desc limit 1",
+      "select name from shareslices_migration order by migration_order desc limit 1",
     );
     databaseSchemaHead = migration.rows[0]?.name ?? null;
   }

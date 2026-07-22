@@ -71,12 +71,18 @@ rather than numeric section order:
    Cloudflare work one executable route, isolation, header, Cookie, cache, and
    private-storage contract without requiring provider credentials or sending
    email.
-2. **Close the shared data and release foundations.** Complete 5.3 and
-   5.5-5.9, then 8.1-8.3 and 8.8-8.9. In particular, finish the private R2
-   Adapter and its streaming, parity, and non-exposure tests in 5.5-5.7 before
-   composing concrete App and content Workers. Complete migration ancestry and
-   N/N-1 evidence in 5.8-5.9 before either target can activate or roll back a
-   release.
+2. **Close the shared data and release foundations without waiting on live
+   provider qualification.** Finish the locally reproducible parts of 5.3 and
+   5.6, complete 5.5 and 5.7-5.9, then 8.1-8.3 and 8.8-8.9. In particular,
+   finish the private R2 Adapter plus core streaming and non-exposure coverage
+   before composing concrete App and content Workers. Complete migration
+   checksums, ancestry, per-prefix failure coverage, and N/N-1 evidence in
+   5.8-5.9 before either target can activate or roll back a release. Keep 5.3
+   unchecked until the bounded live Hyperdrive run proves the required TLS
+   origin identity, freshness, and connection budget. Keep only the
+   thumbnail/Gallery-cover and other Container-dependent portion of 5.6 open
+   until those paths exist; neither external evidence gap blocks independent
+   migration, email, Kubernetes, or Free-compatible Worker work.
 3. **Finish the shared email lifecycle and independently usable runtime
    paths.** Complete 6.1-6.8 and 6.12, including Kubernetes SMTP behavior and
    the provider-neutral transport suite. The bounded Resend implementation may
@@ -85,8 +91,11 @@ rather than numeric section order:
    required current provider evidence exist. Complete the Kubernetes portions
    of 7.11-7.12 independently of Cloudflare Containers.
 4. **Complete the Free-compatible Cloudflare HTTP slice without overstating
-   target readiness.** After 5.3 and 5.5-5.7, add the concrete App and content
-   binding compositions needed to finish 4.4, then finish 4.8 and 8.3. The
+   target readiness.** After the locally reproducible Hyperdrive contract
+   coverage and the core R2 work in 5.5-5.7 exist, add the concrete App and
+   content binding compositions needed to finish 4.4, then finish 4.8 and 8.3;
+   do not require the externally blocked live-qualification evidence in 5.3 or
+   Container-dependent parity rows in 5.6 merely to begin this slice. The
    existing route-free Jobs entrypoint and authentication-email lane are only
    partial evidence for 4.4; do not add another accepted wake lane until its
    consumer is registered and tested under 7.7-7.9. Local or disposable
@@ -178,7 +187,7 @@ rather than numeric section order:
 - [x] 5.5 Implement the private R2 Adapter behind the existing object-storage responsibility while preserving keys, manifests, metadata, content types, ranges, retries, and cleanup intents.
 - [ ] 5.6 Preserve bounded streaming and multipart behavior across S3 and R2 and add parity tests for Upload, committed content, export, thumbnails, Gallery covers, and cleanup; cover R2 same-key write-rate limits with immutable staging keys or conditional/idempotent finalization rather than concurrent blind writes.
 - [x] 5.7 Add negative tests proving neither target returns public bucket addresses, raw object keys, signed storage URLs, raw Uploads, staging objects, or arbitrary objects.
-- [ ] 5.8 Add immutable migration checksums and ordered-ancestry validation while retaining per-file transactions and testing failure after every committed migration prefix.
+- [x] 5.8 Add immutable migration checksums and ordered-ancestry validation while retaining per-file transactions and testing failure after every committed migration prefix.
 - [ ] 5.9 Add N/N-1 database and cross-runtime compatibility fixtures for every intermediate migration head and reject releases whose schema range or job/object contract is incomplete.
 - [ ] 5.10 Define the private broker HTTP wire contract under `api/openapi/` and project it into `deploy/contract/`; implement claim, heartbeat, private R2 access, output upload, and fenced commit outside the secretless Chromium Container, atomically exchange a single-use browser bootstrap grant for a short-lived HttpOnly/SameSite-strict/path-scoped read session, and keep the distinct controller/output capability outside every Artifact-visible surface.
 - [ ] 5.11 Add adversarial broker tests for bootstrap-grant replay, capture-session scope and expiry, capability audience and operation confusion, another Version, attempt, path, redirect, browser scheme, inherited descriptor, stale fence, and direct database or R2 access.
