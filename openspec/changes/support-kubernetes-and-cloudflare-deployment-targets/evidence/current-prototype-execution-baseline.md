@@ -22,69 +22,42 @@ release qualification; a failed refresh makes the affected dependency
 | Resend | A key is available to the opt-in verifier, and the recorded `resend.dev` run proved accepted HTTPS submission and idempotent replay to an allowed test recipient | API-shape, error classification, quota-header, idempotency, replay-cutoff, redaction, and Resend-documented simulation-address tests; an actual `resend.dev` send is restricted to the Resend account's own email address | Task 1.9, arbitrary recipients, verified-domain sending, disabled-tracking proof, same-domain key rotation, deliverability, and inbox-delivery claims |
 | Owned domains | No operator-owned Cloudflare zones or verified Resend sending domain are recorded for this change | `workers.dev` and `resend.dev` prototype work only | Production custom domains, distinct-site acceptance, Resend production qualification, and full Cloudflare staging acceptance |
 
-## Latest read-only refresh
+## Current read-only refresh
 
-On 2026-07-22, Wrangler 4.112.0 still authenticated successfully to the intended
-Cloudflare account, and the R2 bucket-list operation completed without listing a
-bucket. That proves CLI access at that instant; it does not prove Workers Paid,
-quota headroom, retained-resource absence outside the returned inventory, or
-permission to create a public route.
+On 2026-07-22, Wrangler 4.112.0 authenticated successfully to the intended
+Cloudflare account. The R2 and Queue list operations returned no resources. One
+private Hyperdrive configuration remains present with caching disabled, origin
+connection limit `5`, and TLS mode `require`. These observations prove access to
+those specific inventories at that instant; they do not prove Workers Paid,
+Container entitlement, quota headroom, the absence of resources outside those
+inventory operations, or permission to create a public route.
 
-The same refresh could not list Supabase projects because the Supabase CLI
-returned a transport error for the management API. The 2026-07-21 PostgreSQL row
-therefore remains historical evidence only. Until a later read-only refresh
-succeeds and the operator supplies the exact project reference, automation must
-report the project inventory as `unknown`; it must not infer that the previously
-observed project still exists, select a replacement project, or create one.
+Supabase CLI 2.109.1 returned one unlinked `ACTIVE_HEALTHY` project using
+PostgreSQL 17.6.1 in `ap-southeast-1`. The command also reports that the current
+working copy has no project reference, so account authentication and repository
+linkage must remain separate checks. This proves current management-plane
+visibility only. It does not authorize automatic project selection or prove
+database-password access, Hyperdrive runtime connectivity, `verify-full`
+certificate identity, backups, recovery, non-pausing availability, or production
+suitability. Every live database prototype must still receive the exact project
+reference, connection input, and Dashboard-provided CA through explicit
+operator-controlled inputs.
 
-The current shell did not expose `RESEND_API_KEY_FILE`. This does not contradict
-the operator's statement that a key has been stored elsewhere, but it means a
-live verifier is not ready from this process until an explicit readable key-file
-path is supplied. Automation must not search the repository, shell history, or
-ambient environment for an alternative key, and it must never treat key presence
-as verified-domain, tracking, team-namespace, or quota evidence.
+The current verifier process exposes neither `RESEND_API_KEY_FILE` nor
+`RESEND_API_KEY`. This does not contradict the operator's statement that a key
+was stored elsewhere, but the verifier is not ready for another live send until
+an explicit readable key-file reference is injected. Automation must not search
+the repository, shell history, or ambient environment for an alternative key,
+and key presence never proves a verified domain, disabled tracking, provider
+namespace, quota headroom, or production readiness. The recorded 2026-07-21
+test-mode result remains historical evidence only.
 
-The operator subsequently confirmed that a key was written, but the 2026-07-22
-documentation audit again observed both `RESEND_API_KEY_FILE` and
-`RESEND_API_KEY` unset in the verifier process. The correct conclusion remains
-that the credential is operator-stored but not injected into this process; the
-audit did not search for it. This does not invalidate the recorded 2026-07-21
-test-mode result and does not authorize another live send.
-
-## Second read-only refresh
-
-Later on 2026-07-22, a fresh Supabase CLI request succeeded and returned one
-unlinked `ACTIVE_HEALTHY` Free project intended for Cloudflare feasibility work.
-This supersedes only the earlier `unknown` inventory observation. It does not
-authorize automatic selection: the repository remains unlinked, and every live
-database prototype must still receive the exact project reference and required
-connection or certificate inputs explicitly. The project remains prototype
-infrastructure, not evidence of production availability, backups, recovery, or
-non-pausing behavior.
-
-The same refresh reconfirmed Wrangler authentication and an empty R2 bucket-list
-result. It did not prove Workers Paid, Container entitlement, quota headroom, or
-the absence of resources outside that inventory operation. The current process
-still did not expose `RESEND_API_KEY_FILE`; therefore the stored Resend key is
-operator-known but unavailable to this verifier until its explicit readable
-key-file reference is injected.
-
-## Third read-only refresh
-
-On 2026-07-22 after the operator completed Supabase CLI authentication,
-Supabase CLI 2.109.1 successfully listed one unlinked `ACTIVE_HEALTHY` Free
-project intended for Cloudflare feasibility work. The project reports
-PostgreSQL 17.6.1 in `ap-southeast-1`. This confirms current management-plane
-visibility and avoids the PostgreSQL 14 retirement issue identified in the
-current Supabase changelog; it does not prove database-password access,
-Hyperdrive connectivity, `verify-full` certificate identity, backup/recovery,
-non-pausing availability, or production suitability.
-
-The repository remains intentionally unlinked. A later live database prototype
-must receive the exact project reference, database connection input, and
-Dashboard-provided CA through explicit operator-controlled inputs. This refresh
-created no project, changed no database, applied no migration, and started no
-service.
+Earlier same-day failures and partial refreshes are superseded by this section.
+They remain useful as a design warning: one failed provider call makes only that
+inventory `unknown`; it must not cause automation to reuse a historical resource,
+select a replacement, or create one. This refresh created no project, changed no
+database or Cloudflare resource, applied no migration, sent no email, and started
+no service.
 
 ## Execution rule
 

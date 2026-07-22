@@ -1352,3 +1352,21 @@ refresh found one unlinked healthy Free feasibility project using PostgreSQL
 17.6.1. That proves current management-plane visibility only. It neither links
 the repository nor proves password access, Hyperdrive runtime connectivity,
 TLS hostname/certificate identity, backup/recovery, or production availability.
+
+## Forty-first-pass pre-code documentation alignment
+
+A fresh read-only refresh reconfirmed Wrangler authentication, empty R2 and
+Queue lists, one retained private cache-disabled Hyperdrive using TLS `require`,
+and one unlinked healthy Supabase PostgreSQL 17.6.1 project. The verifier process
+still exposes no Resend key reference. The prototype baseline now presents these
+as one current snapshot instead of three superseding same-day narratives, while
+retaining failed refreshes only as a fail-closed design lesson.
+
+The Jobs documentation now records the current accepted-lane boundary: the
+route-free publisher handles authentication-email work only, and unsupported
+outbox rows remain pending until the matching handler or Container controller is
+registered. The task list requires allowlist expansion and consumer registration
+to land atomically. Resend wording now distinguishes account-email test sends
+from documented simulation addresses and preserves the verified-domain and
+inbox-delivery gates. No provider resource, service, email send, or application
+code change was part of this pass.

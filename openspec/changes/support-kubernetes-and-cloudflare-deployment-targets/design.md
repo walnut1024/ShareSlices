@@ -108,18 +108,23 @@ for the next executable deployment plan:
   authentication-email composition now exist in application code. They are
   implementation components, not a deployed Jobs Worker. A route-free
   Queue/Cron export now composes authentication-email wakes and scheduled
-  outbox publication, but the other lanes, generated deployment binding,
-  Terraform/Wrangler ownership decision, complete provider retry policy, manual
-  reconciliation operation, and target qualification remain absent. Queue
-  support on Workers Free permits bounded prototypes only and does not remove
-  the Workers Paid Container gate for trusted processing.
+  outbox publication. Its publisher deliberately accepts only the implemented
+  authentication-email lane; outbox rows for other lanes remain pending until
+  their handlers or Container controller are registered. Generated deployment
+  binding, the Terraform/Wrangler ownership decision, complete crash and
+  quiescence recovery, manual reconciliation operation, and target qualification
+  remain absent. Queue support on Workers Free permits bounded prototypes only
+  and does not remove the Workers Paid Container gate for trusted processing.
 - Supabase is only the currently observed prototype implementation of the
   operator-provided external PostgreSQL dependency, not a required ShareSlices
   vendor. A Free project may pause after low activity and is not production
   availability or recoverability evidence.
-- `resend.dev` may exercise bounded API and idempotency behavior only. It cannot
-  qualify arbitrary-recipient authentication mail, a verified sending domain,
-  disabled tracking, same-domain key rotation, or inbox delivery.
+- `resend.dev` may exercise bounded API and idempotency behavior only. Real test
+  mail from that sender is restricted to the Resend account email, while Resend's
+  documented simulation addresses exercise provider events without proving
+  inbox delivery. Neither path can qualify arbitrary-recipient authentication
+  mail, a verified sending domain, disabled tracking, or same-domain key
+  rotation.
 - Live provider work is opt-in and disposable. After bounded verification,
   public routes and continuously invocable resources are removed or disabled,
   provider inventory is reread, and each deliberately retained private

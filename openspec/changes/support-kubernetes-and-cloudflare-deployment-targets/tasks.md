@@ -31,7 +31,13 @@ The numbered sections group work by responsibility; they are not permission to i
   prototype, remove or disable all public or continuously invocable resources,
   re-inventory actual provider state, and record an owner and expiry for any
   private prerequisite deliberately retained for the next bounded prototype.
-- While no operator-owned sending domain exists, the Resend prototype may use `resend.dev` simulation addresses for API-shape, error, quota-header, idempotency, replay-cutoff, namespace-refusal, and redaction tests. Task 1.9 remains pending until a verified custom domain, disabled-tracking evidence, domain-scoped sending-access credentials, same-team/domain key rotation, and real provider-acceptance evidence pass.
+- While no operator-owned sending domain exists, the Resend prototype may use
+  `resend.dev` for API-shape, error, quota-header, idempotency, replay-cutoff,
+  namespace-refusal, and redaction tests. A real test send from that sender is
+  restricted to the Resend account email; documented simulation addresses do
+  not prove inbox delivery. Task 1.9 remains pending until a verified custom
+  domain, disabled-tracking evidence, domain-scoped sending-access credentials,
+  same-team/domain key rotation, and real provider-acceptance evidence pass.
 - While no operator-owned Cloudflare zones and distinct registrable sites exist, `workers.dev` may be used only for disposable provider-interface prototypes. Production ingress, trusted/content site isolation, custom-domain activation, and full Cloudflare acceptance remain pending. Buying or creating those external assets is not part of this change.
 - Treat separately reported capability readiness as observability, not as a way
   to waive target requirements. A Free-compatible prototype may report
@@ -136,7 +142,7 @@ The numbered sections group work by responsibility; they are not permission to i
 - [x] 7.4 Add graceful termination that stops new claims, bounds in-flight completion, and prevents a late unfenced result from committing.
 - [x] 7.5 Add a checked database dispatch or outbox record that is committed with new asynchronous work before a Cloudflare wake-up is published.
 - [x] 7.6 Define a bounded non-sensitive Queue wake schema and producer that never includes authoritative state, credentials, raw Artifact bytes, or email payloads.
-- [ ] 7.7 Implement the Queue consumer and Container controller with a stable bounded slot pool so each wake rereads PostgreSQL, starts or nudges one Durable Object-backed Container, records controller handoff separately from job completion, and never creates one Container identity per job.
+- [ ] 7.7 Implement the Queue consumer and Container controller with a stable bounded slot pool so each wake rereads PostgreSQL, starts or nudges one Durable Object-backed Container, records controller handoff separately from job completion, and never creates one Container identity per job. Expand the Jobs publisher's accepted-lane allowlist only in the same change that registers and tests the corresponding consumer; an unsupported outbox row must remain pending rather than being acknowledged or published without a handler.
 - [ ] 7.8 Implement scheduled dispatch recovery, expired-lease recovery, dead-letter visibility, and a PostgreSQL-backed scheduled-execution gate whose closed state makes late or duplicate Cron invocations fenced no-ops.
 - [ ] 7.9 Add duplicate, delayed, reordered, stale, lost, and concurrent wake tests proving one fenced authoritative outcome.
 - [ ] 7.10 Add Container replacement, temporary-disk loss, wake-storm, deadline, and termination tests proving all recoverable state remains in PostgreSQL and private storage.

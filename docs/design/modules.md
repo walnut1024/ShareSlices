@@ -223,9 +223,12 @@ Status: mixed. Account entry remains a thin current HTTP/Auth/DB path. Artifact,
   non-sensitive wake parsing, bounded Queue/scheduled drain seams, and a
   binding-based Resend/Hyperdrive composition. A route-free Jobs export now
   composes authentication-email wakes and scheduled outbox publication without
-  importing either HTTP graph or process environment. The remaining processing
-  lane handlers, retry and manual-reconciliation completion, Wrangler/IaC
-  deployment wiring, and verified-domain qualification remain target work.
+  importing either HTTP graph or process environment. The current publisher
+  deliberately accepts only the implemented authentication-email lane; rows for
+  unsupported lanes remain pending until their handlers or Container controller
+  are registered. The remaining processing lane handlers, crash and quiescence
+  recovery, manual-reconciliation completion, Wrangler/IaC deployment wiring,
+  and verified-domain qualification remain target work.
   Neither transport affects API readiness or owns account-entry policy.
 
 ## Gallery Modules
