@@ -69,6 +69,23 @@ still did not expose `RESEND_API_KEY_FILE`; therefore the stored Resend key is
 operator-known but unavailable to this verifier until its explicit readable
 key-file reference is injected.
 
+## Third read-only refresh
+
+On 2026-07-22 after the operator completed Supabase CLI authentication,
+Supabase CLI 2.109.1 successfully listed one unlinked `ACTIVE_HEALTHY` Free
+project intended for Cloudflare feasibility work. The project reports
+PostgreSQL 17.6.1 in `ap-southeast-1`. This confirms current management-plane
+visibility and avoids the PostgreSQL 14 retirement issue identified in the
+current Supabase changelog; it does not prove database-password access,
+Hyperdrive connectivity, `verify-full` certificate identity, backup/recovery,
+non-pausing availability, or production suitability.
+
+The repository remains intentionally unlinked. A later live database prototype
+must receive the exact project reference, database connection input, and
+Dashboard-provided CA through explicit operator-controlled inputs. This refresh
+created no project, changed no database, applied no migration, and started no
+service.
+
 ## Execution rule
 
 Implementation may continue on local Compose, Kubernetes, provider-neutral

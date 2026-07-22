@@ -1,3 +1,4 @@
+// cspell:ignore nspname relnamespace tgisinternal tgname tgrelid
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { drainCloudflareJobOutbox } from "../src/cloudflare/job-outbox.js";
 import type { CloudflareJobWake } from "../src/cloudflare/job-wake.js";
@@ -8,7 +9,8 @@ const inserted: Array<{ lane: string; durableJobId: string }> = [];
 async function insertDispatch(lane = "artifact-processing") {
   const durableJobId = `job-${crypto.randomUUID()}`;
   await pool.query(
-    "insert into cloudflare_job_dispatch_outbox(lane, durable_job_id) values($1, $2)",
+    `insert into cloudflare_job_dispatch_outbox(lane, durable_job_id, created_at)
+     values($1, $2, timestamptz '2000-01-01 00:00:00+00')`,
     [lane, durableJobId],
   );
   inserted.push({ lane, durableJobId });
@@ -27,8 +29,13 @@ afterEach(async () => {
 describe("Cloudflare job dispatch outbox", () => {
   it("atomically attaches dispatch records to every durable job producer table", async () => {
     const triggers = await pool.query<{ tgname: string }>(
-      `select tgname from pg_trigger
-       where not tgisinternal and tgname like '%_cloudflare_dispatch'
+      `select trigger_record.tgname
+       from pg_trigger trigger_record
+       join pg_class table_record on table_record.oid = trigger_record.tgrelid
+       join pg_namespace namespace_record on namespace_record.oid = table_record.relnamespace
+       where not trigger_record.tgisinternal
+         and trigger_record.tgname like '%_cloudflare_dispatch'
+         and namespace_record.nspname = current_schema()
        order by tgname`,
     );
     expect(triggers.rows.map((row) => row.tgname)).toEqual([

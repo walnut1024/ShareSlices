@@ -198,7 +198,7 @@ export const authenticationEmailProviderAttempt = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    unique("authentication_email_provider_attempt_delivery_fence_key").on(table.deliveryId, table.fence),
+    unique("authentication_email_provider_attempt_delivery_id_fence_key").on(table.deliveryId, table.fence),
     index("authentication_email_provider_attempt_delivery_idx").on(table.deliveryId, table.fence),
   ],
 );

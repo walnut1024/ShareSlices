@@ -1329,3 +1329,26 @@ scheduled recovery and pruning, DLQ visibility, stale/lost/reordered wake
 drills, and the Container controller remain tasks 4.4, 7.7-7.10, 11, and 12.
 The outbox itself does not qualify a Cloudflare target or start a provider
 resource.
+
+## Fortieth-pass route-free Jobs export and Supabase refresh
+
+The Jobs runtime factory now lives outside the HTTP runtime graph. Focused
+dependency tests caught and removed an earlier transitive import of the content
+Hono logger, so the route-free Queue/Cron bundle imports neither trusted nor
+content HTTP builders, resident startup, process environment readers, nor the
+Node database singleton. Its default export exposes only `queue` and
+`scheduled`; it has no public `fetch` handler. The current composition handles
+authentication-email wakes and scheduled outbox publication with
+binding-provided Hyperdrive, Queue, Resend, configuration, and Secret values.
+
+This remains partial task 4.4 evidence rather than task completion. Artifact,
+thumbnail, alias, and Gallery lanes still need their bounded handlers or
+Container controller; reconciliation and scheduled-execution gating remain
+open; generated Wrangler/IaC bindings and live provider deployment remain
+absent. No Cloudflare resource was started by this local implementation.
+
+After explicit operator confirmation of Supabase CLI login, a read-only CLI
+refresh found one unlinked healthy Free feasibility project using PostgreSQL
+17.6.1. That proves current management-plane visibility only. It neither links
+the repository nor proves password access, Hyperdrive runtime connectivity,
+TLS hostname/certificate identity, backup/recovery, or production availability.

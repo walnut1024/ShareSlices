@@ -106,19 +106,4 @@ export type CloudflareJobsDrains<Bindings, Wake> = Readonly<{
   }>): void | Promise<void>;
 }>;
 
-/**
- * Adapts finite Queue and Cron invocations to bounded one-shot drains. Resident
- * dispatchers deliberately are not accepted by this entrypoint contract.
- */
-export function createCloudflareJobsEntrypoint<Bindings, Wake>(
-  drains: CloudflareJobsDrains<Bindings, Wake>,
-): CloudflareJobsHandler<Bindings, Wake> {
-  return {
-    queue(batch, bindings, context) {
-      return drains.drainQueue({ batch, bindings, context });
-    },
-    scheduled(controller, bindings, context) {
-      return drains.drainScheduled({ controller, bindings, context });
-    },
-  };
-}
+export { createCloudflareJobsEntrypoint } from "./jobs-runtime.js";

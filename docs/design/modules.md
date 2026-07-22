@@ -221,10 +221,12 @@ Status: mixed. Account entry remains a thin current HTTP/Auth/DB path. Artifact,
   manifests compose the SMTP-backed maintenance role, but live enterprise-relay
   qualification remains target work. The Cloudflare code now has strict
   non-sensitive wake parsing, bounded Queue/scheduled drain seams, and a
-  binding-based Resend/Hyperdrive composition; the final production Worker
-  export, retry classification, manual reconciliation path, deployment wiring,
-  and verified-domain qualification remain target work. Neither transport
-  affects API readiness or owns account-entry policy.
+  binding-based Resend/Hyperdrive composition. A route-free Jobs export now
+  composes authentication-email wakes and scheduled outbox publication without
+  importing either HTTP graph or process environment. The remaining processing
+  lane handlers, retry and manual-reconciliation completion, Wrangler/IaC
+  deployment wiring, and verified-domain qualification remain target work.
+  Neither transport affects API readiness or owns account-entry policy.
 
 ## Gallery Modules
 

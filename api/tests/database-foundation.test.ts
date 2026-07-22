@@ -1,3 +1,4 @@
+// cspell:ignore conrelid relname
 import { randomUUID } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -161,13 +162,20 @@ describe("artifact database foundation", () => {
     expect(breaker.rows).toEqual([{ id: "global", state: "closed" }]);
 
     const constraints = await client.query(
-      `select conname from pg_constraint where connamespace = $1::regnamespace`,
+      `select constraint_record.conname
+       from pg_constraint constraint_record
+       join pg_class table_record on table_record.oid = constraint_record.conrelid
+       where constraint_record.connamespace = $1::regnamespace
+         and table_record.relname in (
+           'authentication_email_delivery',
+           'authentication_email_provider_attempt'
+         )`,
       [schemaName]
     );
     expect(constraints.rows.map(({ conname }) => conname)).toEqual(expect.arrayContaining([
       "authentication_email_delivery_transport_snapshot_check",
       "authentication_email_delivery_resend_snapshot_check",
-      "authentication_email_provider_attempt_delivery_fence_key"
+      "authentication_email_provider_attempt_delivery_id_fence_key"
     ]));
   });
 

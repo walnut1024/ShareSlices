@@ -106,12 +106,13 @@ for the next executable deployment plan:
 - The shared Resend HTTPS Adapter, provider-attempt fencing, strict non-sensitive
   Queue wake envelope, bounded Queue/scheduled drain seams, and binding-based
   authentication-email composition now exist in application code. They are
-  implementation components, not a deployed Jobs Worker: no production Worker
-  export, Queue/Cron binding, Terraform/Wrangler ownership decision, provider
-  retry policy, manual reconciliation operation, or target qualification follows
-  from their presence. Queue support on Workers Free permits bounded prototypes
-  only and does not remove the Workers Paid Container gate for trusted
-  processing.
+  implementation components, not a deployed Jobs Worker. A route-free
+  Queue/Cron export now composes authentication-email wakes and scheduled
+  outbox publication, but the other lanes, generated deployment binding,
+  Terraform/Wrangler ownership decision, complete provider retry policy, manual
+  reconciliation operation, and target qualification remain absent. Queue
+  support on Workers Free permits bounded prototypes only and does not remove
+  the Workers Paid Container gate for trusted processing.
 - Supabase is only the currently observed prototype implementation of the
   operator-provided external PostgreSQL dependency, not a required ShareSlices
   vendor. A Free project may pause after low activity and is not production

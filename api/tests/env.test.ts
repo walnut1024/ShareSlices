@@ -40,6 +40,8 @@ const validEnv = {
   MINIMUM_CLI_VERSION: "0.1.0",
   AUTH_EMAIL_SMTP_URL: "smtp://127.0.0.1:1025",
   AUTH_EMAIL_FROM: "ShareSlices <no-reply@shareslices.local>",
+  AUTH_EMAIL_TRANSPORT_NAMESPACE: "test-smtp",
+  AUTH_EMAIL_TRANSPORT_REVISION: "test-smtp-v1",
   PORT: "7456",
   NODE_ENV: "test"
 };

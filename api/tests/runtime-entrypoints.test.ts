@@ -154,4 +154,21 @@ describe("Node runtime entrypoint authority", () => {
     }
     expect(importedEnvironmentReaders(graph)).toEqual(new Set());
   });
+
+  it("keeps the route-free Cloudflare Jobs entrypoint bounded and environment-independent", async () => {
+    const graph = reachableSources("cloudflare/jobs-entrypoint.ts");
+    const paths = [...graph.keys()].map((file) => file.slice(sourceRoot.length));
+    expect(paths.filter((path) => path === "env.ts" || path === "db/client.ts")).toEqual([]);
+    expect(paths.filter((path) => path.startsWith("maintenance/"))).toEqual([]);
+    for (const content of graph.values()) {
+      expect(content).not.toContain("startAuthenticationEmailDispatcher");
+      expect(content).not.toContain("setTimeout(");
+      expect(content).not.toContain("process.env");
+    }
+    expect(importedEnvironmentReaders(graph)).toEqual(new Set());
+
+    const worker = (await import("../src/cloudflare/jobs-entrypoint.js")).default;
+    expect(Object.keys(worker).sort()).toEqual(["queue", "scheduled"]);
+    expect(worker).not.toHaveProperty("fetch");
+  });
 });

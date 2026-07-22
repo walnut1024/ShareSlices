@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { SMTPServer } from "smtp-server";
 import {
   acceptAuthenticationEmailDelivery,
@@ -77,6 +77,10 @@ describe("authentication email repository", () => {
       socketTimeoutMs: 2_000
     });
     await pool.query(await readFile(resolve(process.cwd(), "../db/migrations/0005_email_verification_and_password_reset.sql"), "utf8"));
+  });
+
+  beforeEach(async () => {
+    await pool.query("delete from cloudflare_job_dispatch_outbox where lane = 'authentication-email'");
     await pool.query("delete from authentication_email_delivery");
     await pool.query("delete from password_reset_grant");
     await pool.query("delete from email_verification_attempt");
@@ -86,9 +90,13 @@ describe("authentication email repository", () => {
   });
 
   afterAll(async () => {
+    await pool.query("delete from cloudflare_job_dispatch_outbox where lane = 'authentication-email'");
     await pool.query("delete from authentication_email_delivery");
     await pool.query("delete from password_reset_grant");
     await pool.query("delete from email_verification_attempt");
+    await pool.query(
+      "update authentication_email_circuit_breaker set state = 'closed', reason_code = null, resume_at = null where id = 'global'"
+    );
     smtpAdapter.close();
     await new Promise<void>((resolve) => smtpServer.close(() => resolve()));
   });
