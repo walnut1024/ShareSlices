@@ -15,9 +15,24 @@ The numbered sections group work by responsibility; they are not permission to i
   block Compose or Kubernetes. Task 7.11's Kubernetes resident-mode behavior
   must pass before Kubernetes processing is accepted; its Cloudflare thumbnail
   behavior remains independently gated by 1.8 and the Cloudflare tasks.
-- Complete the shared lifecycle and release contracts in sections 2, 3, and 8 before target lifecycle work in sections 10 and 12.
+- Complete the target-neutral lifecycle and release foundations in sections 2,
+  3, and 8 before target mutation in sections 10 and 12. Tasks 3.6, 3.7,
+  and the target-specific assertions in 3.14 are umbrella acceptance tasks:
+  implement their shared cores early, but leave them unchecked until both
+  target Adapters supply the required `doctor`, complete bundle, and lifecycle
+  evidence. Do not create a circular dependency by requiring those umbrella
+  boxes to be complete before implementing the target Adapters that satisfy
+  them. Likewise, target-specific artifacts in 8.3-8.4 gate only the target
+  that consumes them.
 - After those shared gates, Kubernetes composition/lifecycle work in sections 9-10 and Cloudflare composition/lifecycle work in sections 11-12 may proceed independently. Container-, Resend-domain-, or rollout-dependent Cloudflare work must retain its corresponding section 1 gate and cannot be counted as qualified from a Free-account or `resend.dev` prototype.
-- Complete cross-target verification and durable operator documentation in sections 14-15 only after the selected target paths and the canonical Compose harness they rely on are implemented.
+- Implement the read-only shared core verifier in 14.1-14.3 as soon as the
+  route/cache projections and canonical Compose harness are available; Compose
+  runs provider-neutral rows and returns explicit `not_applicable` results for
+  provider-only rows. Complete the target-specific, stateful, deep, drift, and
+  failure rows in 14.4-14.13 only after their target paths exist. Write target
+  runbooks and migration guidance alongside the corresponding implementation,
+  then run the cross-target and final documentation gates in section 15 after
+  the applicable paths are implemented.
 - A failed Cloudflare feasibility gate blocks Cloudflare capability completion and final archive, but it does not block Kubernetes implementation. If Kubernetes must ship first, move the unimplemented Cloudflare capability into a follow-up change rather than archiving it as implemented.
 - While prototype execution uses Workers Free, tasks 1.7 and 1.8 and every
   Container-dependent assertion in 1.10 remain pending rather than blocking
@@ -44,6 +59,56 @@ The numbered sections group work by responsibility; they are not permission to i
   processing or thumbnail readiness unavailable, but task 1.7 and task 1.8
   still block complete Cloudflare-target qualification.
 - Recheck the mutable observations in `evidence/current-prototype-execution-baseline.md` before every live provider prototype. A failed or partial refresh makes the affected inventory `unknown`; do not fall back to a previously observed Supabase project, retained Cloudflare resource, or ambient credential. An authenticated CLI, R2 Paid, an active Supabase Free project, or an available Resend key grants no implicit permission to choose resources, expose public routes, retain billable services, or mark a production gate complete.
+
+### Current Implementation Sequence
+
+Keep the numbered task IDs stable because requirements, tests, and evidence
+refer to them. Execute the remaining work in the following dependency order
+rather than numeric section order:
+
+1. **Install the shared read-only safety net.** Implement 14.1-14.3 against
+   the canonical Compose topology first. This gives the later Kubernetes and
+   Cloudflare work one executable route, isolation, header, Cookie, cache, and
+   private-storage contract without requiring provider credentials or sending
+   email.
+2. **Close the shared data and release foundations.** Complete 5.3 and
+   5.5-5.9, then 8.1-8.3 and 8.8-8.9. In particular, finish the private R2
+   Adapter and its streaming, parity, and non-exposure tests in 5.5-5.7 before
+   composing concrete App and content Workers. Complete migration ancestry and
+   N/N-1 evidence in 5.8-5.9 before either target can activate or roll back a
+   release.
+3. **Finish the shared email lifecycle and independently usable runtime
+   paths.** Complete 6.1-6.8 and 6.12, including Kubernetes SMTP behavior and
+   the provider-neutral transport suite. The bounded Resend implementation may
+   use `resend.dev` only for the permitted contract tests; leave 1.9 and the
+   provider-dependent part of 6.9 pending until an owned verified domain and
+   required current provider evidence exist. Complete the Kubernetes portions
+   of 7.11-7.12 independently of Cloudflare Containers.
+4. **Complete the Free-compatible Cloudflare HTTP slice without overstating
+   target readiness.** After 5.3 and 5.5-5.7, add the concrete App and content
+   binding compositions needed to finish 4.4, then finish 4.8 and 8.3. The
+   existing route-free Jobs entrypoint and authentication-email lane are only
+   partial evidence for 4.4; do not add another accepted wake lane until its
+   consumer is registered and tested under 7.7-7.9. Local or disposable
+   Free-compatible work may advance 11.5-11.8 and 11.16-11.18, but it cannot
+   satisfy paid, owned-domain, production-ingress, or full-target gates.
+5. **Make Kubernetes independently releasable first.** Complete 10.1 and
+   10.3, use 14.1-14.3 as the common core gate, then complete 10.9-10.10 and
+   the applicable deep, drift, failure, SMTP, recovery, and runbook work in
+   sections 14-15. Cloudflare feasibility, paid entitlement, or domain work
+   must not delay Kubernetes direct or external-CDN acceptance.
+6. **Resume the externally gated Cloudflare lane only when each prerequisite
+   exists.** Workers Paid gates 1.7, 1.8, Container-dependent 1.10 evidence,
+   7.7-7.10, 7.13, 8.4, 11.9-11.12, and the corresponding lifecycle work. An
+   owned Resend domain gates 1.9 and the provider-dependent part of 6.9;
+   owned zones and distinct registrable sites gate production ingress and
+   isolation. After these gates, complete 1.10-1.11, sections 11-12, and the
+   Cloudflare-specific verification and runbook rows.
+7. **Close umbrella and final gates last.** Mark 3.6, 3.7, and 3.14 complete
+   only when both target Adapters and their required evidence satisfy the full
+   shared contract. Then finish the remaining cross-target rows in sections
+   14-15, refresh mutable official-platform evidence, run representative deep
+   verification, and archive only under 15.15's boundary.
 
 ## 1. Cloudflare Prototype Feasibility Gates
 
