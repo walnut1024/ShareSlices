@@ -134,6 +134,8 @@ function configureConfigMap(resource, config, release) {
     const externalCdn = config.kubernetes.ingress.externalCdn;
     Object.assign(resource.data, {
       provider: externalCdn.provider,
+      originApplication: externalCdn.originOrigins.application,
+      originContent: externalCdn.originOrigins.content,
       originAccessMode: externalCdn.originAccess.mode,
       originAccessEvidenceRevision: externalCdn.originAccess.evidenceRevision,
       trustedProxySourceCidrs: JSON.stringify(externalCdn.trustedProxy.sourceCidrs),
@@ -223,7 +225,10 @@ function ingressPaths(rows, ingress, service, port) {
 function configureIngress(resource, config, release, routeProjection) {
   if (resource.kind !== "Ingress") return;
   const content = resource.metadata.name === "shareslices-content";
-  const host = new URL(content ? config.shared.publicOrigins.content : config.shared.publicOrigins.application).hostname;
+  const publicOrigins = config.kubernetes.ingress.externalCdn.enabled
+    ? config.kubernetes.ingress.externalCdn.originOrigins
+    : config.shared.publicOrigins;
+  const host = new URL(content ? publicOrigins.content : publicOrigins.application).hostname;
   const secretName = content
     ? config.kubernetes.ingress.tls.contentSecretName
     : config.kubernetes.ingress.tls.applicationSecretName;

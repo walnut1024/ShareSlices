@@ -72,3 +72,14 @@ test("returns stable read and JSON errors without leaking file contents", async 
     (error) => error.code === "deployment_config_unreadable" && !error.message.includes("missing.json"),
   );
 });
+
+test("external CDN requires distinct public edge and private origin addresses", async () => {
+  const config = await readFixture("deployment.kubernetes.valid.json");
+  config.kubernetes.ingress.externalCdn.originOrigins.application = config.shared.publicOrigins.application;
+  await assert.rejects(
+    validateDeploymentConfig(config),
+    (error) => error instanceof DeploymentConfigError &&
+      error.code === "deployment_config_invalid" &&
+      error.message.includes("distinct"),
+  );
+});

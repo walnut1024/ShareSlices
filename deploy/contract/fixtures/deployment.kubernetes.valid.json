@@ -94,6 +94,10 @@
       "externalCdn": {
         "enabled": true,
         "provider": "enterprise-edge",
+        "originOrigins": {
+          "application": "https://origin-app.example.test",
+          "content": "https://origin-content.example.test"
+        },
         "originAccess": {
           "mode": "provider-address-ranges",
           "evidenceRevision": "enterprise-edge-origin-v1"

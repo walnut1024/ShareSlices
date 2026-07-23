@@ -323,6 +323,15 @@
               "properties": {
                 "enabled": { "type": "boolean" },
                 "provider": { "type": "string", "minLength": 1 },
+                "originOrigins": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["application", "content"],
+                  "properties": {
+                    "application": { "$ref": "#/$defs/httpsUrl" },
+                    "content": { "$ref": "#/$defs/httpsUrl" }
+                  }
+                },
                 "originAccess": {
                   "type": "object",
                   "additionalProperties": false,
@@ -346,11 +355,12 @@
               "allOf": [
                 {
                   "if": { "properties": { "enabled": { "const": true } } },
-                  "then": { "required": ["provider", "originAccess", "trustedProxy"] },
+                  "then": { "required": ["provider", "originOrigins", "originAccess", "trustedProxy"] },
                   "else": {
                     "not": {
                       "anyOf": [
                         { "required": ["provider"] },
+                        { "required": ["originOrigins"] },
                         { "required": ["originAccess"] },
                         { "required": ["trustedProxy"] }
                       ]

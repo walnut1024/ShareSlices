@@ -370,6 +370,52 @@ export function createKubernetesAdapter({
     });
   }
 
+  function verificationAddresses(application, content) {
+    return {
+      web: application,
+      api: application,
+      viewer: application,
+      content,
+      origin: application,
+      edge: application,
+    };
+  }
+
+  async function verifyCoreTopology(config) {
+    const edgeAddresses = verificationAddresses(
+      config.shared.publicOrigins.application,
+      config.shared.publicOrigins.content,
+    );
+    const edge = await verifyCore({topology: "kubernetes", addresses: edgeAddresses});
+    if (!config.kubernetes.ingress.externalCdn.enabled) return edge;
+    const originAddresses = verificationAddresses(
+      config.kubernetes.ingress.externalCdn.originOrigins.application,
+      config.kubernetes.ingress.externalCdn.originOrigins.content,
+    );
+    const origin = await verifyCore({topology: "kubernetes", addresses: originAddresses});
+    const edgeDigest = sha256Digest(edge.checks);
+    const originDigest = sha256Digest(origin.checks);
+    const passed = edge.outcome === "passed" && origin.outcome === "passed" && edgeDigest === originDigest;
+    const indeterminate = edge.outcome === "indeterminate" || origin.outcome === "indeterminate";
+    const parity = Object.freeze({
+      id: "kubernetes-external-cdn-parity",
+      scenarioId: "kubernetes-external-cdn",
+      outcome: passed ? "passed" : indeterminate ? "indeterminate" : "failed",
+      reasonCode: passed ? null : "required_check_failed",
+      evidence: Object.freeze({
+        edgeDigest,
+        originDigest,
+        comparedCheckCount: edge.checks.length,
+        edgeAndOriginDistinct: true,
+      }),
+    });
+    return Object.freeze({
+      ...edge,
+      outcome: parity.outcome,
+      checks: Object.freeze([...edge.checks, parity]),
+    });
+  }
+
   async function plan({config, release, bundle, bundleDigest, operation = "apply"}) {
     const dryRuns = [];
     const planPhases = operation === "rollback"
@@ -494,17 +540,7 @@ export function createKubernetesAdapter({
               "Kubernetes direct apply requires same-lease release finalization.",
             );
           }
-          const core = await verifyCore({
-            topology: "kubernetes",
-            addresses: {
-              web: config.shared.publicOrigins.application,
-              api: config.shared.publicOrigins.application,
-              viewer: config.shared.publicOrigins.application,
-              content: config.shared.publicOrigins.content,
-              origin: config.shared.publicOrigins.application,
-              edge: config.shared.publicOrigins.application,
-            },
-          });
+          const core = await verifyCoreTopology(config);
           const verification = await verifyRenderedRelease({config, release, bundle, core});
           if (verification.outcome !== "passed") {
             throw new TargetAdapterError(
@@ -760,17 +796,7 @@ export function createKubernetesAdapter({
         "Kubernetes currently supports only read-only core verification.",
       );
     }
-    const core = await verifyCore({
-      topology: "kubernetes",
-      addresses: {
-        web: config.shared.publicOrigins.application,
-        api: config.shared.publicOrigins.application,
-        viewer: config.shared.publicOrigins.application,
-        content: config.shared.publicOrigins.content,
-        origin: config.shared.publicOrigins.application,
-        edge: config.shared.publicOrigins.application,
-      },
-    });
+    const core = await verifyCoreTopology(config);
     if (!release) return core;
     const bundle = await render({config, release});
     const verification = await verifyRenderedRelease({config, release, bundle, core});

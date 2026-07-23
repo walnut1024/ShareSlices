@@ -576,13 +576,16 @@ test("status delegates to authoritative control and cluster observation", async 
 
 test("verify runs the shared core contract against every configured logical address role", async () => {
   let input;
+  const direct = structuredClone(config);
+  direct.kubernetes.delivery.mode = "direct";
+  direct.kubernetes.ingress.externalCdn = {enabled: false};
   const adapter = createKubernetesAdapter({
     verifyCore: async (value) => {
       input = value;
       return {level: "core", outcome: "passed", checks: []};
     },
   });
-  const result = await adapter.verify({config, level: "core"});
+  const result = await adapter.verify({config: direct, level: "core"});
   assert.equal(result.outcome, "passed");
   assert.equal(input.topology, "kubernetes");
   assert.deepEqual(input.addresses, {
@@ -593,6 +596,49 @@ test("verify runs the shared core contract against every configured logical addr
     origin: config.shared.publicOrigins.application,
     edge: config.shared.publicOrigins.application,
   });
+});
+
+test("external-CDN verification compares the same core evidence at origin and edge", async () => {
+  const calls = [];
+  const adapter = createKubernetesAdapter({
+    verifyCore: async (input) => {
+      calls.push(input);
+      return {
+        schemaVersion: "shareslices.verification-result/v1",
+        contractSchemaVersion: "shareslices.verification/v1",
+        contractDigest: release.verificationContractDigest,
+        level: "core",
+        outcome: "passed",
+        checks: [{id: "health", outcome: "passed", evidence: {status: 200, cacheControl: "no-store"}}],
+      };
+    },
+  });
+  const result = await adapter.verify({config, level: "core"});
+  assert.equal(result.outcome, "passed");
+  assert.equal(result.checks.at(-1).id, "kubernetes-external-cdn-parity");
+  assert.equal(result.checks.at(-1).outcome, "passed");
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].addresses.web, config.shared.publicOrigins.application);
+  assert.equal(calls[1].addresses.web, config.kubernetes.ingress.externalCdn.originOrigins.application);
+  assert.notEqual(calls[0].addresses.content, calls[1].addresses.content);
+});
+
+test("external-CDN verification fails when origin and edge evidence diverges", async () => {
+  let invocation = 0;
+  const adapter = createKubernetesAdapter({
+    verifyCore: async () => ({
+      schemaVersion: "shareslices.verification-result/v1",
+      contractSchemaVersion: "shareslices.verification/v1",
+      contractDigest: release.verificationContractDigest,
+      level: "core",
+      outcome: "passed",
+      checks: [{id: "health", outcome: "passed", evidence: {status: invocation++ === 0 ? 200 : 404}}],
+    }),
+  });
+  const result = await adapter.verify({config, level: "core"});
+  assert.equal(result.outcome, "failed");
+  assert.equal(result.checks.at(-1).outcome, "failed");
+  assert.notEqual(result.checks.at(-1).evidence.edgeDigest, result.checks.at(-1).evidence.originDigest);
 });
 
 test("release-bound verify requires exact cluster convergence before fenced finalization", async () => {

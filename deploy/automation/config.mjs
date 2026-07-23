@@ -50,6 +50,19 @@ export async function validateDeploymentConfig(value) {
       })),
     );
   }
+  if (value.target === "kubernetes" && value.kubernetes.ingress.externalCdn.enabled) {
+    const edgeOrigins = value.shared.publicOrigins;
+    const originOrigins = value.kubernetes.ingress.externalCdn.originOrigins;
+    if (
+      edgeOrigins.application === originOrigins.application ||
+      edgeOrigins.content === originOrigins.content
+    ) {
+      throw new DeploymentConfigError(
+        "deployment_config_invalid",
+        "External CDN origin addresses must be distinct from public edge addresses.",
+      );
+    }
+  }
   return structuredClone(value);
 }
 

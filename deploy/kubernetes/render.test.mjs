@@ -86,8 +86,8 @@ test("projects route ownership, TLS, trusted and content-only boundaries without
   const app = named(items, "Ingress", "shareslices-app");
   const content = named(items, "Ingress", "shareslices-content");
   assert.equal(app.spec.ingressClassName, "nginx");
-  assert.deepEqual(app.spec.tls, [{hosts: ["app.example.test"], secretName: "shareslices-app-tls"}]);
-  assert.deepEqual(content.spec.tls, [{hosts: ["content.example.test"], secretName: "shareslices-content-tls"}]);
+  assert.deepEqual(app.spec.tls, [{hosts: ["origin-app.example.test"], secretName: "shareslices-app-tls"}]);
+  assert.deepEqual(content.spec.tls, [{hosts: ["origin-content.example.test"], secretName: "shareslices-content-tls"}]);
   assert.deepEqual(app.spec.rules[0].http.paths.map(({path}) => path), ["/", "/a", "/api", "/api/versions", "/assets", "/gallery", "/health", "/ready"]);
   assert.deepEqual(content.spec.rules[0].http.paths.map(({path}) => path), ["/gallery-content/public", "/gallery-content/review"]);
   assert.match(app.metadata.annotations["shareslices.dev/route-ids"], /preview-entry/);
@@ -182,6 +182,8 @@ test("renders gateway, stable-CIDR, and qualified Cilium FQDN egress without bro
 test("delivery mode selects only its matching optional CDN composition", () => {
   const external = renderKubernetesBundle({config, release, routeProjection});
   assert.match(external.documents, /name: shareslices-external-cdn-contract/);
+  assert.match(external.documents, /originApplication: https:\/\/origin-app\.example\.test/);
+  assert.match(external.documents, /originContent: https:\/\/origin-content\.example\.test/);
   assert.match(external.documents, /originAccessMode: provider-address-ranges/);
   assert.match(external.documents, /trustedProxyClientAddressHeader: forwarded/);
   assert.match(external.documents, /enterprise-edge-origin-v1/);
