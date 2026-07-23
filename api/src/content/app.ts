@@ -1,6 +1,5 @@
-import { Hono, type Context } from "hono";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { galleryContentPolicy } from "./security-policy.js";
-import { contentAccessLog } from "./logging.js";
 
 export type PublicPlayerCredentialValidator = Readonly<{
   validate(credential: string): Promise<unknown | null>;
@@ -12,6 +11,7 @@ export type GalleryContentLookup = Readonly<{ resolve(binding: unknown, path: st
 export type GalleryContentStorage = Readonly<{ stream(asset: unknown): Promise<Response> }>;
 
 export type GalleryContentDependencies = Readonly<{
+  accessLog?: MiddlewareHandler;
   publicPlayer?: PublicPlayerCredentialValidator;
   administratorReview?: AdministratorReviewCredentialValidator;
   lookup?: GalleryContentLookup;
@@ -33,7 +33,7 @@ export function buildGalleryContentApp(dependencies: GalleryContentDependencies 
     return c.json(body, status);
   };
 
-  app.use("*", contentAccessLog);
+  if (dependencies.accessLog) app.use("*", dependencies.accessLog);
   app.use("/gallery-content/*", galleryContentPolicy);
 
   app.get("/health", (c) => systemResponse(c, {status: "ok", service: "shareslices-gallery-content"}));

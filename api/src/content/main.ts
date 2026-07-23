@@ -7,12 +7,18 @@ import { readContentEnv } from "../env.js";
 import { createConfiguredObjectStorage } from "../storage/configured-object-storage.js";
 import { GalleryContentObjectStorage, PostgresGalleryContentLookup } from "./adapters.js";
 import { buildGalleryContentApp } from "./app.js";
+import { createContentAccessLog } from "./logging.js";
 
 const env = readContentEnv();
 const configuration = galleryContentConfigurationFromEnv(env);
 const liveEligible = async () =>
   (await readGalleryRuntimeEligibility(pool, configuration)).eligible;
 const app = buildGalleryContentApp({
+  accessLog: createContentAccessLog({
+    serviceVersion: "0.0.1",
+    deploymentEnvironment: env.NODE_ENV,
+    emit: (line) => process.stdout.write(`${line}\n`),
+  }),
   publicPlayer: new PostgresPublicPlayerCredentialValidator(pool, liveEligible),
   administratorReview: new PostgresAdministratorReviewCredentialValidator(pool),
   lookup: new PostgresGalleryContentLookup(pool),

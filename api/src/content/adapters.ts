@@ -1,4 +1,3 @@
-import { Readable } from "node:stream";
 import type { Pool } from "pg";
 import type { GalleryContentBinding } from "../application/gallery/content-credentials.js";
 import type { ObjectStorage } from "../storage/object-storage.js";
@@ -15,5 +14,5 @@ export class PostgresGalleryContentLookup {
 
 export class GalleryContentObjectStorage {
   constructor(private readonly storage:ObjectStorage){}
-  async stream(asset:unknown):Promise<Response>{const bound=asset as BoundGalleryAsset;const object=await this.storage.readCommittedObject(bound.objectKey);const body=Readable.toWeb(Readable.from(object.body)) as ReadableStream<Uint8Array>;return new Response(body,{headers:{"Content-Type":bound.contentType,"Content-Length":String(bound.sizeBytes)}});}
+  async stream(asset:unknown):Promise<Response>{const bound=asset as BoundGalleryAsset;const object=await this.storage.readCommittedObject(bound.objectKey);const iterator=object.body[Symbol.asyncIterator]();const body=new ReadableStream<Uint8Array>({async pull(controller){try{const next=await iterator.next();if(next.done){controller.close();return;}controller.enqueue(next.value);}catch(error){controller.error(error);}},async cancel(){await iterator.return?.();}});return new Response(body,{headers:{"Content-Type":bound.contentType,"Content-Length":String(bound.sizeBytes)}});}
 }

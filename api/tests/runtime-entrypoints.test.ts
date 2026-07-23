@@ -142,6 +142,21 @@ describe("Node runtime entrypoint authority", () => {
     expect(importedEnvironmentReaders(graph)).toEqual(new Set());
   });
 
+  it("keeps the concrete Cloudflare content Worker authority-reduced", () => {
+    const graph = reachableSources("cloudflare/content-entrypoint.ts");
+    const paths = [...graph.keys()].map((file) => file.slice(sourceRoot.length));
+    expect(paths.filter((path) => /^(auth|email|http|maintenance)\//.test(path))).toEqual([]);
+    expect(paths.filter((path) => path.startsWith("application/accounts/"))).toEqual([]);
+    expect(paths.filter((path) => path.includes("job-outbox"))).toEqual([]);
+    for (const content of graph.values()) {
+      expect(content).not.toContain("@hono/node-server");
+      expect(content).not.toContain("setInterval");
+      expect(content).not.toContain("process.env");
+      expect(content).not.toContain("node:stream");
+    }
+    expect(importedEnvironmentReaders(graph)).toEqual(new Set());
+  });
+
   it("keeps Cloudflare email composition independent from process and resident startup", () => {
     const graph = reachableSources("cloudflare/authentication-email-composition.ts");
     const paths = [...graph.keys()].map((file) => file.slice(sourceRoot.length));
