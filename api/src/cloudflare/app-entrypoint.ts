@@ -89,10 +89,47 @@ export type CloudflareAppBindings = Readonly<
   AppEnvironment & {
     HYPERDRIVE: Readonly<{ connectionString: string }>;
     ARTIFACTS: R2BucketBinding;
+    ASSETS: Readonly<{ fetch(request: Request): Promise<Response> }>;
     SERVICE_VERSION: string;
     DEPLOYMENT_ENVIRONMENT: string;
   }
 >;
+
+export const cloudflareAppWorkerFirstPathPrefixes = Object.freeze([
+  "/a",
+  "/api",
+  "/gallery",
+  "/gallery-content",
+  "/health",
+  "/internal",
+  "/ready",
+]);
+
+function configuredOrigin(value: string): string | null {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+function staticFallbackEligible(request: Request, bindings: CloudflareAppBindings): boolean {
+  if (!new Set(["GET", "HEAD"]).has(request.method)) return false;
+  const url = new URL(request.url);
+  if (url.origin !== configuredOrigin(bindings.WEB_ORIGIN)) return false;
+  return !cloudflareAppWorkerFirstPathPrefixes.some(
+    (prefix) =>
+      url.pathname === prefix || url.pathname.startsWith(`${prefix}/`),
+  );
+}
+
+function configuredHost(request: Request, bindings: CloudflareAppBindings): boolean {
+  const origin = new URL(request.url).origin;
+  return new Set([
+    configuredOrigin(bindings.WEB_ORIGIN),
+    configuredOrigin(bindings.API_ORIGIN),
+  ]).has(origin);
+}
 
 function evidenceCipher(bindings: CloudflareAppBindings) {
   return new IdempotencyEvidenceCipher({
@@ -157,6 +194,15 @@ async function bindConnectionLifetime(
 export function createCloudflareAppWorker(): CloudflareFetchHandler<CloudflareAppBindings> {
   return {
     async fetch(request, bindings, context: CloudflareExecutionContext) {
+      if (!configuredHost(request, bindings)) {
+        return new Response("Not Found", {
+          status: 404,
+          headers: {
+            "Cache-Control": "no-store",
+            "Content-Type": "text/plain; charset=UTF-8",
+          },
+        });
+      }
       const connection = createDatabaseConnection({
         mode: "hyperdrive",
         cache: "disabled",
@@ -338,6 +384,14 @@ export function createCloudflareAppWorker(): CloudflareFetchHandler<CloudflareAp
           },
         });
         const response = await app.fetch(request, bindings, context);
+        if (
+          response.status === 404 &&
+          staticFallbackEligible(request, bindings)
+        ) {
+          await response.body?.cancel();
+          await connection.close();
+          return await bindings.ASSETS.fetch(request);
+        }
         return await bindConnectionLifetime(response, connection.close);
       } catch (error) {
         await connection.close();

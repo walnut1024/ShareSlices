@@ -23,6 +23,9 @@ function cloudflareAppBindings(): CloudflareAppBindings {
   return {
     HYPERDRIVE: { connectionString: process.env.DATABASE_URL! },
     ARTIFACTS: artifacts,
+    ASSETS: {
+      fetch: vi.fn(async () => new Response("asset", { status: 200 })),
+    },
     WEB_ORIGIN: "http://127.0.0.1:5173",
     API_ORIGIN: "http://127.0.0.1:7456",
     BETTER_AUTH_URL: "http://127.0.0.1:7456",

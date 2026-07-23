@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import appWorker, {
+  cloudflareAppWorkerFirstPathPrefixes,
   type CloudflareAppBindings,
 } from "../src/cloudflare/app-entrypoint.js";
 import type { CloudflareExecutionContext } from "../src/cloudflare/runtime.js";
@@ -27,6 +29,17 @@ function bindings(): CloudflareAppBindings {
   return {
     HYPERDRIVE: { connectionString: process.env.DATABASE_URL! },
     ARTIFACTS: r2(),
+    ASSETS: {
+      fetch: vi.fn(
+        async (request: Request) =>
+          new Response(`asset:${new URL(request.url).pathname}`, {
+            status: 200,
+            headers: {
+              "Cache-Control": "public, max-age=0, must-revalidate",
+            },
+          }),
+      ),
+    },
     WEB_ORIGIN: "https://app.example.test",
     API_ORIGIN: "https://api.example.test",
     BETTER_AUTH_URL: "https://api.example.test",
@@ -75,6 +88,55 @@ function bindings(): CloudflareAppBindings {
 }
 
 describe("Cloudflare App entrypoint", () => {
+  it("keeps every non-static shared route family ahead of Static Assets", () => {
+    const projection = JSON.parse(
+      readFileSync(
+        new URL("../../deploy/contract/route-projection.json", import.meta.url),
+        "utf8",
+      ),
+    ) as {
+      rows: Array<{ id: string; pathPattern: string }>;
+    };
+    const contractPrefixes = [
+      ...new Set(
+        projection.rows
+          .filter(({ id }) => id !== "web-static-assets")
+          .map(({ pathPattern }) => `/${pathPattern.split("/")[1]}`),
+      ),
+    ].sort();
+
+    expect([...cloudflareAppWorkerFirstPathPrefixes].sort()).toEqual(
+      contractPrefixes,
+    );
+  });
+
+  it("falls back to Static Assets only for Web-host non-dynamic GET and HEAD routes", async () => {
+    const runtimeBindings = bindings();
+    const shell = await appWorker.fetch(
+      new Request("https://app.example.test/"),
+      runtimeBindings,
+      context,
+    );
+    expect(shell.status).toBe(200);
+    expect(await shell.text()).toBe("asset:/");
+
+    const missingApi = await appWorker.fetch(
+      new Request("https://app.example.test/api/missing"),
+      runtimeBindings,
+      context,
+    );
+    expect(missingApi.status).toBe(404);
+
+    const wrongHost = await appWorker.fetch(
+      new Request("https://attacker.example/"),
+      runtimeBindings,
+      context,
+    );
+    expect(wrongHost.status).toBe(404);
+    expect(wrongHost.headers.get("cache-control")).toBe("no-store");
+    expect(runtimeBindings.ASSETS.fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("serves the trusted graph and excludes content-only routes", async () => {
     const health = await appWorker.fetch(
       new Request("https://api.example.test/health", {
