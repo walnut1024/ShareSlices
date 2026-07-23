@@ -317,6 +317,7 @@ export function createKubernetesAdapter({
         releaseStoreReadable = await probeReleaseStoreAccess({
           config,
           reference: config.kubernetes.releaseStore,
+          release,
         }) === true;
       } catch {
         releaseStoreReadable = false;
@@ -341,6 +342,7 @@ export function createKubernetesAdapter({
           config,
           repository: config.kubernetes.registry.repository,
           images,
+          runKubectl,
         });
         availableImageDigests = new Set(observed?.availableDigests ?? []);
       } catch {

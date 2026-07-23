@@ -3,6 +3,10 @@
 import {pathToFileURL} from "node:url";
 
 import {createKubernetesAdapter} from "../kubernetes/adapter.mjs";
+import {
+  createOciImageAvailabilityProbe,
+  createReleaseStoreAccessProbe,
+} from "../kubernetes/artifact-probes.mjs";
 import {executeInvocation, parseInvocation} from "./cli.mjs";
 import {
   createFileSecretResolvers,
@@ -69,12 +73,18 @@ export function createProductionKubernetesAdapter({
     }
     return createRollbackExecutor({resolvers: resolvers(), owner})(input);
   };
+  const probeReleaseStoreAccess = async (input) => createReleaseStoreAccessProbe({
+    resolvers: resolvers(),
+  })(input);
+  const probeImageAvailability = createOciImageAvailabilityProbe();
   return createAdapter({
     observeState: createKubernetesStateObserver({observeControl}),
     observeStatus: createKubernetesStatusObserver({observeControl}),
     applyPlan,
     finalizeRelease,
     rollbackRelease,
+    probeReleaseStoreAccess,
+    probeImageAvailability,
   });
 }
 
