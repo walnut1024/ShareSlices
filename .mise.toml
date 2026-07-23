@@ -20,6 +20,10 @@ run = "node deploy/automation/main.mjs"
 description = "Build deterministic Cloudflare Worker bundles"
 run = "node deploy/cloudflare/build-worker-bundles.mjs"
 
+[tasks.build-static-assets]
+description = "Build the deterministic environment-neutral Web artifact"
+run = "node deploy/automation/build-static-assets.mjs"
+
 [tasks.ops-thumbnail-requeue]
 description = "Requeue terminal local thumbnail jobs after Chromium recovery"
 run = "node deploy/automation/local-compose/worker-operation.mjs requeue-failed-thumbnails"
