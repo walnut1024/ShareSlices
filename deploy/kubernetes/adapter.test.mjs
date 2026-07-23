@@ -242,6 +242,7 @@ test("plan refuses to infer first installation when authoritative observations a
 
 test("direct apply executes authorized phases with migration and rollout gates", async () => {
   const calls = [];
+  let leaseAssertions = 0;
   const adapter = createKubernetesAdapter({
     runKubectl: (arguments_, options = {}) => {
       calls.push({arguments_, input: options.input});
@@ -255,7 +256,11 @@ test("direct apply executes authorized phases with migration and rollout gates",
     applyPlan: async ({executePhase}) => {
       const phases = [];
       for (const phase of ["prerequisites", "migration", "private-runtime", "public-runtime"]) {
-        phases.push({phase, ...(await executePhase({phase, actions: [], assertLease: async () => undefined}))});
+        phases.push({phase, ...(await executePhase({
+          phase,
+          actions: [],
+          assertLease: async () => { leaseAssertions += 1; },
+        }))});
       }
       return {outcome: "succeeded", phases};
     },
@@ -273,6 +278,40 @@ test("direct apply executes authorized phases with migration and rollout gates",
   assert.equal(calls.some(({arguments_}) => arguments_.includes("--for=condition=complete")), true);
   assert.equal(calls.filter(({arguments_}) => arguments_.includes("rollout")).length > 0, true);
   assert.equal(calls.filter(({input}) => input).every(({input}) => input.includes("shareslices.dev/resource-digest")), true);
+  assert.equal(leaseAssertions, 5);
+});
+
+test("direct apply loses no Kubernetes mutation after its phase lease is lost", async () => {
+  const calls = [];
+  const adapter = createKubernetesAdapter({
+    runKubectl: (arguments_) => {
+      calls.push(arguments_);
+      return {status: 0, stdout: "resource/name\n", stderr: ""};
+    },
+    observeState: async () => ({
+      revision: digest("4"),
+      controlSchema: {state: "present", checksum: digest("6")},
+      resources: [],
+    }),
+    applyPlan: async ({executePhase}) => executePhase({
+      phase: "prerequisites",
+      actions: [],
+      assertLease: async () => { throw new Error("deployment_operation_lease_lost"); },
+    }),
+  });
+  const bundle = await adapter.render({config, release});
+
+  await assert.rejects(
+    adapter.apply({
+      config,
+      release,
+      bundle,
+      plan: {planDigest: digest("5")},
+      authorizedPlanDigest: digest("5"),
+    }),
+    /deployment_operation_lease_lost/,
+  );
+  assert.equal(calls.length, 0);
 });
 
 test("direct apply retires only an old positively owned inactive resource after replacement verification", async () => {

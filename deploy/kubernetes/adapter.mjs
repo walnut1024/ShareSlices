@@ -547,6 +547,7 @@ export function createKubernetesAdapter({
             handoff,
           };
         }
+        await assertLease();
         const applied = runKubectl(commandFor(
           config,
           "apply",
