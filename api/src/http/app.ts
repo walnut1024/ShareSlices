@@ -13,6 +13,7 @@ import {
   artifactRoutes,
   type ArtifactRouteDependencies,
 } from "./artifact-routes.js";
+import { createNodeArtifactDependencies } from "./node-artifact.js";
 import {
   publicationViewerRoutes,
   type PublicationViewerRouteDependencies,
@@ -51,7 +52,7 @@ export function buildApp(
       system: systemRoutes({checkDatabase, ...dependencies.system}),
       account: accountRoutes({...createNodeAccountDependencies(env), ...dependencies.account}),
       cliAuth: cliAuthRoutes({...createNodeCliAuthDependencies(env), ...dependencies.cliAuth}),
-      artifact: artifactRoutes(dependencies.artifact),
+      artifact: artifactRoutes({...createNodeArtifactDependencies(env), ...dependencies.artifact}),
       publicationViewer: publicationViewerRoutes(dependencies.publicationViewer),
       gallery: galleryRoutes(dependencies.gallery),
     },

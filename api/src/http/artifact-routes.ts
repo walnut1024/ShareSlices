@@ -1,21 +1,15 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { auth } from "../auth/auth.js";
+import type { auth } from "../auth/auth.js";
 import {
   ArtifactManagementError,
   ArtifactManagementService
 } from "../application/artifacts/artifact-management.js";
 import { ArtifactIntakeError, ArtifactIntakeService } from "../application/artifacts/artifact-intake.js";
 import { ArtifactRecoveryError, ArtifactRecoveryService } from "../application/artifacts/artifact-recovery.js";
-import { RawFingerprintCandidates } from "../application/artifacts/raw-fingerprint.js";
 import type { ArtifactRepositories } from "../application/artifacts/repositories.js";
-import { createArtifactRepositories } from "../db/artifact-repositories.js";
-import { readApiHttpEnv } from "../env.js";
-import { createConfiguredObjectStorage } from "../storage/index.js";
 import { errorJson, type FieldError, requestId } from "./http-error.js";
 import { MultipartUploadError, parseArtifactMultipartUpload } from "./multipart-upload.js";
-
-const env = readApiHttpEnv();
 
 export type ArtifactRouteDependencies = {
   authApi: Pick<typeof auth.api, "getSession">;
@@ -69,50 +63,7 @@ function multipartField(error: MultipartUploadError): FieldError[] {
   return [{ path, code: error.code, message: "Invalid field." }];
 }
 
-export function artifactRoutes(overrides: Partial<ArtifactRouteDependencies> = {}): Hono {
-  const defaultRepositories = createArtifactRepositories();
-  const rawFingerprints = new RawFingerprintCandidates({
-    current: {
-      revision: env.CONTENT_FINGERPRINT_KEY_CURRENT_REVISION,
-      secret: env.CONTENT_FINGERPRINT_KEY_CURRENT
-    },
-    ...(env.CONTENT_FINGERPRINT_KEY_PREVIOUS && env.CONTENT_FINGERPRINT_KEY_PREVIOUS_REVISION
-      ? {
-          previous: {
-            revision: env.CONTENT_FINGERPRINT_KEY_PREVIOUS_REVISION,
-            secret: env.CONTENT_FINGERPRINT_KEY_PREVIOUS
-          }
-        }
-      : {})
-  });
-  const dependencies: ArtifactRouteDependencies = {
-    authApi: auth.api,
-    repositories: { uploadPolicies: defaultRepositories.uploadPolicies },
-    management: new ArtifactManagementService({
-      repositories: defaultRepositories,
-      viewerOrigin: env.VIEWER_ORIGIN,
-      storage: createConfiguredObjectStorage()
-    }),
-    intake: new ArtifactIntakeService({
-      repositories: defaultRepositories,
-      storage: createConfiguredObjectStorage(),
-      viewerOrigin: env.VIEWER_ORIGIN,
-      maxProcessingAttempts: env.WORKER_JOB_MAX_ATTEMPTS,
-      rawFingerprints,
-      processingRevision: env.ARTIFACT_PROCESSING_REVISION,
-      contentIdentityRevision: env.CONTENT_IDENTITY_REVISION
-    }),
-    recovery: new ArtifactRecoveryService({
-      repositories: defaultRepositories,
-      storage: createConfiguredObjectStorage(),
-      viewerOrigin: env.VIEWER_ORIGIN,
-      maxProcessingAttempts: env.WORKER_JOB_MAX_ATTEMPTS,
-      rawFingerprints,
-      processingRevision: env.ARTIFACT_PROCESSING_REVISION,
-      contentIdentityRevision: env.CONTENT_IDENTITY_REVISION
-    }),
-    ...overrides
-  };
+export function artifactRoutes(dependencies: ArtifactRouteDependencies): Hono {
   const app = new Hono();
 
   function archiveTooLarge(c: Parameters<typeof errorJson>[0], limitBytes: number) {
