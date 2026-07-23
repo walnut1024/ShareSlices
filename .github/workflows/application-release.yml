@@ -28,7 +28,10 @@ jobs:
       - name: Verify source
         run: mise run check
       - name: Build environment-neutral Web assets
-        run: mise run build-static-assets -- --output dist/static-assets
+        run: >-
+          mise run build-static-assets --
+          --output dist/static-assets
+          --manifest-output dist/manifests/static-assets.json
       - name: Build Cloudflare Worker bundles
         run: mise run cloudflare-build-workers -- --output dist/cloudflare-workers
       - name: Publish Kubernetes role images
@@ -48,4 +51,3 @@ jobs:
           path: dist/
           if-no-files-found: error
           retention-days: 30
-

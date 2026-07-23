@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
-import { relative, resolve, sep } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
@@ -39,8 +39,20 @@ async function requireEmptyDirectory(outputDirectory) {
   }
 }
 
-export async function buildStaticAssets(outputDirectory) {
+export async function buildStaticAssets(outputDirectory, manifestOutput) {
   const absoluteOutput = resolve(outputDirectory);
+  const absoluteManifestOutput = resolve(manifestOutput);
+  const manifestRelativeToAssets = relative(
+    absoluteOutput,
+    absoluteManifestOutput,
+  );
+  if (
+    manifestRelativeToAssets === "" ||
+    (!manifestRelativeToAssets.startsWith(`..${sep}`) &&
+      manifestRelativeToAssets !== "..")
+  ) {
+    throw new Error("static_assets_manifest_must_be_private");
+  }
   await requireEmptyDirectory(absoluteOutput);
   await execute(
     "pnpm",
@@ -98,8 +110,9 @@ export async function buildStaticAssets(outputDirectory) {
     entries,
     contentDigest: sha256Digest(entries),
   };
+  await mkdir(dirname(absoluteManifestOutput), { recursive: true });
   await writeFile(
-    resolve(absoluteOutput, "static-assets-manifest.json"),
+    absoluteManifestOutput,
     `${JSON.stringify(manifest, null, 2)}\n`,
     { flag: "wx" },
   );
@@ -109,8 +122,14 @@ export async function buildStaticAssets(outputDirectory) {
 async function main() {
   const outputFlag = process.argv.indexOf("--output");
   const outputDirectory = outputFlag >= 0 ? process.argv[outputFlag + 1] : null;
+  const manifestOutputFlag = process.argv.indexOf("--manifest-output");
+  const manifestOutput =
+    manifestOutputFlag >= 0 ? process.argv[manifestOutputFlag + 1] : null;
   if (!outputDirectory) throw new Error("static_assets_output_required");
-  process.stdout.write(`${JSON.stringify(await buildStaticAssets(outputDirectory))}\n`);
+  if (!manifestOutput) throw new Error("static_assets_manifest_output_required");
+  process.stdout.write(
+    `${JSON.stringify(await buildStaticAssets(outputDirectory, manifestOutput))}\n`,
+  );
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
