@@ -13,6 +13,8 @@ import { basename, resolve } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
+import { contentDependencyEvidence } from "./content-authority.mjs";
+
 const execute = promisify(execFile);
 const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
 const baselinePath = new URL("./toolchain-baseline.json", import.meta.url);
@@ -68,6 +70,15 @@ export async function buildCloudflareWorkerBundles(outputDirectory) {
       const outputPath = resolve(absoluteOutput, outputName);
       await copyFile(sourcePath, outputPath);
       const bytes = await readFile(outputPath);
+      const authority = role === "content"
+        ? contentDependencyEvidence(
+            resolve(repositoryRoot, "api/src"),
+            entrypoint.replace(/^api\/src\//, ""),
+          )
+        : undefined;
+      if (authority?.forbiddenDependencies.length) {
+        throw new Error("cloudflare_content_dependency_authority_expanded");
+      }
       artifacts.push({
         name,
         role,
@@ -75,6 +86,7 @@ export async function buildCloudflareWorkerBundles(outputDirectory) {
         file: outputName,
         bytes: (await stat(outputPath)).size,
         contentDigest: digest(bytes),
+        ...(authority ? { authority } : {}),
       });
       await rm(scratch, { recursive: true });
     }

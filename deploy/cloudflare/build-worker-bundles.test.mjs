@@ -33,6 +33,10 @@ test("builds deterministic App, Content, and Jobs Worker bundles", async () => {
         await readFile(resolve(second, artifact.file)),
       );
     }
+    const content = firstManifest.artifacts.find(({ role }) => role === "content");
+    assert.deepEqual(content.authority.forbiddenDependencies, []);
+    assert.match(content.authority.evidenceDigest, /^sha256:[a-f0-9]{64}$/);
+    assert.equal(content.authority.bindingContract.some(({ type }) => type === "secret_text"), false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
