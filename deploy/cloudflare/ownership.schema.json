@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shareslices.example/deploy/cloudflare/ownership.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "fields"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": "shareslices.cloudflare-ownership/v1" },
+    "fields": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "owner", "status", "activationBlocked"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]+$" },
+          "owner": {
+            "enum": [
+              "terraform",
+              "wrangler",
+              "operator-secret-source",
+              "deployment-module",
+              "unresolved"
+            ]
+          },
+          "status": { "enum": ["selected", "unqualified"] },
+          "activationBlocked": { "type": "boolean" },
+          "reason": { "type": "string", "minLength": 1 }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "status": { "const": "unqualified" } } },
+            "then": {
+              "properties": {
+                "owner": { "const": "unresolved" },
+                "activationBlocked": { "const": true }
+              },
+              "required": ["reason"]
+            }
+          },
+          {
+            "if": { "properties": { "status": { "const": "selected" } } },
+            "then": {
+              "properties": { "owner": { "not": { "const": "unresolved" } } }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

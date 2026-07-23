@@ -1,0 +1,24 @@
+{
+  "$schema": "./ownership.schema.json",
+  "schemaVersion": "shareslices.cloudflare-ownership/v1",
+  "fields": [
+    { "id": "r2.bucket-resource", "owner": "terraform", "status": "selected", "activationBlocked": false },
+    { "id": "r2.public-access", "owner": "deployment-module", "status": "selected", "activationBlocked": false },
+    { "id": "queue.product-resource", "owner": "terraform", "status": "selected", "activationBlocked": false },
+    { "id": "queue.product-consumer", "owner": "unresolved", "status": "unqualified", "activationBlocked": true, "reason": "terraform_wrangler_preservation_gate_pending" },
+    { "id": "queue.delivery-paused", "owner": "unresolved", "status": "unqualified", "activationBlocked": true, "reason": "queue_control_plane_gate_pending" },
+    { "id": "cron.trigger", "owner": "unresolved", "status": "unqualified", "activationBlocked": true, "reason": "terraform_wrangler_preservation_gate_pending" },
+    { "id": "worker.routes-domains", "owner": "terraform", "status": "selected", "activationBlocked": false },
+    { "id": "worker.workers-dev", "owner": "wrangler", "status": "selected", "activationBlocked": false },
+    { "id": "worker.preview-urls", "owner": "wrangler", "status": "selected", "activationBlocked": false },
+    { "id": "worker.ordinary-bindings", "owner": "wrangler", "status": "selected", "activationBlocked": false },
+    { "id": "worker.secret-values", "owner": "operator-secret-source", "status": "selected", "activationBlocked": false },
+    { "id": "worker.secret-bindings", "owner": "wrangler", "status": "selected", "activationBlocked": false },
+    { "id": "durable-object.migrations", "owner": "wrangler", "status": "selected", "activationBlocked": false },
+    { "id": "container.image-rollout", "owner": "wrangler", "status": "selected", "activationBlocked": false },
+    { "id": "deployment.postgresql-lease-journal", "owner": "deployment-module", "status": "selected", "activationBlocked": false },
+    { "id": "deployment.r2-state-mirror", "owner": "deployment-module", "status": "selected", "activationBlocked": false },
+    { "id": "verifier.ephemeral-resources", "owner": "deployment-module", "status": "selected", "activationBlocked": false }
+  ]
+}
+
