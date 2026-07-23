@@ -11,7 +11,7 @@
     ],
     "publicOrigins": {
       "application": "https://app.example.test",
-      "content": "https://content.example.test"
+      "content": "https://content.example-content.test"
     },
     "recoverability": {
       "postgresql": {

@@ -91,3 +91,19 @@ test("external CDN requires distinct public edge and private origin addresses", 
       error.message.includes("distinct"),
   );
 });
+
+test("both production targets require distinct application and content sites", async () => {
+  for (const name of [
+    "deployment.kubernetes.valid.json",
+    "deployment.cloudflare.valid.json",
+  ]) {
+    const config = await readFixture(name);
+    config.shared.publicOrigins.content = "https://content.example.test";
+    await assert.rejects(
+      validateDeploymentConfig(config),
+      (error) => error instanceof DeploymentConfigError &&
+        error.code === "deployment_config_invalid" &&
+        error.message.includes("registrable sites"),
+    );
+  }
+});

@@ -5,7 +5,7 @@
     "web": "https://app.example.test",
     "api": "https://app.example.test",
     "viewer": "https://app.example.test",
-    "content": "https://content.example.test",
+    "content": "https://content.example-content.test",
     "origin": "https://origin.example.test",
     "edge": "https://app.example.test"
   },

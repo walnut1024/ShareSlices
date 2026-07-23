@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
+import { getDomain } from "tldts";
 
 const supportedSchemaVersion = "shareslices.deployment/v1";
 const schemaPath = fileURLToPath(new URL("../contract/deployment.schema.json", import.meta.url));
@@ -62,6 +63,27 @@ export async function validateDeploymentConfig(value) {
         "External CDN origin addresses must be distinct from public edge addresses.",
       );
     }
+    if (
+      getDomain(new URL(originOrigins.application).hostname) ===
+      getDomain(new URL(originOrigins.content).hostname)
+    ) {
+      throw new DeploymentConfigError(
+        "deployment_config_invalid",
+        "External CDN application and content origins must use distinct registrable sites.",
+      );
+    }
+  }
+  const applicationSite = getDomain(
+    new URL(value.shared.publicOrigins.application).hostname,
+  );
+  const contentSite = getDomain(
+    new URL(value.shared.publicOrigins.content).hostname,
+  );
+  if (!applicationSite || !contentSite || applicationSite === contentSite) {
+    throw new DeploymentConfigError(
+      "deployment_config_invalid",
+      "Application and content origins must use distinct registrable sites.",
+    );
   }
   return structuredClone(value);
 }

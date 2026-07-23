@@ -7,7 +7,7 @@ const addresses = Object.freeze({
   web: "https://web.example.test",
   api: "https://api.example.test",
   viewer: "https://viewer.example.test",
-  content: "https://content.example.test",
+  content: "https://content.example-content.test",
   origin: "https://origin.example.test",
   edge: "https://edge.example.test",
 });
