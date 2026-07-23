@@ -16,6 +16,10 @@ run = "node tools/local-stack.mjs up"
 description = "Run a ShareSlices production deployment lifecycle command"
 run = "node deploy/automation/main.mjs"
 
+[tasks.cloudflare-build-workers]
+description = "Build deterministic Cloudflare Worker bundles"
+run = "node deploy/cloudflare/build-worker-bundles.mjs"
+
 [tasks.ops-thumbnail-requeue]
 description = "Requeue terminal local thumbnail jobs after Chromium recovery"
 run = "node deploy/automation/local-compose/worker-operation.mjs requeue-failed-thumbnails"
