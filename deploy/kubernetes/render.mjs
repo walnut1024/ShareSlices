@@ -4,6 +4,7 @@ import { parseAllDocuments, stringify } from "yaml";
 import { getDomain } from "tldts";
 
 import { sha256Digest } from "../automation/canonical.mjs";
+import { stringRuntimeVariables } from "../automation/runtime-vars.mjs";
 
 const workloadByDeployment = Object.freeze({
   "shareslices-api": {config: "api", artifact: "api-image"},
@@ -111,8 +112,8 @@ function configureConfigMap(resource, config, release) {
     const application = config.shared.publicOrigins.application;
     const content = config.shared.publicOrigins.content;
     const gallery = config.shared.gallery;
-    const roleSecrets = config.shared.roleSecrets;
     Object.assign(resource.data, {
+      ...stringRuntimeVariables(config),
       WEB_ORIGIN: application,
       API_ORIGIN: application,
       VIEWER_ORIGIN: application,
@@ -134,14 +135,6 @@ function configureConfigMap(resource, config, release) {
       GALLERY_GOVERNANCE_READY: String(gallery.governanceReady),
       GALLERY_ISOLATED_CONTENT_READY: String(gallery.isolatedContentReady),
       PUBLIC_GALLERY_TURNSTILE_SITE_KEY: gallery.turnstileSiteKey ?? "",
-      CONTENT_FINGERPRINT_KEY_CURRENT_REVISION:
-        roleSecrets.contentFingerprint.current.revision,
-      CONTENT_FINGERPRINT_KEY_PREVIOUS_REVISION:
-        roleSecrets.contentFingerprint.previous?.revision ?? "",
-      IDEMPOTENCY_ENCRYPTION_KEY_CURRENT_REVISION:
-        roleSecrets.idempotencyEncryption.current.revision,
-      IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS_REVISION:
-        roleSecrets.idempotencyEncryption.previous?.revision ?? "",
     });
     if (config.target === "kubernetes") {
       Object.assign(resource.data, {
