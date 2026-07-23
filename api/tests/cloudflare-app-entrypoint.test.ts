@@ -137,6 +137,28 @@ describe("Cloudflare App entrypoint", () => {
     expect(runtimeBindings.ASSETS.fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("serves the installation runtime configuration without Static Assets or database routing", async () => {
+    const runtimeBindings = {
+      ...bindings(),
+      GALLERY_TURNSTILE_SITE_KEY: "site-key",
+    };
+    const response = await appWorker.fetch(
+      new Request("https://app.example.test/runtime-config.json"),
+      runtimeBindings,
+      context,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    await expect(response.json()).resolves.toEqual({
+      apiOrigin: "https://api.example.test",
+      viewerOrigin: "https://viewer.example.net",
+      galleryContentOrigin: "https://content.example.net",
+      galleryTurnstileSiteKey: "site-key",
+    });
+    expect(runtimeBindings.ASSETS.fetch).not.toHaveBeenCalled();
+  });
+
   it("serves the trusted graph and excludes content-only routes", async () => {
     const health = await appWorker.fetch(
       new Request("https://api.example.test/health", {

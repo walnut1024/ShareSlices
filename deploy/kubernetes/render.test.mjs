@@ -88,7 +88,7 @@ test("projects route ownership, TLS, trusted and content-only boundaries without
   assert.equal(app.spec.ingressClassName, "nginx");
   assert.deepEqual(app.spec.tls, [{hosts: ["origin-app.example.test"], secretName: "shareslices-app-tls"}]);
   assert.deepEqual(content.spec.tls, [{hosts: ["origin-content.example.test"], secretName: "shareslices-content-tls"}]);
-  assert.deepEqual(app.spec.rules[0].http.paths.map(({path}) => path), ["/", "/a", "/api", "/api/versions", "/assets", "/gallery", "/health", "/ready"]);
+  assert.deepEqual(app.spec.rules[0].http.paths.map(({path}) => path), ["/", "/a", "/api", "/api/versions", "/assets", "/gallery", "/health", "/ready", "/runtime-config.json"]);
   assert.deepEqual(content.spec.rules[0].http.paths.map(({path}) => path), ["/gallery-content/public", "/gallery-content/review"]);
   assert.match(app.metadata.annotations["shareslices.dev/route-ids"], /preview-entry/);
   assert.equal(app.metadata.annotations["shareslices.dev/forbidden-route-ids"], "internal-routes");

@@ -17,6 +17,20 @@
       "forbidden": false
     },
     {
+      "id": "web-runtime-config",
+      "family": "web",
+      "pathPattern": "/runtime-config.json",
+      "methods": ["GET", "HEAD"],
+      "ingress": "trusted",
+      "owner": {
+        "kind": "documented-route-family",
+        "document": "docs/design/modules.md",
+        "section": "Trusted Web surfaces"
+      },
+      "cachePolicy": "dynamic-no-store",
+      "forbidden": false
+    },
+    {
       "id": "health-live",
       "family": "health",
       "pathPattern": "/health",

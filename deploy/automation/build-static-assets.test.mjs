@@ -16,7 +16,12 @@ test("builds one environment-neutral deterministic Static Assets artifact", asyn
     assert.deepEqual(secondManifest, firstManifest);
     assert.match(firstManifest.contentDigest, /^sha256:[a-f0-9]{64}$/);
     assert.ok(firstManifest.entries.some(({ path }) => path === "index.html"));
+    assert.ok(firstManifest.entries.some(({ path }) => path === "_headers"));
     assert.ok(firstManifest.entries.some(({ path }) => /^assets\/.+/.test(path)));
+    assert.equal(
+      await readFile(resolve(first, "_headers"), "utf8"),
+      "/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n\n/\n  Cache-Control: public, max-age=0, must-revalidate\n\n/index.html\n  Cache-Control: public, max-age=0, must-revalidate\n",
+    );
     for (const entry of firstManifest.entries) {
       const firstBytes = await readFile(resolve(first, entry.path));
       const secondBytes = await readFile(resolve(second, entry.path));

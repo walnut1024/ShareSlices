@@ -491,6 +491,7 @@
         "accountId",
         "postgresqlOrigin",
         "email",
+        "edgeCdn",
         "workers",
         "r2",
         "queues"
@@ -505,6 +506,16 @@
           "properties": {
             "adapter": { "const": "resend" },
             "resend": { "$ref": "#/$defs/secretReference" }
+          }
+        },
+        "edgeCdn": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": {
+            "mode": {
+              "enum": ["web-assets-only", "web-and-public-viewer-bytes"]
+            }
           }
         },
         "workers": {

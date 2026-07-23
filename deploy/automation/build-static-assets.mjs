@@ -9,6 +9,9 @@ import { sha256Digest } from "./canonical.mjs";
 
 const execute = promisify(execFile);
 const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
+const cacheProjectionPath = fileURLToPath(
+  new URL("../contract/cache-projection.json", import.meta.url),
+);
 
 function fileDigest(bytes) {
   return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
@@ -43,6 +46,42 @@ export async function buildStaticAssets(outputDirectory) {
     "pnpm",
     ["--dir", "web", "run", "build", "--outDir", absoluteOutput],
     { cwd: repositoryRoot, maxBuffer: 16 * 1024 * 1024 },
+  );
+  const cacheProjection = JSON.parse(await readFile(cacheProjectionPath, "utf8"));
+  const staticPolicy = cacheProjection.policies.find(
+    ({ id }) => id === "web-static-immutable",
+  );
+  if (
+    !staticPolicy?.enabled ||
+    !staticPolicy.contentHashRequired ||
+    typeof staticPolicy.outwardCacheControl !== "string"
+  ) {
+    throw new Error("static_assets_cache_policy_invalid");
+  }
+  const builtFiles = await filesBelow(absoluteOutput);
+  for (const path of builtFiles) {
+    const assetPath = relative(absoluteOutput, path).split(sep).join("/");
+    if (
+      assetPath.startsWith("assets/") &&
+      !/-[A-Za-z0-9_-]{8,}\.[A-Za-z0-9]+$/.test(assetPath)
+    ) {
+      throw new Error("static_assets_content_hash_required");
+    }
+  }
+  await writeFile(
+    resolve(absoluteOutput, "_headers"),
+    [
+      "/assets/*",
+      `  Cache-Control: ${staticPolicy.outwardCacheControl}`,
+      "",
+      "/",
+      "  Cache-Control: public, max-age=0, must-revalidate",
+      "",
+      "/index.html",
+      "  Cache-Control: public, max-age=0, must-revalidate",
+      "",
+    ].join("\n"),
+    { flag: "wx" },
   );
   const entries = [];
   for (const path of await filesBelow(absoluteOutput)) {

@@ -90,6 +90,7 @@ export type CloudflareAppBindings = Readonly<
     HYPERDRIVE: Readonly<{ connectionString: string }>;
     ARTIFACTS: R2BucketBinding;
     ASSETS: Readonly<{ fetch(request: Request): Promise<Response> }>;
+    GALLERY_TURNSTILE_SITE_KEY?: string;
     SERVICE_VERSION: string;
     DEPLOYMENT_ENVIRONMENT: string;
   }
@@ -103,9 +104,11 @@ export const cloudflareAppWorkerFirstPathPrefixes = Object.freeze([
   "/health",
   "/internal",
   "/ready",
+  "/runtime-config.json",
 ]);
 
-function configuredOrigin(value: string): string | null {
+function configuredOrigin(value: string | undefined): string | null {
+  if (!value) return null;
   try {
     return new URL(value).origin;
   } catch {
@@ -129,6 +132,41 @@ function configuredHost(request: Request, bindings: CloudflareAppBindings): bool
     configuredOrigin(bindings.WEB_ORIGIN),
     configuredOrigin(bindings.API_ORIGIN),
   ]).has(origin);
+}
+
+function runtimeConfiguration(
+  request: Request,
+  bindings: CloudflareAppBindings,
+): Response | null {
+  const url = new URL(request.url);
+  if (
+    url.origin !== configuredOrigin(bindings.WEB_ORIGIN) ||
+    url.pathname !== "/runtime-config.json"
+  ) {
+    return null;
+  }
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return new Response(null, {
+      status: 405,
+      headers: {
+        Allow: "GET, HEAD",
+        "Cache-Control": "no-store",
+      },
+    });
+  }
+  const body = JSON.stringify({
+    apiOrigin: configuredOrigin(bindings.API_ORIGIN),
+    viewerOrigin: configuredOrigin(bindings.VIEWER_ORIGIN),
+    galleryContentOrigin: configuredOrigin(bindings.GALLERY_CONTENT_ORIGIN),
+    galleryTurnstileSiteKey: bindings.GALLERY_TURNSTILE_SITE_KEY ?? null,
+  });
+  return new Response(request.method === "HEAD" ? null : body, {
+    status: 200,
+    headers: {
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json; charset=UTF-8",
+    },
+  });
 }
 
 function evidenceCipher(bindings: CloudflareAppBindings) {
@@ -203,6 +241,8 @@ export function createCloudflareAppWorker(): CloudflareFetchHandler<CloudflareAp
           },
         });
       }
+      const bootstrap = runtimeConfiguration(request, bindings);
+      if (bootstrap) return bootstrap;
       const connection = createDatabaseConnection({
         mode: "hyperdrive",
         cache: "disabled",

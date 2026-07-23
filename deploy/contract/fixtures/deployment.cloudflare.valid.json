@@ -68,6 +68,9 @@
       "adapter": "resend",
       "resend": { "ref": "secret://resend/sending", "revision": "2" }
     },
+    "edgeCdn": {
+      "mode": "web-assets-only"
+    },
     "workers": {
       "application": "shareslices-app",
       "content": "shareslices-content",

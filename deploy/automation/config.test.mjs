@@ -20,6 +20,7 @@ test("loads one selected target and discovers only non-secret prerequisites", as
   assert.deepEqual(discoverPrerequisites(kubernetes).tools, ["kubectl", "kustomize"]);
   assert.equal(discoverPrerequisites(kubernetes).capabilities.includes("enterprise-smtp"), true);
   assert.equal(cloudflare.target, "cloudflare");
+  assert.equal(cloudflare.cloudflare.edgeCdn.mode, "web-assets-only");
   assert.deepEqual(discoverPrerequisites(cloudflare).tools, ["terraform", "wrangler"]);
   assert.equal(discoverPrerequisites(cloudflare).capabilities.includes("resend-https"), true);
   assert.equal(
@@ -55,6 +56,13 @@ test("rejects mixed targets, Compose, embedded Secrets, and wrong email Adapters
       cloudflare: {
         ...cloudflare.cloudflare,
         email: { ...cloudflare.cloudflare.email, apiKey: "must-not-be-accepted" },
+      },
+    },
+    {
+      ...cloudflare,
+      cloudflare: {
+        ...cloudflare.cloudflare,
+        edgeCdn: { mode: "cache-everything" },
       },
     },
   ];
