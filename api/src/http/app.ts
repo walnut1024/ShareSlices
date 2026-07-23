@@ -1,11 +1,13 @@
 import { Hono } from "hono";
 import { readApiHttpEnv } from "../env.js";
 import { apiLogger } from "../logging/index.js";
+import { checkDatabase } from "../db/system-queries.js";
 import {
   accountRoutes,
   type AccountRouteDependencies,
 } from "./account-routes.js";
 import { cliAuthRoutes, type CliAuthDependencies } from "./cli-auth-routes.js";
+import { createNodeCliAuthDependencies } from "./node-cli-auth.js";
 import {
   artifactRoutes,
   type ArtifactRouteDependencies,
@@ -45,9 +47,9 @@ export function buildApp(
     logger: apiLogger,
     trustedIngress: adapters.trustedIngress ?? (() => ({ clientIp: "unknown", source: "unknown" })),
     routes: {
-      system: systemRoutes(dependencies.system),
+      system: systemRoutes({checkDatabase, ...dependencies.system}),
       account: accountRoutes(dependencies.account),
-      cliAuth: cliAuthRoutes(dependencies.cliAuth),
+      cliAuth: cliAuthRoutes({...createNodeCliAuthDependencies(env), ...dependencies.cliAuth}),
       artifact: artifactRoutes(dependencies.artifact),
       publicationViewer: publicationViewerRoutes(dependencies.publicationViewer),
       gallery: galleryRoutes(dependencies.gallery),

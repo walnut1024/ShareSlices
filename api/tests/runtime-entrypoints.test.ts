@@ -128,6 +128,16 @@ describe("Node runtime entrypoint authority", () => {
     expect(importedEnvironmentReaders(graph)).toEqual(new Set());
   });
 
+  it("keeps reusable system and CLI routes free of Node infrastructure defaults", () => {
+    for (const entrypoint of ["http/system-routes.ts", "http/cli-auth-routes.ts"]) {
+      const graph = reachableSources(entrypoint);
+      const paths = [...graph.keys()].map((file) => file.slice(sourceRoot.length));
+      expect(paths.filter((path) => path === "env.ts" || path === "db/client.ts")).toEqual([]);
+      expect(paths.filter((path) => path === "auth/auth.ts")).toEqual([]);
+      expect(importedEnvironmentReaders(graph)).toEqual(new Set());
+    }
+  });
+
   it("keeps Cloudflare entrypoints free of Node startup and resident loops", () => {
     const graph = reachableSources("cloudflare/runtime.ts");
     const paths = [...graph.keys()].map((file) => file.slice(sourceRoot.length));

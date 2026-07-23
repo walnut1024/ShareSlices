@@ -1,13 +1,11 @@
 import { Hono } from "hono";
-import { checkDatabase } from "../db/system-queries.js";
 import { requestId } from "./http-error.js";
 
 export type SystemRouteDependencies = {
-  checkDatabase: typeof checkDatabase;
+  checkDatabase(): Promise<void>;
 };
 
-export function systemRoutes(overrides: Partial<SystemRouteDependencies> = {}): Hono {
-  const dependencies: SystemRouteDependencies = { checkDatabase, ...overrides };
+export function systemRoutes(dependencies: SystemRouteDependencies): Hono {
   const app = new Hono();
 
   app.get("/health", (c) => {

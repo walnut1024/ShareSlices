@@ -1,16 +1,12 @@
 import { APIError } from "better-auth/api";
 import { Hono, type Context } from "hono";
 import { z } from "zod";
-import { auth } from "../auth/auth.js";
-import { readApiHttpEnv } from "../env.js";
 import { checkCliCompatibility } from "./cli-compatibility.js";
 import { errorJson, requestId } from "./http-error.js";
 
-const env = readApiHttpEnv();
+export const CLI_CLIENT_ID = "shareslices-cli";
 
-const CLI_CLIENT_ID = "shareslices-cli";
-
-type AuthorizationStatus = "pending" | "approved" | "denied";
+export type AuthorizationStatus = "pending" | "approved" | "denied";
 
 export type CliAuthDependencies = {
   minimumCliVersion: string;
@@ -52,58 +48,7 @@ function pluginErrorResponse(c: Context, error: unknown) {
   return null;
 }
 
-const defaultDependencies: CliAuthDependencies = {
-  minimumCliVersion: env.MINIMUM_CLI_VERSION,
-  async createAuthorization() {
-    const value = await auth.api.deviceCode({ body: { client_id: CLI_CLIENT_ID } });
-    return {
-      deviceCode: value.device_code,
-      userCode: value.user_code,
-      verificationUri: value.verification_uri,
-      verificationUriComplete: value.verification_uri_complete,
-      expiresIn: value.expires_in,
-      interval: value.interval
-    };
-  },
-  async readAuthorization(userCode, headers) {
-    try {
-      const session = await auth.api.getSession({ headers, query: { disableRefresh: true } });
-      if (!session) return null;
-      const value = await auth.api.deviceVerify({ query: { user_code: userCode }, headers });
-      return { userCode: value.user_code, status: value.status as AuthorizationStatus };
-    } catch (error) {
-      if (pluginErrorCode(error) === "unauthorized") return null;
-      throw error;
-    }
-  },
-  async approveAuthorization(userCode, headers) {
-    await auth.api.deviceApprove({ body: { userCode }, headers });
-  },
-  async denyAuthorization(userCode, headers) {
-    await auth.api.deviceDeny({ body: { userCode }, headers });
-  },
-  async exchangeAuthorization(deviceCode) {
-    const value = await auth.api.deviceToken({
-      body: {
-        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-        device_code: deviceCode,
-        client_id: CLI_CLIENT_ID
-      }
-    });
-    return { accessToken: value.access_token, tokenType: "Bearer", expiresIn: value.expires_in };
-  },
-  async currentSession(headers) {
-    const value = await auth.api.getSession({ headers, query: { disableRefresh: true } });
-    return value ? { token: value.session.token, userId: value.user.id } : null;
-  },
-  async revokeSession(token, headers) {
-    const value = await auth.api.revokeSession({ body: { token }, headers, asResponse: false });
-    return value.status;
-  }
-};
-
-export function cliAuthRoutes(overrides: Partial<CliAuthDependencies> = {}): Hono {
-  const dependencies = { ...defaultDependencies, ...overrides };
+export function cliAuthRoutes(dependencies: CliAuthDependencies): Hono {
   const app = new Hono();
 
   function compatibility(c: Parameters<typeof errorJson>[0]) {
