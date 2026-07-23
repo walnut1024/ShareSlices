@@ -24,6 +24,10 @@ run = "node deploy/automation/local-compose/worker-operation.mjs requeue-failed-
 description = "Install approved local Gallery policies and grant an explicit Administrator"
 run = "node --env-file=.env.example --env-file-if-exists=.env api/node_modules/tsx/dist/cli.mjs api/src/operations/gallery-local-bootstrap.ts"
 
+[tasks.ops-authentication-email-reconcile]
+description = "Apply one signed authentication-email reconciliation authorization"
+run = "node --env-file=.env.example --env-file-if-exists=.env deploy/automation/authentication-email-reconcile.mjs"
+
 [tasks.dev-down]
 description = "Stop the canonical local stack"
 run = "node tools/local-stack.mjs down"

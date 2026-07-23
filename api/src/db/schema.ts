@@ -158,6 +158,7 @@ export const authenticationEmailDelivery = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     deliveryRevision: bigint("delivery_revision", { mode: "number" }).default(0).notNull(),
+    transportSnapshotRevision: bigint("transport_snapshot_revision", { mode: "number" }),
     transportAdapter: text("transport_adapter"),
     providerNamespace: text("provider_namespace"),
     senderIdentity: text("sender_identity"),
@@ -202,6 +203,51 @@ export const authenticationEmailProviderAttempt = pgTable(
     index("authentication_email_provider_attempt_delivery_idx").on(table.deliveryId, table.fence),
   ],
 );
+
+export const authenticationEmailReconciliationNonce = pgTable("authentication_email_reconciliation_nonce", {
+  nonce: text("nonce").primaryKey(),
+  issuer: text("issuer").notNull(),
+  subject: text("subject").notNull(),
+  installation: text("installation").notNull(),
+  deliveryId: text("delivery_id").notNull().references(() => authenticationEmailDelivery.id, { onDelete: "cascade" }),
+  issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  claimedAt: timestamp("claimed_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const authenticationEmailReconciliationResolution = pgTable("authentication_email_reconciliation_resolution", {
+  deliveryId: text("delivery_id").primaryKey().references(() => authenticationEmailDelivery.id, { onDelete: "cascade" }),
+  priorDeliveryRevision: bigint("prior_delivery_revision", { mode: "number" }).notNull(),
+  resolvedDeliveryRevision: bigint("resolved_delivery_revision", { mode: "number" }).notNull(),
+  transportSnapshotRevision: bigint("transport_snapshot_revision", { mode: "number" }).notNull(),
+  attemptId: text("attempt_id").notNull(),
+  attemptFence: bigint("attempt_fence", { mode: "number" }).notNull(),
+  decision: text("decision").notNull(),
+  evidenceDigest: text("evidence_digest").notNull(),
+  operatorSubject: text("operator_subject").notNull(),
+  providerNamespace: text("provider_namespace").notNull(),
+  senderIdentity: text("sender_identity").notNull(),
+  localMessageId: text("local_message_id").notNull(),
+  providerMessageId: text("provider_message_id"),
+  payloadDigest: text("payload_digest").notNull(),
+  providerSafeReplayUntil: timestamp("provider_safe_replay_until", { withTimezone: true }),
+  authorizationIssuer: text("authorization_issuer").notNull(),
+  authorizationNonce: text("authorization_nonce").notNull(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const authenticationEmailReconciliationAudit = pgTable("authentication_email_reconciliation_audit", {
+  id: text("id").primaryKey(),
+  deliveryId: text("delivery_id").notNull().references(() => authenticationEmailDelivery.id, { onDelete: "cascade" }),
+  authorizationNonce: text("authorization_nonce").notNull(),
+  kind: text("kind").notNull(),
+  operatorSubject: text("operator_subject").notNull(),
+  decision: text("decision").notNull(),
+  evidenceDigest: text("evidence_digest").notNull(),
+  priorState: text("prior_state").notNull(),
+  reasonCode: text("reason_code").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
 
 export const authenticationEmailCircuitBreaker = pgTable("authentication_email_circuit_breaker", {
   id: text("id").primaryKey(),

@@ -226,9 +226,14 @@ Status: mixed. Account entry remains a thin current HTTP/Auth/DB path. Artifact,
   importing either HTTP graph or process environment. The current publisher
   deliberately accepts only the implemented authentication-email lane; rows for
   unsupported lanes remain pending until their handlers or Container controller
-  are registered. The remaining processing lane handlers, crash and quiescence
-  recovery, manual-reconciliation completion, Wrangler/IaC deployment wiring,
-  and verified-domain qualification remain target work.
+  are registered. A separate one-shot account-maintenance application module now
+  verifies short-lived Ed25519 authorizations, locks the delivery and its
+  authentication material through a direct PostgreSQL transaction, consumes a
+  unique nonce, and records the manual resolution plus redacted audit evidence.
+  Its `deploy/automation/` entrypoint is only a launcher and is not a deployment
+  lifecycle operation. The remaining processing lane handlers, crash and
+  quiescence recovery, Wrangler/IaC deployment wiring, and verified-domain
+  qualification remain target work.
   Neither transport affects API readiness or owns account-entry policy.
 
 ## Gallery Modules

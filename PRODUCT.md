@@ -68,13 +68,13 @@ complaint state is a separate product change that must verify signatures against
 the raw request body, deduplicate provider event identifiers, and process
 duplicated or out-of-order events without regressing durable state.
 
-ShareSlices local payload deletion and provider-side retention are separate
-lifecycles. Clearing the encrypted local authentication-email payload after a
-terminal outcome does not assert that Resend deleted its copy; provider retention
-continues under the operator's Resend account and current provider terms. A
-deployment must not claim that provider message-content storage is disabled
-unless that capability is actually enabled and verified for the account, and
-must not present it as an included free-plan capability.
+ShareSlices local payload deletion and provider-side retention have separate
+lifecycle boundaries. Clearing the encrypted local authentication-email payload
+after a terminal outcome does not assert that Resend deleted its copy; provider
+retention continues under the operator's Resend account and current provider
+terms. A deployment must not claim that provider message-content storage is
+disabled unless that capability is actually enabled and verified for the
+account, and must not present it as an included free-plan capability.
 
 The first claim of each email delivery freezes its Adapter kind, provider-team or
 relay namespace, sender/domain and endpoint identity, configuration revision,

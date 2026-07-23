@@ -7,6 +7,7 @@
     "start": "tsx src/main.ts",
     "start:maintenance": "tsx src/maintenance/main.ts",
     "smtp:check": "tsx src/email/smtp-check.ts",
+    "authentication-email:reconcile": "tsx src/operations/authentication-email-reconcile.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "db:migrate": "tsx src/db/migrate.ts"

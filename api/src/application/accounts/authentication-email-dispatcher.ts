@@ -158,7 +158,8 @@ export async function dispatchOneAuthenticationEmail(
       `update authentication_email_delivery
        set state = 'sending', lease_owner = $2,
            lease_expires_at = now() + ($3 * interval '1 second'), attempt_count = attempt_count + 1,
-           delivery_revision = $4, transport_adapter = coalesce(transport_adapter, $5),
+           delivery_revision = $4, transport_snapshot_revision = coalesce(transport_snapshot_revision, $4),
+           transport_adapter = coalesce(transport_adapter, $5),
            provider_namespace = coalesce(provider_namespace, $6),
            sender_identity = coalesce(sender_identity, $7), endpoint_identity = coalesce(endpoint_identity, $8),
            transport_configuration_revision = coalesce(transport_configuration_revision, $9),

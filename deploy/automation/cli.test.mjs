@@ -21,6 +21,7 @@ test("accepts exactly the seven production lifecycle commands", () => {
   }
   assert.equal(parseInvocation(["compose"]).exitCode, exitCodes.invalidInput);
   assert.equal(parseInvocation(["deploy"]).exitCode, exitCodes.invalidInput);
+  assert.equal(parseInvocation(["authentication-email-reconcile"]).exitCode, exitCodes.invalidInput);
   assert.equal(parseInvocation(["deploy"]).result.command, null);
 });
 

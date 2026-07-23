@@ -175,6 +175,7 @@ describe("artifact database foundation", () => {
     expect(constraints.rows.map(({ conname }) => conname)).toEqual(expect.arrayContaining([
       "authentication_email_delivery_transport_snapshot_check",
       "authentication_email_delivery_resend_snapshot_check",
+      "authentication_email_delivery_snapshot_revision_check",
       "authentication_email_provider_attempt_delivery_id_fence_key"
     ]));
   });
@@ -187,12 +188,12 @@ describe("artifact database foundation", () => {
     );
     const delivery = `insert into authentication_email_delivery
       (id, attempt_id, email_hash, purpose, source_ip_hash, encrypted_payload,
-       transport_adapter, provider_namespace, sender_identity, endpoint_identity,
+       transport_snapshot_revision, transport_adapter, provider_namespace, sender_identity, endpoint_identity,
        transport_configuration_revision, serializer_revision, payload_digest,
        provider_idempotency_key, provider_safe_replay_until, local_message_id)
       values
       ('transport-delivery', 'transport-attempt', 'email-hash', 'registration', 'ip-hash', 'ciphertext',
-       'resend', 'team-a', 'ShareSlices <onboarding@resend.dev>', 'https://api.resend.com/emails',
+       1, 'resend', 'team-a', 'ShareSlices <onboarding@resend.dev>', 'https://api.resend.com/emails',
        'revision-1', 'authentication-email-v1', 'payload-digest',
        'provider-key', now() + interval '23 hours', '<transport-delivery@shareslices.local>')`;
 
