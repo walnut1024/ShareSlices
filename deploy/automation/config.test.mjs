@@ -126,3 +126,19 @@ test("Gallery Cookie and challenge readiness are bound to declared site evidence
       error.message.includes("Turnstile"),
   );
 });
+
+test("session signing-key revisions are valid Better Auth key versions", async () => {
+  for (const revisions of [["current"], ["0"], ["4", "4"]]) {
+    const config = await readFixture("deployment.cloudflare.valid.json");
+    config.shared.sessionSigningKeys = revisions.map((revision, index) => ({
+      ref: `secret://workers/signing-${index}`,
+      revision,
+    }));
+    await assert.rejects(
+      validateDeploymentConfig(config),
+      (error) =>
+        error instanceof DeploymentConfigError &&
+        error.message.includes("positive integers"),
+    );
+  }
+});

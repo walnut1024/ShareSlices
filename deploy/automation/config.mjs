@@ -112,6 +112,23 @@ export async function validateDeploymentConfig(value) {
       "Disabled Gallery configuration cannot claim a ready capability.",
     );
   }
+  const signingVersions = value.shared.sessionSigningKeys.map(({ revision }) =>
+    Number(revision),
+  );
+  if (
+    signingVersions.some(
+      (version, index) =>
+        !Number.isSafeInteger(version) ||
+        version <= 0 ||
+        String(version) !== value.shared.sessionSigningKeys[index].revision,
+    ) ||
+    new Set(signingVersions).size !== signingVersions.length
+  ) {
+    throw new DeploymentConfigError(
+      "deployment_config_invalid",
+      "Session signing-key revisions must be unique positive integers.",
+    );
+  }
   return structuredClone(value);
 }
 

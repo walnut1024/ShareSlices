@@ -18,6 +18,7 @@ import { GalleryPermissionGrantService } from "../application/gallery/permission
 import { PublicGalleryService } from "../application/gallery/public-gallery.js";
 import { GalleryReportService } from "../application/gallery/reports.js";
 import { createAuth } from "../auth/create-auth.js";
+import { parseVersionedAuthSecrets } from "../auth/versioned-secrets.js";
 import { createAccountQueries } from "../db/account-queries.js";
 import { createArtifactRepositories } from "../db/artifact-repositories.js";
 import { createArtifactThumbnailRepository } from "../db/artifact-thumbnail-repository.js";
@@ -93,6 +94,7 @@ export type CloudflareAppBindings = Readonly<
     GALLERY_TURNSTILE_SITE_KEY?: string;
     SERVICE_VERSION: string;
     DEPLOYMENT_ENVIRONMENT: string;
+    BETTER_AUTH_SECRETS: string;
   }
 >;
 
@@ -267,6 +269,7 @@ export function createCloudflareAppWorker(): CloudflareFetchHandler<CloudflareAp
           database: connection.database,
           baseUrl: bindings.BETTER_AUTH_URL,
           secret: bindings.BETTER_AUTH_SECRET,
+          secrets: parseVersionedAuthSecrets(bindings.BETTER_AUTH_SECRETS),
           webOrigin: bindings.WEB_ORIGIN,
           emailEncryptionKey: bindings.AUTH_EMAIL_ENCRYPTION_KEY,
           findPasswordHashByEmail: accountQueries.findPasswordHashByEmail,

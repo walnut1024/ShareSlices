@@ -11,6 +11,7 @@ import {
 import type { AuthenticationEmailPayload, VerificationPurpose } from "../application/accounts/authentication-email.js";
 import type { DeliveryResult } from "../db/authentication-email-repository.js";
 import * as schema from "../db/schema.js";
+import type { VersionedAuthSecret } from "./versioned-secrets.js";
 
 type AuthDatabase = NodePgDatabase<typeof schema>;
 
@@ -18,6 +19,7 @@ export type AuthComposition = Readonly<{
   database: AuthDatabase;
   baseUrl: string;
   secret: string;
+  secrets?: readonly VersionedAuthSecret[];
   webOrigin: string;
   emailEncryptionKey: string;
   findPasswordHashByEmail(email: string): Promise<string | null>;
@@ -42,6 +44,7 @@ export function createAuth(composition: AuthComposition) {
   const auth = betterAuth({
     baseURL: composition.baseUrl,
     secret: composition.secret,
+    ...(composition.secrets ? { secrets: [...composition.secrets] } : {}),
     trustedOrigins: [composition.webOrigin, composition.baseUrl],
     database: drizzleAdapter(composition.database, {
       provider: "pg",

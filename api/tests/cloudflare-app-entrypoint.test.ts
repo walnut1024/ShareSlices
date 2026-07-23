@@ -44,6 +44,12 @@ function bindings(): CloudflareAppBindings {
     API_ORIGIN: "https://api.example.test",
     BETTER_AUTH_URL: "https://api.example.test",
     BETTER_AUTH_SECRET: "test-better-auth-secret-with-at-least-thirty-two-bytes",
+    BETTER_AUTH_SECRETS: JSON.stringify([
+      {
+        version: 1,
+        value: "test-better-auth-secret-with-at-least-thirty-two-bytes",
+      },
+    ]),
     AUTH_EMAIL_ENCRYPTION_KEY: "test-email-encryption-secret-with-at-least-thirty-two-bytes",
     AUTH_EMAIL_RESEND_SECONDS: 60,
     AUTH_EMAIL_GLOBAL_HOUR: 1000,
