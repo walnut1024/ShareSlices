@@ -18,6 +18,7 @@ import {
   publicationViewerRoutes,
   type PublicationViewerRouteDependencies,
 } from "./publication-viewer-routes.js";
+import { createNodePublicationViewerDependencies } from "./node-publication-viewer.js";
 import { systemRoutes, type SystemRouteDependencies } from "./system-routes.js";
 import {
   galleryRoutes,
@@ -53,7 +54,10 @@ export function buildApp(
       account: accountRoutes({...createNodeAccountDependencies(env), ...dependencies.account}),
       cliAuth: cliAuthRoutes({...createNodeCliAuthDependencies(env), ...dependencies.cliAuth}),
       artifact: artifactRoutes({...createNodeArtifactDependencies(env), ...dependencies.artifact}),
-      publicationViewer: publicationViewerRoutes(dependencies.publicationViewer),
+      publicationViewer: publicationViewerRoutes({
+        ...createNodePublicationViewerDependencies(env),
+        ...dependencies.publicationViewer,
+      }),
       gallery: galleryRoutes(dependencies.gallery),
     },
   });

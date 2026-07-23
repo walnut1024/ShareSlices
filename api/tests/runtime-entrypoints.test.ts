@@ -134,6 +134,7 @@ describe("Node runtime entrypoint authority", () => {
       "http/cli-auth-routes.ts",
       "http/account-routes.ts",
       "http/artifact-routes.ts",
+      "http/publication-viewer-routes.ts",
     ]) {
       const graph = reachableSources(entrypoint);
       const paths = [...graph.keys()].map((file) => file.slice(sourceRoot.length));

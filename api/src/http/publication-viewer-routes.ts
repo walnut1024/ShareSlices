@@ -3,27 +3,18 @@ import { getCookie, setCookie } from "hono/cookie";
 import { Readable } from "node:stream";
 import { ZipArchive } from "archiver";
 import { z } from "zod";
-import { auth } from "../auth/auth.js";
+import type { auth } from "../auth/auth.js";
 import {
   PublicationViewerError,
-  PublicationViewerService,
   type ContentAsset,
   type ShareResolution,
   normalizeContentPath,
 } from "../application/artifacts/publication-viewer.js";
-import { ArtifactManagementService } from "../application/artifacts/artifact-management.js";
-import { createArtifactRepositories } from "../db/artifact-repositories.js";
-import { createPublicationContentRepository } from "../db/publication-content-repository.js";
-import {
-  createArtifactThumbnailRepository,
-  type ArtifactThumbnailRepository,
-} from "../db/artifact-thumbnail-repository.js";
-import { readApiHttpEnv } from "../env.js";
-import { createConfiguredObjectStorage } from "../storage/index.js";
+import type { PublicationViewerService } from "../application/artifacts/publication-viewer.js";
+import type { ArtifactManagementService } from "../application/artifacts/artifact-management.js";
+import type { ArtifactThumbnailRepository } from "../db/artifact-thumbnail-repository.js";
 import type { ObjectBody, ObjectStorage } from "../storage/object-storage.js";
 import { errorJson, requestId } from "./http-error.js";
-
-const env = readApiHttpEnv();
 
 export type PublicationViewerRouteDependencies = {
   authApi: Pick<typeof auth.api, "getSession">;
@@ -256,22 +247,8 @@ function viewerPlayerPage(shareSlug: string): Response {
 }
 
 export function publicationViewerRoutes(
-  overrides: Partial<PublicationViewerRouteDependencies> = {},
+  dependencies: PublicationViewerRouteDependencies,
 ): Hono {
-  const repository = createPublicationContentRepository();
-  const dependencies: PublicationViewerRouteDependencies = {
-    authApi: auth.api,
-    service: new PublicationViewerService(repository, env.VIEWER_ORIGIN),
-    management: new ArtifactManagementService({
-      repositories: createArtifactRepositories(),
-      viewerOrigin: env.VIEWER_ORIGIN,
-      storage: createConfiguredObjectStorage(),
-    }),
-    storage: createConfiguredObjectStorage(),
-    thumbnailRepository: createArtifactThumbnailRepository(),
-    managementOrigin: env.WEB_ORIGIN,
-    ...overrides,
-  };
   const app = new Hono();
 
   async function ownerUserId(headers: Headers): Promise<string | null> {
