@@ -5,6 +5,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createPublicationContentRepository } from "../src/db/publication-content-repository.js";
+import { IdempotencyEvidenceCipher } from "../src/db/idempotency-evidence.js";
 import * as schema from "../src/db/schema.js";
 
 const { Client, Pool } = pg;
@@ -18,6 +19,12 @@ describe("Publication content repository", () => {
   });
   const repository = createPublicationContentRepository(
     drizzle(pool, { schema }),
+    new IdempotencyEvidenceCipher({
+      current: {
+        revision: "key-v1",
+        secret: "publication-test-secret-with-at-least-thirty-two-bytes",
+      },
+    }),
   );
 
   beforeAll(async () => {

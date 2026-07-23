@@ -9,11 +9,7 @@ import type {
   ShareLinkAccessRecord,
   ShareResolution,
 } from "../application/artifacts/publication-viewer.js";
-import { db } from "./client.js";
-import {
-  createConfiguredIdempotencyEvidenceCipher,
-  type IdempotencyEvidenceCipher,
-} from "./idempotency-evidence.js";
+import type { IdempotencyEvidenceCipher } from "./idempotency-evidence.js";
 import * as schema from "./schema.js";
 
 type Database = NodePgDatabase<typeof schema>;
@@ -56,8 +52,8 @@ function expirationValues(expiration: PublicationExpiration, now: Date) {
 }
 
 export function createPublicationContentRepository(
-  database: Database = db,
-  evidenceCipher: IdempotencyEvidenceCipher = createConfiguredIdempotencyEvidenceCipher(),
+  database: Database,
+  evidenceCipher: IdempotencyEvidenceCipher,
 ): PublicationContentRepository {
   return {
     async findOwnedReadyVersion(ownerUserId, versionId) {

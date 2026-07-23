@@ -14,11 +14,7 @@ import type {
   ValidationReport,
   VersionRecord
 } from "../application/artifacts/repositories.js";
-import { db } from "./client.js";
-import {
-  createConfiguredIdempotencyEvidenceCipher,
-  type IdempotencyEvidenceCipher
-} from "./idempotency-evidence.js";
+import type { IdempotencyEvidenceCipher } from "./idempotency-evidence.js";
 import * as schema from "./schema.js";
 
 type Database = NodePgDatabase<typeof schema>;
@@ -217,8 +213,8 @@ function idempotencyRecord(
 }
 
 export function createArtifactRepositories(
-  database: Database = db,
-  evidenceCipher: IdempotencyEvidenceCipher = createConfiguredIdempotencyEvidenceCipher()
+  database: Database,
+  evidenceCipher: IdempotencyEvidenceCipher,
 ): ArtifactRepositories {
   return {
     uploadPolicies: {

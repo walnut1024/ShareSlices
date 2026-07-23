@@ -3,6 +3,8 @@ import { PublicationViewerService } from "../application/artifacts/publication-v
 import { auth } from "../auth/auth.js";
 import { createArtifactRepositories } from "../db/artifact-repositories.js";
 import { createArtifactThumbnailRepository } from "../db/artifact-thumbnail-repository.js";
+import { db } from "../db/client.js";
+import { createConfiguredIdempotencyEvidenceCipher } from "../db/node-idempotency-evidence.js";
 import { createPublicationContentRepository } from "../db/publication-content-repository.js";
 import type { ApiHttpEnv } from "../env.js";
 import { createConfiguredObjectStorage } from "../storage/index.js";
@@ -12,19 +14,20 @@ export function createNodePublicationViewerDependencies(
   env: Pick<ApiHttpEnv, "VIEWER_ORIGIN" | "WEB_ORIGIN">,
 ): PublicationViewerRouteDependencies {
   const storage = createConfiguredObjectStorage();
+  const evidenceCipher = createConfiguredIdempotencyEvidenceCipher();
   return {
     authApi: auth.api,
     service: new PublicationViewerService(
-      createPublicationContentRepository(),
+      createPublicationContentRepository(db, evidenceCipher),
       env.VIEWER_ORIGIN,
     ),
     management: new ArtifactManagementService({
-      repositories: createArtifactRepositories(),
+      repositories: createArtifactRepositories(db, evidenceCipher),
       viewerOrigin: env.VIEWER_ORIGIN,
       storage,
     }),
     storage,
-    thumbnailRepository: createArtifactThumbnailRepository(),
+    thumbnailRepository: createArtifactThumbnailRepository(db),
     managementOrigin: env.WEB_ORIGIN,
   };
 }

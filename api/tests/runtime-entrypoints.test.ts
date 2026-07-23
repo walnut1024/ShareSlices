@@ -205,6 +205,20 @@ describe("Node runtime entrypoint authority", () => {
     expect(importedEnvironmentReaders(graph)).toEqual(new Set());
   });
 
+  it("keeps reusable Artifact repositories independent from Node configuration", () => {
+    for (const entrypoint of [
+      "db/artifact-repositories.ts",
+      "db/artifact-thumbnail-repository.ts",
+      "db/publication-content-repository.ts",
+      "db/idempotency-evidence.ts",
+    ]) {
+      const graph = reachableSources(entrypoint);
+      const paths = [...graph.keys()].map((file) => file.slice(sourceRoot.length));
+      expect(paths.filter((path) => path === "env.ts" || path === "db/client.ts")).toEqual([]);
+      expect(importedEnvironmentReaders(graph)).toEqual(new Set());
+    }
+  });
+
   it("keeps the route-free Cloudflare Jobs entrypoint bounded and environment-independent", async () => {
     const graph = reachableSources("cloudflare/jobs-entrypoint.ts");
     const paths = [...graph.keys()].map((file) => file.slice(sourceRoot.length));

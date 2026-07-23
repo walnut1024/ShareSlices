@@ -4,6 +4,8 @@ import { ArtifactRecoveryService } from "../application/artifacts/artifact-recov
 import { RawFingerprintCandidates } from "../application/artifacts/raw-fingerprint.js";
 import { auth } from "../auth/auth.js";
 import { createArtifactRepositories } from "../db/artifact-repositories.js";
+import { db } from "../db/client.js";
+import { createConfiguredIdempotencyEvidenceCipher } from "../db/node-idempotency-evidence.js";
 import type { ApiHttpEnv } from "../env.js";
 import { createConfiguredObjectStorage } from "../storage/index.js";
 import type { ArtifactRouteDependencies } from "./artifact-routes.js";
@@ -23,7 +25,10 @@ type NodeArtifactEnvironment = Pick<
 export function createNodeArtifactDependencies(
   env: NodeArtifactEnvironment,
 ): ArtifactRouteDependencies {
-  const repositories = createArtifactRepositories();
+  const repositories = createArtifactRepositories(
+    db,
+    createConfiguredIdempotencyEvidenceCipher(),
+  );
   const storage = createConfiguredObjectStorage();
   const rawFingerprints = new RawFingerprintCandidates({
     current: {

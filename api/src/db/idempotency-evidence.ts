@@ -1,7 +1,4 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import { readIdempotencyEnv } from "../env.js";
-
-const env = readIdempotencyEnv();
 
 const ALGORITHM = "aes-256-gcm";
 const NONCE_BYTES = 12;
@@ -83,21 +80,4 @@ export class IdempotencyEvidenceCipher {
   get currentRevision(): string {
     return this.#current.revision;
   }
-}
-
-export function createConfiguredIdempotencyEvidenceCipher(): IdempotencyEvidenceCipher {
-  return new IdempotencyEvidenceCipher({
-    current: {
-      revision: env.IDEMPOTENCY_ENCRYPTION_KEY_CURRENT_REVISION,
-      secret: env.IDEMPOTENCY_ENCRYPTION_KEY_CURRENT
-    },
-    ...(env.IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS && env.IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS_REVISION
-      ? {
-          previous: {
-            revision: env.IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS_REVISION,
-            secret: env.IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS
-          }
-        }
-      : {})
-  });
 }

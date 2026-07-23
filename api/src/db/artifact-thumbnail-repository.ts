@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { and, eq, gt, isNull } from "drizzle-orm";
-import { db } from "./client.js";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import * as schema from "./schema.js";
 
 const CAPTURE_SESSION_SECONDS = 30;
@@ -20,7 +20,9 @@ export type CaptureSession = {
   expiresAt: Date;
 };
 
-export function createArtifactThumbnailRepository(database = db) {
+export function createArtifactThumbnailRepository(
+  database: NodePgDatabase<typeof schema>,
+) {
   return {
     async findOwned(ownerUserId: string, versionId: string): Promise<ThumbnailAssetRecord | null> {
       const rows = await database

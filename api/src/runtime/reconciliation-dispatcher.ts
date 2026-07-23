@@ -5,7 +5,8 @@ import { apiLogger, exceptionAttributes } from "../logging/index.js";
 import { createConfiguredObjectStorage } from "../storage/index.js";
 import { GalleryReconciliation } from "../application/gallery/reconciliation.js";
 import { GalleryRollbackCoordinator } from "../application/gallery/rollback-coordinator.js";
-import { directConnection, pool } from "../db/client.js";
+import { db, directConnection, pool } from "../db/client.js";
+import { createConfiguredIdempotencyEvidenceCipher } from "../db/node-idempotency-evidence.js";
 import { readMaintenanceEnv } from "../env.js";
 import { evaluateGalleryEligibility } from "../application/gallery/eligibility.js";
 import { galleryConfigurationFromEnv } from "../application/gallery/configuration.js";
@@ -18,7 +19,10 @@ const env = readMaintenanceEnv();
 export function startReconciliationDispatcher(
   options: { keepAlive?: boolean } = {},
 ): () => void {
-  const artifactRepositories = createArtifactRepositories();
+  const artifactRepositories = createArtifactRepositories(
+    db,
+    createConfiguredIdempotencyEvidenceCipher(),
+  );
   const module = new ReconciliationModule({
     repository: createReconciliationRepository(),
     storage: createConfiguredObjectStorage(),
