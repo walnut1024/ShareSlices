@@ -44,6 +44,13 @@ export function buildTrustedHttpApp(input: TrustedHttpAppInput): Hono {
 
   app.use("*", trustedIngressMiddleware(input.trustedIngress));
 
+  app.use("*", async (context, next) => {
+    await next();
+    if (!context.res.headers.has("Cache-Control")) {
+      context.header("Cache-Control", "no-store");
+    }
+  });
+
   app.onError((error, c) => {
     const id = requestId(c);
     const trace = parseTraceParent(c.req.header("traceparent"));
