@@ -71,6 +71,22 @@ test("doctor reports discovered references without resolving Secret values", asy
   });
 });
 
+test("doctor optionally loads and forwards an immutable release for artifact checks", async () => {
+  let request;
+  const execution = await executeInvocation(
+    parseInvocation(["doctor", "--config", configPath, "--release", releasePath]),
+    executor({
+      doctor: async (value) => {
+        request = value;
+        return {checks: [], database: qualifiedDatabase};
+      },
+    }),
+  );
+  assert.equal(execution.exitCode, exitCodes.succeeded);
+  assert.equal(request.release.releaseId, release.releaseId);
+  assert.equal(execution.result.requestedRelease, release.releaseId);
+});
+
 test("Cloudflare doctor fails closed when database qualification evidence is absent", async () => {
   const execution = await executeInvocation(
     parseInvocation(["doctor", "--config", configPath]),

@@ -142,7 +142,7 @@ function validateBundleIdentity(bundle, config, release) {
 async function executeReadOnly({ command, config, release, adapter, options }) {
   if (command === "doctor") {
     const prerequisites = discoverPrerequisites(config);
-    const diagnosis = await adapter.doctor({ config, prerequisites });
+    const diagnosis = await adapter.doctor({ config, prerequisites, release });
     if (!diagnosis || !Array.isArray(diagnosis.checks)) {
       throw new DeploymentLifecycleError(
         "deployment_doctor_result_invalid",
@@ -171,7 +171,7 @@ async function executeReadOnly({ command, config, release, adapter, options }) {
     return successful(
       command,
       config.target,
-      null,
+      release?.releaseId ?? null,
       { prerequisites, checks: diagnosis.checks },
       diagnosis.checks.some(({ state }) => state === "warning") ? "warning" : "succeeded",
     );
@@ -288,6 +288,7 @@ export function createLifecycleExecutor(adapterRegistry) {
       config = await loadDeploymentConfig(options.config);
       const adapter = adapterFor(adapterRegistry, config.target);
       const release = ["render", "plan", "apply"].includes(command) ||
+        (command === "doctor" && options.release) ||
         (["verify", "rollback"].includes(command) && options.release)
         ? await loadRelease(options.release)
         : null;

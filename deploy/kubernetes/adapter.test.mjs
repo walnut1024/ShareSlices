@@ -75,14 +75,22 @@ function successfulKubectl(calls) {
   };
 }
 
+function successfulDoctorProbes() {
+  return {
+    probeReleaseStoreAccess: async () => true,
+    probeImageAvailability: async ({images}) => ({availableDigests: images.map(({digest}) => digest)}),
+  };
+}
+
 test("doctor performs only explicit-context read-only discovery and reports current operator evidence", async () => {
   const calls = [];
   const adapter = createKubernetesAdapter({
     runKubectl: successfulKubectl(calls),
     resolveHost: async () => ["192.0.2.10"],
     now: () => new Date("2026-07-21T12:00:00Z"),
+    ...successfulDoctorProbes(),
   });
-  const result = await adapter.doctor({config});
+  const result = await adapter.doctor({config, release});
   assert.equal(result.checks.every(({state}) => state === "available"), true);
   assert.equal(result.checks.find(({id}) => id === "kubernetes-network-conformance").evidence.evidenceKind, "operator-supplied");
   assert.equal(result.checks.find(({id}) => id === "kubernetes-smtp-contract").evidence.sendsMail, false);
@@ -92,7 +100,11 @@ test("doctor performs only explicit-context read-only discovery and reports curr
     secretValueRead: false,
     revision: "9",
   });
-  assert.equal(result.checks.find(({id}) => id === "kubernetes-release-store-reference").evidence.secretResolved, false);
+  assert.deepEqual(result.checks.find(({id}) => id === "kubernetes-release-store-access").evidence, {
+    revision: "5",
+    access: "read-only",
+  });
+  assert.equal(result.checks.find(({id}) => id === "kubernetes-release-images").evidence.checkedCount, 5);
   assert.deepEqual(result.checks.find(({id}) => id === "kubernetes-registry-pull-secret").evidence, {
     secretName: "shareslices-registry",
     key: ".dockerconfigjson",
@@ -133,8 +145,9 @@ test("doctor fails closed for stale conformance, denied permissions, missing Sec
       return ["192.0.2.10"];
     },
     now: () => new Date("2026-07-23T12:00:00Z"),
+    ...successfulDoctorProbes(),
   });
-  const result = await adapter.doctor({config});
+  const result = await adapter.doctor({config, release});
   const unavailable = new Set(result.checks.filter(({state}) => state === "unavailable").map(({id}) => id));
   assert.deepEqual(unavailable, new Set([
     "kubernetes-permissions",
@@ -154,8 +167,9 @@ test("doctor checks status and rollback Pod permissions before mutation", async 
     runKubectl: successfulKubectl(calls),
     resolveHost: async () => ["192.0.2.10"],
     now: () => new Date("2026-07-21T12:00:00Z"),
+    ...successfulDoctorProbes(),
   });
-  const result = await adapter.doctor({config});
+  const result = await adapter.doctor({config, release});
   assert.equal(result.checks.find(({id}) => id === "kubernetes-permissions").state, "available");
   const commands = calls.map((arguments_) => arguments_.join(" "));
   for (const permission of [
@@ -177,10 +191,37 @@ test("doctor never treats CNI API discovery as network enforcement evidence", as
     runKubectl: successfulKubectl([]),
     resolveHost: async () => ["192.0.2.10"],
     now: () => new Date("2026-07-21T12:00:00Z"),
+    ...successfulDoctorProbes(),
   });
-  const result = await adapter.doctor({config: stale});
+  const result = await adapter.doctor({config: stale, release});
   assert.equal(result.checks.find(({id}) => id === "kubernetes-apis").state, "available");
   assert.equal(result.checks.find(({id}) => id === "kubernetes-network-conformance").state, "unavailable");
+});
+
+test("doctor fails closed when release-store or immutable image access is not proven", async () => {
+  const adapter = createKubernetesAdapter({
+    runKubectl: successfulKubectl([]),
+    resolveHost: async () => ["192.0.2.10"],
+    now: () => new Date("2026-07-21T12:00:00Z"),
+  });
+  const result = await adapter.doctor({config, release});
+  assert.deepEqual(
+    result.checks
+      .filter(({id}) => ["kubernetes-release-store-access", "kubernetes-release-images"].includes(id))
+      .map(({id, state, reasonCode}) => ({id, state, reasonCode})),
+    [
+      {
+        id: "kubernetes-release-store-access",
+        state: "unavailable",
+        reasonCode: "release_store_read_unavailable",
+      },
+      {
+        id: "kubernetes-release-images",
+        state: "unavailable",
+        reasonCode: "release_image_unavailable",
+      },
+    ],
+  );
 });
 
 test("plan server-side dry-runs every ordered phase without persistence and binds authoritative observations", async () => {

@@ -243,7 +243,7 @@ rather than numeric section order:
 - [x] 8.6 Reject release publication when a target artifact is missing, mutable, unverifiable, or incompatible with the declared schema and adjacent runtime version.
 - [x] 8.7 Define the release-store and OCI-registry prerequisite contracts, including immutable object naming, separate build-push and deploy-pull credentials, Kubernetes image-pull references, `linux/amd64` qualification where required, digest/provenance verification, rollback-window retention, and garbage-collection refusal; publish the release manifest and target artifacts through those Adapters.
 - [ ] 8.8 Add thin application release and target deployment workflows that call repository `mise` tasks and contain no duplicate deployment policy.
-- [ ] 8.9 Add CI tests proving identical inputs produce equivalent release manifests and no production render resolves a mutable tag.
+- [x] 8.9 Add CI tests proving identical inputs produce equivalent release manifests and no production render resolves a mutable tag.
 
 ## 9. Kubernetes Target Composition
 

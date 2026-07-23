@@ -152,9 +152,11 @@ export function createKubernetesAdapter({
   finalizeRelease,
   rollbackRelease,
   runNetworkProbes,
+  probeImageAvailability,
+  probeReleaseStoreAccess,
   controlSchemaChecksum,
 } = {}) {
-  async function doctor({config}) {
+  async function doctor({config, release}) {
     const checks = [];
     const context = runKubectl(["config", "get-contexts", config.kubernetes.context, "--no-headers", "--output=name"]);
     checks.push(context.status === 0 && context.stdout.trim() === config.kubernetes.context
@@ -309,10 +311,52 @@ export function createKubernetesAdapter({
       sender: config.kubernetes.email.sender,
       sendsMail: false,
     }));
-    checks.push(available("kubernetes-release-store-reference", {
-      revision: config.kubernetes.releaseStore.revision,
-      secretResolved: false,
-    }));
+    let releaseStoreReadable = false;
+    if (typeof probeReleaseStoreAccess === "function") {
+      try {
+        releaseStoreReadable = await probeReleaseStoreAccess({
+          config,
+          reference: config.kubernetes.releaseStore,
+        }) === true;
+      } catch {
+        releaseStoreReadable = false;
+      }
+    }
+    checks.push(releaseStoreReadable
+      ? available("kubernetes-release-store-access", {
+        revision: config.kubernetes.releaseStore.revision,
+        access: "read-only",
+      })
+      : unavailable("kubernetes-release-store-access", "release_store_read_unavailable"));
+
+    const images = release?.target === "kubernetes"
+      ? release.artifacts
+        .filter(({artifactKind}) => artifactKind === "oci-image")
+        .map(({name, contentDigest}) => Object.freeze({name, digest: contentDigest}))
+      : [];
+    let availableImageDigests = new Set();
+    if (images.length > 0 && typeof probeImageAvailability === "function") {
+      try {
+        const observed = await probeImageAvailability({
+          config,
+          repository: config.kubernetes.registry.repository,
+          images,
+        });
+        availableImageDigests = new Set(observed?.availableDigests ?? []);
+      } catch {
+        availableImageDigests = new Set();
+      }
+    }
+    const everyImageAvailable = images.length > 0 && images.every(({digest}) => availableImageDigests.has(digest));
+    checks.push(everyImageAvailable
+      ? available("kubernetes-release-images", {
+        checkedCount: images.length,
+        references: images.map(({name, digest}) => `${config.kubernetes.registry.repository}/${name}@${digest}`),
+      })
+      : unavailable(
+        "kubernetes-release-images",
+        images.length === 0 ? "kubernetes_release_required" : "release_image_unavailable",
+      ));
     return Object.freeze({checks});
   }
 
