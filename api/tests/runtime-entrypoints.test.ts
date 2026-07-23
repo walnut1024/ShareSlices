@@ -187,6 +187,16 @@ describe("Node runtime entrypoint authority", () => {
     expect(importedEnvironmentReaders(graph)).toEqual(new Set());
   });
 
+  it("keeps the reusable Better Auth composition independent from Node globals", () => {
+    const graph = reachableSources("auth/create-auth.ts");
+    const paths = [...graph.keys()].map((file) => file.slice(sourceRoot.length));
+    expect(paths.filter((path) => path === "env.ts" || path === "db/client.ts")).toEqual([]);
+    for (const content of graph.values()) {
+      expect(content).not.toContain("process.env");
+    }
+    expect(importedEnvironmentReaders(graph)).toEqual(new Set());
+  });
+
   it("keeps the route-free Cloudflare Jobs entrypoint bounded and environment-independent", async () => {
     const graph = reachableSources("cloudflare/jobs-entrypoint.ts");
     const paths = [...graph.keys()].map((file) => file.slice(sourceRoot.length));
