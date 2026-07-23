@@ -183,7 +183,7 @@ rather than numeric section order:
 - [x] 4.5 Remove authentication-email and reconciliation dispatch loops from API HTTP startup and preserve them through the maintenance composition.
 - [x] 4.6 Add a trusted-ingress metadata Adapter that discards forged forwarding headers and normalizes Kubernetes trusted-proxy or Cloudflare runtime metadata.
 - [x] 4.7 Replace environment-specific Web build arguments with a deployment-provided public runtime bootstrap that contains no Secrets and is safe to serve per installation.
-- [ ] 4.8 Add cross-entrypoint contract tests proving Node and Cloudflare return the same statuses, headers, Cookies, errors, and route behavior for shared scenarios.
+- [x] 4.8 Add cross-entrypoint contract tests proving Node and Cloudflare return the same statuses, headers, Cookies, errors, and route behavior for shared scenarios.
 - [x] 4.9 Add dependency-graph tests proving the content-only builder has no management routes, Better Auth, credentialed CORS, email, Queue control, or mutation Adapter.
 - [x] 4.10 Keep the canonical Compose graph synchronized with the new API HTTP, maintenance/authentication-email, content-only, one-shot migration, resident processing, and Web roles; never recombine role authority only for local convenience.
 
