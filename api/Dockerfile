@@ -14,7 +14,7 @@ COPY api/ api/
 RUN pnpm --dir api exec tsc --outDir dist --rootDir . \
     && pnpm --filter @shareslices/api deploy --legacy --prod /production/api
 
-FROM node:26.4.0-bookworm-slim AS runtime
+FROM node:26.4.0-bookworm-slim AS runtime-base
 
 ENV NODE_ENV=production
 WORKDIR /app/api
@@ -26,5 +26,16 @@ COPY --chown=node:node db/migrations ./db/migrations
 
 USER node
 EXPOSE 7456
+
+FROM runtime-base AS maintenance
+
+CMD ["node", "dist/src/maintenance/main.js"]
+
+FROM runtime-base AS content
+
+EXPOSE 7460
+CMD ["node", "dist/src/content/main.js"]
+
+FROM runtime-base AS api
 
 CMD ["node", "dist/src/main.js"]
