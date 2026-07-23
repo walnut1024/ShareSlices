@@ -27,6 +27,7 @@ test("loads one selected target and discovers only non-secret prerequisites", as
     discoverPrerequisites(cloudflare).secretReferences.every(({ ref, revision }) => ref.includes("://") && revision.length > 0),
     true,
   );
+  assert.equal(discoverPrerequisites(cloudflare).secretReferences.length, 8);
 });
 
 test("rejects unsupported schema versions before target discovery", async () => {

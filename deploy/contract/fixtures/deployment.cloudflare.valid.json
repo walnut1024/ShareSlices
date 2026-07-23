@@ -9,6 +9,15 @@
       { "ref": "secret://workers/signing-current", "revision": "4" },
       { "ref": "secret://workers/signing-previous", "revision": "3" }
     ],
+    "roleSecrets": {
+      "authenticationEmailEncryption": { "ref": "secret://workers/auth-email-encryption", "revision": "2" },
+      "contentFingerprint": {
+        "current": { "ref": "secret://workers/content-fingerprint-current", "revision": "3" }
+      },
+      "idempotencyEncryption": {
+        "current": { "ref": "secret://workers/idempotency-current", "revision": "5" }
+      }
+    },
     "publicOrigins": {
       "application": "https://app.example.test",
       "content": "https://content.example-content.test"

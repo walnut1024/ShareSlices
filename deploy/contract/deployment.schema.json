@@ -150,6 +150,15 @@
         }
       }
     },
+    "rotatingSecret": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["current"],
+      "properties": {
+        "current": { "$ref": "#/$defs/secretReference" },
+        "previous": { "$ref": "#/$defs/secretReference" }
+      }
+    },
     "recoveryEvidence": {
       "type": "object",
       "additionalProperties": false,
@@ -178,6 +187,7 @@
       "required": [
         "database",
         "sessionSigningKeys",
+        "roleSecrets",
         "publicOrigins",
         "recoverability"
       ],
@@ -188,6 +198,21 @@
           "minItems": 1,
           "uniqueItems": true,
           "items": { "$ref": "#/$defs/secretReference" }
+        },
+        "roleSecrets": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "authenticationEmailEncryption",
+            "contentFingerprint",
+            "idempotencyEncryption"
+          ],
+          "properties": {
+            "authenticationEmailEncryption": { "$ref": "#/$defs/secretReference" },
+            "contentFingerprint": { "$ref": "#/$defs/rotatingSecret" },
+            "idempotencyEncryption": { "$ref": "#/$defs/rotatingSecret" },
+            "galleryTurnstile": { "$ref": "#/$defs/secretReference" }
+          }
         },
         "publicOrigins": {
           "type": "object",

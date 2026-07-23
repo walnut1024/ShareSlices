@@ -8,6 +8,15 @@
     "sessionSigningKeys": [
       { "ref": "secret://signing/current", "revision": "4" }
     ],
+    "roleSecrets": {
+      "authenticationEmailEncryption": { "ref": "secret://application/auth-email-encryption", "revision": "2" },
+      "contentFingerprint": {
+        "current": { "ref": "secret://application/content-fingerprint-current", "revision": "3" }
+      },
+      "idempotencyEncryption": {
+        "current": { "ref": "secret://application/idempotency-current", "revision": "5" }
+      }
+    },
     "publicOrigins": {
       "application": "https://app.example.test",
       "content": "https://content.example-content.test"

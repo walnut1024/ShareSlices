@@ -117,9 +117,20 @@ export async function loadDeploymentConfig(path) {
 }
 
 function sharedSecretReferences(config) {
+  const roleSecrets = config.shared.roleSecrets;
   return [
     config.shared.database,
     ...config.shared.sessionSigningKeys,
+    roleSecrets.authenticationEmailEncryption,
+    roleSecrets.contentFingerprint.current,
+    ...(roleSecrets.contentFingerprint.previous
+      ? [roleSecrets.contentFingerprint.previous]
+      : []),
+    roleSecrets.idempotencyEncryption.current,
+    ...(roleSecrets.idempotencyEncryption.previous
+      ? [roleSecrets.idempotencyEncryption.previous]
+      : []),
+    ...(roleSecrets.galleryTurnstile ? [roleSecrets.galleryTurnstile] : []),
   ];
 }
 
