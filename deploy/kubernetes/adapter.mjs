@@ -12,7 +12,7 @@ import {runCoreVerification} from "../automation/verify.mjs";
 import {createKubernetesNetworkProbeRunner} from "./network-probes.mjs";
 import {renderKubernetesBundle} from "./render.mjs";
 
-// cspell:ignore automount ciliumnetworkpolicies gitops ingressclass ingressclasses networkpolicies poddisruptionbudgets serviceaccounts
+// cspell:ignore automount ciliumnetworkpolicies dockerconfigjson gitops ingressclass ingressclasses networkpolicies poddisruptionbudgets serviceaccounts
 const requiredApiResources = Object.freeze([
   "configmaps", "deployments.apps", "ingresses.networking.k8s.io", "jobs.batch",
   "ingressclasses.networking.k8s.io", "networkpolicies.networking.k8s.io", "pods",
@@ -173,6 +173,11 @@ export function createKubernetesAdapter({
       ? available("kubernetes-version", {serverVersion, minimumVersion: config.kubernetes.minimumVersion})
       : unavailable("kubernetes-version", "unsupported_or_unreadable_version"));
 
+    const kustomize = runKubectl(commandFor(config, "kustomize", "--help"));
+    checks.push(kustomize.status === 0
+      ? available("kubernetes-kustomize", {source: "kubectl"})
+      : unavailable("kubernetes-kustomize", "kustomize_unavailable"));
+
     const namespace = runKubectl(commandFor(config, "get", "namespace", config.kubernetes.namespace, "--output=name"));
     checks.push(namespace.status === 0
       ? available("kubernetes-namespace", {namespace: config.kubernetes.namespace})
@@ -202,6 +207,44 @@ export function createKubernetesAdapter({
     checks.push(missingSecrets.length === 0
       ? available("kubernetes-secret-references", {checkedCount: secretNames(config).length})
       : unavailable("kubernetes-secret-references", "required_secret_reference_unavailable"));
+
+    const registrySecretKey = runKubectl(commandFor(
+      config,
+      "get",
+      "secret",
+      config.kubernetes.registry.pullSecretName,
+      "--output=go-template={{if index .data \".dockerconfigjson\"}}present{{end}}",
+    ));
+    checks.push(registrySecretKey.status === 0 && registrySecretKey.stdout.trim() === "present"
+      ? available("kubernetes-registry-pull-secret", {
+        secretName: config.kubernetes.registry.pullSecretName,
+        key: ".dockerconfigjson",
+        repository: config.kubernetes.registry.repository,
+        secretValueRead: false,
+      })
+      : unavailable("kubernetes-registry-pull-secret", "registry_pull_secret_key_unavailable"));
+
+    const tlsSecretNames = [
+      config.kubernetes.ingress.tls.applicationSecretName,
+      config.kubernetes.ingress.tls.contentSecretName,
+    ];
+    const invalidTlsSecrets = tlsSecretNames.filter((name) => {
+      const result = runKubectl(commandFor(
+        config,
+        "get",
+        "secret",
+        name,
+        "--output=go-template={{if and (index .data \"tls.crt\") (index .data \"tls.key\")}}present{{end}}",
+      ));
+      return result.status !== 0 || result.stdout.trim() !== "present";
+    });
+    checks.push(invalidTlsSecrets.length === 0
+      ? available("kubernetes-ingress-tls-secrets", {
+        checkedCount: tlsSecretNames.length,
+        keys: ["tls.crt", "tls.key"],
+        secretValueRead: false,
+      })
+      : unavailable("kubernetes-ingress-tls-secrets", "ingress_tls_secret_keys_unavailable"));
 
     const smtpSecretKey = runKubectl(commandFor(
       config,

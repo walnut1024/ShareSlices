@@ -9,7 +9,7 @@ import {buildDeploymentPlan} from "../automation/plan.mjs";
 import {serializeCanonicalTargetBundle} from "../automation/release.mjs";
 import {createKubernetesAdapter} from "./adapter.mjs";
 
-// cspell:ignore ingressclasses
+// cspell:ignore dockerconfigjson ingressclasses
 
 // cspell:ignore gitops networkpolicies poddisruptionbudgets serviceaccounts
 
@@ -62,6 +62,12 @@ function successfulKubectl(calls) {
       return {status: 0, stdout: "enterprise-production-cluster-1", stderr: ""};
     }
     if (command.includes(" auth can-i ")) return {status: 0, stdout: "yes\n", stderr: ""};
+    if (command.includes("--output=go-template={{if index .data \".dockerconfigjson\"}}present{{end}}")) {
+      return {status: 0, stdout: "present", stderr: ""};
+    }
+    if (command.includes("--output=go-template={{if and (index .data \"tls.crt\") (index .data \"tls.key\")}}present{{end}}")) {
+      return {status: 0, stdout: "present", stderr: ""};
+    }
     if (command.includes("--output=go-template={{if index .data \"AUTH_EMAIL_SMTP_URL\"}}present{{end}}")) {
       return {status: 0, stdout: "present", stderr: ""};
     }
@@ -87,6 +93,13 @@ test("doctor performs only explicit-context read-only discovery and reports curr
     revision: "9",
   });
   assert.equal(result.checks.find(({id}) => id === "kubernetes-release-store-reference").evidence.secretResolved, false);
+  assert.deepEqual(result.checks.find(({id}) => id === "kubernetes-registry-pull-secret").evidence, {
+    secretName: "shareslices-registry",
+    key: ".dockerconfigjson",
+    repository: "registry.example.test/shareslices",
+    secretValueRead: false,
+  });
+  assert.equal(result.checks.find(({id}) => id === "kubernetes-ingress-tls-secrets").evidence.secretValueRead, false);
   assert.equal(calls[0].join(" "), "config get-contexts enterprise-production --no-headers --output=name");
   for (const call of calls.slice(1)) {
     assert.deepEqual(call.slice(0, 4), ["--context", "enterprise-production", "--namespace", "shareslices"]);
@@ -99,8 +112,15 @@ test("doctor fails closed for stale conformance, denied permissions, missing Sec
   const base = successfulKubectl(calls);
   const runKubectl = (arguments_) => {
     const command = arguments_.join(" ");
+    if (command.includes(" kustomize --help")) return {status: 1, stdout: "", stderr: "unavailable"};
     if (command.includes(" auth can-i patch deployments.apps")) return {status: 0, stdout: "no\n", stderr: ""};
     if (command.includes(" get secret shareslices-api-secrets")) return {status: 1, stdout: "", stderr: "not found"};
+    if (command.includes("--output=go-template={{if index .data \".dockerconfigjson\"}}present{{end}}")) {
+      return {status: 0, stdout: "", stderr: ""};
+    }
+    if (command.includes("get secret shareslices-content-tls") && command.includes("tls.crt")) {
+      return {status: 0, stdout: "", stderr: ""};
+    }
     if (command.includes("--output=go-template={{if index .data \"AUTH_EMAIL_SMTP_URL\"}}present{{end}}")) {
       return {status: 0, stdout: "", stderr: ""};
     }
@@ -118,7 +138,10 @@ test("doctor fails closed for stale conformance, denied permissions, missing Sec
   const unavailable = new Set(result.checks.filter(({state}) => state === "unavailable").map(({id}) => id));
   assert.deepEqual(unavailable, new Set([
     "kubernetes-permissions",
+    "kubernetes-kustomize",
     "kubernetes-secret-references",
+    "kubernetes-registry-pull-secret",
+    "kubernetes-ingress-tls-secrets",
     "kubernetes-smtp-secret-key-reference",
     "kubernetes-network-conformance",
     "kubernetes-smtp-dns",
