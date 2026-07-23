@@ -86,6 +86,7 @@ export function createPublicationContentRepository(
           objectKey: schema.contentBundleAsset.objectKey,
           sizeBytes: schema.contentBundleAsset.sizeBytes,
           contentType: schema.contentBundleAsset.contentType,
+          sha256: schema.contentBundleAsset.sha256,
         })
         .from(schema.artifactVersion)
         .innerJoin(
@@ -114,6 +115,7 @@ export function createPublicationContentRepository(
           objectKey: schema.contentBundleAsset.objectKey,
           sizeBytes: schema.contentBundleAsset.sizeBytes,
           contentType: schema.contentBundleAsset.contentType,
+          sha256: schema.contentBundleAsset.sha256,
         })
         .from(schema.artifactVersion)
         .innerJoin(
@@ -173,6 +175,7 @@ export function createPublicationContentRepository(
           objectKey: schema.contentBundleAsset.objectKey,
           sizeBytes: schema.contentBundleAsset.sizeBytes,
           contentType: schema.contentBundleAsset.contentType,
+          sha256: schema.contentBundleAsset.sha256,
         })
         .from(schema.artifactVersion)
         .innerJoin(

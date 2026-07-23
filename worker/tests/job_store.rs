@@ -894,6 +894,14 @@ async fn assert_one_bundle_with_two_versions(pool: &PgPool, bundle_id: &str) {
             .expect("version count");
     assert_eq!(bundle_count, 1);
     assert_eq!(version_count, 2);
+    let asset_digests: Vec<String> = sqlx::query_scalar(
+        "select sha256 from content_bundle_asset where bundle_id = $1 order by path",
+    )
+    .bind(bundle_id)
+    .fetch_all(pool)
+    .await
+    .expect("asset digests");
+    assert_eq!(asset_digests, vec!["b".repeat(64), "a".repeat(64)]);
     let thumbnail_job_count: i64 = sqlx::query_scalar(
         "select count(*) from content_bundle_thumbnail_job where bundle_id = $1 and renderer_revision = 'renderer-v2'",
     )
@@ -976,6 +984,7 @@ impl TestDatabase {
             "db/migrations/0010_artifact_thumbnail.sql",
             "db/migrations/0012_content_bundle_foundation.sql",
             "db/migrations/0013_artifact_thumbnail_16_9.sql",
+            "db/migrations/0032_content_bundle_asset_digest.sql",
         ] {
             let sql = fs::read_to_string(repository_root.join(migration)).expect("read migration");
             sqlx::raw_sql(&sql)

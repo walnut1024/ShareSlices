@@ -638,7 +638,8 @@ export const contentBundleAsset = pgTable(
     path: text("path").notNull(),
     objectKey: text("object_key").notNull().unique(),
     sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
-    contentType: text("content_type").notNull()
+    contentType: text("content_type").notNull(),
+    sha256: text("sha256")
   },
   (table) => [
     primaryKey({ columns: [table.bundleId, table.path] }),
@@ -652,7 +653,11 @@ export const contentBundleAsset = pgTable(
       "content_bundle_asset_path_check",
       sql`${table.path} <> '' and ${table.path} !~ '(^/|(^|/)\\.\\.(/|$))'`
     ),
-    check("content_bundle_asset_size_check", sql`${table.sizeBytes} >= 0`)
+    check("content_bundle_asset_size_check", sql`${table.sizeBytes} >= 0`),
+    check(
+      "content_bundle_asset_sha256_check",
+      sql`${table.sha256} is null or ${table.sha256} ~ '^[0-9a-f]{64}$'`
+    )
   ]
 );
 

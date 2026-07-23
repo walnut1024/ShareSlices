@@ -1180,7 +1180,7 @@ async fn insert_content_bundle_manifest(
             ))
         })?;
         sqlx::query(
-            "insert into content_bundle_asset (bundle_id, owner_user_id, path, object_key, size_bytes, content_type) values ($1, $2, $3, $4, $5, $6)",
+            "insert into content_bundle_asset (bundle_id, owner_user_id, path, object_key, size_bytes, content_type, sha256) values ($1, $2, $3, $4, $5, $6, $7)",
         )
         .bind(&commit.bundle_id)
         .bind(&owner_user_id)
@@ -1188,6 +1188,7 @@ async fn insert_content_bundle_manifest(
         .bind(&asset.object_key)
         .bind(size_bytes)
         .bind(&asset.content_type)
+        .bind(&asset.sha256)
         .execute(&mut **transaction)
         .await?;
     }

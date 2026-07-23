@@ -307,7 +307,7 @@ async fn commit(
         .await?;
     sqlx::query("insert into content_bundle(id,owner_user_id,content_identity_revision,lifecycle_state,ready_at) values($1,$2,$3,'ready',now())").bind(&job.bundle).bind(&job.owner).bind(&job.content_revision).execute(&mut*tx).await?;
     for asset in &manifest.files {
-        sqlx::query("insert into content_bundle_asset(bundle_id,owner_user_id,path,object_key,size_bytes,content_type) values($1,$2,$3,$4,$5,$6)").bind(&job.bundle).bind(&job.owner).bind(&asset.path).bind(&asset.object_key).bind(i64::try_from(asset.size_bytes).unwrap_or(i64::MAX)).bind(&asset.content_type).execute(&mut*tx).await?;
+        sqlx::query("insert into content_bundle_asset(bundle_id,owner_user_id,path,object_key,size_bytes,content_type,sha256) values($1,$2,$3,$4,$5,$6,$7)").bind(&job.bundle).bind(&job.owner).bind(&asset.path).bind(&asset.object_key).bind(i64::try_from(asset.size_bytes).unwrap_or(i64::MAX)).bind(&asset.content_type).bind(&asset.sha256).execute(&mut*tx).await?;
     }
     sqlx::query("insert into content_bundle_manifest(bundle_id,owner_user_id,entry_path,object_key,file_count,total_size_bytes) values($1,$2,$3,$4,$5,$6)").bind(&job.bundle).bind(&job.owner).bind(&manifest.entry_path).bind(manifest_key).bind(i32::try_from(manifest.file_count()).unwrap_or(i32::MAX)).bind(i64::try_from(manifest.total_size_bytes()).unwrap_or(i64::MAX)).execute(&mut*tx).await?;
     sqlx::query("insert into artifact_version(id,artifact_id,owner_user_id,content_bundle_id,renderer_revision,upload_session_id,version_number,state,source_kind) values($1,$2,$3,$4,$5,null,1,'ready','server_gallery_copy')").bind(&job.version).bind(&job.artifact).bind(&job.owner).bind(&job.bundle).bind(&job.renderer).execute(&mut*tx).await?;

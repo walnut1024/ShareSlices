@@ -93,9 +93,9 @@ describe("Publication content repository", () => {
        where id = 'version-1'`,
     );
     await pool.query(
-      `insert into content_bundle_asset (bundle_id, owner_user_id, path, object_key, size_bytes, content_type)
-       values ('bundle-1', 'owner-1', '腾讯文档盘点分析报告.html', 'content-bundles/bundle-1/index.html', 14, 'text/html'),
-              ('bundle-1', 'owner-1', 'assets/app.js', 'content-bundles/bundle-1/assets/app.js', 10, 'text/javascript')`,
+      `insert into content_bundle_asset (bundle_id, owner_user_id, path, object_key, size_bytes, content_type, sha256)
+       values ('bundle-1', 'owner-1', '腾讯文档盘点分析报告.html', 'content-bundles/bundle-1/index.html', 14, 'text/html', repeat('a', 64)),
+              ('bundle-1', 'owner-1', 'assets/app.js', 'content-bundles/bundle-1/assets/app.js', 10, 'text/javascript', repeat('b', 64))`,
     );
     await pool.query(
       `insert into content_bundle_manifest (
@@ -128,6 +128,7 @@ describe("Publication content repository", () => {
         path: "腾讯文档盘点分析报告.html",
         objectKey: "content-bundles/bundle-1/index.html",
         contentType: "text/html",
+        sha256: "a".repeat(64),
       },
     );
     await expect(
