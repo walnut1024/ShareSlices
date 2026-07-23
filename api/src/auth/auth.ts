@@ -3,7 +3,7 @@ import {
   createVerificationAttempt,
   findLatestVerificationAttempt,
 } from "../db/node-authentication-email-repository.js";
-import { findPasswordHashByEmail } from "../db/account-queries.js";
+import { findPasswordHashByEmail } from "../db/node-account-queries.js";
 import { db } from "../db/client.js";
 import { readApiHttpEnv } from "../env.js";
 import { createAuth } from "./create-auth.js";

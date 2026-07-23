@@ -16,6 +16,7 @@ import { auth } from "../auth/auth.js";
 import { pool } from "../db/client.js";
 import type { ApiHttpEnv } from "../env.js";
 import { createConfiguredObjectStorage } from "../storage/index.js";
+import { apiLogger } from "../logging/index.js";
 import type { GalleryRouteDependencies } from "./gallery-routes.js";
 
 export function createNodeGalleryDependencies(
@@ -51,7 +52,11 @@ export function createNodeGalleryDependencies(
     profiles: new GalleryCreatorProfileService(pool),
     grants: new GalleryPermissionGrantService(pool),
     publicGallery: new PublicGalleryService(pool),
-    downloadArchive: new GalleryDownloadArchiveService(downloads, storage),
+    downloadArchive: new GalleryDownloadArchiveService(
+      downloads,
+      storage,
+      apiLogger,
+    ),
     avatars: new GalleryAvatarService(pool, storage),
     copy: new GalleryCopyService(pool, env.WORKER_JOB_MAX_ATTEMPTS),
     reports: new GalleryReportService(

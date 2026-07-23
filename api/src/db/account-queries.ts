@@ -1,5 +1,4 @@
 import type { Pool } from "pg";
-import { pool } from "./client.js";
 
 export function createAccountQueries(databasePool: Pick<Pool, "query">) {
   return {
@@ -45,12 +44,3 @@ export function createAccountQueries(databasePool: Pick<Pool, "query">) {
     },
   };
 }
-
-const nodeAccountQueries = createAccountQueries(pool);
-
-export const {
-  userExistsByEmail,
-  findUserByEmail,
-  findPasswordHashByEmail,
-  userExistsById,
-} = nodeAccountQueries;

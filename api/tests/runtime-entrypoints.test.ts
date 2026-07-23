@@ -174,6 +174,20 @@ describe("Node runtime entrypoint authority", () => {
     expect(importedEnvironmentReaders(graph)).toEqual(new Set());
   });
 
+  it("keeps the concrete Cloudflare App Worker independent from Node startup globals", () => {
+    const graph = reachableSources("cloudflare/app-entrypoint.ts");
+    const paths = [...graph.keys()].map((file) => file.slice(sourceRoot.length));
+    expect(paths.filter((path) => path === "env.ts" || path === "db/client.ts")).toEqual([]);
+    expect(paths.filter((path) => path === "main.ts")).toEqual([]);
+    expect(paths.filter((path) => path.startsWith("maintenance/"))).toEqual([]);
+    for (const content of graph.values()) {
+      expect(content).not.toContain("@hono/node-server");
+      expect(content).not.toContain("process.env");
+      expect(content).not.toContain("setInterval");
+    }
+    expect(importedEnvironmentReaders(graph)).toEqual(new Set());
+  });
+
   it("keeps Cloudflare email composition independent from process and resident startup", () => {
     const graph = reachableSources("cloudflare/authentication-email-composition.ts");
     const paths = [...graph.keys()].map((file) => file.slice(sourceRoot.length));

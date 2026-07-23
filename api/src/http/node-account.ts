@@ -1,5 +1,5 @@
 import { auth, verifyPasswordCredential } from "../auth/auth.js";
-import { findUserByEmail, userExistsByEmail, userExistsById } from "../db/account-queries.js";
+import { findUserByEmail, userExistsByEmail, userExistsById } from "../db/node-account-queries.js";
 import {
   claimPasswordResetGrant,
   completePasswordResetGrant,

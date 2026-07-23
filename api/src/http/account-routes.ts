@@ -8,7 +8,7 @@ import {
 } from "../application/accounts/authentication-email.js";
 import type { auth, verifyPasswordCredential } from "../auth/auth.js";
 import { loginInputSchema, registrationInputSchema } from "../auth/email.js";
-import type { findUserByEmail, userExistsByEmail, userExistsById } from "../db/account-queries.js";
+import type { findUserByEmail, userExistsByEmail, userExistsById } from "../db/node-account-queries.js";
 import type {
   createPasswordResetGrant,
   createVerificationAttempt,

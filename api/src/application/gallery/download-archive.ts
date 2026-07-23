@@ -1,6 +1,6 @@
 import { Readable } from "node:stream";
 import { ZipArchive } from "archiver";
-import { apiLogger, type ApiLogger } from "../../logging/index.js";
+import type { ApiLogger } from "../../logging/index.js";
 import type { ObjectStorage } from "../../storage/object-storage.js";
 import { GalleryDownloadService } from "./download.js";
 
@@ -8,7 +8,7 @@ export class GalleryDownloadArchiveService {
   constructor(
     private readonly downloads: GalleryDownloadService,
     private readonly storage: Pick<ObjectStorage, "readCommittedObject">,
-    private readonly logger: ApiLogger = apiLogger,
+    private readonly logger: ApiLogger = { emit() {} },
   ) {}
 
   async open(
