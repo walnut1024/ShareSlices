@@ -14,6 +14,7 @@ export type CloudflareAuthenticationEmailBindings = Readonly<{
   AUTH_EMAIL_RESEND_SAFETY_MARGIN_SECONDS: string;
   AUTH_EMAIL_DELIVERY_LEASE_SECONDS: string;
   AUTH_EMAIL_CIRCUIT_BREAKER_SECONDS: string;
+  AUTH_EMAIL_MAX_ATTEMPTS: string;
 }>;
 
 function positiveInteger(name: string, value: string): number {
@@ -63,6 +64,7 @@ export function createCloudflareAuthenticationEmailComposition(input: Readonly<{
         "circuit_breaker_seconds",
         bindings.AUTH_EMAIL_CIRCUIT_BREAKER_SECONDS,
       ),
+      maxAttempts: positiveInteger("max_attempts", bindings.AUTH_EMAIL_MAX_ATTEMPTS),
       logger: input.logger,
       dispose: () => connection.close(),
     };

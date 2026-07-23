@@ -26,7 +26,7 @@ const smtpAdapter = createAuthenticationEmailSmtpAdapter({
 export async function dispatchOneAuthenticationEmail(
   workerId: string = randomUUID(),
   adapter: AuthenticationEmailTransportAdapter = smtpAdapter,
-  timing: Readonly<{ leaseSeconds: number; heartbeatMs: number }> = {
+  timing: Readonly<{ leaseSeconds: number; heartbeatMs: number; maxAttempts?: number }> = {
     leaseSeconds: env.AUTH_EMAIL_DELIVERY_LEASE_SECONDS,
     heartbeatMs: Math.max(100, Math.floor(env.AUTH_EMAIL_DELIVERY_LEASE_SECONDS * 1_000 / 3)),
   },
@@ -39,6 +39,7 @@ export async function dispatchOneAuthenticationEmail(
     databaseClients: directClients,
     encryptionKey: env.AUTH_EMAIL_ENCRYPTION_KEY,
     circuitBreakerSeconds: env.AUTH_EMAIL_CIRCUIT_BREAKER_SECONDS,
+    maxAttempts: timing.maxAttempts ?? env.AUTH_EMAIL_MAX_ATTEMPTS,
     logger: apiLogger,
   });
 }

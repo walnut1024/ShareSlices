@@ -56,6 +56,24 @@ function smtpAdapterWithSend(
   };
 }
 
+const sharedTransportFixtures = [
+  {
+    name: "enterprise SMTP",
+    create: () => smtpAdapter,
+  },
+  {
+    name: "Resend",
+    create: () => createAuthenticationEmailResendAdapter({
+      apiKey: "shared-contract-secret",
+      from: "ShareSlices <onboarding@resend.dev>",
+      providerNamespace: "shared-contract-team",
+      transportRevision: "shared-contract-v1",
+      safetyMarginMs: 300_000,
+      fetch: async () => Response.json({ id: "shared-contract-message" }),
+    }),
+  },
+] as const;
+
 describe("authentication email repository", () => {
   beforeAll(async () => {
     smtpServer = new SMTPServer({
@@ -110,6 +128,123 @@ describe("authentication email repository", () => {
     );
     smtpAdapter.close();
     await new Promise<void>((resolve) => smtpServer.close(() => resolve()));
+  });
+
+  describe.each(sharedTransportFixtures)("shared dispatcher contract: $name", ({ create }) => {
+    it("freezes the first-claim configuration and records provider acceptance separately", async () => {
+      const email = `shared-accepted-${crypto.randomUUID()}@example.com`;
+      const attempt = await createVerificationAttempt({ email, purpose: "registration" });
+      await acceptAuthenticationEmailDelivery({
+        attemptId: attempt.id,
+        email,
+        purpose: "registration",
+        sourceIp: "203.0.113.88",
+        payload: { email, otp: "123456", type: "email-verification" },
+      });
+
+      await expect(dispatchOneAuthenticationEmail(`shared-accepted-${crypto.randomUUID()}`, create()))
+        .resolves.toBe(true);
+
+      const delivery = await pool.query(
+        `select state, result_classification, transport_adapter, provider_namespace,
+                sender_identity, endpoint_identity, transport_configuration_revision,
+                payload_digest, local_message_id, encrypted_payload
+         from authentication_email_delivery where attempt_id = $1`,
+        [attempt.id],
+      );
+      expect(delivery.rows[0]).toMatchObject({
+        state: "sent",
+        result_classification: "provider_accepted",
+        encrypted_payload: "",
+      });
+      expect(delivery.rows[0].transport_adapter).toMatch(/^(smtp|resend)$/);
+      expect(delivery.rows[0].provider_namespace).toBeTruthy();
+      expect(delivery.rows[0].sender_identity).toBeTruthy();
+      expect(delivery.rows[0].endpoint_identity).toBeTruthy();
+      expect(delivery.rows[0].transport_configuration_revision).toBeTruthy();
+      expect(delivery.rows[0].payload_digest).toMatch(/^[a-f0-9]{64}$/);
+      expect(delivery.rows[0].local_message_id).toBeTruthy();
+    });
+
+    it("does not freeze transport identity when preparation crashes before submission", async () => {
+      const email = `shared-prepare-${crypto.randomUUID()}@example.com`;
+      const attempt = await createVerificationAttempt({ email, purpose: "registration" });
+      await acceptAuthenticationEmailDelivery({
+        attemptId: attempt.id,
+        email,
+        purpose: "registration",
+        sourceIp: "203.0.113.89",
+        payload: { email, otp: "123456", type: "email-verification" },
+      });
+      const base = create();
+      const crashingAdapter = {
+        async prepare(...args: Parameters<typeof base.prepare>) {
+          await base.prepare(...args);
+          throw new Error("crash_before_provider_boundary");
+        },
+      };
+
+      await expect(dispatchOneAuthenticationEmail("shared-prepare-crash", crashingAdapter))
+        .rejects.toThrow("crash_before_provider_boundary");
+      const delivery = await pool.query(
+        `select state, attempt_count, transport_adapter, provider_namespace, local_message_id
+         from authentication_email_delivery where attempt_id = $1`,
+        [attempt.id],
+      );
+      expect(delivery.rows[0]).toEqual({
+        state: "pending",
+        attempt_count: 0,
+        transport_adapter: null,
+        provider_namespace: null,
+        local_message_id: null,
+      });
+    });
+
+    it("rejects a late accepted outcome after lease ownership changes", async () => {
+      const email = `shared-late-${crypto.randomUUID()}@example.com`;
+      const attempt = await createVerificationAttempt({ email, purpose: "registration" });
+      await acceptAuthenticationEmailDelivery({
+        attemptId: attempt.id,
+        email,
+        purpose: "registration",
+        sourceIp: "203.0.113.90",
+        payload: { email, otp: "123456", type: "email-verification" },
+      });
+      const base = create();
+      const lateAdapter = {
+        async prepare(...args: Parameters<typeof base.prepare>) {
+          const prepared = await base.prepare(...args);
+          return {
+            snapshot: prepared.snapshot,
+            async send() {
+              await pool.query(
+                `update authentication_email_delivery
+                 set lease_owner = 'replacement-worker', lease_expires_at = now() + interval '1 minute'
+                 where id = $1`,
+                [args[1]],
+              );
+              return prepared.send();
+            },
+          };
+        },
+      };
+
+      await expect(dispatchOneAuthenticationEmail("shared-late-worker", lateAdapter, {
+        leaseSeconds: 1,
+        heartbeatMs: 500,
+      })).resolves.toBe(true);
+      const delivery = await pool.query(
+        `select state, lease_owner, provider_message_id, result_classification
+         from authentication_email_delivery where attempt_id = $1`,
+        [attempt.id],
+      );
+      expect(delivery.rows[0]).toEqual({
+        state: "sending",
+        lease_owner: "replacement-worker",
+        provider_message_id: null,
+        result_classification: null,
+      });
+    });
   });
 
   it("deduplicates repeated delivery during the server waiting period", async () => {
@@ -313,6 +448,43 @@ describe("authentication email repository", () => {
     expect(receivedMessages).toBe(before + 1);
   });
 
+  it("leaves a delivery unbound when preparation fails before the side-effect boundary", async () => {
+    await pool.query("delete from authentication_email_delivery");
+    const email = `prepare-failed-${crypto.randomUUID()}@example.com`;
+    const attempt = await createVerificationAttempt({ email, purpose: "registration" });
+    await acceptAuthenticationEmailDelivery({
+      attemptId: attempt.id,
+      email,
+      purpose: "registration",
+      sourceIp: "203.0.113.86",
+      payload: { email, otp: "123456", type: "email-verification" },
+    });
+    const adapter = {
+      async prepare() {
+        throw new Error("crash_before_provider_boundary");
+      },
+    };
+
+    await expect(dispatchOneAuthenticationEmail("prepare-failed", adapter)).rejects.toThrow(
+      "crash_before_provider_boundary",
+    );
+    const delivery = await pool.query(
+      `select state, attempt_count, delivery_revision, transport_adapter, provider_namespace,
+              provider_idempotency_key, local_message_id
+       from authentication_email_delivery where attempt_id = $1`,
+      [attempt.id],
+    );
+    expect(delivery.rows[0]).toEqual({
+      state: "pending",
+      attempt_count: 0,
+      delivery_revision: "0",
+      transport_adapter: null,
+      provider_namespace: null,
+      provider_idempotency_key: null,
+      local_message_id: null,
+    });
+  });
+
   it("routes an unknown provider outcome to manual reconciliation without automatic resend", async () => {
     await pool.query("delete from authentication_email_delivery");
     const email = `indeterminate-${crypto.randomUUID()}@example.com`;
@@ -423,6 +595,46 @@ describe("authentication email repository", () => {
     });
   });
 
+  it("bounds SMTP retries that are proven not to have submitted", async () => {
+    await pool.query("delete from authentication_email_delivery");
+    const email = `smtp-exhausted-${crypto.randomUUID()}@example.com`;
+    const attempt = await createVerificationAttempt({ email, purpose: "registration" });
+    await acceptAuthenticationEmailDelivery({
+      attemptId: attempt.id,
+      email,
+      purpose: "registration",
+      sourceIp: "203.0.113.84",
+      payload: { email, otp: "123456", type: "email-verification" },
+    });
+    let sends = 0;
+    const adapter = smtpAdapterWithSend(async () => {
+      sends += 1;
+      throw new AuthenticationEmailSmtpTransportError("known_not_submitted_retryable");
+    });
+    const timing = { leaseSeconds: 1, heartbeatMs: 500, maxAttempts: 2 };
+
+    await expect(dispatchOneAuthenticationEmail("smtp-exhausted-1", adapter, timing)).resolves.toBe(true);
+    await pool.query(
+      "update authentication_email_delivery set available_at = now() where attempt_id = $1",
+      [attempt.id],
+    );
+    await expect(dispatchOneAuthenticationEmail("smtp-exhausted-2", adapter, timing)).resolves.toBe(true);
+
+    const delivery = await pool.query(
+      `select state, attempt_count, result_classification, failure_reason_code, encrypted_payload
+       from authentication_email_delivery where attempt_id = $1`,
+      [attempt.id],
+    );
+    expect(delivery.rows[0]).toEqual({
+      state: "failed",
+      attempt_count: 2,
+      result_classification: null,
+      failure_reason_code: "attempts_exhausted",
+      encrypted_payload: "",
+    });
+    expect(sends).toBe(2);
+  });
+
   it("freezes Resend idempotency evidence before the bounded provider call", async () => {
     await pool.query("delete from authentication_email_delivery");
     const email = "delivered+shareslices@resend.dev";
@@ -473,21 +685,31 @@ describe("authentication email repository", () => {
       sourceIp: "203.0.113.82",
       payload: { email, otp: "123456", type: "email-verification" },
     });
-    const requests: Array<{ key: string | null; body: string }> = [];
+    const requests: Array<{ authorization: string | null; key: string | null; body: string }> = [];
+    const fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+      requests.push({
+        authorization: new Headers(init?.headers).get("Authorization"),
+        key: new Headers(init?.headers).get("Idempotency-Key"),
+        body: String(init?.body),
+      });
+      if (requests.length === 1) throw new Error("response lost");
+      return Response.json({ id: "resend-message-replayed" });
+    };
     const adapter = createAuthenticationEmailResendAdapter({
-      apiKey: "test-secret-key",
+      apiKey: "test-secret-key-first",
       from: "ShareSlices <onboarding@resend.dev>",
       providerNamespace: "test-team",
       transportRevision: "resend-test-v1",
       safetyMarginMs: 300_000,
-      fetch: async (_url, init) => {
-        requests.push({
-          key: new Headers(init?.headers).get("Idempotency-Key"),
-          body: String(init?.body),
-        });
-        if (requests.length === 1) throw new Error("response lost");
-        return Response.json({ id: "resend-message-replayed" });
-      },
+      fetch,
+    });
+    const rotatedCredentialAdapter = createAuthenticationEmailResendAdapter({
+      apiKey: "test-secret-key-rotated",
+      from: "ShareSlices <onboarding@resend.dev>",
+      providerNamespace: "test-team",
+      transportRevision: "resend-test-v1",
+      safetyMarginMs: 300_000,
+      fetch,
     });
 
     await expect(dispatchOneAuthenticationEmail(
@@ -496,11 +718,18 @@ describe("authentication email repository", () => {
       { leaseSeconds: 1, heartbeatMs: 100 },
     )).resolves.toBe(true);
     const first = await pool.query(
-      `select id, state, provider_idempotency_key, provider_safe_replay_until
-       from authentication_email_delivery where attempt_id = $1`,
+      `select delivery.id, delivery.state, delivery.available_at,
+              delivery.provider_idempotency_key, delivery.provider_safe_replay_until,
+              attempt.maximum_call_deadline, attempt.quiescent_at
+       from authentication_email_delivery delivery
+       join authentication_email_provider_attempt attempt on attempt.delivery_id = delivery.id
+       where delivery.attempt_id = $1`,
       [attempt.id],
     );
     expect(first.rows[0].state).toBe("pending");
+    expect(first.rows[0].quiescent_at).toBeInstanceOf(Date);
+    expect(first.rows[0].available_at.getTime())
+      .toBeGreaterThanOrEqual(first.rows[0].maximum_call_deadline.getTime());
     await pool.query(
       "update authentication_email_delivery set available_at = now() where id = $1",
       [first.rows[0].id],
@@ -508,7 +737,7 @@ describe("authentication email repository", () => {
 
     await expect(dispatchOneAuthenticationEmail(
       "resend-replay-2",
-      adapter,
+      rotatedCredentialAdapter,
       { leaseSeconds: 1, heartbeatMs: 100 },
     )).resolves.toBe(true);
 
@@ -526,7 +755,129 @@ describe("authentication email repository", () => {
       result_classification: "provider_accepted",
     });
     expect(requests).toHaveLength(2);
+    expect(requests[1]!.key).toBe(requests[0]!.key);
+    expect(requests[1]!.body).toBe(requests[0]!.body);
+    expect(requests.map(({ authorization }) => authorization)).toEqual([
+      "Bearer test-secret-key-first",
+      "Bearer test-secret-key-rotated",
+    ]);
+  });
+
+  it("replays a quiescent Resend 5xx with the same frozen request", async () => {
+    await pool.query("delete from authentication_email_delivery");
+    const email = "delivered+shareslices@resend.dev";
+    const attempt = await createVerificationAttempt({ email, purpose: "registration" });
+    await acceptAuthenticationEmailDelivery({
+      attemptId: attempt.id,
+      email,
+      purpose: "registration",
+      sourceIp: "203.0.113.93",
+      payload: { email, otp: "123456", type: "email-verification" },
+    });
+    const requests: Array<{ key: string | null; body: string }> = [];
+    const adapter = createAuthenticationEmailResendAdapter({
+      apiKey: "test-secret-key",
+      from: "ShareSlices <onboarding@resend.dev>",
+      providerNamespace: "test-team",
+      transportRevision: "resend-test-v1",
+      safetyMarginMs: 300_000,
+      fetch: async (_url, init) => {
+        requests.push({
+          key: new Headers(init?.headers).get("Idempotency-Key"),
+          body: String(init?.body),
+        });
+        return requests.length === 1
+          ? Response.json({ name: "internal_server_error" }, { status: 503 })
+          : Response.json({ id: "resend-5xx-replayed" });
+      },
+    });
+
+    await dispatchOneAuthenticationEmail("resend-5xx-1", adapter, {
+      leaseSeconds: 1,
+      heartbeatMs: 100,
+    });
+    await pool.query(
+      "update authentication_email_delivery set available_at = now() where attempt_id = $1",
+      [attempt.id],
+    );
+    await dispatchOneAuthenticationEmail("resend-5xx-2", adapter, {
+      leaseSeconds: 1,
+      heartbeatMs: 100,
+    });
+
+    const delivery = await pool.query(
+      "select state, provider_message_id, result_classification from authentication_email_delivery where attempt_id = $1",
+      [attempt.id],
+    );
+    expect(delivery.rows[0]).toEqual({
+      state: "sent",
+      provider_message_id: "resend-5xx-replayed",
+      result_classification: "provider_accepted",
+    });
+    expect(requests).toHaveLength(2);
     expect(requests[1]).toEqual(requests[0]);
+  });
+
+  it("refuses to replay an attempted delivery through another provider namespace", async () => {
+    await pool.query("delete from authentication_email_delivery");
+    const email = "delivered+shareslices@resend.dev";
+    const attempt = await createVerificationAttempt({ email, purpose: "registration" });
+    await acceptAuthenticationEmailDelivery({
+      attemptId: attempt.id,
+      email,
+      purpose: "registration",
+      sourceIp: "203.0.113.87",
+      payload: { email, otp: "123456", type: "email-verification" },
+    });
+    let providerCalls = 0;
+    const firstAdapter = createAuthenticationEmailResendAdapter({
+      apiKey: "test-secret-key",
+      from: "ShareSlices <onboarding@resend.dev>",
+      providerNamespace: "team-a",
+      transportRevision: "resend-test-v1",
+      safetyMarginMs: 300_000,
+      fetch: async () => {
+        providerCalls += 1;
+        throw new Error("response lost");
+      },
+    });
+    const otherNamespaceAdapter = createAuthenticationEmailResendAdapter({
+      apiKey: "other-secret-key",
+      from: "ShareSlices <onboarding@resend.dev>",
+      providerNamespace: "team-b",
+      transportRevision: "resend-test-v1",
+      safetyMarginMs: 300_000,
+      fetch: async () => {
+        providerCalls += 1;
+        return Response.json({ id: "must-not-send" });
+      },
+    });
+
+    await dispatchOneAuthenticationEmail("namespace-first", firstAdapter, {
+      leaseSeconds: 1,
+      heartbeatMs: 100,
+    });
+    await pool.query(
+      "update authentication_email_delivery set available_at = now() where attempt_id = $1",
+      [attempt.id],
+    );
+    await expect(dispatchOneAuthenticationEmail("namespace-other", otherNamespaceAdapter, {
+      leaseSeconds: 1,
+      heartbeatMs: 100,
+    })).rejects.toThrow("authentication_email_transport_snapshot_conflict");
+
+    const delivery = await pool.query(
+      `select state, attempt_count, provider_namespace, transport_configuration_revision
+       from authentication_email_delivery where attempt_id = $1`,
+      [attempt.id],
+    );
+    expect(delivery.rows[0]).toEqual({
+      state: "pending",
+      attempt_count: 1,
+      provider_namespace: "team-a",
+      transport_configuration_revision: "resend-test-v1",
+    });
+    expect(providerCalls).toBe(1);
   });
 
   it("moves an expired Resend replay to reconciliation without another provider call", async () => {
@@ -571,5 +922,139 @@ describe("authentication email repository", () => {
       failure_reason_code: "resend_safe_replay_cutoff_elapsed",
     });
     expect(sends).toBe(1);
+  });
+
+  it("routes an exhausted indeterminate Resend attempt to reconciliation", async () => {
+    await pool.query("delete from authentication_email_delivery");
+    const email = "delivered+shareslices@resend.dev";
+    const attempt = await createVerificationAttempt({ email, purpose: "registration" });
+    await acceptAuthenticationEmailDelivery({
+      attemptId: attempt.id,
+      email,
+      purpose: "registration",
+      sourceIp: "203.0.113.85",
+      payload: { email, otp: "123456", type: "email-verification" },
+    });
+    const adapter = createAuthenticationEmailResendAdapter({
+      apiKey: "test-secret-key",
+      from: "ShareSlices <onboarding@resend.dev>",
+      providerNamespace: "test-team",
+      transportRevision: "resend-test-v1",
+      safetyMarginMs: 300_000,
+      fetch: async () => { throw new Error("response lost"); },
+    });
+
+    await expect(dispatchOneAuthenticationEmail("resend-exhausted", adapter, {
+      leaseSeconds: 1,
+      heartbeatMs: 100,
+      maxAttempts: 1,
+    })).resolves.toBe(true);
+
+    const delivery = await pool.query(
+      `select state, attempt_count, result_classification, failure_reason_code
+       from authentication_email_delivery where attempt_id = $1`,
+      [attempt.id],
+    );
+    expect(delivery.rows[0]).toEqual({
+      state: "manual_reconciliation",
+      attempt_count: 1,
+      result_classification: null,
+      failure_reason_code: "acceptance_indeterminate",
+    });
+  });
+
+  it("persists concurrent Resend replay as indeterminate before a bounded retry", async () => {
+    await pool.query("delete from authentication_email_delivery");
+    const email = "delivered+shareslices@resend.dev";
+    const attempt = await createVerificationAttempt({ email, purpose: "registration" });
+    await acceptAuthenticationEmailDelivery({
+      attemptId: attempt.id,
+      email,
+      purpose: "registration",
+      sourceIp: "203.0.113.91",
+      payload: { email, otp: "123456", type: "email-verification" },
+    });
+    const adapter = createAuthenticationEmailResendAdapter({
+      apiKey: "test-secret-key",
+      from: "ShareSlices <onboarding@resend.dev>",
+      providerNamespace: "test-team",
+      transportRevision: "resend-test-v1",
+      safetyMarginMs: 300_000,
+      fetch: async () => Response.json(
+        { name: "concurrent_idempotent_requests" },
+        { status: 409, headers: { "Retry-After": "17" } },
+      ),
+    });
+
+    await expect(dispatchOneAuthenticationEmail("resend-concurrent", adapter, {
+      leaseSeconds: 1,
+      heartbeatMs: 100,
+      maxAttempts: 3,
+    })).resolves.toBe(true);
+
+    const delivery = await pool.query(
+      `select state, attempt_count, failure_reason_code, provider_idempotency_key,
+              provider_safe_replay_until
+       from authentication_email_delivery where attempt_id = $1`,
+      [attempt.id],
+    );
+    expect(delivery.rows[0]).toMatchObject({
+      state: "pending",
+      attempt_count: 1,
+      failure_reason_code: "concurrent_idempotent_requests",
+      provider_idempotency_key: expect.stringMatching(/^shareslices-email-v1\//),
+      provider_safe_replay_until: expect.any(Date),
+    });
+    const providerAttempt = await pool.query(
+      `select phase, failure_reason_code, quiescent_at
+       from authentication_email_provider_attempt
+       where delivery_id = (select id from authentication_email_delivery where attempt_id = $1)`,
+      [attempt.id],
+    );
+    expect(providerAttempt.rows).toEqual([expect.objectContaining({
+      phase: "acceptance_indeterminate",
+      failure_reason_code: "concurrent_idempotent_requests",
+      quiescent_at: expect.any(Date),
+    })]);
+  });
+
+  it("bounds a Resend quota refusal that is proven not to have submitted", async () => {
+    await pool.query("delete from authentication_email_delivery");
+    const email = "delivered+shareslices@resend.dev";
+    const attempt = await createVerificationAttempt({ email, purpose: "registration" });
+    await acceptAuthenticationEmailDelivery({
+      attemptId: attempt.id,
+      email,
+      purpose: "registration",
+      sourceIp: "203.0.113.92",
+      payload: { email, otp: "123456", type: "email-verification" },
+    });
+    const adapter = createAuthenticationEmailResendAdapter({
+      apiKey: "test-secret-key",
+      from: "ShareSlices <onboarding@resend.dev>",
+      providerNamespace: "test-team",
+      transportRevision: "resend-test-v1",
+      safetyMarginMs: 300_000,
+      fetch: async () => Response.json({ name: "daily_quota_exceeded" }, { status: 429 }),
+    });
+
+    await expect(dispatchOneAuthenticationEmail("resend-quota", adapter, {
+      leaseSeconds: 1,
+      heartbeatMs: 100,
+      maxAttempts: 1,
+    })).resolves.toBe(true);
+
+    const delivery = await pool.query(
+      `select state, attempt_count, result_classification, failure_reason_code, encrypted_payload
+       from authentication_email_delivery where attempt_id = $1`,
+      [attempt.id],
+    );
+    expect(delivery.rows[0]).toEqual({
+      state: "failed",
+      attempt_count: 1,
+      result_classification: null,
+      failure_reason_code: "attempts_exhausted",
+      encrypted_payload: "",
+    });
   });
 });

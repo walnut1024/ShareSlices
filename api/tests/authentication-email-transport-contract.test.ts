@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { isBeforeAuthenticationEmailReplayCutoff } from "../src/application/accounts/authentication-email-dispatcher.js";
 import { createAuthenticationEmailResendAdapter } from "../src/email/authentication-email-resend.js";
 import { createAuthenticationEmailSmtpAdapter } from "../src/email/authentication-email-smtp.js";
 import type { AuthenticationEmailTransportAdapter } from "../src/email/authentication-email-transport.js";
@@ -13,7 +14,7 @@ const deliveryId = "019f5a36-66df-7000-8000-000000000001";
 type ContractFixture = Readonly<{
   adapter: AuthenticationEmailTransportAdapter;
   rotatedCredentialAdapter: AuthenticationEmailTransportAdapter;
-  changedIdentityAdapter: AuthenticationEmailTransportAdapter;
+  changedIdentityAdapters: readonly AuthenticationEmailTransportAdapter[];
   expected: Readonly<{
     adapter: "smtp" | "resend";
     providerNamespace: string;
@@ -44,15 +45,16 @@ function smtpFixture(): ContractFixture {
     ...options,
     url: "smtp://rotated:new-secret@smtp.example.com:587?requireTLS=true",
   });
-  const changed = createAuthenticationEmailSmtpAdapter({
-    ...options,
-    url: "smtp://first:secret@smtp.other.example.com:587?requireTLS=true",
-    endpointIdentity: "smtp.other.example.com:587",
-  });
+  const changed = [
+    createAuthenticationEmailSmtpAdapter({ ...options, url: "smtp://first:secret@smtp.example.com:587?requireTLS=true", providerNamespace: "other-relay" }),
+    createAuthenticationEmailSmtpAdapter({ ...options, url: "smtp://first:secret@smtp.example.com:587?requireTLS=true", from: "ShareSlices <other@example.com>" }),
+    createAuthenticationEmailSmtpAdapter({ ...options, url: "smtp://first:secret@smtp.other.example.com:587?requireTLS=true", endpointIdentity: "smtp.other.example.com:587" }),
+    createAuthenticationEmailSmtpAdapter({ ...options, url: "smtp://first:secret@smtp.example.com:587?requireTLS=true", transportRevision: "smtp-v2" }),
+  ];
   return {
     adapter: first,
     rotatedCredentialAdapter: rotated,
-    changedIdentityAdapter: changed,
+    changedIdentityAdapters: changed,
     expected: {
       adapter: "smtp",
       providerNamespace: options.providerNamespace,
@@ -63,7 +65,7 @@ function smtpFixture(): ContractFixture {
     close() {
       first.close();
       rotated.close();
-      changed.close();
+      for (const adapter of changed) adapter.close();
     },
   };
 }
@@ -79,11 +81,11 @@ function resendFixture(): ContractFixture {
   return {
     adapter: createAuthenticationEmailResendAdapter({ ...options, apiKey: "first-secret" }),
     rotatedCredentialAdapter: createAuthenticationEmailResendAdapter({ ...options, apiKey: "rotated-secret" }),
-    changedIdentityAdapter: createAuthenticationEmailResendAdapter({
-      ...options,
-      apiKey: "first-secret",
-      providerNamespace: "team-b",
-    }),
+    changedIdentityAdapters: [
+      createAuthenticationEmailResendAdapter({ ...options, apiKey: "first-secret", providerNamespace: "team-b" }),
+      createAuthenticationEmailResendAdapter({ ...options, apiKey: "first-secret", from: "ShareSlices <other@resend.dev>" }),
+      createAuthenticationEmailResendAdapter({ ...options, apiKey: "first-secret", transportRevision: "resend-v2" }),
+    ],
     expected: {
       adapter: "resend",
       providerNamespace: "team-a",
@@ -124,12 +126,14 @@ describe.each([
         new Date("2026-07-23T00:01:00Z"),
         first.snapshot,
       )).resolves.toMatchObject({ snapshot: first.snapshot });
-      await expect(fixture.changedIdentityAdapter.prepare(
-        payload,
-        deliveryId,
-        new Date("2026-07-23T00:01:00Z"),
-        first.snapshot,
-      )).rejects.toThrow("authentication_email_transport_snapshot_conflict");
+      for (const changedIdentityAdapter of fixture.changedIdentityAdapters) {
+        await expect(changedIdentityAdapter.prepare(
+          payload,
+          deliveryId,
+          new Date("2026-07-23T00:01:00Z"),
+          first.snapshot,
+        )).rejects.toThrow("authentication_email_transport_snapshot_conflict");
+      }
     } finally {
       fixture.close();
     }
@@ -149,4 +153,29 @@ describe.each([
       fixture.close();
     }
   });
+});
+
+it("refuses to migrate an attempted delivery between SMTP and Resend", async () => {
+  const smtp = smtpFixture();
+  const resend = resendFixture();
+  try {
+    const first = await smtp.adapter.prepare(payload, deliveryId, new Date("2026-07-23T00:00:00Z"));
+    await expect(resend.adapter.prepare(
+      payload,
+      deliveryId,
+      new Date("2026-07-23T00:01:00Z"),
+      first.snapshot,
+    )).rejects.toThrow("authentication_email_transport_snapshot_conflict");
+  } finally {
+    smtp.close();
+    resend.close();
+  }
+});
+
+it("uses a strict replay cutoff under near-boundary clock observations", () => {
+  const cutoff = new Date("2026-07-23T00:00:00.000Z");
+  expect(isBeforeAuthenticationEmailReplayCutoff(cutoff, new Date(cutoff.getTime() - 1))).toBe(true);
+  expect(isBeforeAuthenticationEmailReplayCutoff(cutoff, cutoff)).toBe(false);
+  expect(isBeforeAuthenticationEmailReplayCutoff(cutoff, new Date(cutoff.getTime() + 1))).toBe(false);
+  expect(isBeforeAuthenticationEmailReplayCutoff(null, new Date(cutoff.getTime() - 1))).toBe(false);
 });

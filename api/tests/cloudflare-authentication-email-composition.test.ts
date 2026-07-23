@@ -12,6 +12,7 @@ const bindings = {
   AUTH_EMAIL_RESEND_SAFETY_MARGIN_SECONDS: "300",
   AUTH_EMAIL_DELIVERY_LEASE_SECONDS: "30",
   AUTH_EMAIL_CIRCUIT_BREAKER_SECONDS: "300",
+  AUTH_EMAIL_MAX_ATTEMPTS: "3",
 };
 
 describe("Cloudflare authentication email composition", () => {
@@ -26,6 +27,7 @@ describe("Cloudflare authentication email composition", () => {
     expect(result.workerId).toBe(`cloudflare:${wake.wakeId}`);
     expect(result.databaseClients.mode).toBe("hyperdrive");
     expect(result.timing).toEqual({ leaseSeconds: 30, heartbeatMs: 10_000 });
+    expect(result.maxAttempts).toBe(3);
     expect(JSON.stringify({ wake, workerId: result.workerId })).not.toContain("secret-resend-key");
     await result.dispose();
   });

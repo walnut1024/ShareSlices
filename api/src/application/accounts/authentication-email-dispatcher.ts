@@ -12,6 +12,7 @@ import { AuthenticationEmailSmtpTransportError } from "../../email/authenticatio
 type DeliveryRow = {
   id: string;
   encrypted_payload: string;
+  attempt_count: string | number;
   delivery_revision: string | number;
   transport_adapter: "smtp" | "resend" | null;
   provider_namespace: string | null;
@@ -54,6 +55,13 @@ function boundedRetryDelaySeconds(retryAfter: string | null, fallback: number): 
   if (Number.isNaN(at)) return fallback;
   return Math.max(1, Math.min(3_600, Math.ceil((at - Date.now()) / 1_000)));
 }
+
+export function isBeforeAuthenticationEmailReplayCutoff(
+  safeReplayUntil: Date | null,
+  now: Date,
+): boolean {
+  return safeReplayUntil !== null && now.getTime() < safeReplayUntil.getTime();
+}
 export type AuthenticationEmailDispatchInput = Readonly<{
   workerId: string;
   adapter: AuthenticationEmailTransportAdapter;
@@ -61,13 +69,14 @@ export type AuthenticationEmailDispatchInput = Readonly<{
   databaseClients: DatabaseClientSource;
   encryptionKey: string;
   circuitBreakerSeconds: number;
+  maxAttempts: number;
   logger: Readonly<{ emit(input: LogRecordInput): void }>;
 }>;
 
 export async function dispatchOneAuthenticationEmail(
   input: AuthenticationEmailDispatchInput,
 ): Promise<boolean> {
-  const { workerId, adapter, timing, databaseClients, encryptionKey, circuitBreakerSeconds, logger } = input;
+  const { workerId, adapter, timing, databaseClients, encryptionKey, circuitBreakerSeconds, maxAttempts, logger } = input;
   return databaseClients.withClient(async (client) => {
     let delivery: DeliveryRow | undefined;
     let payload: ReturnType<typeof decryptAuthenticationEmail> | undefined;
@@ -101,7 +110,7 @@ export async function dispatchOneAuthenticationEmail(
       });
     }
     const claimed = await client.query<DeliveryRow>(
-      `select id, encrypted_payload, delivery_revision, transport_adapter,
+      `select id, encrypted_payload, attempt_count, delivery_revision, transport_adapter,
               provider_namespace, sender_identity, endpoint_identity,
               transport_configuration_revision, serializer_revision, payload_digest,
               provider_idempotency_key, provider_safe_replay_until, local_message_id
@@ -210,8 +219,11 @@ export async function dispatchOneAuthenticationEmail(
       try {
         await client.query("begin");
         if (error instanceof AuthenticationEmailSmtpTransportError && error.kind !== "acceptance_indeterminate") {
-          const retryable = error.kind === "known_not_submitted_retryable";
-          const attemptPhase = retryable ? "known_not_submitted" : "provider_rejected";
+          const knownNotSubmitted = error.kind === "known_not_submitted_retryable";
+          const retryBudgetRemaining = Number(delivery.attempt_count) + 1 < maxAttempts;
+          const retryable = knownNotSubmitted && retryBudgetRemaining;
+          const attemptPhase = knownNotSubmitted ? "known_not_submitted" : "provider_rejected";
+          const failureReason = knownNotSubmitted && !retryBudgetRemaining ? "attempts_exhausted" : error.kind;
           await client.query(
             `update authentication_email_provider_attempt attempt
              set phase = $4, failure_reason_code = $5, quiescent_at = now(), updated_at = now()
@@ -228,12 +240,12 @@ export async function dispatchOneAuthenticationEmail(
             `update authentication_email_delivery
              set state = $4,
                  available_at = case when $4 = 'pending' then now() + ($5 * interval '1 second') else available_at end,
-                 result_classification = case when $4 = 'failed' then 'provider_rejected' else null end,
+                 result_classification = case when $4 = 'failed' and $7 = 'provider_rejected' then 'provider_rejected' else null end,
                  failure_reason_code = $6,
                  encrypted_payload = case when $4 = 'failed' then '' else encrypted_payload end,
                  lease_owner = null, lease_expires_at = null
              where id = $1 and state = 'sending' and lease_owner = $2 and delivery_revision = $3`,
-            [delivery.id, workerId, fence, retryable ? "pending" : "failed", timing.leaseSeconds, error.kind],
+            [delivery.id, workerId, fence, retryable ? "pending" : "failed", timing.leaseSeconds, failureReason, error.kind],
           );
           await client.query("commit");
           if (transitioned.rowCount !== 1) {
@@ -248,17 +260,30 @@ export async function dispatchOneAuthenticationEmail(
             });
             return true;
           }
+          if (knownNotSubmitted) {
+            await client.query(
+              `update authentication_email_circuit_breaker
+               set state = 'open', reason_code = 'provider_failure', opened_at = now(),
+                   resume_at = now() + ($1 * interval '1 second'), updated_at = now()
+               where id = 'global'`,
+              [circuitBreakerSeconds],
+            );
+          }
           logger.emit({
             severity: "WARN",
             body: retryable
               ? "Authentication email SMTP attempt was not submitted and is scheduled for retry."
-              : "Authentication email SMTP relay rejected the message before submission.",
+              : knownNotSubmitted
+                ? "Authentication email SMTP retry budget was exhausted before submission."
+                : "Authentication email SMTP relay rejected the message before submission.",
             eventName: retryable
               ? "shareslices.authentication_email.delivery.retry_scheduled"
-              : "shareslices.authentication_email.delivery.provider_rejected",
+              : knownNotSubmitted
+                ? "shareslices.authentication_email.delivery.retry_exhausted"
+                : "shareslices.authentication_email.delivery.provider_rejected",
             attributes: {
               "shareslices.authentication_email.delivery.id": delivery.id,
-              "shareslices.retry.reason_code": error.kind,
+              "shareslices.retry.reason_code": failureReason,
             },
           });
           return true;
@@ -267,10 +292,11 @@ export async function dispatchOneAuthenticationEmail(
           const outcome = error.outcome;
           const now = new Date();
           const safeReplayUntil = prepared.snapshot.providerSafeReplayUntil;
-          const beforeCutoff = safeReplayUntil !== null && now < safeReplayUntil;
+          const beforeCutoff = isBeforeAuthenticationEmailReplayCutoff(safeReplayUntil, now);
+          const retryBudgetRemaining = Number(delivery.attempt_count) + 1 < maxAttempts;
           const knownNotSubmitted = outcome.kind === "quota_exceeded"
             || (outcome.kind === "retryable" && outcome.errorType === "rate_limit_exceeded");
-          const shouldRetry = outcome.kind !== "permanent_failure" && beforeCutoff;
+          const shouldRetry = outcome.kind !== "permanent_failure" && beforeCutoff && retryBudgetRemaining;
           const attemptPhase = knownNotSubmitted ? "known_not_submitted" : "acceptance_indeterminate";
           await client.query(
             `update authentication_email_provider_attempt attempt
@@ -324,6 +350,10 @@ export async function dispatchOneAuthenticationEmail(
             return true;
           }
           const requiresManualReconciliation = !knownNotSubmitted && outcome.kind !== "permanent_failure";
+          const retryExhausted = knownNotSubmitted && !retryBudgetRemaining;
+          const terminalReason = retryExhausted ? "attempts_exhausted" : (
+            requiresManualReconciliation ? "acceptance_indeterminate" : outcome.errorType
+          );
           const terminal = await client.query(
             `update authentication_email_delivery
              set state = $4,
@@ -337,8 +367,8 @@ export async function dispatchOneAuthenticationEmail(
               workerId,
               fence,
               requiresManualReconciliation ? "manual_reconciliation" : "failed",
-              requiresManualReconciliation ? null : "provider_rejected",
-              requiresManualReconciliation ? "acceptance_indeterminate" : outcome.errorType,
+              requiresManualReconciliation || retryExhausted ? null : "provider_rejected",
+              terminalReason,
             ],
           );
           if (terminal.rowCount !== 1) {
@@ -361,7 +391,7 @@ export async function dispatchOneAuthenticationEmail(
                where id = $1 and phase = 'acceptance_indeterminate'`,
               [providerAttemptId],
             );
-          } else {
+          } else if (!retryExhausted) {
             await client.query(
               `update authentication_email_provider_attempt
                set phase = 'provider_rejected', updated_at = now()
@@ -374,15 +404,19 @@ export async function dispatchOneAuthenticationEmail(
             severity: requiresManualReconciliation ? "ERROR" : "WARN",
             body: requiresManualReconciliation
               ? "Authentication email delivery requires manual reconciliation."
-              : "Authentication email provider rejected the request.",
+              : retryExhausted
+                ? "Authentication email provider retry budget was exhausted before submission."
+                : "Authentication email provider rejected the request.",
             eventName: requiresManualReconciliation
               ? "shareslices.authentication_email.delivery.manual_reconciliation_required"
-              : "shareslices.authentication_email.delivery.provider_rejected",
+              : retryExhausted
+                ? "shareslices.authentication_email.delivery.retry_exhausted"
+                : "shareslices.authentication_email.delivery.provider_rejected",
             attributes: {
               "shareslices.authentication_email.delivery.id": delivery.id,
               "shareslices.retry.reason_code": requiresManualReconciliation
                 ? "acceptance_indeterminate"
-                : outcome.errorType,
+                : terminalReason,
             },
           });
           return true;
