@@ -6,6 +6,7 @@ import {
   accountRoutes,
   type AccountRouteDependencies,
 } from "./account-routes.js";
+import { createNodeAccountDependencies } from "./node-account.js";
 import { cliAuthRoutes, type CliAuthDependencies } from "./cli-auth-routes.js";
 import { createNodeCliAuthDependencies } from "./node-cli-auth.js";
 import {
@@ -48,7 +49,7 @@ export function buildApp(
     trustedIngress: adapters.trustedIngress ?? (() => ({ clientIp: "unknown", source: "unknown" })),
     routes: {
       system: systemRoutes({checkDatabase, ...dependencies.system}),
-      account: accountRoutes(dependencies.account),
+      account: accountRoutes({...createNodeAccountDependencies(env), ...dependencies.account}),
       cliAuth: cliAuthRoutes({...createNodeCliAuthDependencies(env), ...dependencies.cliAuth}),
       artifact: artifactRoutes(dependencies.artifact),
       publicationViewer: publicationViewerRoutes(dependencies.publicationViewer),

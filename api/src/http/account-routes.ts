@@ -6,10 +6,10 @@ import {
   decryptAuthenticationEmail,
   encryptAuthenticationEmail
 } from "../application/accounts/authentication-email.js";
-import { auth, verifyPasswordCredential } from "../auth/auth.js";
+import type { auth, verifyPasswordCredential } from "../auth/auth.js";
 import { loginInputSchema, registrationInputSchema } from "../auth/email.js";
-import { findUserByEmail, userExistsByEmail, userExistsById } from "../db/account-queries.js";
-import {
+import type { findUserByEmail, userExistsByEmail, userExistsById } from "../db/account-queries.js";
+import type {
   createPasswordResetGrant,
   createVerificationAttempt,
   findVerificationAttempt,
@@ -19,11 +19,8 @@ import {
   releasePasswordResetGrant,
   terminateVerificationAttempt
 } from "../db/authentication-email-repository.js";
-import { readApiHttpEnv } from "../env.js";
 import { errorJson, type FieldError, requestId } from "./http-error.js";
 import { trustedAuthenticationHeaders } from "./trusted-ingress.js";
-
-const env = readApiHttpEnv();
 
 type AuthUser = {
   id: string;
@@ -58,6 +55,9 @@ export type AccountRouteDependencies = {
   terminateVerificationAttempt: typeof terminateVerificationAttempt;
   verifyPasswordCredential: typeof verifyPasswordCredential;
   requireEmailVerification: boolean;
+  webOrigin: string;
+  resendSeconds: number;
+  emailEncryptionKey: string;
 };
 
 function toUserResponse(user: AuthUser) {
@@ -104,36 +104,19 @@ function copyAuthSetCookies(from: Headers, to: Headers): void {
   }
 }
 
-function isTrustedOrigin(origin: string | undefined): boolean {
+function isTrustedOrigin(origin: string | undefined, webOrigin: string): boolean {
   if (!origin) {
     return true;
   }
 
   try {
-    return new URL(origin).origin === new URL(env.WEB_ORIGIN).origin;
+    return new URL(origin).origin === new URL(webOrigin).origin;
   } catch {
     return false;
   }
 }
 
-export function accountRoutes(overrides: Partial<AccountRouteDependencies> = {}): Hono {
-  const dependencies: AccountRouteDependencies = {
-    authApi: auth.api,
-    userExistsByEmail,
-    userExistsById,
-    findUserByEmail,
-    createVerificationAttempt,
-    findVerificationAttempt,
-    markVerificationAttemptVerified,
-    createPasswordResetGrant,
-    claimPasswordResetGrant,
-    completePasswordResetGrant,
-    releasePasswordResetGrant,
-    terminateVerificationAttempt,
-    verifyPasswordCredential,
-    requireEmailVerification: env.REQUIRE_EMAIL_VERIFICATION,
-    ...overrides
-  };
+export function accountRoutes(dependencies: AccountRouteDependencies): Hono {
   const app = new Hono();
 
   function verificationResponse(c: Parameters<typeof requestId>[0], attempt: { id: string; destinationHint: string }) {
@@ -145,7 +128,7 @@ export function accountRoutes(overrides: Partial<AccountRouteDependencies> = {})
           id: attempt.id,
           destination: attempt.destinationHint,
           expiresIn: 600,
-          resendAvailableIn: env.AUTH_EMAIL_RESEND_SECONDS
+          resendAvailableIn: dependencies.resendSeconds
         }
       },
       202
@@ -321,7 +304,7 @@ export function accountRoutes(overrides: Partial<AccountRouteDependencies> = {})
       });
       const grant = await dependencies.createPasswordResetGrant(
         attempt.id,
-        encryptAuthenticationEmail({ email: attempt.email, otp: code, type: "forget-password" }, env.AUTH_EMAIL_ENCRYPTION_KEY)
+        encryptAuthenticationEmail({ email: attempt.email, otp: code, type: "forget-password" }, dependencies.emailEncryptionKey)
       );
       await dependencies.markVerificationAttemptVerified(attempt.id);
       c.header("Cache-Control", "no-store");
@@ -356,7 +339,7 @@ export function accountRoutes(overrides: Partial<AccountRouteDependencies> = {})
     const grant = await dependencies.claimPasswordResetGrant(body.resetGrant);
     if (!grant) return errorJson(c, 400, "invalid_reset_grant");
     try {
-      const payload = decryptAuthenticationEmail(grant.encryptedCode, env.AUTH_EMAIL_ENCRYPTION_KEY);
+      const payload = decryptAuthenticationEmail(grant.encryptedCode, dependencies.emailEncryptionKey);
       await dependencies.authApi.resetPasswordEmailOTP({
         body: { email: grant.email, otp: payload.otp ?? "", password: body.password },
         headers: authHeaders(c)
@@ -432,7 +415,7 @@ export function accountRoutes(overrides: Partial<AccountRouteDependencies> = {})
   app.delete("/api/sessions/current", async (c) => {
     c.header("Cache-Control", "no-store");
 
-    if (!isTrustedOrigin(c.req.header("origin"))) {
+    if (!isTrustedOrigin(c.req.header("origin"), dependencies.webOrigin)) {
       return errorJson(c, 403, "forbidden");
     }
 
