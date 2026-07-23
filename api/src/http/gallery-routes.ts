@@ -1,13 +1,10 @@
 import { Hono } from "hono";
-import { Readable } from "node:stream";
 import { z } from "zod";
-import { auth } from "../auth/auth.js";
-import { galleryConfigurationFromEnv } from "../application/gallery/configuration.js";
+import type { auth } from "../auth/auth.js";
 import { GalleryContentCredentialService } from "../application/gallery/content-credentials.js";
 import { GalleryCreatorProfileService } from "../application/gallery/creator-profile.js";
 import {
   GalleryUnavailableError,
-  PostgresGalleryRuntimeGate,
   type GalleryEligibility,
 } from "../application/gallery/eligibility.js";
 import {
@@ -21,7 +18,7 @@ import {
   GalleryDownloadError,
   GalleryDownloadService,
 } from "../application/gallery/download.js";
-import { GalleryDownloadArchiveService } from "../application/gallery/download-archive.js";
+import type { GalleryDownloadArchiveService } from "../application/gallery/download-archive.js";
 import {
   GalleryAvatarError,
   GalleryAvatarService,
@@ -30,10 +27,6 @@ import {
   GalleryCopyError,
   GalleryCopyService,
 } from "../application/gallery/copy.js";
-import {
-  TurnstileChallengeVerifier,
-  type ChallengeVerifier,
-} from "../application/gallery/challenge-verifier.js";
 import {
   GalleryReportError,
   GalleryReportService,
@@ -44,13 +37,9 @@ import {
   GalleryGovernanceService,
   type GovernanceDecisionKind,
 } from "../application/gallery/governance.js";
-import { pool } from "../db/client.js";
-import { readApiHttpEnv } from "../env.js";
-import { createConfiguredObjectStorage } from "../storage/index.js";
 import { requestId } from "./http-error.js";
 import { trustedIngressMetadata } from "./trusted-ingress.js";
 
-const env = readApiHttpEnv();
 const profile = z
   .object({
     displayName: z.string(),
@@ -123,7 +112,7 @@ export type GalleryRouteDependencies = {
   profiles: GalleryCreatorProfileService;
   grants: GalleryPermissionGrantService;
   publicGallery: PublicGalleryService;
-  downloadArchive: GalleryDownloadArchiveService;
+  downloadArchive: Pick<GalleryDownloadArchiveService, "open">;
   avatars: GalleryAvatarService;
   copy: GalleryCopyService;
   reports: GalleryReportService;
@@ -133,57 +122,29 @@ export type GalleryRouteDependencies = {
     requireEligible(): void | Promise<void>;
     current(): GalleryEligibility | Promise<GalleryEligibility>;
   };
+  contentOrigin: URL | null;
 };
 
+function byteStream(
+  source: AsyncIterable<Uint8Array>,
+): ReadableStream<Uint8Array> {
+  const iterator = source[Symbol.asyncIterator]();
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const next = await iterator.next();
+      if (next.done) controller.close();
+      else controller.enqueue(next.value);
+    },
+    async cancel() {
+      await iterator.return?.();
+    },
+  });
+}
+
 export function galleryRoutes(
-  overrides: Partial<GalleryRouteDependencies> = {},
+  input: Partial<GalleryRouteDependencies>,
 ): Hono {
-  const configuration = galleryConfigurationFromEnv(env);
-  const unavailableVerifier: ChallengeVerifier = {
-    verify: async () => ({ success: false, reasonCode: "unavailable" }),
-  };
-  const storage = createConfiguredObjectStorage();
-  const downloads = new GalleryDownloadService(
-    pool,
-    process.env.HOSTNAME ?? "api",
-  );
-  const dependencies: GalleryRouteDependencies = {
-    authApi: auth.api,
-    owner: new GalleryOwnerOperations(
-      pool,
-      {
-        policyRevision: "gallery-safety/v1",
-        maxFileCount: 1000,
-        maxTotalBytes: 209715200,
-        maxSingleFileBytes: 52428800,
-        findingDecisions: {
-          external_resource_dependency: "reject",
-          external_programmatic_request: "reject",
-          external_form_action: "reject",
-          executable_dynamic_construction: "review",
-        },
-        evidenceDigestAlgorithm: "sha256",
-        replayRequiresExactPolicyRevision: true,
-      },
-      env.ARTIFACT_RENDERER_REVISION,
-    ),
-    profiles: new GalleryCreatorProfileService(pool),
-    grants: new GalleryPermissionGrantService(pool),
-    publicGallery: new PublicGalleryService(pool),
-    downloadArchive: new GalleryDownloadArchiveService(downloads, storage),
-    avatars: new GalleryAvatarService(pool, storage),
-    copy: new GalleryCopyService(pool, env.WORKER_JOB_MAX_ATTEMPTS),
-    reports: new GalleryReportService(
-      pool,
-      env.GALLERY_TURNSTILE_SECRET
-        ? new TurnstileChallengeVerifier(env.GALLERY_TURNSTILE_SECRET)
-        : unavailableVerifier,
-    ),
-    governance: new GalleryGovernanceService(pool),
-    credentials: new GalleryContentCredentialService(pool),
-    gate: new PostgresGalleryRuntimeGate(pool, configuration),
-    ...overrides,
-  };
+  const dependencies = input as GalleryRouteDependencies;
   const app = new Hono();
   const ownerProfile = (value: Awaited<ReturnType<GalleryCreatorProfileService["getOwn"]>>) => value ? ({
     id: value.id,
@@ -296,7 +257,7 @@ export function galleryRoutes(
       const avatar = await dependencies.avatars.readPublic(
         c.req.param("creatorSlug"),
       );
-      return new Response(Readable.toWeb(Readable.from(avatar.body)) as ReadableStream<Uint8Array>, {headers: {
+      return new Response(byteStream(avatar.body), {headers: {
         "Content-Type": avatar.contentType, "Cache-Control": "public, max-age=300", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"
       }});
     } catch (cause) {
@@ -430,7 +391,7 @@ export function galleryRoutes(
         c.req.param("gallerySlug"),
       );
       if (!issued) return error(c, 404, "gallery_not_found");
-      if (!configuration.contentOrigin)
+      if (!dependencies.contentOrigin)
         return error(c, 503, "gallery_unavailable");
       c.header("Cache-Control", "no-store");
       c.header("Referrer-Policy", "no-referrer");
@@ -438,7 +399,7 @@ export function galleryRoutes(
         {
           entryUrl: new URL(
             issued.entryUrlPath,
-            configuration.contentOrigin,
+            dependencies.contentOrigin,
           ).toString(),
           expiresAt: issued.expiresAt.toISOString(),
         },
@@ -517,7 +478,7 @@ export function galleryRoutes(
         trustedIngressMetadata(c).clientIp,
       );
       return new Response(
-        Readable.toWeb(archive.body) as ReadableStream<Uint8Array>,
+        byteStream(archive.body),
         {
           headers: {
             "Cache-Control": "no-store",
@@ -661,7 +622,7 @@ export function galleryRoutes(
       const administrator = await userId(c.req.raw.headers);
       if (!administrator) return error(c, 401, "unauthenticated");
       try {
-        if (!configuration.contentOrigin)
+        if (!dependencies.contentOrigin)
           return error(c, 503, "gallery_governance_unavailable");
         const issued = await dependencies.credentials.issueReview(
           administrator,
@@ -675,7 +636,7 @@ export function galleryRoutes(
             state: "available",
             entryUrl: new URL(
               issued.entryUrlPath,
-              configuration.contentOrigin,
+              dependencies.contentOrigin,
             ).toString(),
             expiresAt: issued.expiresAt.toISOString(),
           },

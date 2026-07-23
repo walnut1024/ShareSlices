@@ -24,6 +24,7 @@ import {
   galleryRoutes,
   type GalleryRouteDependencies,
 } from "./gallery-routes.js";
+import { createNodeGalleryDependencies } from "./node-gallery.js";
 import { buildTrustedHttpApp } from "./trusted-app.js";
 import type { TrustedIngressResolver } from "./trusted-ingress.js";
 
@@ -58,7 +59,10 @@ export function buildApp(
         ...createNodePublicationViewerDependencies(env),
         ...dependencies.publicationViewer,
       }),
-      gallery: galleryRoutes(dependencies.gallery),
+      gallery: galleryRoutes({
+        ...createNodeGalleryDependencies(env),
+        ...dependencies.gallery,
+      }),
     },
   });
 }

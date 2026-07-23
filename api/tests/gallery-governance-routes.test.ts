@@ -29,6 +29,7 @@ describe("Gallery governance route boundaries", () => {
         }),
       } as never,
       credentials: credentials as never,
+      contentOrigin: new URL("https://content.example-cdn.test"),
     }).request("/api/admin/gallery/cases/case-1/review-authorizations", {
       method: "POST",
     });

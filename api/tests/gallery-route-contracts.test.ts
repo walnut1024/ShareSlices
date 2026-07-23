@@ -72,6 +72,7 @@ describe("Gallery HTTP contract boundaries", () => {
     const response = await galleryRoutes({
       gate: readyGate as never,
       credentials: credentials as never,
+      contentOrigin: new URL("https://content.example-cdn.test"),
     }).request("/gallery/opaque-slug/player-authorizations", {
       method: "POST",
     });
