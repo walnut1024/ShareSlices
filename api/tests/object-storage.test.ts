@@ -109,6 +109,31 @@ describe("InMemoryObjectStorage", () => {
 });
 
 describe("AwsS3ObjectStorage", () => {
+  it.each([
+    ["expanded content", "staging/attempt-1/content/index.html", "text/html"],
+    ["export", "staging/export-1/artifact.zip", "application/zip"],
+    ["thumbnail", "staging/thumbnail-1/preview.webp", "image/webp"],
+    ["Gallery cover", "staging/gallery-cover-1/cover.webp", "image/webp"],
+  ])("streams %s through an attempt-scoped staging key", async (_kind, key, contentType) => {
+    const uploads: Array<{ Key?: string; ContentType?: string; Body?: unknown }> = [];
+    const createMultipartUpload = vi.fn((input: { params: { Key?: string; ContentType?: string; Body?: unknown } }) => ({
+      done: async () => {
+        uploads.push(input.params);
+        expect(await collect(input.params.Body as AsyncIterable<Uint8Array>)).toEqual(Buffer.from("x"));
+      },
+    }));
+    const storage = new AwsS3ObjectStorage({
+      client: { send: vi.fn() },
+      bucket: "artifact-bucket",
+      createMultipartUpload: createMultipartUpload as never,
+    });
+
+    await storage.writeStagingObject({ key, body: chunks("x"), contentType });
+
+    expect(uploads).toHaveLength(1);
+    expect(uploads[0]).toMatchObject({ Key: key, ContentType: contentType });
+  });
+
   it("rejects an interrupted source stream instead of leaving the S3 body open", async () => {
     async function* interruptedBody(): AsyncIterable<Uint8Array> {
       yield Buffer.from("partial");

@@ -62,6 +62,44 @@ function bucket(overrides: Partial<R2BucketBinding> = {}): R2BucketBinding {
 }
 
 describe("R2ObjectStorage", () => {
+  it("bounds multipart buffering at the R2 minimum part size", async () => {
+    const partSizes: number[] = [];
+    const multipart: R2MultipartUploadBinding = {
+      uploadPart: vi.fn(async (partNumber, value) => {
+        partSizes.push(value.byteLength);
+        return { partNumber, etag: `etag-${partNumber}` };
+      }),
+      abort: vi.fn(async () => undefined),
+      complete: vi.fn(async () => ({
+        key: "raw/upload-large.zip",
+        size: partSizes.reduce((size, partSize) => size + partSize, 0),
+        uploaded: new Date(),
+      })),
+    };
+    const storage = new R2ObjectStorage(bucket({
+      createMultipartUpload: vi.fn(async () => multipart),
+    }));
+    const fiveMiB = 5 * 1024 * 1024;
+
+    const result = await storage.writeRawZip({
+      key: "raw/upload-large.zip",
+      body: {
+        async *[Symbol.asyncIterator]() {
+          yield new Uint8Array(fiveMiB + 17);
+          yield new Uint8Array(23);
+        },
+      },
+      contentType: "application/zip",
+    });
+
+    expect(partSizes).toEqual([fiveMiB, 40]);
+    expect(result.sizeBytes).toBe(fiveMiB + 40);
+    expect(multipart.complete).toHaveBeenCalledWith([
+      { partNumber: 1, etag: "etag-1" },
+      { partNumber: 2, etag: "etag-2" },
+    ]);
+  });
+
   it("streams raw and staging writes through the private binding with metadata", async () => {
     const writes: Array<{ key: string; body: Uint8Array; contentType?: string }> = [];
     const rawParts: Uint8Array[] = [];
@@ -276,5 +314,58 @@ describe("R2ObjectStorage", () => {
       key: "staging/attempt-1/index.html",
       body: chunks("replacement"),
     })).rejects.toThrow("refused an overwrite");
+  });
+
+  it("allows only one concurrent writer to claim an immutable staging key", async () => {
+    let claimed = false;
+    const put = vi.fn(async (
+      key: string,
+      _value: ReadableStream<Uint8Array>,
+      _options?: Readonly<{
+        httpMetadata?: Readonly<{ contentType?: string }>;
+        onlyIf?: Readonly<{ etagDoesNotMatch: string }>;
+      }>,
+    ) => {
+      await Promise.resolve();
+      if (claimed) return null;
+      claimed = true;
+      return { key, size: 5, uploaded: new Date() };
+    });
+    const storage = new R2ObjectStorage(bucket({ put }));
+    const write = () => storage.writeStagingObject({
+      key: "staging/attempt-1/thumbnail.webp",
+      body: chunks("image"),
+      contentType: "image/webp",
+    });
+
+    const results = await Promise.allSettled([write(), write()]);
+
+    expect(results.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
+    expect(results.filter(({ status }) => status === "rejected")).toHaveLength(1);
+    expect(put).toHaveBeenCalledTimes(2);
+    for (const [, , options] of put.mock.calls) {
+      expect(options).toMatchObject({ onlyIf: { etagDoesNotMatch: "*" } });
+    }
+  });
+
+  it.each([
+    ["expanded content", "staging/attempt-1/content/index.html", "text/html"],
+    ["export", "staging/export-1/artifact.zip", "application/zip"],
+    ["thumbnail", "staging/thumbnail-1/preview.webp", "image/webp"],
+    ["Gallery cover", "staging/gallery-cover-1/cover.webp", "image/webp"],
+  ])("keeps %s writes on immutable attempt-scoped staging keys", async (_kind, key, contentType) => {
+    const put = vi.fn(async (storedKey: string) => ({
+      key: storedKey,
+      size: 1,
+      uploaded: new Date(),
+    }));
+    const storage = new R2ObjectStorage(bucket({ put }));
+
+    await storage.writeStagingObject({ key, body: chunks("x"), contentType });
+
+    expect(put).toHaveBeenCalledWith(key, expect.any(ReadableStream), {
+      onlyIf: { etagDoesNotMatch: "*" },
+      httpMetadata: { contentType },
+    });
   });
 });
