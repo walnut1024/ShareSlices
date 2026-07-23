@@ -85,6 +85,33 @@ export async function validateDeploymentConfig(value) {
       "Application and content origins must use distinct registrable sites.",
     );
   }
+  const gallery = value.shared.gallery;
+  if (gallery.managementCookieDomain !== applicationSite) {
+    throw new DeploymentConfigError(
+      "deployment_config_invalid",
+      "Gallery management Cookie domain must equal the application registrable site.",
+    );
+  }
+  if (
+    gallery.challengeVerifierReady &&
+    (!gallery.turnstileSiteKey || !value.shared.roleSecrets.galleryTurnstile)
+  ) {
+    throw new DeploymentConfigError(
+      "deployment_config_invalid",
+      "Gallery challenge readiness requires both public and Secret Turnstile references.",
+    );
+  }
+  if (
+    !gallery.enabled &&
+    Object.entries(gallery).some(
+      ([name, ready]) => name.endsWith("Ready") && ready === true,
+    )
+  ) {
+    throw new DeploymentConfigError(
+      "deployment_config_invalid",
+      "Disabled Gallery configuration cannot claim a ready capability.",
+    );
+  }
   return structuredClone(value);
 }
 

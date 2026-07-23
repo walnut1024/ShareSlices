@@ -18,6 +18,19 @@
         "current": { "ref": "secret://workers/idempotency-current", "revision": "5" }
       }
     },
+    "gallery": {
+      "enabled": true,
+      "managementCookieDomain": "example.test",
+      "grantRevision": "grant-v1",
+      "appealPolicyRevision": "appeal-v1",
+      "challengeVerifierReady": false,
+      "administratorAuthorityReady": false,
+      "reportingReady": false,
+      "notificationReady": false,
+      "appealReady": false,
+      "governanceReady": false,
+      "isolatedContentReady": false
+    },
     "publicOrigins": {
       "application": "https://app.example.test",
       "content": "https://content.example-content.test"

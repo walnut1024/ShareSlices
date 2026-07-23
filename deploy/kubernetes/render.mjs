@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 
 import { parseAllDocuments, stringify } from "yaml";
+import { getDomain } from "tldts";
 
 import { sha256Digest } from "../automation/canonical.mjs";
 
@@ -109,6 +110,7 @@ function configureConfigMap(resource, config, release) {
   if (resource.metadata.name === "shareslices-config") {
     const application = config.shared.publicOrigins.application;
     const content = config.shared.publicOrigins.content;
+    const gallery = config.shared.gallery;
     Object.assign(resource.data, {
       WEB_ORIGIN: application,
       API_ORIGIN: application,
@@ -118,7 +120,19 @@ function configureConfigMap(resource, config, release) {
       BETTER_AUTH_URL: application,
       GALLERY_CONTENT_ORIGIN: content,
       PUBLIC_GALLERY_CONTENT_ORIGIN: content,
-      GALLERY_CONTENT_REGISTRABLE_SITE: new URL(content).hostname,
+      GALLERY_ENABLED: String(gallery.enabled),
+      GALLERY_CONTENT_REGISTRABLE_SITE: getDomain(new URL(content).hostname),
+      GALLERY_MANAGEMENT_COOKIE_DOMAIN: gallery.managementCookieDomain,
+      GALLERY_GRANT_REVISION: gallery.grantRevision,
+      GALLERY_APPEAL_POLICY_REVISION: gallery.appealPolicyRevision,
+      GALLERY_CHALLENGE_VERIFIER_READY: String(gallery.challengeVerifierReady),
+      GALLERY_ADMINISTRATOR_AUTHORITY_READY: String(gallery.administratorAuthorityReady),
+      GALLERY_REPORTING_READY: String(gallery.reportingReady),
+      GALLERY_NOTIFICATION_READY: String(gallery.notificationReady),
+      GALLERY_APPEAL_READY: String(gallery.appealReady),
+      GALLERY_GOVERNANCE_READY: String(gallery.governanceReady),
+      GALLERY_ISOLATED_CONTENT_READY: String(gallery.isolatedContentReady),
+      PUBLIC_GALLERY_TURNSTILE_SITE_KEY: gallery.turnstileSiteKey ?? "",
     });
     if (config.target === "kubernetes") {
       Object.assign(resource.data, {

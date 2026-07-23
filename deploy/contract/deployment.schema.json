@@ -188,6 +188,7 @@
         "database",
         "sessionSigningKeys",
         "roleSecrets",
+        "gallery",
         "publicOrigins",
         "recoverability"
       ],
@@ -212,6 +213,40 @@
             "contentFingerprint": { "$ref": "#/$defs/rotatingSecret" },
             "idempotencyEncryption": { "$ref": "#/$defs/rotatingSecret" },
             "galleryTurnstile": { "$ref": "#/$defs/secretReference" }
+          }
+        },
+        "gallery": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enabled",
+            "managementCookieDomain",
+            "grantRevision",
+            "appealPolicyRevision",
+            "challengeVerifierReady",
+            "administratorAuthorityReady",
+            "reportingReady",
+            "notificationReady",
+            "appealReady",
+            "governanceReady",
+            "isolatedContentReady"
+          ],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "managementCookieDomain": { "type": "string", "minLength": 1 },
+            "grantRevision": { "type": "string", "minLength": 1 },
+            "appealPolicyRevision": { "type": "string", "minLength": 1 },
+            "challengeVerifierReady": { "type": "boolean" },
+            "administratorAuthorityReady": { "type": "boolean" },
+            "reportingReady": { "type": "boolean" },
+            "notificationReady": { "type": "boolean" },
+            "appealReady": { "type": "boolean" },
+            "governanceReady": { "type": "boolean" },
+            "isolatedContentReady": { "type": "boolean" },
+            "turnstileSiteKey": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
           }
         },
         "publicOrigins": {

@@ -53,6 +53,11 @@ test("renders one deterministic namespace- and release-bound Kubernetes bundle",
     named(items, "ConfigMap", "shareslices-config").metadata.annotations["shareslices.dev/configuration-digest"],
     release.configurationDigest,
   );
+  const runtimeConfig = named(items, "ConfigMap", "shareslices-config").data;
+  assert.equal(runtimeConfig.GALLERY_ENABLED, "true");
+  assert.equal(runtimeConfig.GALLERY_CONTENT_REGISTRABLE_SITE, "example-content.test");
+  assert.equal(runtimeConfig.GALLERY_MANAGEMENT_COOKIE_DOMAIN, "example.test");
+  assert.equal(runtimeConfig.GALLERY_ISOLATED_CONTENT_READY, "false");
   assert.equal(
     named(items, "Deployment", "shareslices-api").spec.template.metadata.labels["shareslices.dev/installation"],
     config.installationId,

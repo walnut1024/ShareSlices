@@ -108,3 +108,21 @@ test("both production targets require distinct application and content sites", a
     );
   }
 });
+
+test("Gallery Cookie and challenge readiness are bound to declared site evidence", async () => {
+  const wrongCookie = await readFixture("deployment.cloudflare.valid.json");
+  wrongCookie.shared.gallery.managementCookieDomain = "example-content.test";
+  await assert.rejects(
+    validateDeploymentConfig(wrongCookie),
+    (error) => error instanceof DeploymentConfigError &&
+      error.message.includes("Cookie domain"),
+  );
+
+  const unprovenChallenge = await readFixture("deployment.cloudflare.valid.json");
+  unprovenChallenge.shared.gallery.challengeVerifierReady = true;
+  await assert.rejects(
+    validateDeploymentConfig(unprovenChallenge),
+    (error) => error instanceof DeploymentConfigError &&
+      error.message.includes("Turnstile"),
+  );
+});
