@@ -91,7 +91,8 @@
       "resend": { "ref": "secret://resend/sending", "revision": "2" }
     },
     "edgeCdn": {
-      "mode": "web-assets-only"
+      "mode": "web-assets-only",
+      "maximumViewerAssetBytes": 5242880
     },
     "workers": {
       "application": "shareslices-app",

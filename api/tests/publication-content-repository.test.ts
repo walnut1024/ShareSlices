@@ -209,6 +209,7 @@ describe("Publication content repository", () => {
       repository.resolveShareSlug("stable-share-slug"),
     ).resolves.toEqual({
       kind: "published",
+      publicationId: "publication-1",
       versionId: "version-1",
     });
   });

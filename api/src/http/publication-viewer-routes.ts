@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { auth } from "../auth/auth.js";
 import {
   PublicationViewerError,
+  type AuthorizedViewerAsset,
   type ContentAsset,
   type ShareResolution,
   normalizeContentPath,
@@ -29,6 +30,12 @@ export type PublicationViewerRouteDependencies = {
   >;
   management: Pick<ArtifactManagementService, "get">;
   storage: Pick<ObjectStorage, "readCommittedObject">;
+  viewerBytes?: {
+    read(
+      asset: AuthorizedViewerAsset,
+      request: Request,
+    ): Promise<ObjectBody>;
+  };
   thumbnailRepository: Pick<
     ArtifactThumbnailRepository,
     "findOwned" | "consumeGrant" | "resolveSession" | "findVersionAsset"
@@ -551,10 +558,12 @@ export function publicationViewerRoutes(
       if (rawPath === "" && !contentMode) {
         return viewerPlayerPage(c.req.param("shareSlug") ?? "");
       }
-      const object = await dependencies.storage.readCommittedObject(
-        result.objectKey,
-      );
-      return assetResponse(result, object.body);
+      const body = dependencies.viewerBytes
+        ? await dependencies.viewerBytes.read(result, c.req.raw)
+        : (
+            await dependencies.storage.readCommittedObject(result.objectKey)
+          ).body;
+      return assetResponse(result, body);
     } catch (error) {
       if (error instanceof PublicationViewerError) {
         return statePage("unknown", dependencies.managementOrigin);

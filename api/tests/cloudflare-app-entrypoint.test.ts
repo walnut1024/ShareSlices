@@ -50,6 +50,8 @@ function bindings(): CloudflareAppBindings {
         value: "test-better-auth-secret-with-at-least-thirty-two-bytes",
       },
     ]),
+    EDGE_CDN_MODE: "web-assets-only",
+    VIEWER_BYTE_CACHE_MAX_ASSET_BYTES: 5_242_880,
     AUTH_EMAIL_ENCRYPTION_KEY: "test-email-encryption-secret-with-at-least-thirty-two-bytes",
     AUTH_EMAIL_RESEND_SECONDS: 60,
     AUTH_EMAIL_GLOBAL_HOUR: 1000,

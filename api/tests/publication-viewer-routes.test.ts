@@ -30,6 +30,7 @@ async function dependencies(session: { user: { id: string } } | null = { user: {
     contentType: "text/javascript"
   });
   const asset = (path: string) => ({
+    publicationId: "publication-1",
     versionId: "version-1",
     path,
     objectKey: `committed/version-1/${path}`,
@@ -175,6 +176,7 @@ describe("Publication, Preview, and Viewer routes", () => {
     const deps = await dependencies();
     deps.service.resolveViewer
       .mockResolvedValueOnce({
+        publicationId: "publication-1",
         versionId: "version-1",
         path: "腾讯文档盘点分析报告.html",
         objectKey: "committed/version-1/腾讯文档盘点分析报告.html",
@@ -193,6 +195,31 @@ describe("Publication, Preview, and Viewer routes", () => {
     expect(content.status).toBe(200);
     expect(contentHtml).toContain("not currently published");
     expect(contentHtml).not.toContain("Enter full screen");
+  });
+
+  it("authorizes before optional byte reuse and keeps the outward response no-store", async () => {
+    const deps = await dependencies();
+    const viewerBytes = {
+      read: vi.fn(async () => bytes("cached-viewer-bytes")),
+    };
+    const app = buildApp({
+      publicationViewer: { ...deps, viewerBytes },
+    } as never);
+
+    const response = await app.request("/a/stable-slug/assets/app.js");
+
+    expect(deps.service.resolveViewer).toHaveBeenCalledWith(
+      "stable-slug",
+      "assets/app.js",
+    );
+    expect(viewerBytes.read).toHaveBeenCalledTimes(1);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.text()).toBe("cached-viewer-bytes");
+
+    deps.service.resolveViewer.mockResolvedValueOnce({ kind: "unpublished" } as never);
+    const unpublished = await app.request("/a/stable-slug/assets/app.js");
+    expect(unpublished.status).toBe(200);
+    expect(viewerBytes.read).toHaveBeenCalledTimes(1);
   });
 
   it("streams an owner thumbnail with private immutable caching", async () => {

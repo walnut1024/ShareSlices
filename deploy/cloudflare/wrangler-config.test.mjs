@@ -152,6 +152,11 @@ test("generates schema-valid staged App and Content Wrangler inputs", async () =
     first.configs.app.vars.IDEMPOTENCY_ENCRYPTION_KEY_CURRENT_REVISION,
     "5",
   );
+  assert.equal(first.configs.app.vars.EDGE_CDN_MODE, "web-assets-only");
+  assert.equal(
+    first.configs.app.vars.VIEWER_BYTE_CACHE_MAX_ASSET_BYTES,
+    5_242_880,
+  );
 });
 
 test("rejects drifted or unsafe Terraform prerequisite outputs", async () => {

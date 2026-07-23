@@ -51,7 +51,11 @@ function repository(): PublicationContentRepository {
       }
     }),
     unpublish: vi.fn().mockResolvedValue(true),
-    resolveShareSlug: vi.fn().mockResolvedValue({ kind: "published", versionId: "version-1" })
+    resolveShareSlug: vi.fn().mockResolvedValue({
+      kind: "published",
+      publicationId: "publication-1",
+      versionId: "version-1"
+    })
   };
 }
 
@@ -99,6 +103,7 @@ describe("PublicationViewerService", () => {
       path: "腾讯文档盘点分析报告.html"
     });
     await expect(service.resolveViewer("stable-slug", "")).resolves.toMatchObject({
+      publicationId: "publication-1",
       path: "腾讯文档盘点分析报告.html"
     });
     expect(store.findEntryAsset).toHaveBeenCalledTimes(2);

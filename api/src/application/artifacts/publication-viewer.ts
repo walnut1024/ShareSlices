@@ -56,11 +56,15 @@ export type ShareResolution =
   | { kind: "retired" }
   | { kind: "unpublished" }
   | { kind: "restricted" }
-  | { kind: "published"; versionId: string };
+  | { kind: "published"; publicationId: string; versionId: string };
+
+export type AuthorizedViewerAsset = ContentAsset & {
+  publicationId: string;
+};
 
 export type ViewerResolution =
   | Exclude<ShareResolution, { kind: "published" }>
-  | ContentAsset;
+  | AuthorizedViewerAsset;
 
 export type PublishResult =
   | {
@@ -306,6 +310,6 @@ export class PublicationViewerService {
     if (!asset) {
       throw new PublicationViewerError("asset_not_found");
     }
-    return asset;
+    return { ...asset, publicationId: resolution.publicationId };
   }
 }

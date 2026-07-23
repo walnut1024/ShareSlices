@@ -33,6 +33,8 @@ function cloudflareAppBindings(): CloudflareAppBindings {
     BETTER_AUTH_SECRETS: JSON.stringify([
       { version: 1, value: "test-secret-at-least-thirty-two-bytes" },
     ]),
+    EDGE_CDN_MODE: "web-assets-only",
+    VIEWER_BYTE_CACHE_MAX_ASSET_BYTES: 5_242_880,
     AUTH_EMAIL_ENCRYPTION_KEY: "test-email-encryption-key-at-least-32-bytes",
     AUTH_EMAIL_RESEND_SECONDS: 60,
     AUTH_EMAIL_GLOBAL_HOUR: 1000,

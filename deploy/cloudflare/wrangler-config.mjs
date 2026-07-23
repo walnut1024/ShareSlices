@@ -222,6 +222,9 @@ export async function generateStagedWorkerConfigs(input) {
         runtimeVariables.ARTIFACT_PROCESSING_REVISION,
       ARTIFACT_RENDERER_REVISION:
         runtimeVariables.ARTIFACT_RENDERER_REVISION,
+      EDGE_CDN_MODE: input.config.cloudflare.edgeCdn.mode,
+      VIEWER_BYTE_CACHE_MAX_ASSET_BYTES:
+        input.config.cloudflare.edgeCdn.maximumViewerAssetBytes,
     },
   };
   const content = {

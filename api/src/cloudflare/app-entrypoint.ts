@@ -39,6 +39,10 @@ import { buildTrustedHttpApp } from "../http/trusted-app.js";
 import { R2ObjectStorage, type R2BucketBinding } from "../storage/r2-object-storage.js";
 import { createCloudflareLogger } from "./logger.js";
 import type { CloudflareExecutionContext, CloudflareFetchHandler } from "./runtime.js";
+import {
+  CloudflareViewerByteReader,
+  type ViewerByteCache,
+} from "./viewer-byte-cache.js";
 
 type AppEnvironment = Pick<
   ApiHttpEnv,
@@ -95,6 +99,8 @@ export type CloudflareAppBindings = Readonly<
     SERVICE_VERSION: string;
     DEPLOYMENT_ENVIRONMENT: string;
     BETTER_AUTH_SECRETS: string;
+    EDGE_CDN_MODE: "web-assets-only" | "web-and-public-viewer-bytes";
+    VIEWER_BYTE_CACHE_MAX_ASSET_BYTES: number;
   }
 >;
 
@@ -134,6 +140,16 @@ function configuredHost(request: Request, bindings: CloudflareAppBindings): bool
     configuredOrigin(bindings.WEB_ORIGIN),
     configuredOrigin(bindings.API_ORIGIN),
   ]).has(origin);
+}
+
+function viewerByteCache(): ViewerByteCache {
+  const cache = (
+    globalThis as typeof globalThis & {
+      caches?: Readonly<{ default?: ViewerByteCache }>;
+    }
+  ).caches?.default;
+  if (!cache) throw new Error("cloudflare_default_cache_unavailable");
+  return cache;
 }
 
 function runtimeConfiguration(
@@ -418,6 +434,18 @@ export function createCloudflareAppWorker(): CloudflareFetchHandler<CloudflareAp
               ),
               management,
               storage,
+              ...(bindings.EDGE_CDN_MODE === "web-and-public-viewer-bytes"
+                ? {
+                    viewerBytes: new CloudflareViewerByteReader({
+                      storage,
+                      cache: viewerByteCache(),
+                      maxAssetBytes:
+                        bindings.VIEWER_BYTE_CACHE_MAX_ASSET_BYTES,
+                      rendererRevision: bindings.ARTIFACT_RENDERER_REVISION,
+                      defer: (promise) => context.waitUntil(promise),
+                    }),
+                  }
+                : {}),
               thumbnailRepository: createArtifactThumbnailRepository(
                 connection.database,
               ),

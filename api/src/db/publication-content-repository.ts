@@ -508,7 +508,11 @@ export function createPublicationContentRepository(
         ) as blocked
       `);
       if (blocked.rows[0]?.blocked) return { kind: "restricted" };
-      return { kind: "published", versionId: publication.versionId };
+      return {
+        kind: "published",
+        publicationId: publication.id,
+        versionId: publication.versionId,
+      };
     },
   };
 }
