@@ -81,6 +81,9 @@ export async function applyDeploymentPlan({
         actions,
         lease,
         assertLease: () => control.assertLease(lease),
+        finalizeRelease: typeof control.finalizeRelease === "function"
+          ? (input) => control.finalizeRelease(lease, input)
+          : undefined,
       });
       if (outcome?.outcome === "external_reconciler_required") {
         const {continueHandoff, ...handoffOutcome} = outcome;

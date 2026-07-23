@@ -22,7 +22,8 @@ test("release finalization records active and previous releases under one verifi
       if (sql.includes("select 1 from shareslices_deployment_operation")) return {rows: [{}]};
       if (sql.includes("for update")) return {rows: []};
       if (sql.includes("insert into shareslices_deployment_operation")) return {rows: [{fencing_token: 3, revision: 1}]};
-      if (sql.includes("slot = 'active'")) return {rows: [{
+      if (sql.includes("from shareslices_deployment_release_record")) return {rows: [{
+        slot: "active",
         target: "kubernetes",
         release_id: digest("a"),
         bundle_digest: digest("b"),

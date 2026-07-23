@@ -247,6 +247,11 @@ test("plan server-side dry-runs every ordered phase without persistence and bind
   assert.equal(planning.desired.target, "kubernetes");
   assert.equal(planning.desired.releaseId, release.releaseId);
   assert.equal(planning.desired.resources.length > 0, true);
+  assert.equal(
+    planning.desired.resources.some(({phase, logicalId}) =>
+      phase === "verification" && logicalId === `deployment-control/release-verification/${release.releaseId}`),
+    true,
+  );
   assert.deepEqual(planning.observed.dryRuns.map(({phase}) => phase), ["prerequisites", "migration", "private-runtime", "ingress"]);
   assert.equal(planning.observed.dryRuns.every(({persisted}) => persisted === false), true);
   for (const call of calls) {
@@ -284,12 +289,29 @@ test("plan refuses to infer first installation when authoritative observations a
 test("direct apply executes authorized phases with migration and rollout gates", async () => {
   const calls = [];
   let leaseAssertions = 0;
+  let finalized = false;
   const adapter = createKubernetesAdapter({
     runKubectl: (arguments_, options = {}) => {
       calls.push({arguments_, input: options.input});
       return {status: 0, stdout: "resource/name\n", stderr: ""};
     },
-    observeState: async () => ({revision: digest("4"), controlSchema: {state: "present", checksum: digest("6")}, resources: []}),
+    observeState: async ({bundle: observedBundle}) => ({
+      revision: digest("4"),
+      controlSchema: {state: "present", checksum: digest("6")},
+      releaseRecords: finalized ? {active: {releaseId: release.releaseId}} : {},
+      resources: observedBundle.phases.flatMap(({resources}) => resources.map((resource) => ({
+        logicalId: `${resource.apiVersion}/${resource.kind}/${resource.metadata.namespace}/${resource.metadata.name}`,
+        digest: resource.metadata.annotations["shareslices.dev/resource-digest"],
+      }))),
+    }),
+    verifyCore: async () => ({
+      schemaVersion: "shareslices.verification-result/v1",
+      contractSchemaVersion: "shareslices.verification/v1",
+      contractDigest: release.verificationContractDigest,
+      level: "core",
+      outcome: "passed",
+      checks: [],
+    }),
     runNetworkProbes: async ({assertLease}) => {
       await assertLease();
       return {kind: "kubernetes-network-probes/v1", outcome: "passed", cleanup: "completed"};
@@ -303,6 +325,17 @@ test("direct apply executes authorized phases with migration and rollout gates",
           assertLease: async () => { leaseAssertions += 1; },
         }))});
       }
+      phases.push({phase: "verification", ...(await executePhase({
+        phase: "verification",
+        actions: [{action: "create"}],
+        assertLease: async () => { leaseAssertions += 1; },
+        finalizeRelease: async () => { finalized = true; },
+      }))});
+      phases.push({phase: "retirement", ...(await executePhase({
+        phase: "retirement",
+        actions: [],
+        assertLease: async () => { leaseAssertions += 1; },
+      }))});
       return {outcome: "succeeded", phases};
     },
   });
@@ -319,7 +352,10 @@ test("direct apply executes authorized phases with migration and rollout gates",
   assert.equal(calls.some(({arguments_}) => arguments_.includes("--for=condition=complete")), true);
   assert.equal(calls.filter(({arguments_}) => arguments_.includes("rollout")).length > 0, true);
   assert.equal(calls.filter(({input}) => input).every(({input}) => input.includes("shareslices.dev/resource-digest")), true);
-  assert.equal(leaseAssertions, 5);
+  assert.equal(finalized, true);
+  assert.equal(result.phases.at(-2).evidence.outcome, "passed");
+  assert.equal(result.phases.at(-1).evidence.kind, "kubernetes-retirement/v1");
+  assert.equal(leaseAssertions, 6);
 });
 
 test("direct apply loses no Kubernetes mutation after its phase lease is lost", async () => {

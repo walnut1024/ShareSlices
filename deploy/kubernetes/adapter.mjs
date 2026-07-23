@@ -431,14 +431,27 @@ export function createKubernetesAdapter({
       target: "kubernetes",
       releaseId: release.releaseId,
       bundleDigest,
-      resources: planPhases.flatMap((phase) => phase.resources.map((resource) => ({
+      resources: [
+        ...planPhases.flatMap((phase) => phase.resources.map((resource) => ({
         logicalId: `${resource.apiVersion}/${resource.kind}/${resource.metadata.namespace}/${resource.metadata.name}`,
         phase: phaseNames[phase.id] ?? phase.id,
         digest: resource.metadata.annotations["shareslices.dev/resource-digest"],
         owner: config.kubernetes.reconciliation.owner,
         retention: "active",
         securitySensitive: ["Ingress", "NetworkPolicy", "CiliumNetworkPolicy", "ServiceAccount"].includes(resource.kind),
-      }))),
+        }))),
+        ...(operation === "apply" && config.kubernetes.reconciliation.mode === "direct" ? [{
+          logicalId: `deployment-control/release-verification/${release.releaseId}`,
+          phase: "verification",
+          digest: sha256Digest({
+            bundleDigest,
+            verificationContractDigest: release.verificationContractDigest,
+          }),
+          owner: "deployment-module",
+          retention: "active",
+          securitySensitive: true,
+        }] : []),
+      ],
     };
     return Object.freeze({
       desired,
@@ -473,7 +486,45 @@ export function createKubernetesAdapter({
       plan: deploymentPlan,
       authorizedPlanDigest,
       observe,
-      executePhase: async ({phase, actions, assertLease}) => {
+      executePhase: async ({phase, actions, assertLease, finalizeRelease: finalizeWithinLease}) => {
+        if (phase === "verification") {
+          if (typeof finalizeWithinLease !== "function") {
+            throw new TargetAdapterError(
+              "kubernetes_release_finalization_unavailable",
+              "Kubernetes direct apply requires same-lease release finalization.",
+            );
+          }
+          const core = await verifyCore({
+            topology: "kubernetes",
+            addresses: {
+              web: config.shared.publicOrigins.application,
+              api: config.shared.publicOrigins.application,
+              viewer: config.shared.publicOrigins.application,
+              content: config.shared.publicOrigins.content,
+              origin: config.shared.publicOrigins.application,
+              edge: config.shared.publicOrigins.application,
+            },
+          });
+          const verification = await verifyRenderedRelease({config, release, bundle, core});
+          if (verification.outcome !== "passed") {
+            throw new TargetAdapterError(
+              verification.outcome === "indeterminate"
+                ? "kubernetes_release_verification_indeterminate"
+                : "kubernetes_release_verification_failed",
+              "Kubernetes release verification did not pass.",
+            );
+          }
+          await assertLease();
+          await finalizeWithinLease({
+            release,
+            bundleDigest: verification.bundleDigest,
+            verification,
+          });
+          return {
+            checkpointDigest: sha256Digest(verification),
+            evidence: verification,
+          };
+        }
         if (phase === "retirement") {
           const current = await observe();
           const active = current.releaseRecords?.active;

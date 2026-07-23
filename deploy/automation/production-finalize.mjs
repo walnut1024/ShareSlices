@@ -56,13 +56,13 @@ export function createProductionReleaseFinalizer({
         owner,
       };
       const existing = await client.query(
-        `select target, release_id, bundle_digest, configuration_digest, secret_revisions,
+        `select slot, target, release_id, bundle_digest, configuration_digest, secret_revisions,
                 compatibility, contract_revisions
            from shareslices_deployment_release_record
-          where installation_id = $1 and slot = 'active'`,
+          where installation_id = $1`,
         [config.installationId],
       );
-      const previous = databaseRecord(existing.rows[0]);
+      const existingBySlot = new Map(existing.rows.map((row) => [row.slot, row]));
       const active = {
         target: config.target,
         releaseId: release.releaseId,
@@ -72,6 +72,9 @@ export function createProductionReleaseFinalizer({
         compatibility: release.compatibility,
         contractRevisions: release.contractRevisions,
       };
+      const previous = existingBySlot.get("active")?.release_id === active.releaseId
+        ? databaseRecord(existingBySlot.get("previous"))
+        : databaseRecord(existingBySlot.get("active"));
       await recordPhaseCheckpoint(client, lease, {
         phase: "verification",
         state: "completed",
@@ -80,7 +83,7 @@ export function createProductionReleaseFinalizer({
       });
       const records = await mirrorReleaseRecords(client, lease, {
         active,
-        previous: previous?.releaseId === active.releaseId ? null : previous,
+        previous,
       });
       await completeOperationLease(client, lease);
       return Object.freeze({lease, records});
