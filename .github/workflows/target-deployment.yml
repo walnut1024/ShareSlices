@@ -1,0 +1,64 @@
+name: Run target deployment lifecycle
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: Deployment lifecycle command
+        required: true
+        type: choice
+        options: [doctor, render, plan, apply, status, verify, rollback]
+      config_path:
+        description: Secret-free deployment configuration path on the deployment runner
+        required: true
+        type: string
+      release_path:
+        description: Immutable release manifest path on the deployment runner, when required
+        required: false
+        type: string
+      plan_path:
+        description: Authorized plan path on the deployment runner, when required
+        required: false
+        type: string
+      operation:
+        description: Explicit lifecycle operation discriminator, when required
+        required: false
+        type: string
+      environment:
+        description: Protected GitHub deployment environment
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shareslices-deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: ${{ inputs.command }} ${{ inputs.environment }}
+    environment: ${{ inputs.environment }}
+    runs-on: [self-hosted, shareslices-deploy]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v3
+      - name: Install locked dependencies
+        run: mise run install -- --frozen-lockfile
+      - name: Run repository deployment lifecycle
+        env:
+          DEPLOY_COMMAND: ${{ inputs.command }}
+          DEPLOY_CONFIG: ${{ inputs.config_path }}
+          DEPLOY_RELEASE: ${{ inputs.release_path }}
+          DEPLOY_PLAN: ${{ inputs.plan_path }}
+          DEPLOY_OPERATION: ${{ inputs.operation }}
+          SHARESLICES_SECRET_ROOT: ${{ secrets.SHARESLICES_SECRET_ROOT }}
+          SHARESLICES_DEPLOYMENT_PRINCIPAL: github:${{ github.actor }}
+        run: |
+          arguments=("$DEPLOY_COMMAND" --config "$DEPLOY_CONFIG")
+          if [[ -n "$DEPLOY_RELEASE" ]]; then arguments+=(--release "$DEPLOY_RELEASE"); fi
+          if [[ -n "$DEPLOY_PLAN" ]]; then arguments+=(--plan "$DEPLOY_PLAN"); fi
+          if [[ -n "$DEPLOY_OPERATION" ]]; then arguments+=(--operation "$DEPLOY_OPERATION"); fi
+          mise run deploy -- "${arguments[@]}"
+

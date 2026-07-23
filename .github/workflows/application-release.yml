@@ -1,0 +1,51 @@
+name: Build application release
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_repository:
+        description: Immutable OCI repository prefix for Kubernetes role images
+        required: true
+        type: string
+      platforms:
+        description: Comma-separated Kubernetes image platforms
+        required: true
+        default: linux/amd64
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build immutable release inputs
+    runs-on: [self-hosted, shareslices-release]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v3
+      - name: Install locked dependencies
+        run: mise run install -- --frozen-lockfile
+      - name: Verify source
+        run: mise run check
+      - name: Build environment-neutral Web assets
+        run: mise run build-static-assets -- --output dist/static-assets
+      - name: Build Cloudflare Worker bundles
+        run: mise run cloudflare-build-workers -- --output dist/cloudflare-workers
+      - name: Publish Kubernetes role images
+        env:
+          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          IMAGE_PLATFORMS: ${{ inputs.platforms }}
+        run: >-
+          mise run kubernetes-build-images --
+          --repository "$IMAGE_REPOSITORY"
+          --source-revision "$GITHUB_SHA"
+          --platforms "$IMAGE_PLATFORMS"
+          --output dist/kubernetes-images
+      - name: Retain release inputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: shareslices-release-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
