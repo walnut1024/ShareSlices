@@ -59,6 +59,22 @@ test("renders one deterministic namespace- and release-bound Kubernetes bundle",
   assert.equal(runtimeConfig.GALLERY_MANAGEMENT_COOKIE_DOMAIN, "example.test");
   assert.equal(runtimeConfig.GALLERY_ISOLATED_CONTENT_READY, "false");
   assert.equal(
+    runtimeConfig.CONTENT_FINGERPRINT_KEY_CURRENT_REVISION,
+    config.shared.roleSecrets.contentFingerprint.current.revision,
+  );
+  assert.equal(
+    runtimeConfig.CONTENT_FINGERPRINT_KEY_PREVIOUS_REVISION,
+    "",
+  );
+  assert.equal(
+    runtimeConfig.IDEMPOTENCY_ENCRYPTION_KEY_CURRENT_REVISION,
+    config.shared.roleSecrets.idempotencyEncryption.current.revision,
+  );
+  assert.equal(
+    runtimeConfig.IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS_REVISION,
+    "",
+  );
+  assert.equal(
     named(items, "Deployment", "shareslices-api").spec.template.metadata.labels["shareslices.dev/installation"],
     config.installationId,
   );
