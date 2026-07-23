@@ -42,6 +42,8 @@ const validEnv = {
   AUTH_EMAIL_FROM: "ShareSlices <no-reply@shareslices.local>",
   AUTH_EMAIL_TRANSPORT_NAMESPACE: "test-smtp",
   AUTH_EMAIL_TRANSPORT_REVISION: "test-smtp-v1",
+  AUTH_EMAIL_SMTP_ENDPOINT_IDENTITY: "127.0.0.1:1025",
+  AUTH_EMAIL_SMTP_TLS_POLICY: "plaintext-allowed",
   PORT: "7456",
   NODE_ENV: "test"
 };
@@ -221,7 +223,13 @@ describe("API environment", () => {
     temporaryDirectories.push(directory);
     const path = join(directory, "url");
     writeFileSync(path, "smtps://user:pass@smtp.example.com:465\n", { mode: 0o600 });
-    const fromFile = { ...validEnv, AUTH_EMAIL_SMTP_URL: undefined, AUTH_EMAIL_SMTP_URL_FILE: path };
+    const fromFile = {
+      ...validEnv,
+      AUTH_EMAIL_SMTP_URL: undefined,
+      AUTH_EMAIL_SMTP_URL_FILE: path,
+      AUTH_EMAIL_SMTP_ENDPOINT_IDENTITY: "smtp.example.com:465",
+      AUTH_EMAIL_SMTP_TLS_POLICY: "tls-required",
+    };
     expect(readEnv(fromFile)).toMatchObject({ AUTH_EMAIL_SMTP_URL: "smtps://user:pass@smtp.example.com:465" });
   });
 
@@ -235,5 +243,14 @@ describe("API environment", () => {
     expect(() => readEnv({ ...validEnv, AUTH_EMAIL_FROM: "one@example.com, two@example.com" })).toThrow();
     expect(() => readEnv({ ...validEnv, AUTH_EMAIL_FROM: "sender@example.com\r\nBcc: victim@example.com" })).toThrow();
     expect(() => readEnv({ ...validEnv, AUTH_EMAIL_SMTP_URL: "smtp://smtp.example.com:587?tls.rejectUnauthorized=false" })).toThrow();
+    expect(() => readEnv({ ...validEnv, AUTH_EMAIL_SMTP_ENDPOINT_IDENTITY: "smtp.example.com:587" })).toThrow("declared endpoint identity");
+    expect(() => readEnv({ ...validEnv, AUTH_EMAIL_SMTP_TLS_POLICY: "starttls-required" })).toThrow("declared TLS policy");
+    expect(readEnv({
+      ...validEnv,
+      NODE_ENV: "production",
+      AUTH_EMAIL_SMTP_URL: "smtp://user:pass@smtp.example.com:587?requireTLS=true",
+      AUTH_EMAIL_SMTP_ENDPOINT_IDENTITY: "smtp.example.com:587",
+      AUTH_EMAIL_SMTP_TLS_POLICY: "starttls-required",
+    })).toMatchObject({ AUTH_EMAIL_SMTP_TLS_POLICY: "starttls-required" });
   });
 });

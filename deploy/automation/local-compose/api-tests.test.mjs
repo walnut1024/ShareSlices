@@ -185,6 +185,7 @@ test("test processes exclude caller application, provider, CI, and agent variabl
   assert.equal(environment.UNRELATED_DEPLOY_SECRET, undefined);
   assert.equal(environment.S3_BUCKET, "shareslices-test-artifacts");
   assert.equal(environment.AUTH_EMAIL_FROM, "ShareSlices Test <no-reply@shareslices.local>");
+  assert.equal(environment.AUTH_EMAIL_SMTP_ENDPOINT_IDENTITY, "127.0.0.1:49104");
 });
 
 test("Web E2E receives only frozen isolated Web, API, and Mailpit endpoints", () => {

@@ -1,4 +1,5 @@
 import nodemailer, { type Transporter } from "nodemailer";
+// cspell:ignore EAUTH ECONNECTION EDNS EENVELOPE
 import type { AuthenticationEmailPayload } from "../application/accounts/authentication-email.js";
 import { renderAuthenticationEmailMessage } from "./authentication-email-message.js";
 import {
@@ -13,6 +14,8 @@ export type AuthenticationEmailSmtpOptions = {
   from: string;
   providerNamespace: string;
   transportRevision: string;
+  endpointIdentity: string;
+  tlsPolicy: "plaintext-allowed" | "starttls-required" | "tls-required";
   dnsTimeoutMs: number;
   connectionTimeoutMs: number;
   greetingTimeoutMs: number;
@@ -29,9 +32,46 @@ export type AuthenticationEmailSmtpAdapter = AuthenticationEmailTransportAdapter
     serializerRevision: "authentication-email-v1";
   }>;
   send(payload: AuthenticationEmailPayload, deliveryId: string): Promise<string>;
-  verify(checkTo?: string): Promise<void>;
+  verify(checkTo?: string): Promise<Readonly<{
+    endpointIdentity: string;
+    tlsPolicy: AuthenticationEmailSmtpOptions["tlsPolicy"];
+    authenticationConfigured: boolean;
+    senderSyntaxValidated: true;
+    messageSent: boolean;
+  }>>;
   close(): void;
 };
+
+export type AuthenticationEmailSmtpFailureKind =
+  | "known_not_submitted_retryable"
+  | "provider_rejected"
+  | "acceptance_indeterminate";
+
+export class AuthenticationEmailSmtpTransportError extends Error {
+  readonly kind: AuthenticationEmailSmtpFailureKind;
+
+  constructor(kind: AuthenticationEmailSmtpFailureKind) {
+    super(`authentication_email_smtp_${kind}`);
+    this.name = "AuthenticationEmailSmtpTransportError";
+    this.kind = kind;
+  }
+}
+
+function classifySmtpFailure(error: unknown): AuthenticationEmailSmtpFailureKind {
+  const evidence = error && typeof error === "object"
+    ? error as {code?: unknown; responseCode?: unknown}
+    : {};
+  if (evidence.code === "EDNS" || evidence.code === "ECONNECTION") {
+    return "known_not_submitted_retryable";
+  }
+  if (evidence.code === "EENVELOPE") {
+    return typeof evidence.responseCode === "number" && evidence.responseCode >= 400 && evidence.responseCode < 500
+      ? "known_not_submitted_retryable"
+      : "provider_rejected";
+  }
+  if (evidence.code === "EAUTH") return "provider_rejected";
+  return "acceptance_indeterminate";
+}
 
 export function createAuthenticationEmailSmtpAdapter(
   options: AuthenticationEmailSmtpOptions
@@ -97,13 +137,17 @@ export function createAuthenticationEmailSmtpAdapter(
     async send(payload, deliveryId) {
       const message = renderAuthenticationEmailMessage(payload);
       const messageId = `<${deliveryId}@shareslices.local>`;
-      const result = await transporter.sendMail({
-        from: options.from,
-        to: payload.email,
-        messageId,
-        ...message
-      });
-      return result.messageId;
+      try {
+        const result = await transporter.sendMail({
+          from: options.from,
+          to: payload.email,
+          messageId,
+          ...message
+        });
+        return result.messageId;
+      } catch (error) {
+        throw new AuthenticationEmailSmtpTransportError(classifySmtpFailure(error));
+      }
     },
     async verify(checkTo) {
       await transporter.verify();
@@ -117,6 +161,13 @@ export function createAuthenticationEmailSmtpAdapter(
           html: "<p>ShareSlices successfully delivered this SMTP check message.</p>"
         });
       }
+      return Object.freeze({
+        endpointIdentity: options.endpointIdentity,
+        tlsPolicy: options.tlsPolicy,
+        authenticationConfigured: Boolean(new URL(options.url).username),
+        senderSyntaxValidated: true,
+        messageSent: Boolean(checkTo),
+      });
     },
     close() {
       transporter.close();

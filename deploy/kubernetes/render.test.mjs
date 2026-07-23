@@ -107,6 +107,29 @@ test("removes broad environment inheritance and retains role-scoped Secret refer
   const workerNames = named(items, "Deployment", "shareslices-worker").spec.template.spec.containers[0].env.map(({name}) => name);
   assert.equal(apiNames.includes("AUTH_EMAIL_SMTP_URL"), false);
   assert.equal(maintenanceNames.includes("AUTH_EMAIL_SMTP_URL"), true);
+  const maintenanceEnvironment = named(
+    items,
+    "Deployment",
+    "shareslices-maintenance",
+  ).spec.template.spec.containers[0].env;
+  const renderedConfig = named(items, "ConfigMap", "shareslices-config").data;
+  assert.equal(renderedConfig.AUTH_EMAIL_FROM, config.kubernetes.email.sender);
+  assert.equal(renderedConfig.AUTH_EMAIL_TRANSPORT_NAMESPACE, config.kubernetes.email.relayNamespace);
+  assert.equal(renderedConfig.AUTH_EMAIL_TRANSPORT_REVISION, config.kubernetes.email.configurationRevision);
+  assert.equal(renderedConfig.AUTH_EMAIL_SMTP_ENDPOINT_IDENTITY, config.kubernetes.email.endpointIdentity);
+  assert.equal(renderedConfig.AUTH_EMAIL_SMTP_TLS_POLICY, config.kubernetes.email.tlsPolicy);
+  for (const name of [
+    "AUTH_EMAIL_FROM",
+    "AUTH_EMAIL_TRANSPORT_NAMESPACE",
+    "AUTH_EMAIL_TRANSPORT_REVISION",
+    "AUTH_EMAIL_SMTP_ENDPOINT_IDENTITY",
+    "AUTH_EMAIL_SMTP_TLS_POLICY",
+  ]) {
+    assert.deepEqual(
+      maintenanceEnvironment.find((entry) => entry.name === name).valueFrom,
+      {configMapKeyRef: {name: "shareslices-config", key: name}},
+    );
+  }
   assert.equal(workerNames.includes("BETTER_AUTH_SECRET"), false);
   assert.equal(workerNames.includes("CHROMIUM_PATH"), true);
   for (const role of ["api", "maintenance", "content", "worker"]) {

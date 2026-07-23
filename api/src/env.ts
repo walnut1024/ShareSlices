@@ -9,6 +9,7 @@ const optionalSecret = (minimum: number) => z.preprocess(
   z.string().min(minimum).optional()
 );
 const revision = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
+const smtpTlsPolicy = z.enum(["plaintext-allowed", "starttls-required", "tls-required"]);
 const mailbox = z.string().trim().refine((value) => {
   if (/[\r\n]/.test(value)) return false;
   const addresses = parseAddressList(value, { flatten: true });
@@ -74,6 +75,8 @@ const envFieldsSchema = z.object({
     AUTH_EMAIL_FROM: mailbox,
     AUTH_EMAIL_TRANSPORT_NAMESPACE: revision,
     AUTH_EMAIL_TRANSPORT_REVISION: revision,
+    AUTH_EMAIL_SMTP_ENDPOINT_IDENTITY: z.string().regex(/^[A-Za-z0-9.-]+:[0-9]{1,5}$/),
+    AUTH_EMAIL_SMTP_TLS_POLICY: smtpTlsPolicy,
     AUTH_EMAIL_SMTP_CHECK_TO: z.string().email().optional(),
     AUTH_EMAIL_DELIVERY_LEASE_SECONDS: z.coerce.number().int().positive().default(60),
     AUTH_EMAIL_SMTP_DNS_TIMEOUT_MS: z.coerce.number().int().positive().default(5_000),
@@ -148,6 +151,21 @@ export const envSchema = envFieldsSchema.superRefine((value, context) => {
         path: ["AUTH_EMAIL_SMTP_URL"],
         message: "Production smtp URLs must require STARTTLS."
       });
+    }
+    const smtpEndpoint = `${smtpUrl.hostname}:${smtpUrl.port || (smtpUrl.protocol === "smtps:" ? "465" : "587")}`;
+    if (smtpEndpoint !== value.AUTH_EMAIL_SMTP_ENDPOINT_IDENTITY) {
+      context.addIssue({ code: "custom", path: ["AUTH_EMAIL_SMTP_ENDPOINT_IDENTITY"], message: "SMTP URL must match the declared endpoint identity." });
+    }
+    if (
+      (value.AUTH_EMAIL_SMTP_TLS_POLICY === "tls-required" && smtpUrl.protocol !== "smtps:") ||
+      (value.AUTH_EMAIL_SMTP_TLS_POLICY === "starttls-required" && (
+        smtpUrl.protocol !== "smtp:" || smtpUrl.searchParams.get("requireTLS") !== "true"
+      )) ||
+      (value.AUTH_EMAIL_SMTP_TLS_POLICY === "plaintext-allowed" && (
+        value.NODE_ENV === "production" || smtpUrl.protocol !== "smtp:"
+      ))
+    ) {
+      context.addIssue({ code: "custom", path: ["AUTH_EMAIL_SMTP_TLS_POLICY"], message: "SMTP URL does not satisfy the declared TLS policy." });
     }
   });
 
@@ -257,6 +275,8 @@ const maintenanceEnvSchema = envFieldsSchema.pick({
   AUTH_EMAIL_FROM: true,
   AUTH_EMAIL_TRANSPORT_NAMESPACE: true,
   AUTH_EMAIL_TRANSPORT_REVISION: true,
+  AUTH_EMAIL_SMTP_ENDPOINT_IDENTITY: true,
+  AUTH_EMAIL_SMTP_TLS_POLICY: true,
   AUTH_EMAIL_DELIVERY_LEASE_SECONDS: true,
   AUTH_EMAIL_SMTP_DNS_TIMEOUT_MS: true,
   AUTH_EMAIL_SMTP_CONNECTION_TIMEOUT_MS: true,
@@ -282,6 +302,21 @@ const maintenanceEnvSchema = envFieldsSchema.pick({
   }
   if (value.NODE_ENV === "production" && smtpUrl.protocol === "smtp:" && smtpUrl.searchParams.get("requireTLS") !== "true") {
     context.addIssue({ code: "custom", path: ["AUTH_EMAIL_SMTP_URL"], message: "Production smtp URLs must require STARTTLS." });
+  }
+  const smtpEndpoint = `${smtpUrl.hostname}:${smtpUrl.port || (smtpUrl.protocol === "smtps:" ? "465" : "587")}`;
+  if (smtpEndpoint !== value.AUTH_EMAIL_SMTP_ENDPOINT_IDENTITY) {
+    context.addIssue({ code: "custom", path: ["AUTH_EMAIL_SMTP_ENDPOINT_IDENTITY"], message: "SMTP URL must match the declared endpoint identity." });
+  }
+  if (
+    (value.AUTH_EMAIL_SMTP_TLS_POLICY === "tls-required" && smtpUrl.protocol !== "smtps:") ||
+    (value.AUTH_EMAIL_SMTP_TLS_POLICY === "starttls-required" && (
+      smtpUrl.protocol !== "smtp:" || smtpUrl.searchParams.get("requireTLS") !== "true"
+    )) ||
+    (value.AUTH_EMAIL_SMTP_TLS_POLICY === "plaintext-allowed" && (
+      value.NODE_ENV === "production" || smtpUrl.protocol !== "smtp:"
+    ))
+  ) {
+    context.addIssue({ code: "custom", path: ["AUTH_EMAIL_SMTP_TLS_POLICY"], message: "SMTP URL does not satisfy the declared TLS policy." });
   }
 });
 
@@ -343,12 +378,37 @@ const smtpProbeEnvSchema = envFieldsSchema.pick({
   AUTH_EMAIL_FROM: true,
   AUTH_EMAIL_TRANSPORT_NAMESPACE: true,
   AUTH_EMAIL_TRANSPORT_REVISION: true,
+  AUTH_EMAIL_SMTP_ENDPOINT_IDENTITY: true,
+  AUTH_EMAIL_SMTP_TLS_POLICY: true,
   AUTH_EMAIL_SMTP_CHECK_TO: true,
   AUTH_EMAIL_SMTP_DNS_TIMEOUT_MS: true,
   AUTH_EMAIL_SMTP_CONNECTION_TIMEOUT_MS: true,
   AUTH_EMAIL_SMTP_GREETING_TIMEOUT_MS: true,
   AUTH_EMAIL_SMTP_SOCKET_TIMEOUT_MS: true,
   NODE_ENV: true,
+}).superRefine((value, context) => {
+  const smtpUrl = new URL(value.AUTH_EMAIL_SMTP_URL);
+  if (!(smtpUrl.protocol === "smtp:" || smtpUrl.protocol === "smtps:")) {
+    context.addIssue({ code: "custom", path: ["AUTH_EMAIL_SMTP_URL"], message: "SMTP URL must use smtp or smtps." });
+  }
+  if (smtpUrl.searchParams.get("tls.rejectUnauthorized") === "false") {
+    context.addIssue({ code: "custom", path: ["AUTH_EMAIL_SMTP_URL"], message: "SMTP TLS certificate validation cannot be disabled." });
+  }
+  const smtpEndpoint = `${smtpUrl.hostname}:${smtpUrl.port || (smtpUrl.protocol === "smtps:" ? "465" : "587")}`;
+  if (smtpEndpoint !== value.AUTH_EMAIL_SMTP_ENDPOINT_IDENTITY) {
+    context.addIssue({ code: "custom", path: ["AUTH_EMAIL_SMTP_ENDPOINT_IDENTITY"], message: "SMTP URL must match the declared endpoint identity." });
+  }
+  if (
+    (value.AUTH_EMAIL_SMTP_TLS_POLICY === "tls-required" && smtpUrl.protocol !== "smtps:") ||
+    (value.AUTH_EMAIL_SMTP_TLS_POLICY === "starttls-required" && (
+      smtpUrl.protocol !== "smtp:" || smtpUrl.searchParams.get("requireTLS") !== "true"
+    )) ||
+    (value.AUTH_EMAIL_SMTP_TLS_POLICY === "plaintext-allowed" && (
+      value.NODE_ENV === "production" || smtpUrl.protocol !== "smtp:"
+    ))
+  ) {
+    context.addIssue({ code: "custom", path: ["AUTH_EMAIL_SMTP_TLS_POLICY"], message: "SMTP URL does not satisfy the declared TLS policy." });
+  }
 });
 const webBootstrapEnvSchema = z.object({
     PUBLIC_API_ORIGIN: z.string().url(),

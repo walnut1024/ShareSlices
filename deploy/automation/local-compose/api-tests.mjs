@@ -243,6 +243,7 @@ export function processChildEnvironment(testRoot, endpoints, ambientEnvironment 
     ...minimalProcessInputs,
     ...processFixture,
     AUTH_EMAIL_SMTP_URL: `smtp://${endpoints.smtp.host}:${endpoints.smtp.port}`,
+    AUTH_EMAIL_SMTP_ENDPOINT_IDENTITY: `${endpoints.smtp.host}:${endpoints.smtp.port}`,
     DATABASE_URL: `postgres://shareslices:shareslices@${endpoints.database.host}:${endpoints.database.port}/shareslices_test`,
     NODE_ENV: "test",
     S3_ENDPOINT: `http://${endpoints.objectStorage.host}:${endpoints.objectStorage.port}`,

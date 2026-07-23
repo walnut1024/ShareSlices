@@ -28,4 +28,6 @@ process.env.REQUIRE_EMAIL_VERIFICATION ??= "false";
 process.env.AUTH_EMAIL_ENCRYPTION_KEY ??= "test-email-encryption-key-at-least-32-bytes";
 process.env.AUTH_EMAIL_SMTP_URL ??= "smtp://127.0.0.1:1025";
 process.env.AUTH_EMAIL_FROM ??= "ShareSlices <no-reply@shareslices.local>";
+process.env.AUTH_EMAIL_SMTP_ENDPOINT_IDENTITY ??= "127.0.0.1:1025";
+process.env.AUTH_EMAIL_SMTP_TLS_POLICY ??= "plaintext-allowed";
 process.env.NODE_ENV ??= "test";

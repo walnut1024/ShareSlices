@@ -203,6 +203,22 @@ export function createKubernetesAdapter({
       ? available("kubernetes-secret-references", {checkedCount: secretNames(config).length})
       : unavailable("kubernetes-secret-references", "required_secret_reference_unavailable"));
 
+    const smtpSecretKey = runKubectl(commandFor(
+      config,
+      "get",
+      "secret",
+      "shareslices-maintenance-secrets",
+      "--output=go-template={{if index .data \"AUTH_EMAIL_SMTP_URL\"}}present{{end}}",
+    ));
+    checks.push(smtpSecretKey.status === 0 && smtpSecretKey.stdout.trim() === "present"
+      ? available("kubernetes-smtp-secret-key-reference", {
+        secretName: "shareslices-maintenance-secrets",
+        key: "AUTH_EMAIL_SMTP_URL",
+        secretValueRead: false,
+        revision: config.kubernetes.email.smtp.revision,
+      })
+      : unavailable("kubernetes-smtp-secret-key-reference", "required_secret_key_unavailable"));
+
     const ingressClass = runKubectl(commandFor(config, "get", "ingressclass", config.kubernetes.ingress.className, "--output=name"));
     checks.push(ingressClass.status === 0
       ? available("kubernetes-ingress", {className: config.kubernetes.ingress.className})

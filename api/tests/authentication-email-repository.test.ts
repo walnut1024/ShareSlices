@@ -8,6 +8,7 @@ import {
 } from "../src/db/authentication-email-repository.js";
 import { dispatchOneAuthenticationEmail } from "../src/maintenance/authentication-email-node-dispatcher.js";
 import {
+  AuthenticationEmailSmtpTransportError,
   createAuthenticationEmailSmtpAdapter,
   type AuthenticationEmailSmtpAdapter
 } from "../src/email/authentication-email-smtp.js";
@@ -42,7 +43,15 @@ function smtpAdapterWithSend(
         }),
       };
     },
-    async verify() {},
+    async verify() {
+      return {
+        endpointIdentity: smtpIdentity.endpointIdentity,
+        tlsPolicy: "plaintext-allowed",
+        authenticationConfigured: false,
+        senderSyntaxValidated: true,
+        messageSent: false,
+      };
+    },
     close() {},
   };
 }
@@ -71,6 +80,8 @@ describe("authentication email repository", () => {
       from: "ShareSlices <no-reply@shareslices.local>",
       providerNamespace: "test-smtp",
       transportRevision: "test-smtp-v1",
+      endpointIdentity: `127.0.0.1:${address.port}`,
+      tlsPolicy: "plaintext-allowed",
       dnsTimeoutMs: 1_000,
       connectionTimeoutMs: 1_000,
       greetingTimeoutMs: 1_000,
@@ -341,6 +352,75 @@ describe("authentication email repository", () => {
       failure_reason_code: "provider_outcome_unknown"
     }]);
     expect(sends).toBe(1);
+  });
+
+  it("retries only an SMTP failure proven to occur before submission", async () => {
+    await pool.query("delete from authentication_email_delivery");
+    const email = `smtp-pre-submit-${crypto.randomUUID()}@example.com`;
+    const attempt = await createVerificationAttempt({ email, purpose: "registration" });
+    await acceptAuthenticationEmailDelivery({
+      attemptId: attempt.id,
+      email,
+      purpose: "registration",
+      sourceIp: "203.0.113.82",
+      payload: { email, otp: "123456", type: "email-verification" },
+    });
+    const adapter = smtpAdapterWithSend(async () => {
+      throw new AuthenticationEmailSmtpTransportError("known_not_submitted_retryable");
+    });
+
+    await expect(dispatchOneAuthenticationEmail("smtp-pre-submit-worker", adapter, {
+      leaseSeconds: 1,
+      heartbeatMs: 500,
+    })).resolves.toBe(true);
+    const delivery = await pool.query(
+      "select state, result_classification, failure_reason_code, encrypted_payload from authentication_email_delivery where attempt_id = $1",
+      [attempt.id],
+    );
+    expect(delivery.rows[0]).toMatchObject({
+      state: "pending",
+      result_classification: null,
+      failure_reason_code: "known_not_submitted_retryable",
+    });
+    expect(delivery.rows[0].encrypted_payload).not.toBe("");
+    const providerAttempt = await pool.query(
+      "select phase, failure_reason_code, quiescent_at from authentication_email_provider_attempt where delivery_id = (select id from authentication_email_delivery where attempt_id = $1)",
+      [attempt.id],
+    );
+    expect(providerAttempt.rows).toEqual([expect.objectContaining({
+      phase: "known_not_submitted",
+      failure_reason_code: "known_not_submitted_retryable",
+      quiescent_at: expect.any(Date),
+    })]);
+  });
+
+  it("fails an SMTP delivery rejected before DATA without retry or provider acceptance", async () => {
+    await pool.query("delete from authentication_email_delivery");
+    const email = `smtp-rejected-${crypto.randomUUID()}@example.com`;
+    const attempt = await createVerificationAttempt({ email, purpose: "registration" });
+    await acceptAuthenticationEmailDelivery({
+      attemptId: attempt.id,
+      email,
+      purpose: "registration",
+      sourceIp: "203.0.113.83",
+      payload: { email, otp: "123456", type: "email-verification" },
+    });
+    const adapter = smtpAdapterWithSend(async () => {
+      throw new AuthenticationEmailSmtpTransportError("provider_rejected");
+    });
+
+    await expect(dispatchOneAuthenticationEmail("smtp-rejected-worker", adapter)).resolves.toBe(true);
+    await expect(dispatchOneAuthenticationEmail("smtp-rejected-worker-2", adapter)).resolves.toBe(false);
+    const delivery = await pool.query(
+      "select state, result_classification, failure_reason_code, encrypted_payload from authentication_email_delivery where attempt_id = $1",
+      [attempt.id],
+    );
+    expect(delivery.rows[0]).toEqual({
+      state: "failed",
+      result_classification: "provider_rejected",
+      failure_reason_code: "provider_rejected",
+      encrypted_payload: "",
+    });
   });
 
   it("freezes Resend idempotency evidence before the bounded provider call", async () => {

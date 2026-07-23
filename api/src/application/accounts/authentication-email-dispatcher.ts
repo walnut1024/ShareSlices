@@ -7,6 +7,7 @@ import type {
   PreparedAuthenticationEmailTransport,
 } from "../../email/authentication-email-transport.js";
 import { ResendAuthenticationEmailTransportError } from "../../email/authentication-email-resend.js";
+import { AuthenticationEmailSmtpTransportError } from "../../email/authentication-email-smtp.js";
 
 type DeliveryRow = {
   id: string;
@@ -208,6 +209,60 @@ export async function dispatchOneAuthenticationEmail(
     } catch (error) {
       try {
         await client.query("begin");
+        if (error instanceof AuthenticationEmailSmtpTransportError && error.kind !== "acceptance_indeterminate") {
+          const retryable = error.kind === "known_not_submitted_retryable";
+          const attemptPhase = retryable ? "known_not_submitted" : "provider_rejected";
+          await client.query(
+            `update authentication_email_provider_attempt attempt
+             set phase = $4, failure_reason_code = $5, quiescent_at = now(), updated_at = now()
+             where attempt.id = $1 and attempt.delivery_id = $2 and attempt.fence = $3
+               and attempt.phase in ('submitting', 'awaiting_final_acceptance')
+               and exists (
+                 select 1 from authentication_email_delivery delivery
+                 where delivery.id = attempt.delivery_id and delivery.state = 'sending'
+                   and delivery.lease_owner = $6 and delivery.delivery_revision = attempt.fence
+               )`,
+            [providerAttemptId, delivery.id, fence, attemptPhase, error.kind, workerId],
+          );
+          const transitioned = await client.query(
+            `update authentication_email_delivery
+             set state = $4,
+                 available_at = case when $4 = 'pending' then now() + ($5 * interval '1 second') else available_at end,
+                 result_classification = case when $4 = 'failed' then 'provider_rejected' else null end,
+                 failure_reason_code = $6,
+                 encrypted_payload = case when $4 = 'failed' then '' else encrypted_payload end,
+                 lease_owner = null, lease_expires_at = null
+             where id = $1 and state = 'sending' and lease_owner = $2 and delivery_revision = $3`,
+            [delivery.id, workerId, fence, retryable ? "pending" : "failed", timing.leaseSeconds, error.kind],
+          );
+          await client.query("commit");
+          if (transitioned.rowCount !== 1) {
+            logger.emit({
+              severity: "WARN",
+              body: "Authentication email SMTP outcome arrived after lease ownership changed.",
+              eventName: "shareslices.authentication_email.delivery.outcome_after_lease_lost",
+              attributes: {
+                "shareslices.authentication_email.delivery.id": delivery.id,
+                "shareslices.retry.reason_code": "acceptance_indeterminate",
+              },
+            });
+            return true;
+          }
+          logger.emit({
+            severity: "WARN",
+            body: retryable
+              ? "Authentication email SMTP attempt was not submitted and is scheduled for retry."
+              : "Authentication email SMTP relay rejected the message before submission.",
+            eventName: retryable
+              ? "shareslices.authentication_email.delivery.retry_scheduled"
+              : "shareslices.authentication_email.delivery.provider_rejected",
+            attributes: {
+              "shareslices.authentication_email.delivery.id": delivery.id,
+              "shareslices.retry.reason_code": error.kind,
+            },
+          });
+          return true;
+        }
         if (error instanceof ResendAuthenticationEmailTransportError) {
           const outcome = error.outcome;
           const now = new Date();

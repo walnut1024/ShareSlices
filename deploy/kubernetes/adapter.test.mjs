@@ -62,6 +62,9 @@ function successfulKubectl(calls) {
       return {status: 0, stdout: "enterprise-production-cluster-1", stderr: ""};
     }
     if (command.includes(" auth can-i ")) return {status: 0, stdout: "yes\n", stderr: ""};
+    if (command.includes("--output=go-template={{if index .data \"AUTH_EMAIL_SMTP_URL\"}}present{{end}}")) {
+      return {status: 0, stdout: "present", stderr: ""};
+    }
     return {status: 0, stdout: "resource/name\n", stderr: ""};
   };
 }
@@ -77,6 +80,12 @@ test("doctor performs only explicit-context read-only discovery and reports curr
   assert.equal(result.checks.every(({state}) => state === "available"), true);
   assert.equal(result.checks.find(({id}) => id === "kubernetes-network-conformance").evidence.evidenceKind, "operator-supplied");
   assert.equal(result.checks.find(({id}) => id === "kubernetes-smtp-contract").evidence.sendsMail, false);
+  assert.deepEqual(result.checks.find(({id}) => id === "kubernetes-smtp-secret-key-reference").evidence, {
+    secretName: "shareslices-maintenance-secrets",
+    key: "AUTH_EMAIL_SMTP_URL",
+    secretValueRead: false,
+    revision: "9",
+  });
   assert.equal(result.checks.find(({id}) => id === "kubernetes-release-store-reference").evidence.secretResolved, false);
   assert.equal(calls[0].join(" "), "config get-contexts enterprise-production --no-headers --output=name");
   for (const call of calls.slice(1)) {
@@ -92,6 +101,9 @@ test("doctor fails closed for stale conformance, denied permissions, missing Sec
     const command = arguments_.join(" ");
     if (command.includes(" auth can-i patch deployments.apps")) return {status: 0, stdout: "no\n", stderr: ""};
     if (command.includes(" get secret shareslices-api-secrets")) return {status: 1, stdout: "", stderr: "not found"};
+    if (command.includes("--output=go-template={{if index .data \"AUTH_EMAIL_SMTP_URL\"}}present{{end}}")) {
+      return {status: 0, stdout: "", stderr: ""};
+    }
     return base(arguments_);
   };
   const adapter = createKubernetesAdapter({
@@ -107,6 +119,7 @@ test("doctor fails closed for stale conformance, denied permissions, missing Sec
   assert.deepEqual(unavailable, new Set([
     "kubernetes-permissions",
     "kubernetes-secret-references",
+    "kubernetes-smtp-secret-key-reference",
     "kubernetes-network-conformance",
     "kubernetes-smtp-dns",
   ]));

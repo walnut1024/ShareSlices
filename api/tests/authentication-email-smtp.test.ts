@@ -1,6 +1,9 @@
 import { SMTPServer } from "smtp-server";
 import { afterEach, describe, expect, it } from "vitest";
-import { createAuthenticationEmailSmtpAdapter } from "../src/email/authentication-email-smtp.js";
+import {
+  AuthenticationEmailSmtpTransportError,
+  createAuthenticationEmailSmtpAdapter,
+} from "../src/email/authentication-email-smtp.js";
 
 type ReceivedAuthenticationEmail = { raw: string; envelopeFrom: string; envelopeTo: string[] };
 
@@ -22,7 +25,9 @@ afterEach(async () => {
 async function smtpFixture(options: { rejectRecipient?: boolean } = {}): Promise<{
   url: string;
   received: Promise<ReceivedAuthenticationEmail>;
+  receivedCount: () => number;
 }> {
+  let messageCount = 0;
   let resolveMessage!: (message: ReceivedAuthenticationEmail) => void;
   const received = new Promise<ReceivedAuthenticationEmail>((resolve) => { resolveMessage = resolve; });
   const server = new SMTPServer({
@@ -44,6 +49,7 @@ async function smtpFixture(options: { rejectRecipient?: boolean } = {}): Promise
       const chunks: Buffer[] = [];
       stream.on("data", (chunk: Buffer) => chunks.push(chunk));
       stream.on("end", () => {
+        messageCount += 1;
         resolveMessage({
           raw: Buffer.concat(chunks).toString("utf8"),
           envelopeFrom: _session.envelope.mailFrom && _session.envelope.mailFrom.address || "",
@@ -58,10 +64,36 @@ async function smtpFixture(options: { rejectRecipient?: boolean } = {}): Promise
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.server.address();
   if (!address || typeof address === "string") throw new Error("SMTP fixture did not bind a TCP port.");
-  return { url: `smtp://127.0.0.1:${address.port}`, received };
+  return { url: `smtp://127.0.0.1:${address.port}`, received, receivedCount: () => messageCount };
 }
 
 describe("authentication email SMTP transport", () => {
+  it("verifies connection and authentication capability without sending a message", async () => {
+    const fixture = await within("fixture startup", smtpFixture());
+    const transport = createAuthenticationEmailSmtpAdapter({
+      url: fixture.url,
+      from: "ShareSlices <no-reply@shareslices.local>",
+      providerNamespace: "test-smtp",
+      transportRevision: "test-smtp-v1",
+      endpointIdentity: new URL(fixture.url).host,
+      tlsPolicy: "plaintext-allowed",
+      dnsTimeoutMs: 1_000,
+      connectionTimeoutMs: 1_000,
+      greetingTimeoutMs: 1_000,
+      socketTimeoutMs: 2_000,
+    });
+
+    await expect(within("SMTP verification", transport.verify())).resolves.toEqual({
+      endpointIdentity: new URL(fixture.url).host,
+      tlsPolicy: "plaintext-allowed",
+      authenticationConfigured: false,
+      senderSyntaxValidated: true,
+      messageSent: false,
+    });
+    expect(fixture.receivedCount()).toBe(0);
+    transport.close();
+  });
+
   it("sends a registration code with stable identity through SMTP", async () => {
     const fixture = await within("fixture startup", smtpFixture());
     const transport = createAuthenticationEmailSmtpAdapter({
@@ -69,6 +101,8 @@ describe("authentication email SMTP transport", () => {
       from: "ShareSlices <no-reply@shareslices.local>",
       providerNamespace: "test-smtp",
       transportRevision: "test-smtp-v1",
+      endpointIdentity: new URL(fixture.url).host,
+      tlsPolicy: "plaintext-allowed",
       dnsTimeoutMs: 1_000,
       connectionTimeoutMs: 1_000,
       greetingTimeoutMs: 1_000,
@@ -104,6 +138,8 @@ describe("authentication email SMTP transport", () => {
       from: "ShareSlices <no-reply@shareslices.local>",
       providerNamespace: "test-smtp",
       transportRevision: "test-smtp-v1",
+      endpointIdentity: new URL(fixture.url).host,
+      tlsPolicy: "plaintext-allowed",
       dnsTimeoutMs: 1_000,
       connectionTimeoutMs: 1_000,
       greetingTimeoutMs: 1_000,
@@ -129,6 +165,8 @@ describe("authentication email SMTP transport", () => {
       from: "ShareSlices <no-reply@shareslices.local>",
       providerNamespace: "test-smtp",
       transportRevision: "test-smtp-v1",
+      endpointIdentity: new URL(fixture.url).host,
+      tlsPolicy: "plaintext-allowed",
       dnsTimeoutMs: 1_000,
       connectionTimeoutMs: 1_000,
       greetingTimeoutMs: 1_000,
@@ -156,6 +194,8 @@ describe("authentication email SMTP transport", () => {
       from: "ShareSlices <no-reply@shareslices.local>",
       providerNamespace: "test-smtp",
       transportRevision: "test-smtp-v1",
+      endpointIdentity: new URL(fixture.url).host,
+      tlsPolicy: "plaintext-allowed",
       dnsTimeoutMs: 1_000,
       connectionTimeoutMs: 1_000,
       greetingTimeoutMs: 1_000,
@@ -165,7 +205,7 @@ describe("authentication email SMTP transport", () => {
     await expect(transport.send(
       { email: "rejected@example.com", otp: "123456", type: "email-verification" },
       "019f5a36-66df-7000-8000-000000000004"
-    )).rejects.toMatchObject({ responseCode: 550 });
+    )).rejects.toEqual(new AuthenticationEmailSmtpTransportError("provider_rejected"));
 
     transport.close();
   });

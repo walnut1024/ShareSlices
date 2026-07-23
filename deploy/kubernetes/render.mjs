@@ -29,6 +29,7 @@ const roleConfigKeys = Object.freeze({
   maintenance: [
     "NODE_ENV", "S3_ENDPOINT", "S3_REGION", "S3_BUCKET", "S3_FORCE_PATH_STYLE", "AUTH_EMAIL_FROM",
     "AUTH_EMAIL_TRANSPORT_NAMESPACE", "AUTH_EMAIL_TRANSPORT_REVISION",
+    "AUTH_EMAIL_SMTP_ENDPOINT_IDENTITY", "AUTH_EMAIL_SMTP_TLS_POLICY",
     "AUTH_EMAIL_DELIVERY_LEASE_SECONDS", "AUTH_EMAIL_SMTP_DNS_TIMEOUT_MS",
     "AUTH_EMAIL_SMTP_CONNECTION_TIMEOUT_MS", "AUTH_EMAIL_SMTP_GREETING_TIMEOUT_MS",
     "AUTH_EMAIL_SMTP_SOCKET_TIMEOUT_MS", "AUTH_EMAIL_RETRY_DELAY_SECONDS", "AUTH_EMAIL_MAX_ATTEMPTS",
@@ -119,6 +120,15 @@ function configureConfigMap(resource, config, release) {
       PUBLIC_GALLERY_CONTENT_ORIGIN: content,
       GALLERY_CONTENT_REGISTRABLE_SITE: new URL(content).hostname,
     });
+    if (config.target === "kubernetes") {
+      Object.assign(resource.data, {
+        AUTH_EMAIL_FROM: config.kubernetes.email.sender,
+        AUTH_EMAIL_TRANSPORT_NAMESPACE: config.kubernetes.email.relayNamespace,
+        AUTH_EMAIL_TRANSPORT_REVISION: config.kubernetes.email.configurationRevision,
+        AUTH_EMAIL_SMTP_ENDPOINT_IDENTITY: config.kubernetes.email.endpointIdentity,
+        AUTH_EMAIL_SMTP_TLS_POLICY: config.kubernetes.email.tlsPolicy,
+      });
+    }
   }
   if (resource.metadata.name === "shareslices-external-cdn-contract") {
     const externalCdn = config.kubernetes.ingress.externalCdn;
