@@ -9,7 +9,7 @@ import {
   markVerificationAttemptVerified,
   releasePasswordResetGrant,
   terminateVerificationAttempt,
-} from "../db/authentication-email-repository.js";
+} from "../db/node-authentication-email-repository.js";
 import type { ApiHttpEnv } from "../env.js";
 import type { AccountRouteDependencies } from "./account-routes.js";
 

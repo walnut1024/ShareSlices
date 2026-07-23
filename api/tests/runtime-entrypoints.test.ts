@@ -197,6 +197,14 @@ describe("Node runtime entrypoint authority", () => {
     expect(importedEnvironmentReaders(graph)).toEqual(new Set());
   });
 
+  it("keeps authentication email transactions injectable for Hyperdrive", () => {
+    const graph = reachableSources("db/authentication-email-repository.ts");
+    const paths = [...graph.keys()].map((file) => file.slice(sourceRoot.length));
+    expect(paths.filter((path) => path === "env.ts" || path === "db/client.ts")).toEqual([]);
+    expect(paths.filter((path) => path === "logging/index.ts")).toEqual([]);
+    expect(importedEnvironmentReaders(graph)).toEqual(new Set());
+  });
+
   it("keeps the route-free Cloudflare Jobs entrypoint bounded and environment-independent", async () => {
     const graph = reachableSources("cloudflare/jobs-entrypoint.ts");
     const paths = [...graph.keys()].map((file) => file.slice(sourceRoot.length));

@@ -18,7 +18,7 @@ import type {
   completePasswordResetGrant,
   releasePasswordResetGrant,
   terminateVerificationAttempt
-} from "../db/authentication-email-repository.js";
+} from "../db/node-authentication-email-repository.js";
 import { errorJson, type FieldError, requestId } from "./http-error.js";
 import { trustedAuthenticationHeaders } from "./trusted-ingress.js";
 

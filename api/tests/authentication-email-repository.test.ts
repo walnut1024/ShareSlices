@@ -5,7 +5,7 @@ import { SMTPServer } from "smtp-server";
 import {
   acceptAuthenticationEmailDelivery,
   createVerificationAttempt
-} from "../src/db/authentication-email-repository.js";
+} from "../src/db/node-authentication-email-repository.js";
 import { dispatchOneAuthenticationEmail } from "../src/maintenance/authentication-email-node-dispatcher.js";
 import {
   AuthenticationEmailSmtpTransportError,

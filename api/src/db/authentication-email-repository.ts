@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 // cspell:ignore hashtext xact
-import type { PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
 import {
   encryptAuthenticationEmail,
   newVerificationAttempt,
@@ -9,11 +9,8 @@ import {
   type VerificationAttempt,
   type VerificationPurpose
 } from "../application/accounts/authentication-email.js";
-import { readApiHttpEnv } from "../env.js";
-import { apiLogger } from "../logging/index.js";
-import { directConnection, pool } from "./client.js";
-
-const env = readApiHttpEnv();
+import type { ApiLogger } from "../logging/index.js";
+import type { DatabaseClientSource } from "./connection.js";
 
 export type DeliveryResult =
   | { status: "accepted"; resendAvailableIn: number }
@@ -45,7 +42,33 @@ function mapAttempt(row: AttemptRow): VerificationAttempt {
   };
 }
 
-export async function createVerificationAttempt(input: {
+export type AuthenticationEmailRepositoryDependencies = Readonly<{
+  connection: Pick<DatabaseClientSource, "withClient">;
+  pool: Pick<Pool, "query" | "connect">;
+  logger: ApiLogger;
+  configuration: Readonly<{
+    AUTH_EMAIL_ENCRYPTION_KEY: string;
+    AUTH_EMAIL_RESEND_SECONDS: number;
+    AUTH_EMAIL_GLOBAL_HOUR: number;
+    AUTH_EMAIL_CIRCUIT_BREAKER_SECONDS: number;
+    AUTH_EMAIL_PER_EMAIL_HOUR: number;
+    AUTH_EMAIL_PER_EMAIL_DAY: number;
+    AUTH_EMAIL_PER_IP_HOUR: number;
+    AUTH_EMAIL_PER_IP_DAY: number;
+  }>;
+}>;
+
+export function createAuthenticationEmailRepository(
+  dependencies: AuthenticationEmailRepositoryDependencies,
+) {
+  const {
+    connection: directConnection,
+    pool,
+    logger: apiLogger,
+    configuration: env,
+  } = dependencies;
+
+async function createVerificationAttempt(input: {
   email: string;
   purpose: VerificationPurpose;
   synthetic?: boolean;
@@ -93,7 +116,7 @@ export async function createVerificationAttempt(input: {
   });
 }
 
-export async function findVerificationAttempt(id: string): Promise<VerificationAttempt | null> {
+async function findVerificationAttempt(id: string): Promise<VerificationAttempt | null> {
   const result = await pool.query<AttemptRow>(
     `select id, purpose, email, destination_hint, synthetic, expires_at, verified_at, consumed_at
      from email_verification_attempt where id = $1`,
@@ -102,7 +125,7 @@ export async function findVerificationAttempt(id: string): Promise<VerificationA
   return result.rows[0] ? mapAttempt(result.rows[0]) : null;
 }
 
-export async function findLatestVerificationAttempt(
+async function findLatestVerificationAttempt(
   email: string,
   purpose: VerificationPurpose
 ): Promise<VerificationAttempt | null> {
@@ -116,7 +139,7 @@ export async function findLatestVerificationAttempt(
   return result.rows[0] ? mapAttempt(result.rows[0]) : null;
 }
 
-export async function markVerificationAttemptVerified(id: string): Promise<void> {
+async function markVerificationAttemptVerified(id: string): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query("begin");
@@ -136,7 +159,7 @@ export async function markVerificationAttemptVerified(id: string): Promise<void>
   }
 }
 
-export async function terminateVerificationAttempt(id: string): Promise<void> {
+async function terminateVerificationAttempt(id: string): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query("begin");
@@ -154,7 +177,7 @@ export async function terminateVerificationAttempt(id: string): Promise<void> {
   }
 }
 
-export async function createPasswordResetGrant(attemptId: string, encryptedCode: string): Promise<string> {
+async function createPasswordResetGrant(attemptId: string, encryptedCode: string): Promise<string> {
   const id = randomUUID();
   await pool.query(
     `insert into password_reset_grant (id, attempt_id, encrypted_code, expires_at)
@@ -168,7 +191,7 @@ export async function createPasswordResetGrant(attemptId: string, encryptedCode:
   return id;
 }
 
-export async function claimPasswordResetGrant(id: string): Promise<{
+async function claimPasswordResetGrant(id: string): Promise<{
   email: string;
   encryptedCode: string;
   claimToken: string;
@@ -206,7 +229,7 @@ export async function claimPasswordResetGrant(id: string): Promise<{
   }
 }
 
-export async function completePasswordResetGrant(id: string, claimToken: string): Promise<void> {
+async function completePasswordResetGrant(id: string, claimToken: string): Promise<void> {
   await pool.query(
     `update password_reset_grant
      set consumed_at = now(), claimed_at = null, claim_token = null, encrypted_code = ''
@@ -215,7 +238,7 @@ export async function completePasswordResetGrant(id: string, claimToken: string)
   );
 }
 
-export async function releasePasswordResetGrant(id: string, claimToken: string): Promise<void> {
+async function releasePasswordResetGrant(id: string, claimToken: string): Promise<void> {
   await pool.query(
     `update password_reset_grant set claimed_at = null, claim_token = null
      where id = $1 and claim_token = $2 and consumed_at is null`,
@@ -232,7 +255,7 @@ async function countDeliveries(client: PoolClient, where: string, parameters: un
   return Number(result.rows[0]?.count ?? 0);
 }
 
-export async function acceptAuthenticationEmailDelivery(input: {
+async function acceptAuthenticationEmailDelivery(input: {
   attemptId: string;
   email: string;
   purpose: VerificationPurpose | "password_changed";
@@ -381,4 +404,18 @@ export async function acceptAuthenticationEmailDelivery(input: {
       throw error;
     }
   });
+}
+
+  return {
+    createVerificationAttempt,
+    findVerificationAttempt,
+    findLatestVerificationAttempt,
+    markVerificationAttemptVerified,
+    terminateVerificationAttempt,
+    createPasswordResetGrant,
+    claimPasswordResetGrant,
+    completePasswordResetGrant,
+    releasePasswordResetGrant,
+    acceptAuthenticationEmailDelivery,
+  };
 }

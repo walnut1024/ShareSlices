@@ -2,7 +2,7 @@ import {
   acceptAuthenticationEmailDelivery,
   createVerificationAttempt,
   findLatestVerificationAttempt,
-} from "../db/authentication-email-repository.js";
+} from "../db/node-authentication-email-repository.js";
 import { findPasswordHashByEmail } from "../db/account-queries.js";
 import { db } from "../db/client.js";
 import { readApiHttpEnv } from "../env.js";
