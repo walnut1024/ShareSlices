@@ -36,11 +36,27 @@ function prerequisites() {
   };
 }
 
+function containerImages() {
+  return {
+    trustedProcessing: {
+      reference:
+        "registry.cloudflare.com/0123456789abcdef0123456789abcdef/shareslices-processing:release-aaaaaaaa",
+      contentDigest: `sha256:${"a".repeat(64)}`,
+    },
+    thumbnail: {
+      reference:
+        "registry.cloudflare.com/0123456789abcdef0123456789abcdef/shareslices-thumbnail:release-bbbbbbbb",
+      contentDigest: `sha256:${"b".repeat(64)}`,
+    },
+  };
+}
+
 async function generated() {
   const config = JSON.parse(await readFile(fixture, "utf8"));
   return generateStagedWorkerConfigs({
     config,
     privatePrerequisites: prerequisites(),
+    containerImages: containerImages(),
     releaseId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     configDirectory: "/release/cloudflare",
     workerDirectory: "/release/workers",
@@ -48,7 +64,7 @@ async function generated() {
   });
 }
 
-test("generates schema-valid staged App and Content Wrangler inputs", async () => {
+test("generates schema-valid staged App, Content, and immediate Jobs Wrangler inputs", async () => {
   const first = await generated();
   const second = await generated();
   assert.deepEqual(second, first);
@@ -59,14 +75,18 @@ test("generates schema-valid staged App and Content Wrangler inputs", async () =
     assert.deepEqual(config.hyperdrive, [
       { binding: "HYPERDRIVE", id: "hyperdrive-id" },
     ]);
-    assert.deepEqual(config.r2_buckets, [
-      { binding: "ARTIFACTS", bucket_name: "shareslices-artifacts" },
-    ]);
     assert.equal("routes" in config, false);
     assert.equal("triggers" in config, false);
   }
+  for (const config of [first.configs.app, first.configs.content]) {
+    assert.deepEqual(config.r2_buckets, [
+      { binding: "ARTIFACTS", bucket_name: "shareslices-artifacts" },
+    ]);
+  }
+  assert.equal("r2_buckets" in first.configs.jobs, false);
   assert.deepEqual(first.configs.app.limits, {cpu_ms: 30_000});
   assert.deepEqual(first.configs.content.limits, {cpu_ms: 30_000});
+  assert.deepEqual(first.configs.jobs.limits, {cpu_ms: 30_000});
   assert.deepEqual(
     first.configs.app.assets.run_worker_first,
     cloudflareWorkerFirstPatterns,
@@ -146,6 +166,39 @@ test("generates schema-valid staged App and Content Wrangler inputs", async () =
     ),
   );
   assert.equal(first.secretBindings.app.includes("RESEND_API_KEY"), false);
+  assert.deepEqual(first.secretBindings.jobs, [
+    "AUTH_EMAIL_ENCRYPTION_KEY",
+    "RESEND_API_KEY",
+  ]);
+  assert.equal("triggers" in first.configs.jobs, false);
+  assert.deepEqual(first.configs.jobs.queues, {
+    producers: [{binding: "JOB_WAKE_QUEUE", queue: "shareslices-jobs"}],
+  });
+  assert.deepEqual(
+    first.configs.jobs.containers.map(({class_name, max_instances, ssh}) => ({
+      class_name,
+      max_instances,
+      ssh,
+    })),
+    [
+      {
+        class_name: "TrustedProcessingContainer",
+        max_instances: 2,
+        ssh: {enabled: false},
+      },
+      {
+        class_name: "ThumbnailContainer",
+        max_instances: 1,
+        ssh: {enabled: false},
+      },
+    ],
+  );
+  assert.deepEqual(first.configs.jobs.exports, {
+    TrustedProcessingContainer: {type: "durable-object", storage: "sqlite"},
+    ThumbnailContainer: {type: "durable-object", storage: "sqlite"},
+  });
+  assert.deepEqual(first.containerImages, containerImages());
+  assert.equal("migrations" in first.configs.jobs, false);
   assert.equal(
     first.configs.app.vars.CONTENT_FINGERPRINT_KEY_CURRENT_REVISION,
     "3",
@@ -170,6 +223,7 @@ test("rejects drifted or unsafe Terraform prerequisite outputs", async () => {
         ...prerequisites(),
         hyperdrive_caching_disabled: false,
       },
+      containerImages: containerImages(),
       releaseId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       configDirectory: "/release/cloudflare",
       workerDirectory: "/release/workers",
@@ -191,12 +245,17 @@ test("writes complete staged configs outside the deployable Static Assets tree",
     await Promise.all([
       writeFile(resolve(workers, "app-worker.js"), workerSource),
       writeFile(resolve(workers, "content-worker.js"), workerSource),
+      writeFile(
+        resolve(workers, "jobs-worker.js"),
+        `${workerSource} export class TrustedProcessingContainer {} export class ThumbnailContainer {}\n`,
+      ),
       writeFile(resolve(assets, "index.html"), "<!doctype html>\n"),
     ]);
     const config = JSON.parse(await readFile(fixture, "utf8"));
     const generated = await writeStagedWorkerConfigs({
       config,
       privatePrerequisites: prerequisites(),
+      containerImages: containerImages(),
       releaseId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       configDirectory: output,
       workerDirectory: workers,
@@ -216,7 +275,8 @@ test("writes complete staged configs outside the deployable Static Assets tree",
       await readFile(resolve(output, "staged-workers-manifest.json"), "utf8"),
     );
     assert.equal(manifest.contentDigest, generated.contentDigest);
-    for (const name of ["app", "content"]) {
+    assert.deepEqual(manifest.containerImages, containerImages());
+    for (const name of ["app", "content", "jobs"]) {
       await execute(
         resolve("node_modules/.bin/wrangler"),
         [
@@ -234,6 +294,7 @@ test("writes complete staged configs outside the deployable Static Assets tree",
       writeStagedWorkerConfigs({
         config,
         privatePrerequisites: prerequisites(),
+        containerImages: containerImages(),
         releaseId: generated.configs.app.vars.SERVICE_VERSION,
         configDirectory: output,
         workerDirectory: workers,
@@ -245,6 +306,7 @@ test("writes complete staged configs outside the deployable Static Assets tree",
       writeStagedWorkerConfigs({
         config,
         privatePrerequisites: prerequisites(),
+        containerImages: containerImages(),
         releaseId: generated.configs.app.vars.SERVICE_VERSION,
         configDirectory: resolve(assets, "private-config"),
         workerDirectory: workers,

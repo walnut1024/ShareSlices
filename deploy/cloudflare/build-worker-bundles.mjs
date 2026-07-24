@@ -21,7 +21,7 @@ const baselinePath = new URL("./toolchain-baseline.json", import.meta.url);
 const roles = Object.freeze([
   ["app", "app-worker-bundle", "api/src/cloudflare/app-entrypoint.ts"],
   ["content", "content-worker-bundle", "api/src/cloudflare/content-entrypoint.ts"],
-  ["jobs", "jobs-worker-bundle", "api/src/cloudflare/jobs-entrypoint.ts"],
+  ["jobs", "jobs-worker-bundle", "api/src/cloudflare/jobs-deployment-entrypoint.ts"],
 ]);
 
 function digest(bytes) {

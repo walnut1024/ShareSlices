@@ -24,6 +24,14 @@ const appSecretBindings = Object.freeze([
   "IDEMPOTENCY_ENCRYPTION_KEY_PREVIOUS",
   "GALLERY_TURNSTILE_SECRET",
 ]);
+const jobsSecretBindings = Object.freeze([
+  "AUTH_EMAIL_ENCRYPTION_KEY",
+  "RESEND_API_KEY",
+]);
+const containerClasses = Object.freeze({
+  trustedProcessing: "TrustedProcessingContainer",
+  thumbnail: "ThumbnailContainer",
+});
 
 const workerFirstPrefixes = Object.freeze([
   "/a",
@@ -87,6 +95,9 @@ function requireWranglerOwnership(ownership) {
     "worker.preview-urls",
     "worker.ordinary-bindings",
     "worker.secret-bindings",
+    "durable-object.migrations",
+    "container.image",
+    "container.rollout",
   ]);
   for (const field of ownership.fields) {
     if (
@@ -99,6 +110,24 @@ function requireWranglerOwnership(ownership) {
     }
   }
   if (required.size > 0) throw new Error("cloudflare_wrangler_ownership_unqualified");
+}
+
+function requireContainerImages(images, accountId) {
+  const required = ["trustedProcessing", "thumbnail"];
+  for (const role of required) {
+    const image = images?.[role];
+    if (
+      !image ||
+      typeof image.reference !== "string" ||
+      !/^registry\.cloudflare\.com\/[a-f0-9]{32}\/[a-z0-9][a-z0-9._/-]*:release-[a-z0-9][a-z0-9._-]*$/i.test(
+        image.reference,
+      ) ||
+      !image.reference.startsWith(`registry.cloudflare.com/${accountId}/`) ||
+      !/^sha256:[a-f0-9]{64}$/.test(image.contentDigest)
+    ) {
+      throw new Error("cloudflare_container_image_identity_invalid");
+    }
+  }
 }
 
 function galleryVars(config, { includeSiteKey = false } = {}) {
@@ -166,6 +195,7 @@ export async function generateStagedWorkerConfigs(input) {
   ]);
   requirePrivatePrerequisites(input.config, input.privatePrerequisites);
   requireWranglerOwnership(ownership);
+  requireContainerImages(input.containerImages, input.config.cloudflare.accountId);
   const configDirectory = resolve(input.configDirectory);
   const commonVars = {
     WEB_ORIGIN: input.config.shared.publicOrigins.application,
@@ -254,17 +284,82 @@ export async function generateStagedWorkerConfigs(input) {
       ...galleryVars(input.config),
     },
   };
+  const controls = input.config.cloudflare.costControls;
+  const jobs = {
+    ...commonConfig(
+      input.config,
+      baseline,
+      input.config.cloudflare.workers.jobs,
+      slashPath(configDirectory, resolve(input.workerDirectory, "jobs-worker.js")),
+      controls.workerCpuMilliseconds.jobs,
+    ),
+    hyperdrive: [{binding: "HYPERDRIVE", id: input.privatePrerequisites.hyperdrive_id}],
+    queues: {
+      producers: [{
+        binding: "JOB_WAKE_QUEUE",
+        queue: input.privatePrerequisites.jobs_queue_name,
+      }],
+    },
+    durable_objects: {
+      bindings: Object.entries(containerClasses).map(([role, className]) => ({
+        name: role === "trustedProcessing"
+          ? "TRUSTED_PROCESSING_CONTAINERS"
+          : "THUMBNAIL_CONTAINERS",
+        class_name: className,
+      })),
+    },
+    exports: Object.fromEntries(
+      Object.values(containerClasses).map((className) => [
+        className,
+        {type: "durable-object", storage: "sqlite"},
+      ]),
+    ),
+    containers: Object.entries(containerClasses).map(([role, className]) => {
+      const container = controls.containers[role];
+      return {
+        name: `${input.config.installationId}-${role === "trustedProcessing" ? "processing" : role}`,
+        class_name: className,
+        image: input.containerImages[role].reference,
+        instance_type: container.instanceType,
+        max_instances: container.maximumInstances,
+        ssh: {enabled: false},
+      };
+    }),
+    secrets: {required: jobsSecretBindings},
+    vars: {
+      SERVICE_VERSION: input.releaseId,
+      DEPLOYMENT_ENVIRONMENT: input.config.installationId,
+      AUTH_EMAIL_FROM: input.config.cloudflare.email.senderAddress,
+      AUTH_EMAIL_PROVIDER_NAMESPACE: input.config.cloudflare.email.teamNamespace,
+      AUTH_EMAIL_TRANSPORT_REVISION: input.config.cloudflare.email.transportRevision,
+      AUTH_EMAIL_RESEND_SAFETY_MARGIN_SECONDS: "60",
+      AUTH_EMAIL_DELIVERY_LEASE_SECONDS: "60",
+      AUTH_EMAIL_CIRCUIT_BREAKER_SECONDS: String(
+        runtimeVariables.AUTH_EMAIL_CIRCUIT_BREAKER_SECONDS,
+      ),
+      AUTH_EMAIL_MAX_ATTEMPTS: String(runtimeVariables.WORKER_JOB_MAX_ATTEMPTS),
+      JOB_OUTBOX_MAX_MESSAGES: String(controls.queue.maximumBatchSize),
+      JOB_OUTBOX_LEASE_SECONDS: "30",
+      JOB_OUTBOX_RETRY_DELAY_SECONDS: "30",
+      TRUSTED_PROCESSING_SLEEP_AFTER_SECONDS: String(
+        controls.containers.trustedProcessing.sleepAfterSeconds,
+      ),
+      THUMBNAIL_SLEEP_AFTER_SECONDS: String(
+        controls.containers.thumbnail.sleepAfterSeconds,
+      ),
+    },
+  };
   const validate = new Ajv({ allErrors: true, strict: false }).compile(
     wranglerSchema,
   );
-  for (const generated of [app, content]) {
+  for (const generated of [app, content, jobs]) {
     if (!validate(generated)) {
       throw new Error("cloudflare_generated_wrangler_config_invalid");
     }
   }
   const result = {
-    schemaVersion: "shareslices.cloudflare-staged-workers/v1",
-    configs: { app, content },
+    schemaVersion: "shareslices.cloudflare-worker-inputs/v2",
+    configs: { app, content, jobs },
     secretBindings: {
       app: appSecretBindings.filter((name) =>
         name.includes("PREVIOUS")
@@ -277,7 +372,9 @@ export async function generateStagedWorkerConfigs(input) {
             Boolean(input.config.shared.roleSecrets.galleryTurnstile),
       ),
       content: [],
+      jobs: jobsSecretBindings,
     },
+    containerImages: structuredClone(input.containerImages),
     ownershipDigest: sha256Digest(ownership),
     configurationSchemaSha256: baseline.wrangler.configurationSchemaSha256,
   };
@@ -301,6 +398,7 @@ export async function writeStagedWorkerConfigs(input) {
   await Promise.all([
     access(resolve(input.workerDirectory, "app-worker.js")),
     access(resolve(input.workerDirectory, "content-worker.js")),
+    access(resolve(input.workerDirectory, "jobs-worker.js")),
     access(resolve(input.staticAssetsDirectory)),
   ]);
   const generated = await generateStagedWorkerConfigs(input);
@@ -316,11 +414,17 @@ export async function writeStagedWorkerConfigs(input) {
       { flag: "wx" },
     ),
     writeFile(
+      resolve(configDirectory, "jobs.wrangler.json"),
+      `${JSON.stringify(generated.configs.jobs, null, 2)}\n`,
+      {flag: "wx"},
+    ),
+    writeFile(
       resolve(configDirectory, "staged-workers-manifest.json"),
       `${JSON.stringify(
         {
           schemaVersion: generated.schemaVersion,
           secretBindings: generated.secretBindings,
+          containerImages: generated.containerImages,
           ownershipDigest: generated.ownershipDigest,
           configurationSchemaSha256: generated.configurationSchemaSha256,
           contentDigest: generated.contentDigest,
