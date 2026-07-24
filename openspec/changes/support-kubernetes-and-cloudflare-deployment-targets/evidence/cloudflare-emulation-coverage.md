@@ -21,7 +21,8 @@ dependency-authority checks, and binding-level tests. They do not claim that a
 Node test is a deployed Worker or that a simulated binding is a provider
 resource.
 
-The following remain staging-only:
+The following are staging-only behaviors; this classification says where they
+must be verified, not whether current provider evidence exists:
 
 - actual deployed Worker runtime and compatibility behavior;
 - edge Static Assets precedence and response headers;
@@ -31,6 +32,14 @@ The following remain staging-only:
 - private R2 streaming and range transport;
 - Container isolation and rollout; and
 - custom-domain and separate registrable-site routing.
+
+The machine-readable rows separately record current provider evidence as
+`verified`, `provisional`, or absent. Deployed Worker runtime compatibility,
+Static Assets edge behavior, version overrides, and private R2
+streaming/range transport have current verified evidence. Queue/Cron is
+provisional because Wrangler cannot reread Queue pause state and Cron
+propagation completion is not provider-observable. Hyperdrive, Containers, and
+custom-domain topology retain their independent missing or blocked gates.
 
 An attempted raw Miniflare run was deliberately not retained as evidence. The
 exact dry-run bundles require Worker-specific Node compatibility and dynamic

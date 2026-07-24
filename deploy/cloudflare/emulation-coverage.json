@@ -46,17 +46,35 @@
     {
       "id": "worker-runtime-bundle-compatibility",
       "classification": "staging-required",
-      "reasonCode": "emulation_cannot_qualify_deployed_worker_runtime"
+      "reasonCode": "emulation_cannot_qualify_deployed_worker_runtime",
+      "providerEvidence": {
+        "status": "verified",
+        "paths": [
+          "openspec/changes/support-kubernetes-and-cloudflare-deployment-targets/evidence/cloudflare-http-semantics-prototype.md"
+        ]
+      }
     },
     {
       "id": "static-assets-edge-precedence-and-headers",
       "classification": "staging-required",
-      "reasonCode": "emulation_cannot_qualify_edge_asset_delivery"
+      "reasonCode": "emulation_cannot_qualify_edge_asset_delivery",
+      "providerEvidence": {
+        "status": "verified",
+        "paths": [
+          "openspec/changes/support-kubernetes-and-cloudflare-deployment-targets/evidence/cloudflare-emulation-coverage.md"
+        ]
+      }
     },
     {
       "id": "version-deployment-and-external-override",
       "classification": "staging-required",
-      "reasonCode": "emulation_has_no_provider_version_deployment"
+      "reasonCode": "emulation_has_no_provider_version_deployment",
+      "providerEvidence": {
+        "status": "verified",
+        "paths": [
+          "openspec/changes/support-kubernetes-and-cloudflare-deployment-targets/evidence/cloudflare-emulation-coverage.md"
+        ]
+      }
     },
     {
       "id": "hyperdrive-origin-tls-freshness-and-budget",
@@ -66,12 +84,24 @@
     {
       "id": "queue-cron-control-plane-and-propagation",
       "classification": "staging-required",
-      "reasonCode": "emulation_has_no_provider_control_plane"
+      "reasonCode": "emulation_has_no_provider_control_plane",
+      "providerEvidence": {
+        "status": "provisional",
+        "paths": [
+          "openspec/changes/support-kubernetes-and-cloudflare-deployment-targets/evidence/cloudflare-emulation-coverage.md"
+        ]
+      }
     },
     {
       "id": "r2-private-streaming-and-range",
       "classification": "staging-required",
-      "reasonCode": "emulation_cannot_qualify_r2_provider_transport"
+      "reasonCode": "emulation_cannot_qualify_r2_provider_transport",
+      "providerEvidence": {
+        "status": "verified",
+        "paths": [
+          "openspec/changes/support-kubernetes-and-cloudflare-deployment-targets/evidence/cloudflare-r2-streaming-prototype.md"
+        ]
+      }
     },
     {
       "id": "container-runtime-isolation-and-rollout",

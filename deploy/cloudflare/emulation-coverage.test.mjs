@@ -34,8 +34,40 @@ test("classifies every Cloudflare verification surface without invented emulatio
     } else {
       assert.match(row.reasonCode, /^[a-z0-9_]+$/);
       assert.equal("evidence" in row, false);
+      if (row.providerEvidence) {
+        assert.ok(
+          ["verified", "provisional"].includes(row.providerEvidence.status),
+        );
+        assert.ok(
+          Array.isArray(row.providerEvidence.paths) &&
+            row.providerEvidence.paths.length > 0,
+        );
+        for (const path of row.providerEvidence.paths) {
+          assert.equal(path.startsWith("/"), false);
+          assert.equal(path.includes(".."), false);
+          await access(new URL(path, `file://${repositoryRoot}/`));
+        }
+      }
     }
   }
+});
+
+test("distinguishes staging necessity from current provider evidence", () => {
+  const statuses = new Map(
+    coverage.rows
+      .filter(({classification}) => classification === "staging-required")
+      .map(({id, providerEvidence}) => [
+        id,
+        providerEvidence?.status ?? "missing",
+      ]),
+  );
+  assert.equal(statuses.get("r2-private-streaming-and-range"), "verified");
+  assert.equal(
+    statuses.get("queue-cron-control-plane-and-propagation"),
+    "provisional",
+  );
+  assert.equal(statuses.get("container-runtime-isolation-and-rollout"), "missing");
+  assert.equal(statuses.get("custom-domain-and-distinct-site-routing"), "missing");
 });
 
 test("keeps provider-only behavior out of local qualification", () => {
