@@ -1,0 +1,221 @@
+# Deployment Module operations
+
+This runbook describes the repository-owned Deployment Module under `deploy/`.
+It documents the implemented command and contract boundary. It does not declare
+either production target release-qualified: target readiness remains
+evidence-driven, and an unavailable or unqualified capability must fail closed.
+
+## Topology boundary
+
+An installation selects exactly one production target in its deployment
+configuration:
+
+- `kubernetes` deploys into an existing conforming cluster and uses
+  operator-provided PostgreSQL, private S3-compatible storage, and enterprise
+  SMTP. An optional external CDN does not change the target.
+- `cloudflare` is the separate Workers, Static Assets, R2, Hyperdrive, Queues,
+  Containers, and Resend composition. It is not a Kubernetes add-on.
+
+Docker Compose is only the canonical non-production development and integration
+test topology. Its supported interactive lifecycle remains:
+
+```sh
+mise run dev
+mise run dev-status
+mise run dev-logs
+mise run dev-down
+```
+
+These commands do not produce production qualification evidence. Production
+configuration rejects `target: compose`.
+
+## Production command interface
+
+All production commands use one machine-oriented entrypoint:
+
+```sh
+mise run deploy -- <command> --config <deployment.json> [options]
+```
+
+The accepted commands are `doctor`, `render`, `plan`, `apply`, `status`,
+`verify`, and `rollback`. Options are strict `--name value` pairs:
+
+| Command | Required inputs | Purpose |
+| --- | --- | --- |
+| `doctor` | `--config`; optional `--release` | Read-only prerequisite and capability checks |
+| `render` | `--config --release` | Produce the complete Secret-free target bundle and digest |
+| `plan` | `--config --release`; optional `--operation apply\|rollback` | Compare desired and observed state without mutation |
+| `apply` | `--config --release --plan` | Execute only the exact authorized apply plan |
+| `status` | `--config` | Project current control and provider observations |
+| `verify` | `--config`; optional `--release` | Run the read-only core verifier |
+| `rollback` | `--config --release --plan` | Execute only an exact compatible rollback plan |
+
+`apply` and `rollback` consume a plan whose canonical digest, target, release,
+operation, bundle digest, and observed-state revision still match. Generate the
+plan first, retain the complete JSON result, review its actions and refusal
+reasons, and pass that unchanged result or its contained plan to the mutating
+command. A plan is authorization for only its listed actions; it is not a
+standing approval for later drift or deletion.
+
+Cloudflare mutating lifecycle support remains unavailable until its
+implementation-blocking qualification gates pass. A successful Cloudflare
+`render`, read-only `plan`, or `status` is not evidence that `apply`, rollback,
+Containers, thumbnail processing, or production email is qualified.
+
+## JSON result and exit categories
+
+Every invocation writes exactly one
+`shareslices.deployment-result/v1` JSON object to standard output. Its stable
+top-level fields are:
+
+- `command`
+- `target`
+- `requestedRelease`
+- `outcome`
+- `reason`
+- `data`
+
+Secret values and value-derived fingerprints are forbidden from results,
+plans, renders, records, errors, and logs. Automation must use the process exit
+category as well as the JSON outcome:
+
+| Exit | Category |
+| ---: | --- |
+| `0` | Succeeded |
+| `2` | Invalid input |
+| `3` | Required prerequisite unavailable |
+| `4` | Refused by policy or plan |
+| `5` | Failed |
+| `6` | Indeterminate; reconcile before retry |
+| `20` | External reconciler action is required |
+
+An `indeterminate` result is not permission to repeat an external mutation.
+Read the durable phase and step checkpoints and use the applicable recovery
+procedure. An `external_reconciler_required` result means immutable GitOps
+artifacts were handed off; it does not mean the external owner promoted them.
+
+## Configuration and release inputs
+
+The versioned deployment schema is
+[`deploy/contract/deployment.schema.json`](../../deploy/contract/deployment.schema.json).
+It accepts exactly one production target, public origins, logical Secret
+references, non-secret Secret revisions, target prerequisites, bounded cost and
+runtime controls, and target-specific email configuration. It rejects embedded
+Secrets, mixed target fields, Compose, and the wrong email Adapter.
+
+The immutable release schema is
+[`deploy/contract/release.schema.json`](../../deploy/contract/release.schema.json).
+A release records:
+
+- immutable artifact content digests and qualified provider identities;
+- the migration list, checksums, head, and N/N-1 compatibility evidence;
+- configuration and shared contract revisions;
+- non-secret Secret revisions;
+- inventory and ownership markers;
+- the pinned provider toolchain and verification-contract evidence.
+
+Mutable image tags or reused release tags are not acceptable provider identity.
+When a provider exposes only a release tag, qualification must bind that
+never-reused tag to the recorded content digest.
+
+## Secret resolution
+
+Configuration and releases contain logical references and non-secret revisions,
+never values. Production execution currently resolves supported file-backed
+references below the absolute directory named by
+`SHARESLICES_SECRET_ROOT`. Resolution occurs only at the last responsible
+consumer boundary.
+
+The reference path must remain within that root. Do not print resolved values,
+place them in a rendered bundle, commit them under `deploy/`, or store them in
+deployment records. A revision change must roll only the consumers that use the
+Secret. Shared signing-key rotation follows old-plus-new verification, then new
+signing, then old-key retirement after the maximum mixed-runtime and grant
+lifetime.
+
+## Operation authority, fencing, and recovery
+
+Mutating production commands require an authenticated operator principal in
+`SHARESLICES_DEPLOYMENT_PRINCIPAL`. The principal is recorded with the durable
+operation and must represent the real automation or operator identity.
+
+PostgreSQL owns deployment authority. Before provider mutation, the Module:
+
+1. bootstraps only the checksum-authorized control schema transition on first
+   installation;
+2. acquires an expiring operation lease;
+3. advances a monotonically increasing fencing token;
+4. re-observes the plan revision;
+5. heartbeats and revalidates the lease before later mutations;
+6. records phase and bounded, Secret-free step checkpoints.
+
+A stale owner or fence cannot write a checkpoint, release record, probe, or
+completion. Completed idempotent steps may be resumed from their evidence.
+Interrupted external mutations remain indeterminate until an authoritative
+provider observation proves their outcome. Never delete the control journal to
+force a retry.
+
+PostgreSQL is also authoritative for the active and previous release records.
+The Cloudflare R2 release-state object is a Secret-free conditional mirror; it
+cannot grant or extend a lease. ETag/precondition failure, lease loss, or an
+ambiguous mirror write requires reconciliation from PostgreSQL and current R2
+state, not retry by the old fence.
+
+## Inventory, retirement, and rollback
+
+Every managed resource has one declared owner and positive installation,
+release, and provider identity. Active and rollback releases are retained.
+Ordinary retirement:
+
+1. removes traffic and scheduled entry first;
+2. verifies inactivity;
+3. excludes active and rollback inventory;
+4. deletes only positively owned eligible resources.
+
+Unowned, ambiguously owned, durable prerequisite, or destructive infrastructure
+changes are refused and require a separately reviewed procedure. Rollback
+restores only recorded compatible application artifacts. It never runs a down
+migration, rewinds PostgreSQL or object data, or promises recovery of a provider
+version or image that no longer exists.
+
+## Separate maintenance authorization
+
+One-shot maintenance is not hidden inside ordinary apply. The currently exposed
+authentication-email reconciliation command is:
+
+```sh
+mise run ops-authentication-email-reconcile
+```
+
+It requires a signed, short-lived, single-use operator authorization envelope
+and the documented maintenance verification material. It serializes against the
+delivery lease and relevant authentication state; it is not a general resend
+command. Local failed-thumbnail requeue is a non-production Compose operation
+and does not authorize production mutation.
+
+Future destructive recovery, Jobs Secret-binding retirement, or other
+maintenance operations must receive their own explicit command, authenticated
+principal, signed authorization where specified, audit evidence, and
+positive-resource scope. They must not be implemented as an undocumented
+`apply` option.
+
+## Ownership boundaries
+
+- `deploy/contract/` owns versioned machine contracts and non-secret fixtures.
+- `deploy/automation/` owns target-neutral command, plan, fencing, lifecycle,
+  verification, and result policy.
+- `deploy/kubernetes/` and `deploy/cloudflare/` own target composition and
+  provider Adapters.
+- `deploy/compose/` and `deploy/automation/local-compose/` own the
+  non-production topology and its lifecycle policy.
+- PostgreSQL owns operation authority, journals, and release records.
+- The configured immutable release store owns release bundles.
+- The operator owns credentials, external services, recoverability evidence,
+  and approval of security-sensitive or destructive actions.
+- CI and GitOps workflows are thin callers. They do not own deployment policy
+  and must not reimplement phase ordering.
+
+For the complete contract inventory, see
+[`deploy/contract/README.md`](../../deploy/contract/README.md). Current and
+target module status is recorded in
+[`docs/design/modules.md`](../design/modules.md).

@@ -68,3 +68,11 @@ Durable documentation must satisfy these stable invariants:
 - Every `mise run <task>` named in a durable document exists in `.mise.toml`. An active change may name a task that the same change adds.
 - Relative Markdown links resolve to existing files.
 - Active OpenSpec changes pass structural validation.
+
+## Current operator documents
+
+- [Deployment Module operations](operations/deployment.md) documents the shared
+  production command, result, authorization, fencing, inventory, and ownership
+  boundary without claiming an unqualified target is available.
+- [Gallery rollout](operations/gallery-rollout.md) documents the independent
+  fail-closed Gallery eligibility and rollout boundary.
