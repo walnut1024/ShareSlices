@@ -553,6 +553,7 @@ export function createKubernetesStatusObserver({observeControl}) {
     return Object.freeze({
       target: "kubernetes",
       desiredReleaseId,
+      operation: control.operation,
       observedReleaseId: candidateObserved ? desiredReleaseId : allActiveAndReady ? active.releaseId : null,
       verification: control.phases.some(({phase, state}) => phase === "verification" && state === "completed")
         ? "passed"

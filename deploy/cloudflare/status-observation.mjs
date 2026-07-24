@@ -180,6 +180,7 @@ export function createCloudflareStatusObserver({
     return Object.freeze({
       target: "cloudflare",
       desiredReleaseId,
+      operation: control.operation,
       observedReleaseId: allDesired && activeMatches ? desiredReleaseId : null,
       verification: verificationPassed ? "passed" : "pending",
       phases: control.phases ?? [],
@@ -198,6 +199,9 @@ export function createCloudflareStatusObserver({
         terraformSerial: terraform.serial,
         workersPaid: provider.workersPaid === true,
         workers: provider.workers,
+        ...(config.cloudflare.queues
+          ? {queueRoles: config.cloudflare.queues}
+          : {}),
         queues: provider.queues ?? {},
       },
     });

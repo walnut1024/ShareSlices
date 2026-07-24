@@ -33,3 +33,15 @@ Task 14.13 remains open. The next work is to connect each runtime and target
 observer to actual status and metrics sources, set reviewed thresholds, and
 verify the emitted event set rather than treating this collector as provider
 evidence.
+
+The first real source integration now projects:
+
+- operation ID, fencing token, and latest phase from deployment control;
+- the observed migration head;
+- desired and ready Pod counts from Kubernetes workload probe evidence; and
+- ready-Queue and dead-letter backlog from Cloudflare Queue metrics and the
+  configured queue-role mapping.
+
+These projections preserve `null` plus `unknown` when evidence is absent instead
+of inventing a zero. Task 14.13 remains open for the other owning readers and
+reviewed thresholds.

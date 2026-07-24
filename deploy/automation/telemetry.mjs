@@ -72,6 +72,7 @@ export class DeploymentTelemetryError extends Error {
 
 function scalar(value) {
   return (
+    value === null ||
     typeof value === "string" ||
     typeof value === "boolean" ||
     (typeof value === "number" && Number.isFinite(value))
@@ -82,7 +83,10 @@ function validThreshold(threshold, attributes) {
   return (
     threshold &&
     attributeNamePattern.test(threshold.metric ?? "") &&
-    typeof attributes[threshold.metric] === "number" &&
+    (
+      typeof attributes[threshold.metric] === "number" ||
+      attributes[threshold.metric] === null
+    ) &&
     ["above", "below"].includes(threshold.direction) &&
     Number.isFinite(threshold.warning) &&
     Number.isFinite(threshold.critical)

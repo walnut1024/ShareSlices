@@ -264,6 +264,14 @@ provider-limit, and cost-risk observations in addition to shared state. The
 remaining task is to connect these observer contracts to the real status
 sources and prove reviewed thresholds before task 14.13 is complete.
 
+Current status projection supplies deployment operation/fence, latest phase,
+migration head, Kubernetes Pod readiness, and Cloudflare Queue/DLQ backlog from
+the existing authoritative control, cluster, and provider observations. Missing
+or unavailable data is represented by a present attribute with a `null` value
+and `unknown` state; it is never converted to an observed zero. Runtime job,
+Container, database, R2, SMTP/Resend, provider-limit, and cost observations
+still require their owning readers.
+
 ## Configuration and release inputs
 
 The versioned deployment schema is
