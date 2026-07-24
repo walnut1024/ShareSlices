@@ -12,6 +12,8 @@ import {
   loadControlSchema,
   mirrorReleaseRecords,
   recordPhaseCheckpoint,
+  readPhaseStepCheckpoints,
+  recordPhaseStepCheckpoint,
 } from "./control-store.mjs";
 
 function client(handler = async () => ({ rows: [] })) {
@@ -33,6 +35,7 @@ test("bootstraps the exact schema atomically under one advisory-locked client", 
         { name: "shareslices_deployment_control_metadata", present: false },
         { name: "shareslices_deployment_operation", present: false },
         { name: "shareslices_deployment_phase_journal", present: false },
+        { name: "shareslices_deployment_phase_step_checkpoint", present: false },
         { name: "shareslices_deployment_release_record", present: false },
       ] };
     }
@@ -65,6 +68,7 @@ test("rolls back a partial or checksum-mismatched existing schema", async () => 
       { name: "shareslices_deployment_control_metadata", present: true },
       { name: "shareslices_deployment_operation", present: true },
       { name: "shareslices_deployment_phase_journal", present: true },
+      { name: "shareslices_deployment_phase_step_checkpoint", present: true },
       { name: "shareslices_deployment_release_record", present: true },
     ],
   ]) {
@@ -189,6 +193,87 @@ test("heartbeat and phase writes reject lost leases and stale fences", async () 
   await assert.rejects(
     recordPhaseCheckpoint(stale, lease, { phase: "migration", state: "completed" }),
     (error) => error.code === "deployment_operation_stale_fence",
+  );
+  await assert.rejects(
+    recordPhaseStepCheckpoint(stale, lease, {
+      phase: "verification",
+      step: "queue-provisioned",
+      state: "completed",
+      evidence: {queueId: "queue-1"},
+    }),
+    (error) => error.code === "deployment_operation_stale_fence",
+  );
+});
+
+test("records and reads bounded Secret-free phase-step checkpoints under the live fence", async () => {
+  const lease = {
+    installationId: "installation-1",
+    operationId: "operation-2",
+    owner: "controller-b",
+    fencingToken: 5,
+  };
+  let persisted;
+  const database = client(async (text, parameters) => {
+    if (text.startsWith("insert into shareslices_deployment_phase_step_checkpoint")) {
+      persisted = {
+        step: parameters[4],
+        state: parameters[5],
+        evidence: JSON.parse(parameters[6]),
+        evidence_digest: parameters[7],
+        updated_at: new Date("2026-07-22T00:00:00Z"),
+      };
+      return {rows: [{phase: parameters[3], step: parameters[4]}]};
+    }
+    if (text.startsWith("select step, state, evidence")) return {rows: [persisted]};
+    return {rows: []};
+  });
+  const checkpoint = await recordPhaseStepCheckpoint(database, lease, {
+    phase: "verification",
+    step: "queue-provisioned",
+    state: "completed",
+    evidence: {queueId: "queue-1", ownership: {installationId: "installation-1"}},
+  });
+  assert.match(checkpoint.evidenceDigest, /^sha256:[a-f0-9]{64}$/);
+  assert.equal(Object.isFrozen(checkpoint.evidence.ownership), true);
+  const [observed] = await readPhaseStepCheckpoints(database, lease, "verification");
+  assert.deepEqual(observed.evidence, checkpoint.evidence);
+  assert.equal(observed.evidenceDigest, checkpoint.evidenceDigest);
+});
+
+test("rejects sensitive, oversized, unsupported, or digest-mismatched phase-step evidence", async () => {
+  const lease = {
+    installationId: "installation-1",
+    operationId: "operation-2",
+    owner: "controller-b",
+    fencingToken: 5,
+  };
+  for (const evidence of [
+    {apiToken: "not-allowed"},
+    {payload: "x".repeat(65 * 1024)},
+    {value: undefined},
+  ]) {
+    await assert.rejects(
+      recordPhaseStepCheckpoint(client(), lease, {
+        phase: "verification",
+        step: "queue-provisioned",
+        state: "completed",
+        evidence,
+      }),
+      DeploymentControlError,
+    );
+  }
+  const mismatched = client(async (text) => text.startsWith("select step, state, evidence")
+    ? {rows: [{
+      step: "queue-provisioned",
+      state: "completed",
+      evidence: {queueId: "queue-1"},
+      evidence_digest: `sha256:${"0".repeat(64)}`,
+      updated_at: new Date("2026-07-22T00:00:00Z"),
+    }]}
+    : {rows: []});
+  await assert.rejects(
+    readPhaseStepCheckpoints(mismatched, lease, "verification"),
+    (error) => error.code === "deployment_phase_step_checkpoint_digest_mismatch",
   );
 });
 

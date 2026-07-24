@@ -34,6 +34,7 @@ test("PostgreSQL control observation distinguishes absent schema without mutatio
         {name: "shareslices_deployment_control_metadata", present: false},
         {name: "shareslices_deployment_operation", present: false},
         {name: "shareslices_deployment_phase_journal", present: false},
+        {name: "shareslices_deployment_phase_step_checkpoint", present: false},
         {name: "shareslices_deployment_release_record", present: false},
       ]};
     }
@@ -62,6 +63,7 @@ test("Cloudflare control observation uses the direct database Secret without Kub
         {name: "shareslices_deployment_control_metadata", present: false},
         {name: "shareslices_deployment_operation", present: false},
         {name: "shareslices_deployment_phase_journal", present: false},
+        {name: "shareslices_deployment_phase_step_checkpoint", present: false},
         {name: "shareslices_deployment_release_record", present: false},
       ]};
     }

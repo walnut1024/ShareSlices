@@ -36,6 +36,29 @@ create table shareslices_deployment_phase_journal (
   primary key (installation_id, operation_id, fencing_token, phase)
 );
 
+create table shareslices_deployment_phase_step_checkpoint (
+  installation_id text not null,
+  operation_id text not null,
+  fencing_token bigint not null check (fencing_token > 0),
+  phase text not null,
+  step text not null,
+  state text not null check (
+    state in ('running', 'completed', 'isolated_orphan', 'indeterminate')
+  ),
+  evidence jsonb not null,
+  evidence_digest text not null check (
+    evidence_digest ~ '^sha256:[a-f0-9]{64}$'
+  ),
+  updated_at timestamptz not null default now(),
+  primary key (
+    installation_id,
+    operation_id,
+    fencing_token,
+    phase,
+    step
+  )
+);
+
 create table shareslices_deployment_release_record (
   installation_id text not null,
   slot text not null check (slot in ('active', 'previous')),

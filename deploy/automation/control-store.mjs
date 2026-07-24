@@ -9,6 +9,7 @@ const controlTables = [
   "shareslices_deployment_control_metadata",
   "shareslices_deployment_operation",
   "shareslices_deployment_phase_journal",
+  "shareslices_deployment_phase_step_checkpoint",
   "shareslices_deployment_release_record",
 ];
 
@@ -369,4 +370,160 @@ export async function recordPhaseCheckpoint(client, lease, checkpoint) {
       "A stale deployment operation cannot record a phase checkpoint.",
     );
   }
+}
+
+const checkpointNamePattern = /^[a-z][a-z0-9-]{0,63}$/;
+const sensitiveCheckpointKeyPattern =
+  /(?:secret|token|credential|password|authorization|cookie|private.?key)/i;
+const maximumCheckpointBytes = 64 * 1024;
+const phaseStepStates = new Set([
+  "running",
+  "completed",
+  "isolated_orphan",
+  "indeterminate",
+]);
+
+function deepFreeze(value) {
+  if (Array.isArray(value)) {
+    for (const child of value) deepFreeze(child);
+  } else if (value && typeof value === "object") {
+    for (const child of Object.values(value)) deepFreeze(child);
+  }
+  return Object.freeze(value);
+}
+
+function normalizePhaseStepCheckpoint(checkpoint) {
+  if (
+    !checkpoint ||
+    !checkpointNamePattern.test(checkpoint.phase ?? "") ||
+    !checkpointNamePattern.test(checkpoint.step ?? "") ||
+    !phaseStepStates.has(checkpoint.state) ||
+    !checkpoint.evidence ||
+    typeof checkpoint.evidence !== "object" ||
+    Array.isArray(checkpoint.evidence)
+  ) {
+    throw new DeploymentControlError(
+      "deployment_phase_step_checkpoint_invalid",
+      "Deployment phase-step checkpoint is invalid.",
+    );
+  }
+  const visit = (value) => {
+    if (Array.isArray(value)) return value.map(visit);
+    if (value && typeof value === "object") {
+      return Object.fromEntries(Object.entries(value).map(([key, child]) => {
+        if (sensitiveCheckpointKeyPattern.test(key)) {
+          throw new DeploymentControlError(
+            "deployment_phase_step_checkpoint_sensitive",
+            "Deployment phase-step checkpoint contains a sensitive field.",
+          );
+        }
+        return [key, visit(child)];
+      }));
+    }
+    if (
+      value === null ||
+      typeof value === "string" ||
+      typeof value === "boolean" ||
+      (typeof value === "number" && Number.isFinite(value))
+    ) {
+      return value;
+    }
+    throw new DeploymentControlError(
+      "deployment_phase_step_checkpoint_invalid",
+      "Deployment phase-step checkpoint contains an unsupported value.",
+    );
+  };
+  const evidence = visit(structuredClone(checkpoint.evidence));
+  if (
+    Buffer.byteLength(JSON.stringify(evidence), "utf8") >
+      maximumCheckpointBytes
+  ) {
+    throw new DeploymentControlError(
+      "deployment_phase_step_checkpoint_too_large",
+      "Deployment phase-step checkpoint exceeds its size limit.",
+    );
+  }
+  return Object.freeze({
+    phase: checkpoint.phase,
+    step: checkpoint.step,
+    state: checkpoint.state,
+    evidence: deepFreeze(evidence),
+    evidenceDigest: sha256Digest(evidence),
+  });
+}
+
+export async function recordPhaseStepCheckpoint(client, lease, checkpoint) {
+  const normalized = normalizePhaseStepCheckpoint(checkpoint);
+  const result = await client.query(
+    `insert into shareslices_deployment_phase_step_checkpoint
+       (installation_id, operation_id, fencing_token, phase, step, state,
+        evidence, evidence_digest)
+     select $1, $2, $3, $4, $5, $6, $7::jsonb, $8
+     from shareslices_deployment_operation operation
+     where operation.installation_id = $1 and operation.operation_id = $2
+       and operation.lease_owner = $9 and operation.fencing_token = $3
+       and operation.state = 'active' and operation.lease_expires_at > now()
+     on conflict (installation_id, operation_id, fencing_token, phase, step)
+     do update set state = excluded.state, evidence = excluded.evidence,
+       evidence_digest = excluded.evidence_digest, updated_at = now()
+     returning phase, step`,
+    [
+      lease.installationId,
+      lease.operationId,
+      lease.fencingToken,
+      normalized.phase,
+      normalized.step,
+      normalized.state,
+      JSON.stringify(normalized.evidence),
+      normalized.evidenceDigest,
+      lease.owner,
+    ],
+  );
+  if (result.rows.length !== 1) {
+    throw new DeploymentControlError(
+      "deployment_operation_stale_fence",
+      "A stale deployment operation cannot record a phase-step checkpoint.",
+    );
+  }
+  return normalized;
+}
+
+export async function readPhaseStepCheckpoints(client, lease, phase) {
+  if (!checkpointNamePattern.test(phase ?? "")) {
+    throw new DeploymentControlError(
+      "deployment_phase_step_checkpoint_invalid",
+      "Deployment phase-step checkpoint phase is invalid.",
+    );
+  }
+  const result = await client.query(
+    `select step, state, evidence, evidence_digest, updated_at
+       from shareslices_deployment_phase_step_checkpoint
+      where installation_id = $1 and operation_id = $2
+        and fencing_token = $3 and phase = $4
+      order by step`,
+    [
+      lease.installationId,
+      lease.operationId,
+      lease.fencingToken,
+      phase,
+    ],
+  );
+  return Object.freeze(result.rows.map((row) => {
+    const normalized = normalizePhaseStepCheckpoint({
+      phase,
+      step: row.step,
+      state: row.state,
+      evidence: row.evidence,
+    });
+    if (normalized.evidenceDigest !== row.evidence_digest) {
+      throw new DeploymentControlError(
+        "deployment_phase_step_checkpoint_digest_mismatch",
+        "Deployment phase-step checkpoint digest does not match its evidence.",
+      );
+    }
+    return Object.freeze({
+      ...normalized,
+      updatedAt: row.updated_at,
+    });
+  }));
 }

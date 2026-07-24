@@ -20,8 +20,12 @@ test("production apply composes the fenced PostgreSQL journal with phase executi
         return {rows: [{fencing_token: 1, revision: 1}]};
       }
       if (sql.includes("select phase from shareslices_deployment_phase_journal")) return {rows: []};
+      if (sql.includes("from shareslices_deployment_phase_step_checkpoint")) return {rows: []};
       if (sql.includes("set lease_expires_at")) return {rows: [{revision: 2}]};
       if (sql.includes("insert into shareslices_deployment_phase_journal")) return {rows: [{phase: "migration"}]};
+      if (sql.includes("insert into shareslices_deployment_phase_step_checkpoint")) {
+        return {rows: [{phase: "verification", step: "probe-observed"}]};
+      }
       if (sql.includes("from shareslices_deployment_release_record")) return {rows: []};
       if (sql.includes("select 1 from shareslices_deployment_operation")) return {rows: [{authorized: 1}]};
       if (sql.includes("delete from shareslices_deployment_release_record")) return {rows: []};
@@ -53,9 +57,21 @@ test("production apply composes the fenced PostgreSQL journal with phase executi
     plan,
     authorizedPlanDigest: plan.planDigest,
     observe: async () => ({revision: digest("c")}),
-    executePhase: async ({phase, lease, finalizeRelease}) => {
+    executePhase: async ({
+      phase,
+      lease,
+      finalizeRelease,
+      readStepCheckpoints,
+      recordStepCheckpoint,
+    }) => {
       executed.push({phase, fence: lease.fencingToken});
       if (phase === "verification") {
+        assert.deepEqual(await readStepCheckpoints(), []);
+        await recordStepCheckpoint({
+          step: "probe-observed",
+          state: "completed",
+          evidence: {nonce: "nonce-1"},
+        });
         await finalizeRelease({
           release: {
             releaseId: plan.releaseId,

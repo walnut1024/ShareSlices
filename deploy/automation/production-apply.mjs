@@ -4,6 +4,8 @@ import {
   heartbeatOperationLease,
   mirrorReleaseRecords,
   recordPhaseCheckpoint,
+  readPhaseStepCheckpoints,
+  recordPhaseStepCheckpoint,
 } from "./control-store.mjs";
 import {withPostgresControlClient} from "./control-observation.mjs";
 import {applyDeploymentPlan} from "./phase-engine.mjs";
@@ -66,6 +68,10 @@ export function createProductionPlanApplier({
         assertLease: async (lease) => {
           await heartbeatOperationLease(client, lease, leaseInput());
         },
+        readPhaseSteps: (lease, phase) =>
+          readPhaseStepCheckpoints(client, lease, phase),
+        recordPhaseStep: (lease, checkpoint) =>
+          recordPhaseStepCheckpoint(client, lease, checkpoint),
         finalizeRelease: async (lease, {release, bundleDigest}) => {
           const existing = await client.query(
             `select slot, target, release_id, bundle_digest, configuration_digest, secret_revisions,

@@ -14,6 +14,7 @@ const controlTables = Object.freeze([
   "shareslices_deployment_control_metadata",
   "shareslices_deployment_operation",
   "shareslices_deployment_phase_journal",
+  "shareslices_deployment_phase_step_checkpoint",
   "shareslices_deployment_release_record",
 ]);
 
@@ -91,6 +92,7 @@ async function inspectControlProjection(client, installationId) {
   );
   const operation = operations.rows[0] ?? null;
   let phases = [];
+  let phaseSteps = [];
   if (operation) {
     const journal = await client.query(
       `select phase, state, checkpoint_digest, reason_code, started_at, finished_at, updated_at
@@ -106,6 +108,21 @@ async function inspectControlProjection(client, installationId) {
       reasonCode: row.reason_code ?? null,
       startedAt: row.started_at ?? null,
       finishedAt: row.finished_at ?? null,
+      updatedAt: row.updated_at ?? null,
+    }));
+    const steps = await client.query(
+      `select phase, step, state, evidence, evidence_digest, updated_at
+         from shareslices_deployment_phase_step_checkpoint
+        where installation_id = $1 and operation_id = $2 and fencing_token = $3
+        order by phase, step`,
+      [installationId, operation.operation_id, operation.fencing_token],
+    );
+    phaseSteps = steps.rows.map((row) => Object.freeze({
+      phase: row.phase,
+      step: row.step,
+      state: row.state,
+      evidence: row.evidence,
+      evidenceDigest: row.evidence_digest,
       updatedAt: row.updated_at ?? null,
     }));
   }
@@ -136,6 +153,7 @@ async function inspectControlProjection(client, installationId) {
       updatedAt: operation.updated_at,
     }) : null,
     phases: Object.freeze(phases),
+    phaseSteps: Object.freeze(phaseSteps),
   });
 }
 
@@ -216,7 +234,7 @@ export function createPostgresControlObserver({resolvers, ClientClass = Client} 
     const expected = await loadControlSchema();
     const projection = controlSchema.state === "present"
       ? await inspectControlProjection(client, config.installationId)
-      : {releaseRecords: {}, operation: null, phases: []};
+      : {releaseRecords: {}, operation: null, phases: [], phaseSteps: []};
     return Object.freeze({controlSchema, expectedChecksum: expected.checksum, ...projection});
   }, ClientClass);
 }

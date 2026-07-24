@@ -81,6 +81,12 @@ export async function applyDeploymentPlan({
         actions,
         lease,
         assertLease: () => control.assertLease(lease),
+        readStepCheckpoints: typeof control.readPhaseSteps === "function"
+          ? () => control.readPhaseSteps(lease, phase)
+          : async () => [],
+        recordStepCheckpoint: typeof control.recordPhaseStep === "function"
+          ? (checkpoint) => control.recordPhaseStep(lease, {...checkpoint, phase})
+          : undefined,
         finalizeRelease: typeof control.finalizeRelease === "function"
           ? (input) => control.finalizeRelease(lease, input)
           : undefined,

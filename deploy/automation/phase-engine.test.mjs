@@ -37,6 +37,12 @@ function harness({ completed = [], observedRevision = "observed-1" } = {}) {
       completedPhases: async () => completed,
       assertLease: async () => calls.push(["assertLease"]),
       record: async (_lease, checkpoint) => calls.push(["record", checkpoint]),
+      readPhaseSteps: async (_lease, phase) => {
+        calls.push(["readPhaseSteps", phase]);
+        return [{phase, step: "existing", state: "completed", evidence: {id: "one"}}];
+      },
+      recordPhaseStep: async (_lease, checkpoint) =>
+        calls.push(["recordPhaseStep", checkpoint]),
     },
     observe: async () => ({ revision: observedRevision }),
     executePhase: async ({ phase }) => {
@@ -106,6 +112,43 @@ test("resumes from checkpoints without repeating a completed migration", async (
   assert.deepEqual(
     runtime.calls.filter(([operation]) => operation === "execute"),
     [["execute", "public-runtime"]],
+  );
+});
+
+test("passes fenced phase-step recovery callbacks only for the executing phase", async () => {
+  const runtime = harness({completed: ["migration"]});
+  runtime.executePhase = async ({
+    phase,
+    readStepCheckpoints,
+    recordStepCheckpoint,
+  }) => {
+    assert.equal(phase, "public-runtime");
+    assert.deepEqual(await readStepCheckpoints(), [{
+      phase: "public-runtime",
+      step: "existing",
+      state: "completed",
+      evidence: {id: "one"},
+    }]);
+    await recordStepCheckpoint({
+      step: "candidate-observed",
+      state: "completed",
+      evidence: {versionId: "version-1"},
+    });
+    return {checkpointDigest: `sha256:${phase}`};
+  };
+  await applyDeploymentPlan({
+    plan: plan(),
+    authorizedPlanDigest: `sha256:${"a".repeat(64)}`,
+    ...runtime,
+  });
+  assert.deepEqual(
+    runtime.calls.find(([operation]) => operation === "recordPhaseStep"),
+    ["recordPhaseStep", {
+      phase: "public-runtime",
+      step: "candidate-observed",
+      state: "completed",
+      evidence: {versionId: "version-1"},
+    }],
   );
 });
 
