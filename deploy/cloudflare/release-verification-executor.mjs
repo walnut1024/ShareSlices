@@ -1,4 +1,7 @@
 import {sha256Digest} from "../automation/canonical.mjs";
+import {
+  buildCloudflareReleaseVerificationMessage,
+} from "./release-verification-message.mjs";
 
 export class CloudflareReleaseVerificationError extends Error {
   constructor(code, message) {
@@ -166,6 +169,7 @@ export function createCloudflareReleaseVerificationExecutor({
   initializeProbe,
   observeUntilTerminal,
   observeUntilCleanup,
+  buildMessage = buildCloudflareReleaseVerificationMessage,
 } = {}) {
   const deployWorker = requireFunction(workerLifecycle?.deploy, "worker deploy");
   const deleteWorker = requireFunction(workerLifecycle?.delete, "worker delete");
@@ -185,10 +189,11 @@ export function createCloudflareReleaseVerificationExecutor({
   requireFunction(initializeProbe, "probe initialization");
   requireFunction(observeUntilTerminal, "terminal observation");
   requireFunction(observeUntilCleanup, "cleanup observation");
+  requireFunction(buildMessage, "message builder");
 
   return async function execute({
     lifecycleInput,
-    message,
+    messageInput,
     workerConfig,
     readStepCheckpoints,
     recordStepCheckpoint,
@@ -197,6 +202,7 @@ export function createCloudflareReleaseVerificationExecutor({
     requireFunction(readStepCheckpoints, "checkpoint reader");
     requireFunction(recordStepCheckpoint, "checkpoint writer");
     requireFunction(assertLease, "lease assertion");
+    const message = buildMessage(messageInput);
     const checkpoints = checkpointMap(await readStepCheckpoints());
     ensurePredecessors(checkpoints);
     for (const checkpoint of checkpoints.values()) {

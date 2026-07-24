@@ -46,6 +46,7 @@ function harness({existing = [], failPublish = false} = {}) {
   const calls = [];
   const checkpoints = new Map(existing.map((entry) => [entry.step, entry]));
   const executor = createCloudflareReleaseVerificationExecutor({
+    buildMessage: () => message,
     workerLifecycle: {
       deploy: async () => {
         calls.push("worker.deploy");
@@ -115,7 +116,7 @@ function harness({existing = [], failPublish = false} = {}) {
     checkpoints,
     execute: () => executor({
       lifecycleInput,
-      message,
+      messageInput: {},
       workerConfig: {name: worker.workerName},
       assertLease: async () => calls.push("lease"),
       readStepCheckpoints: async () => [...checkpoints.values()],
@@ -244,6 +245,7 @@ test("retries an interrupted exact-idempotent probe initialization", async () =>
 
 test("fails closed on wrong terminal identity or incomplete cleanup", async () => {
   const executor = createCloudflareReleaseVerificationExecutor({
+    buildMessage: () => message,
     workerLifecycle: {
       deploy: async () => worker,
       delete: async () => ({
@@ -278,7 +280,7 @@ test("fails closed on wrong terminal identity or incomplete cleanup", async () =
   await assert.rejects(
     executor({
       lifecycleInput,
-      message,
+      messageInput: {},
       workerConfig: {name: worker.workerName},
       assertLease: async () => {},
       readStepCheckpoints: async () => [],

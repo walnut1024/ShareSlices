@@ -1,5 +1,8 @@
 import {releaseVerifierResourceNames} from "./verifier-wrangler-config.mjs";
 import {pausedVerifierQueueEvidence} from "./verifier-lifecycle.mjs";
+import {
+  assertCloudflareReleaseVerificationMessage,
+} from "./release-verification-message.mjs";
 
 const API_ORIGIN = "https://api.cloudflare.com/client/v4";
 const DEFAULT_RETENTION_SECONDS = 60;
@@ -274,26 +277,12 @@ async function readOwnedQueue(client, owned, expected) {
 }
 
 function requireVerificationMessage(message, expected) {
-  if (
-    !message ||
-    typeof message !== "object" ||
-    Array.isArray(message) ||
-    Object.keys(message).length !== 8 ||
-    message.version !== 1 ||
-    typeof message.invocationId !== "string" ||
-    !/^[A-Za-z0-9_-]{16,256}$/.test(message.invocationId) ||
-    typeof message.nonce !== "string" ||
-    !/^[A-Za-z0-9_-]{16,256}$/.test(message.nonce) ||
-    message.releaseId !== expected.releaseId ||
-    message.fence !== expected.fence ||
-    !Number.isSafeInteger(message.subFence) ||
-    message.subFence <= 0 ||
-    !message.lifecycle ||
-    !message.expected
-  ) {
+  let copy;
+  try {
+    copy = assertCloudflareReleaseVerificationMessage(message, expected);
+  } catch {
     fail("message_invalid");
   }
-  const copy = structuredClone(message);
   if (
     new TextEncoder().encode(JSON.stringify(copy)).byteLength >
       MAXIMUM_MESSAGE_BODY_BYTES

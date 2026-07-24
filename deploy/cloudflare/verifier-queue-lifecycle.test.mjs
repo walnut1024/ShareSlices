@@ -146,6 +146,14 @@ function verificationMessage() {
     subFence: 3,
     lifecycle: {tombstoneSeconds: 120, quiescenceSeconds: 60},
     expected: {
+      appWorker: {
+        name: "shareslices-app",
+        versionId: "app-version",
+      },
+      contentWorker: {
+        name: "shareslices-content",
+        versionId: "content-version",
+      },
       jobsWorker: {
         versionId: "jobs-version",
         releaseBundleIdentity: "bundle",
@@ -157,7 +165,22 @@ function verificationMessage() {
         trustedProcessing: "trusted@sha256:1",
         thumbnail: "thumbnail@sha256:2",
       },
-      containers: [{kind: "omitted-by-provider-lifecycle"}],
+      containers: [
+        {
+          containerClass: "trusted-processing",
+          stableSlot: "processing-a",
+          buildIdentity: "processing-build",
+          contractRevision: "processing-contract",
+          imageReference: "trusted@sha256:1",
+        },
+        {
+          containerClass: "thumbnail",
+          stableSlot: "thumbnail-a",
+          buildIdentity: "thumbnail-build",
+          contractRevision: "thumbnail-contract",
+          imageReference: "thumbnail@sha256:2",
+        },
+      ],
     },
   };
 }
@@ -358,7 +381,13 @@ test("rejects oversized messages locally and never exposes a provider token", as
   });
   const handle = await lifecycle.provision(base);
   const oversized = verificationMessage();
-  oversized.expected.oversized = "x".repeat(128_000);
+  oversized.expected.containers = [
+    oversized.expected.containers[1],
+    ...Array.from({length: 2_000}, (_, index) => ({
+      ...oversized.expected.containers[0],
+      stableSlot: `processing-${index}`,
+    })),
+  ];
   await assert.rejects(
     lifecycle.publishAndResume({...base, handle, message: oversized}),
     /message_too_large/,
