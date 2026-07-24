@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 
+import {assertHyperdriveEvidence} from "./assert-hyperdrive-evidence.mjs";
+
 function request(env, path, init = {}) {
   return env.DATABASE.fetch(`https://database.internal${path}`, {
     ...init,
@@ -35,30 +37,7 @@ async function verify(env) {
     );
   }
   const pathEvidence = await pathResponse.json();
-  assert.deepEqual(pathEvidence.paths, {
-    authentication: "passed",
-    authorization: "passed",
-    viewer: "passed",
-    gallery: "passed",
-    jobState: "passed",
-  });
-  assert.equal(pathEvidence.transactionRollback, "passed");
-  assert.equal(pathEvidence.cacheDisabledFreshness, "passed");
-  assert.deepEqual(pathEvidence.semantics, {
-    namedPreparedStatement: "passed",
-    transactionLocalState: "passed",
-    statementTimeout: "passed",
-    workerPoolMaxConnections: 1,
-  });
-  assert.deepEqual(pathEvidence.connectionBudget, {
-    maxConnections: 1,
-    secondClientQueuedWhileFirstHeld: true,
-  });
-  assert.ok(
-    ["rejected", "observed_succeeded_but_unsupported"].includes(
-      pathEvidence.advisoryLock,
-    ),
-  );
+  assertHyperdriveEvidence(pathEvidence);
 
   let evidence;
   let accountCreated = false;

@@ -221,7 +221,6 @@ app.get("/prototype/pg", async (context) => {
     );
     return context.json(result.rows[0], 200, { "Cache-Control": "no-store" });
   } catch (error) {
-    await client.query("rollback").catch(() => undefined);
     return context.json(
       {
         error: {

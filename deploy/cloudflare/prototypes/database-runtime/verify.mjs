@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
+import {assertHyperdriveEvidence} from "./assert-hyperdrive-evidence.mjs";
+
 const origin = process.env.DATABASE_PROTOTYPE_ORIGIN;
 const probeToken = process.env.DATABASE_PROTOTYPE_TOKEN;
 if (!origin || !probeToken) {
@@ -19,6 +21,13 @@ const pgEvidence = await pgResponse.json();
 assert.equal(pgEvidence.database_name, "postgres");
 assert.equal(pgEvidence.database_user, "postgres");
 assert.equal(pgEvidence.ssl, true);
+
+const pathResponse = await fetch(
+  new URL("/prototype/hyperdrive-paths", origin),
+  {method: "POST", headers: authorization},
+);
+assert.equal(pathResponse.status, 200);
+const hyperdriveEvidence = assertHyperdriveEvidence(await pathResponse.json());
 
 const signupResponse = await fetch(new URL("/api/auth/sign-up/email", origin), {
   method: "POST",
@@ -51,6 +60,7 @@ process.stdout.write(
     pg: { query: "passed", ssl: pgEvidence.ssl },
     drizzle: { query: "passed", matchingUsers: 1 },
     betterAuth: { signup: "passed", cookie: "passed", cleanup: "passed" },
+    hyperdrive: hyperdriveEvidence,
     probeAuthorization: "passed",
   })}\n`,
 );

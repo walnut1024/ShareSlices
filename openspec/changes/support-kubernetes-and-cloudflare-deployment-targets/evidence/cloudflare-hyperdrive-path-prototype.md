@@ -170,3 +170,17 @@ Supabase project's Dashboard succeeds through the Worker runtime, the enhanced
 freshness and connection-budget assertions pass in the same bounded run, and
 the cleanup inventory is repeated. Encryption, control-plane update success,
 and the passing wrong-host negative do not substitute for that positive proof.
+
+## 2026-07-25 local verifier hardening
+
+The manual verifier now invokes the same representative Hyperdrive path,
+transaction, freshness, named-statement, timeout, and connection-budget probe
+as the route-free edge verifier. Both paths use one shared assertion module, and
+focused tests reject weakened freshness, timeout, pool-budget, or unsupported
+advisory-lock classifications. The minimal connectivity endpoint's failure path
+also no longer references a nonexistent database client, so a live TLS or
+network failure retains its real redacted phase and PostgreSQL code.
+
+This is local harness evidence only. It starts no Worker, changes no Hyperdrive
+or database resource, and does not satisfy the pending `verify-full` live
+qualification or cleanup requirement.
