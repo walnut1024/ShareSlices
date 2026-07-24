@@ -228,3 +228,39 @@ test("does not execute resources retained for rollback", async () => {
     [["execute", "retirement"]],
   );
 });
+
+test("migration failure is journaled and prevents every later phase", async () => {
+  const runtime = harness();
+  const candidate = plan({
+    actions: [
+      {phase: "migration", action: "create", logicalId: "migration"},
+      {phase: "private-runtime", action: "create", logicalId: "api"},
+    ],
+  });
+  const executed = [];
+  await assert.rejects(
+    applyDeploymentPlan({
+      plan: candidate,
+      authorizedPlanDigest: candidate.planDigest,
+      control: runtime.control,
+      observe: runtime.observe,
+      executePhase: async ({phase}) => {
+        executed.push(phase);
+        throw new PhaseEngineError(
+          "migration_execution_failed",
+          "The migration failed without exposing provider diagnostics.",
+        );
+      },
+    }),
+    (error) => error.code === "migration_execution_failed",
+  );
+  assert.deepEqual(executed, ["migration"]);
+  assert.deepEqual(runtime.calls.at(-1), [
+    "record",
+    {
+      phase: "migration",
+      state: "failed",
+      reasonCode: "migration_execution_failed",
+    },
+  ]);
+});

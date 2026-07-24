@@ -59,9 +59,22 @@ export class AuthenticationEmailSmtpTransportError extends Error {
 
 function classifySmtpFailure(error: unknown): AuthenticationEmailSmtpFailureKind {
   const evidence = error && typeof error === "object"
-    ? error as {code?: unknown; responseCode?: unknown}
+    ? error as {
+        code?: unknown;
+        responseCode?: unknown;
+        syscall?: unknown;
+        command?: unknown;
+      }
     : {};
-  if (evidence.code === "EDNS" || evidence.code === "ECONNECTION") {
+  if (
+    evidence.code === "EDNS" ||
+    evidence.code === "ECONNECTION" ||
+    (
+      evidence.code === "ESOCKET" &&
+      evidence.syscall === "connect" &&
+      evidence.command === "CONN"
+    )
+  ) {
     return "known_not_submitted_retryable";
   }
   if (evidence.code === "EENVELOPE") {

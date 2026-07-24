@@ -209,4 +209,28 @@ describe("authentication email SMTP transport", () => {
 
     transport.close();
   });
+
+  it("classifies an unavailable SMTP relay as known not submitted", async () => {
+    const transport = createAuthenticationEmailSmtpAdapter({
+      url: "smtp://127.0.0.1:1",
+      from: "ShareSlices <no-reply@shareslices.local>",
+      providerNamespace: "test-smtp",
+      transportRevision: "test-smtp-v1",
+      endpointIdentity: "127.0.0.1:1",
+      tlsPolicy: "plaintext-allowed",
+      dnsTimeoutMs: 100,
+      connectionTimeoutMs: 100,
+      greetingTimeoutMs: 100,
+      socketTimeoutMs: 100,
+    });
+
+    await expect(transport.send(
+      { email: "operator@example.com", otp: "123456", type: "email-verification" },
+      "019f5a36-66df-7000-8000-000000000005",
+    )).rejects.toEqual(
+      new AuthenticationEmailSmtpTransportError("known_not_submitted_retryable"),
+    );
+
+    transport.close();
+  });
 });

@@ -80,6 +80,10 @@ run = "node deploy/automation/email-deep-verification-cli.mjs"
 description = "Create one short-lived email deep-verification authorization"
 run = "node deploy/automation/email-deep-verification-authorize.mjs"
 
+[tasks.verification-failure-drills]
+description = "Run the provider-neutral deployment failure-drill gate"
+run = "pnpm run verification:failure-drills"
+
 [tasks.web-test]
 description = "Run Web tests"
 run = "pnpm run web:test"
