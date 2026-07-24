@@ -7,6 +7,7 @@ import {
   createCloudflareTerraformStateReader,
   createCloudflareWranglerDeploymentReader,
 } from "../cloudflare/provider-readers.mjs";
+import {createCloudflareProviderObserver} from "../cloudflare/provider-observation.mjs";
 import {createCloudflareStateObserver} from "../cloudflare/state-observation.mjs";
 import {createCloudflareTerraformObserver} from "../cloudflare/terraform-observation.mjs";
 import {createCloudflareWranglerObserver} from "../cloudflare/wrangler-observation.mjs";
@@ -103,6 +104,7 @@ export function createProductionCloudflareAdapter({
   createStateObserver = createCloudflareStateObserver,
   createTerraformObserver = createCloudflareTerraformObserver,
   createWranglerObserver = createCloudflareWranglerObserver,
+  createProviderObserver = createCloudflareProviderObserver,
   readTerraformState = createCloudflareTerraformStateReader(),
   readWranglerDeployments = createCloudflareWranglerDeploymentReader(),
 } = {}) {
@@ -127,10 +129,13 @@ export function createProductionCloudflareAdapter({
       readDeployments: readWranglerDeployments,
     }),
   });
+  const observeProvider = async (input) => createProviderObserver({
+    resolvers: resolvers(),
+  })(input);
   const probeReleaseStoreAccess = async (input) => createReleaseStoreAccessProbe({
     resolvers: resolvers(),
   })(input);
-  return createAdapter({observeState, probeReleaseStoreAccess});
+  return createAdapter({observeProvider, observeState, probeReleaseStoreAccess});
 }
 
 export function createProductionExecutor({

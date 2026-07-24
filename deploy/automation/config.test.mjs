@@ -28,7 +28,13 @@ test("loads one selected target and discovers only non-secret prerequisites", as
     discoverPrerequisites(cloudflare).secretReferences.every(({ ref, revision }) => ref.includes("://") && revision.length > 0),
     true,
   );
-  assert.equal(discoverPrerequisites(cloudflare).secretReferences.length, 9);
+  assert.equal(discoverPrerequisites(cloudflare).secretReferences.length, 10);
+  assert.equal(
+    discoverPrerequisites(cloudflare).secretReferences.some(
+      ({ref}) => ref === cloudflare.cloudflare.providerReadToken.ref,
+    ),
+    true,
+  );
   assert.equal(
     discoverPrerequisites(cloudflare).secretReferences.some(
       ({ref}) => ref === cloudflare.cloudflare.releaseStore.ref,

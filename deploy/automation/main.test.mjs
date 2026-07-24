@@ -211,6 +211,30 @@ test("production Cloudflare planning composes all three read-only state sources"
   ]);
 });
 
+test("production Cloudflare doctor resolves the provider read token only during observation", async () => {
+  let adapterOptions;
+  let providerOptions;
+  createProductionCloudflareAdapter({
+    environment: {SHARESLICES_SECRET_ROOT: "/deployment/secrets"},
+    createAdapter: (options) => {
+      adapterOptions = options;
+      return {};
+    },
+    createProviderObserver: (options) => {
+      providerOptions = options;
+      return async ({account}) => ({account});
+    },
+    createStateObserver: () => async () => ({}),
+    createTerraformObserver: () => async () => ({}),
+    createWranglerObserver: () => async () => ({}),
+  });
+  assert.equal(typeof adapterOptions.observeProvider, "function");
+  assert.equal(providerOptions, undefined);
+  const result = await adapterOptions.observeProvider({account: {id: "account"}});
+  assert.equal(typeof providerOptions.resolvers.secret, "function");
+  assert.equal(result.account.id, "account");
+});
+
 test("production Cloudflare control observation requires an explicit Secret root", async () => {
   let sources;
   createProductionCloudflareAdapter({

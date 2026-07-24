@@ -229,6 +229,7 @@ export function discoverPrerequisites(config) {
     tools: ["terraform", "wrangler"],
     secretReferences: [
       ...common.secretReferences,
+      config.cloudflare.providerReadToken,
       config.cloudflare.postgresqlOrigin,
       config.cloudflare.releaseStore,
       config.cloudflare.email.resend,

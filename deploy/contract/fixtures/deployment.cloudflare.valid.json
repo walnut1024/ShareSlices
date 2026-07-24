@@ -85,6 +85,7 @@
   },
   "cloudflare": {
     "accountId": "0123456789abcdef0123456789abcdef",
+    "providerReadToken": { "ref": "secret://cloudflare/provider-read", "revision": "1" },
     "postgresqlOrigin": { "ref": "secret://supabase/hyperdrive", "revision": "8" },
     "releaseStore": { "ref": "secret://release-store/deploy-pull", "revision": "5" },
     "email": {

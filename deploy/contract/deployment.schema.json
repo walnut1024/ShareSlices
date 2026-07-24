@@ -549,6 +549,7 @@
       "additionalProperties": false,
       "required": [
         "accountId",
+        "providerReadToken",
         "postgresqlOrigin",
         "releaseStore",
         "email",
@@ -560,6 +561,7 @@
       ],
       "properties": {
         "accountId": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
+        "providerReadToken": { "$ref": "#/$defs/secretReference" },
         "postgresqlOrigin": { "$ref": "#/$defs/secretReference" },
         "releaseStore": { "$ref": "#/$defs/secretReference" },
         "email": {
