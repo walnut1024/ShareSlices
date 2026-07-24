@@ -10,6 +10,16 @@
       "method": "POST",
       "path": "/v1/release-verification",
       "scope": ["releaseId", "fence", "nonce", "subFence"]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/release-verification/finalize",
+      "scope": ["releaseId", "fence", "nonce", "subFence", "evidenceDigest"]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/release-verification/cleanup",
+      "scope": ["releaseId", "fence", "nonce"]
     }
   ],
   "terminalNonceRequired": true,

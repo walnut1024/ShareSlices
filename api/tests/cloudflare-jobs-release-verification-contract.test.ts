@@ -21,6 +21,8 @@ describe("private Jobs release-verification wire contract", () => {
     ]);
     expect(Object.keys(openapi.paths)).toEqual([
       "/v1/release-verification",
+      "/v1/release-verification/finalize",
+      "/v1/release-verification/cleanup",
     ]);
     expect(projection).toMatchObject({
       origin: "http://shareslices-jobs.internal",
@@ -31,11 +33,29 @@ describe("private Jobs release-verification wire contract", () => {
       activeInvocationLeaseRequired: true,
       containerConvergenceRequiredForAcceptance: true,
     });
-    expect(projection.operations).toEqual([{
-      method: "POST",
-      path: "/v1/release-verification",
-      scope: ["releaseId", "fence", "nonce", "subFence"],
-    }]);
+    expect(projection.operations).toEqual([
+      {
+        method: "POST",
+        path: "/v1/release-verification",
+        scope: ["releaseId", "fence", "nonce", "subFence"],
+      },
+      {
+        method: "POST",
+        path: "/v1/release-verification/finalize",
+        scope: [
+          "releaseId",
+          "fence",
+          "nonce",
+          "subFence",
+          "evidenceDigest",
+        ],
+      },
+      {
+        method: "POST",
+        path: "/v1/release-verification/cleanup",
+        scope: ["releaseId", "fence", "nonce"],
+      },
+    ]);
   });
 
   it("requires actual identity and explicit Container convergence evidence", async () => {
@@ -46,6 +66,7 @@ describe("private Jobs release-verification wire contract", () => {
       "migrationHead",
       "database",
       "broker",
+      "synthetic",
       "configuredContainerImages",
       "containers",
       "containerConvergence",

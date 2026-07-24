@@ -118,7 +118,7 @@ describe("Cloudflare release-verification probe fencing", () => {
     await expect(repository.begin(candidate, 30)).resolves.toEqual({
       state: "started",
       migrationHead:
-        "0039_cloudflare_release_verification_container_evidence.sql",
+        "0040_cloudflare_release_verification_cleanup.sql",
     });
     await expect(repository.begin(candidate, 30)).resolves.toBeNull();
     await expect(repository.begin(
@@ -153,17 +153,19 @@ describe("Cloudflare release-verification probe fencing", () => {
     await expect(repository.begin(candidate, 30)).resolves.toEqual({
       state: "started",
       migrationHead:
-        "0039_cloudflare_release_verification_container_evidence.sql",
+        "0040_cloudflare_release_verification_cleanup.sql",
     });
 
     const digest = `sha256:${"b".repeat(64)}`;
     await expect(repository.markTerminal({
+      invocationId: candidate.invocationId,
       nonce: candidate.nonce,
       releaseId: candidate.releaseId,
       fence: candidate.fence,
       subFence: candidate.subFence,
       evidenceDigest: digest,
       tombstoneSeconds: 3_600,
+      quiescenceSeconds: 1,
     })).resolves.toBe(true);
 
     await expect(repository.complete(candidate, digest, {version: 1})).resolves.toBe(false);
@@ -196,6 +198,10 @@ describe("Cloudflare release-verification probe fencing", () => {
     const candidate = scope();
     await seed(candidate);
     const repository = createReleaseVerificationRepository(connection);
+    await expect(repository.begin(candidate, 30)).resolves.toEqual({
+      state: "started",
+      migrationHead: "0040_cloudflare_release_verification_cleanup.sql",
+    });
     const evidence = {
       nonce: candidate.nonce,
       releaseId: candidate.releaseId,
@@ -227,16 +233,113 @@ describe("Cloudflare release-verification probe fencing", () => {
     })).resolves.toBe(false);
 
     await expect(repository.markTerminal({
+      invocationId: candidate.invocationId,
       nonce: candidate.nonce,
       releaseId: candidate.releaseId,
       fence: candidate.fence,
       subFence: candidate.subFence,
       evidenceDigest: `sha256:${"c".repeat(64)}`,
       tombstoneSeconds: 3_600,
+      quiescenceSeconds: 1,
     })).resolves.toBe(true);
     await expect(repository.recordContainerEvidence({
       ...evidence,
       providerInstance: `deployment-${randomUUID()}`,
     })).resolves.toBe(false);
+  });
+
+  it("fences nonce-owned synthetic resources through quiescence and final inventory", async () => {
+    const candidate = scope();
+    await seed(candidate);
+    const repository = createReleaseVerificationRepository(connection);
+    await expect(repository.begin(candidate, 30)).resolves.toEqual({
+      state: "started",
+      migrationHead:
+        "0040_cloudflare_release_verification_cleanup.sql",
+    });
+    const resources = [
+      ["database", `release-verification/${candidate.nonce}/database/probe`],
+      ["broker", `release-verification/${candidate.nonce}/broker/probe`],
+      ["r2", `release-verification/${candidate.nonce}/r2/probe.json`],
+    ] as const;
+    for (const [kind, key] of resources) {
+      await expect(
+        repository.prepareSyntheticResource(candidate, kind, key),
+      ).resolves.toBe(true);
+      await expect(
+        repository.commitSyntheticResource(candidate, kind, key),
+      ).resolves.toBe(true);
+    }
+    await expect(repository.prepareSyntheticResource(
+      {...candidate, subFence: candidate.subFence + 1},
+      "database",
+      `release-verification/${candidate.nonce}/database/stale`,
+    )).resolves.toBe(false);
+
+    const digest = `sha256:${"d".repeat(64)}`;
+    await expect(repository.markTerminal({
+      invocationId: candidate.invocationId,
+      nonce: candidate.nonce,
+      releaseId: candidate.releaseId,
+      fence: candidate.fence,
+      subFence: candidate.subFence,
+      evidenceDigest: digest,
+      tombstoneSeconds: 3_600,
+      quiescenceSeconds: 30,
+    })).resolves.toBe(true);
+    await expect(repository.cleanupDatabaseSyntheticState(candidate))
+      .resolves.toBe(false);
+    await expect(repository.cleanupInventory(candidate)).resolves.toMatchObject({
+      terminal: true,
+      quiescenceReached: false,
+      activeInvocations: 0,
+      resources: [
+        {kind: "broker", state: "committed"},
+        {kind: "database", state: "committed"},
+        {kind: "r2", state: "committed"},
+      ],
+      cleanupState: "quiescing",
+    });
+
+    await pool.query(
+      `update cloudflare_release_verification_probe
+       set quiescence_not_before = now() - interval '1 second'
+       where nonce = $1`,
+      [candidate.nonce],
+    );
+    await expect(repository.cleanupDatabaseSyntheticState(candidate))
+      .resolves.toBe(true);
+    await expect(repository.markR2ResourceDeleted({
+      nonce: candidate.nonce,
+      releaseId: candidate.releaseId,
+      fence: candidate.fence,
+      resourceKey: resources[2][1],
+    })).resolves.toBe(true);
+    const finalInventory = await repository.cleanupInventory(candidate);
+    expect(finalInventory).toMatchObject({
+      terminal: true,
+      quiescenceReached: true,
+      activeInvocations: 0,
+      containerEvidence: 0,
+      resources: [
+        {kind: "broker", state: "deleted"},
+        {kind: "database", state: "deleted"},
+        {kind: "r2", state: "deleted"},
+      ],
+    });
+    await expect(repository.markCleanupComplete({
+      nonce: candidate.nonce,
+      releaseId: candidate.releaseId,
+      fence: candidate.fence,
+      inventory: {r2Objects: 0, databaseRows: 0},
+    })).resolves.toBe(true);
+    await expect(repository.cleanupInventory(candidate)).resolves.toMatchObject({
+      cleanupState: "complete",
+    });
+    await expect(repository.prepareSyntheticResource(
+      candidate,
+      "database",
+      `release-verification/${candidate.nonce}/database/late`,
+    )).resolves.toBe(false);
   });
 });

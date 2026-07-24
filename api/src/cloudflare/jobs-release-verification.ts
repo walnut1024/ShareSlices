@@ -1,4 +1,5 @@
 import {createDatabaseConnection} from "../db/connection.js";
+import type {R2BucketBinding} from "../storage/r2-object-storage.js";
 import {createReleaseVerificationRepository} from "./release-verification-repository.js";
 import type {CloudflareExecutionContext} from "./runtime.js";
 
@@ -31,6 +32,7 @@ export type JobsReleaseVerificationBindings = Readonly<{
   THUMBNAIL_CONTAINERS: DurableObjectNamespace;
   TRUSTED_PROCESSING_STABLE_SLOTS: string;
   THUMBNAIL_STABLE_SLOTS: string;
+  ARTIFACTS: R2BucketBinding;
 }>;
 
 type ProbeRequest = Readonly<{
@@ -40,6 +42,19 @@ type ProbeRequest = Readonly<{
   releaseId: string;
   fence: number;
   subFence: number;
+}>;
+
+type FinalizeRequest = ProbeRequest & Readonly<{
+  evidenceDigest: string;
+  tombstoneSeconds: number;
+  quiescenceSeconds: number;
+}>;
+
+type CleanupRequest = Readonly<{
+  version: 1;
+  nonce: string;
+  releaseId: string;
+  fence: number;
 }>;
 
 const MAXIMUM_REQUEST_BYTES = 16 * 1024;
@@ -94,6 +109,58 @@ function parseRequest(value: unknown): ProbeRequest | null {
     return null;
   }
   return record as ProbeRequest;
+}
+
+function parseFinalizeRequest(value: unknown): FinalizeRequest | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const probe = parseRequest(Object.fromEntries(
+    Object.entries(record).filter(([key]) =>
+      ![
+        "evidenceDigest",
+        "tombstoneSeconds",
+        "quiescenceSeconds",
+      ].includes(key)
+    ),
+  ));
+  if (
+    Object.keys(record).length !== 9 ||
+    !probe ||
+    typeof record.evidenceDigest !== "string" ||
+    !/^sha256:[0-9a-f]{64}$/.test(record.evidenceDigest) ||
+    !Number.isSafeInteger(record.tombstoneSeconds) ||
+    Number(record.tombstoneSeconds) <= 0 ||
+    !Number.isSafeInteger(record.quiescenceSeconds) ||
+    Number(record.quiescenceSeconds) <= 0 ||
+    Number(record.quiescenceSeconds) >= Number(record.tombstoneSeconds)
+  ) {
+    return null;
+  }
+  return {
+    ...probe,
+    evidenceDigest: record.evidenceDigest,
+    tombstoneSeconds: Number(record.tombstoneSeconds),
+    quiescenceSeconds: Number(record.quiescenceSeconds),
+  };
+}
+
+function parseCleanupRequest(value: unknown): CleanupRequest | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (
+    Object.keys(record).length !== 4 ||
+    record.version !== 1 ||
+    typeof record.nonce !== "string" ||
+    !/^[A-Za-z0-9_-]{16,256}$/.test(record.nonce) ||
+    typeof record.releaseId !== "string" ||
+    record.releaseId.length < 1 ||
+    record.releaseId.length > 256 ||
+    !Number.isSafeInteger(record.fence) ||
+    Number(record.fence) <= 0
+  ) {
+    return null;
+  }
+  return record as CleanupRequest;
 }
 
 async function sha256(value: string): Promise<string> {
@@ -203,6 +270,104 @@ async function dispatchContainerProbes(
   }
 }
 
+function syntheticResourceKey(scope: ProbeRequest, suffix: string): string {
+  return `release-verification/${scope.nonce}/${suffix}`;
+}
+
+async function exerciseSyntheticResources(
+  scope: ProbeRequest,
+  bindings: JobsReleaseVerificationBindings,
+  repository: ReturnType<typeof createReleaseVerificationRepository>,
+) {
+  const databaseKey = syntheticResourceKey(scope, "database/jobs-worker");
+  const brokerKey = syntheticResourceKey(scope, "broker/private-execution");
+  for (const [kind, key] of [
+    ["database", databaseKey],
+    ["broker", brokerKey],
+  ] as const) {
+    if (
+      !(await repository.prepareSyntheticResource(scope, kind, key)) ||
+      !(await repository.commitSyntheticResource(scope, kind, key))
+    ) {
+      throw new Error(`release_verification_${kind}_probe_fenced`);
+    }
+  }
+  const r2Key = syntheticResourceKey(
+    scope,
+    `r2/${scope.invocationId}.json`,
+  );
+  if (!(await repository.prepareSyntheticResource(scope, "r2", r2Key))) {
+    throw new Error("release_verification_r2_probe_fenced");
+  }
+  const payload = canonicalJson({
+    version: 1,
+    nonce: scope.nonce,
+    releaseId: scope.releaseId,
+    fence: scope.fence,
+    subFence: scope.subFence,
+  });
+  const bytes = new TextEncoder().encode(payload);
+  const stored = await bindings.ARTIFACTS.put(
+    r2Key,
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(bytes);
+        controller.close();
+      },
+    }),
+    {httpMetadata: {contentType: "application/json"}},
+  );
+  if (!stored) throw new Error("release_verification_r2_write_rejected");
+  const read = await bindings.ARTIFACTS.get(r2Key);
+  if (!read) throw new Error("release_verification_r2_read_missing");
+  const readBytes = new Uint8Array(await new Response(read.body).arrayBuffer());
+  if (
+    readBytes.byteLength !== bytes.byteLength ||
+    readBytes.some((byte, index) => byte !== bytes[index])
+  ) {
+    throw new Error("release_verification_r2_read_mismatch");
+  }
+  if (!(await repository.commitSyntheticResource(scope, "r2", r2Key))) {
+    await bindings.ARTIFACTS.delete(r2Key);
+    throw new Error("release_verification_r2_commit_fenced");
+  }
+  return {
+    namespace: `release-verification/${scope.nonce}/`,
+    database: {resourceKey: databaseKey, committed: true},
+    broker: {resourceKey: brokerKey, committed: true},
+    r2: {
+      resourceKey: r2Key,
+      bytes: bytes.byteLength,
+      contentDigest: await sha256(payload),
+      roundTrip: true,
+    },
+  };
+}
+
+async function listR2Keys(
+  bucket: R2BucketBinding,
+  prefix: string,
+): Promise<readonly string[]> {
+  const keys: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await bucket.list({
+      prefix,
+      limit: 100,
+      ...(cursor ? {cursor} : {}),
+    });
+    keys.push(...page.objects.map(({key}) => key));
+    if (keys.length > 100) {
+      throw new Error("release_verification_r2_inventory_unbounded");
+    }
+    cursor = page.truncated ? page.cursor : undefined;
+    if (page.truncated && !cursor) {
+      throw new Error("release_verification_r2_inventory_cursor_missing");
+    }
+  } while (cursor);
+  return keys.sort();
+}
+
 export function createJobsReleaseVerificationFetch() {
   return async (
     request: Request,
@@ -214,7 +379,11 @@ export function createJobsReleaseVerificationFetch() {
       request.method !== "POST" ||
       url.protocol !== "http:" ||
       url.hostname !== "shareslices-jobs.internal" ||
-      url.pathname !== "/v1/release-verification"
+      ![
+        "/v1/release-verification",
+        "/v1/release-verification/finalize",
+        "/v1/release-verification/cleanup",
+      ].includes(url.pathname)
     ) {
       return notFound();
     }
@@ -223,6 +392,183 @@ export function createJobsReleaseVerificationFetch() {
       body = await readBoundedJson(request);
     } catch {
       return notFound();
+    }
+    if (url.pathname === "/v1/release-verification/finalize") {
+      const finalize = parseFinalizeRequest(body);
+      if (!finalize) return notFound();
+      const connection = createDatabaseConnection({
+        mode: "hyperdrive",
+        cache: "disabled",
+        connectionString: bindings.HYPERDRIVE.connectionString,
+        maxConnections: 1,
+        connectionTimeoutMs: 5_000,
+        idleTimeoutMs: 1_000,
+      });
+      try {
+        const terminal = await createReleaseVerificationRepository(connection)
+          .markTerminal({
+            invocationId: finalize.invocationId,
+            nonce: finalize.nonce,
+            releaseId: finalize.releaseId,
+            fence: finalize.fence,
+            subFence: finalize.subFence,
+            evidenceDigest: finalize.evidenceDigest,
+            tombstoneSeconds: finalize.tombstoneSeconds,
+            quiescenceSeconds: finalize.quiescenceSeconds,
+          });
+        return terminal
+          ? Response.json({
+            version: 1,
+            state: "terminal",
+            cleanupState: "quiescing",
+            nonce: finalize.nonce,
+            releaseId: finalize.releaseId,
+            fence: finalize.fence,
+            terminalSubFence: finalize.subFence + 1,
+            tombstoneSeconds: finalize.tombstoneSeconds,
+            quiescenceSeconds: finalize.quiescenceSeconds,
+          }, {headers: {"Cache-Control": "no-store"}})
+          : notFound();
+      } finally {
+        await connection.close();
+      }
+    }
+    if (url.pathname === "/v1/release-verification/cleanup") {
+      const cleanup = parseCleanupRequest(body);
+      if (!cleanup) return notFound();
+      const cleanupScope = {
+        nonce: cleanup.nonce,
+        releaseId: cleanup.releaseId,
+        fence: cleanup.fence,
+      };
+      const connection = createDatabaseConnection({
+        mode: "hyperdrive",
+        cache: "disabled",
+        connectionString: bindings.HYPERDRIVE.connectionString,
+        maxConnections: 1,
+        connectionTimeoutMs: 5_000,
+        idleTimeoutMs: 1_000,
+      });
+      const repository = createReleaseVerificationRepository(connection);
+      const prefix = `release-verification/${cleanup.nonce}/`;
+      try {
+        const before = await repository.cleanupInventory(cleanupScope);
+        if (before?.terminal && before.cleanupState === "complete") {
+          return Response.json({
+            version: 1,
+            state: "complete",
+            cleanupState: "complete",
+            nonce: cleanup.nonce,
+            releaseId: cleanup.releaseId,
+            fence: cleanup.fence,
+            inventory: {
+              prefix,
+              r2Objects: 0,
+              activeInvocations: before.activeInvocations,
+              containerEvidence: before.containerEvidence,
+              resources: before.resources,
+            },
+          }, {headers: {"Cache-Control": "no-store"}});
+        }
+        if (
+          !before?.terminal ||
+          !before.quiescenceReached ||
+          before.activeInvocations !== 0
+        ) {
+          return notFound();
+        }
+        const expectedR2 = before.resources
+          .filter(({kind, state}) => kind === "r2" && state === "committed")
+          .map(({key}) => key)
+          .sort();
+        const actualR2 = await listR2Keys(bindings.ARTIFACTS, prefix);
+        const unexpected = actualR2.filter((key) => !expectedR2.includes(key));
+        const prepared = before.resources.filter(({state}) => state === "prepared");
+        if (unexpected.length > 0 || prepared.length > 0) {
+          const orphan = {
+            prefix,
+            unexpectedR2: unexpected,
+            preparedResources: prepared,
+            observedR2Count: actualR2.length,
+          };
+          await repository.markCleanupOrphaned({
+            ...cleanupScope,
+            inventory: orphan,
+          });
+          return Response.json({
+            version: 1,
+            state: "orphaned",
+            ...orphan,
+          }, {
+            status: 409,
+            headers: {"Cache-Control": "no-store"},
+          });
+        }
+        if (actualR2.length > 0) {
+          await bindings.ARTIFACTS.delete([...actualR2]);
+        }
+        for (const resourceKey of expectedR2) {
+          if (!(await repository.markR2ResourceDeleted({
+            ...cleanupScope,
+            resourceKey,
+          }))) {
+            throw new Error("release_verification_r2_cleanup_fenced");
+          }
+        }
+        if (!(await repository.cleanupDatabaseSyntheticState(cleanupScope))) {
+          throw new Error("release_verification_database_cleanup_fenced");
+        }
+        const remainingR2 = await listR2Keys(bindings.ARTIFACTS, prefix);
+        const final = await repository.cleanupInventory(cleanupScope);
+        if (
+          remainingR2.length !== 0 ||
+          !final ||
+          final.activeInvocations !== 0 ||
+          final.containerEvidence !== 0 ||
+          final.resources.some(({state}) => state !== "deleted")
+        ) {
+          const orphan = {
+            prefix,
+            remainingR2,
+            final,
+          };
+          await repository.markCleanupOrphaned({
+            ...cleanupScope,
+            inventory: orphan,
+          });
+          return Response.json({
+            version: 1,
+            state: "orphaned",
+          }, {
+            status: 409,
+            headers: {"Cache-Control": "no-store"},
+          });
+        }
+        const inventory = {
+          prefix,
+          r2Objects: 0,
+          activeInvocations: 0,
+          containerEvidence: 0,
+          resources: final.resources,
+        };
+        if (!(await repository.markCleanupComplete({
+          ...cleanupScope,
+          inventory,
+        }))) {
+          throw new Error("release_verification_cleanup_commit_fenced");
+        }
+        return Response.json({
+          version: 1,
+          state: "complete",
+          cleanupState: "complete",
+          nonce: cleanup.nonce,
+          releaseId: cleanup.releaseId,
+          fence: cleanup.fence,
+          inventory,
+        }, {headers: {"Cache-Control": "no-store"}});
+      } finally {
+        await connection.close();
+      }
     }
     const scope = parseRequest(body);
     const leaseSeconds = parsePositiveInteger(
@@ -264,6 +610,11 @@ export function createJobsReleaseVerificationFetch() {
       if (begin.state === "completed") {
         return evidenceResponse(begin.evidence, begin.evidenceDigest);
       }
+      const synthetic = await exerciseSyntheticResources(
+        scope,
+        bindings,
+        repository,
+      );
       await dispatchContainerProbes(scope, bindings, {
         trustedProcessing: trustedProcessingSlots,
         thumbnail: thumbnailSlots,
@@ -303,6 +654,7 @@ export function createJobsReleaseVerificationFetch() {
           origin: "http://shareslices-broker.internal",
           publicIngress: false,
         },
+        synthetic,
         configuredContainerImages: {
           trustedProcessing: bindings.TRUSTED_PROCESSING_IMAGE_REFERENCE,
           thumbnail: bindings.THUMBNAIL_IMAGE_REFERENCE,

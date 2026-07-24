@@ -117,6 +117,7 @@
     "pytest",
     "pycache",
     "pyyaml",
+    "quiescing",
     "regnamespace",
     "reqwest",
     "readyz",

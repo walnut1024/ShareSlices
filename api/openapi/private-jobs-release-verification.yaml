@@ -31,6 +31,42 @@ paths:
                 $ref: "#/components/schemas/Evidence"
         "404":
           description: Invalid, unscoped, expired, terminal, or stale-fence probe.
+  /v1/release-verification/finalize:
+    post:
+      operationId: finalizeJobsReleaseVerification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinalizeProbe"
+      responses:
+        "200":
+          description: The evidence nonce is terminal and cleanup is quiescing.
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+        "404":
+          description: Invalid, mismatched, or stale evidence finalization.
+  /v1/release-verification/cleanup:
+    post:
+      operationId: cleanupJobsReleaseVerification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CleanupProbe"
+      responses:
+        "200":
+          description: Idempotent final inventory proves owned synthetic state removed.
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+        "409":
+          description: An isolated nonce-owned orphan remains after quiescence.
+        "404":
+          description: Invalid scope, non-terminal nonce, or quiescence not reached.
 components:
   schemas:
     Probe:
@@ -44,6 +80,40 @@ components:
         releaseId: {type: string, minLength: 1, maxLength: 256}
         fence: {type: integer, minimum: 1}
         subFence: {type: integer, minimum: 1}
+    FinalizeProbe:
+      type: object
+      additionalProperties: false
+      required:
+        - version
+        - invocationId
+        - nonce
+        - releaseId
+        - fence
+        - subFence
+        - evidenceDigest
+        - tombstoneSeconds
+        - quiescenceSeconds
+      properties:
+        version: {type: integer, const: 1}
+        invocationId: {type: string, minLength: 16, maxLength: 256}
+        nonce: {type: string, minLength: 16, maxLength: 256}
+        releaseId: {type: string, minLength: 1, maxLength: 256}
+        fence: {type: integer, minimum: 1}
+        subFence: {type: integer, minimum: 1}
+        evidenceDigest:
+          type: string
+          pattern: "^sha256:[0-9a-f]{64}$"
+        tombstoneSeconds: {type: integer, minimum: 1}
+        quiescenceSeconds: {type: integer, minimum: 1}
+    CleanupProbe:
+      type: object
+      additionalProperties: false
+      required: [version, nonce, releaseId, fence]
+      properties:
+        version: {type: integer, const: 1}
+        nonce: {type: string, minLength: 16, maxLength: 256}
+        releaseId: {type: string, minLength: 1, maxLength: 256}
+        fence: {type: integer, minimum: 1}
     Evidence:
       type: object
       additionalProperties: false
@@ -54,6 +124,7 @@ components:
         - migrationHead
         - database
         - broker
+        - synthetic
         - configuredContainerImages
         - containers
         - containerConvergence
@@ -105,6 +176,33 @@ components:
               type: string
               const: http://shareslices-broker.internal
             publicIngress: {type: boolean, const: false}
+        synthetic:
+          type: object
+          additionalProperties: false
+          required: [namespace, database, broker, r2]
+          properties:
+            namespace:
+              type: string
+              pattern: "^release-verification/[A-Za-z0-9_-]{16,256}/$"
+            database:
+              $ref: "#/components/schemas/SyntheticCommit"
+            broker:
+              $ref: "#/components/schemas/SyntheticCommit"
+            r2:
+              type: object
+              additionalProperties: false
+              required:
+                - resourceKey
+                - bytes
+                - contentDigest
+                - roundTrip
+              properties:
+                resourceKey: {type: string, minLength: 1}
+                bytes: {type: integer, minimum: 1}
+                contentDigest:
+                  type: string
+                  pattern: "^sha256:[0-9a-f]{64}$"
+                roundTrip: {type: boolean, const: true}
         configuredContainerImages:
           type: object
           additionalProperties: false
@@ -151,3 +249,10 @@ components:
         containerConvergence:
           type: string
           const: verified
+    SyntheticCommit:
+      type: object
+      additionalProperties: false
+      required: [resourceKey, committed]
+      properties:
+        resourceKey: {type: string, minLength: 1}
+        committed: {type: boolean, const: true}

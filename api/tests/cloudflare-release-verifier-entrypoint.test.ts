@@ -1,0 +1,293 @@
+import {createHash} from "node:crypto";
+import {describe, expect, it, vi} from "vitest";
+
+import {createCloudflareReleaseVerifier} from "../src/cloudflare/release-verifier-entrypoint.js";
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => canonicalJson(entry)).join(",")}]`;
+  }
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record).sort().map((key) =>
+    `${JSON.stringify(key)}:${canonicalJson(record[key])}`
+  ).join(",")}}`;
+}
+
+const scope = {
+  invocationId: "invocation-0123456789",
+  nonce: "nonce-012345678901",
+  releaseId: `sha256:${"a".repeat(64)}`,
+  fence: 7,
+  subFence: 3,
+};
+const containers = [
+  {
+    containerClass: "trusted-processing",
+    stableSlot: "processing-slot-1",
+    providerInstance: "provider-processing-1",
+    buildIdentity: "build-processing",
+    contractRevision: "gallery-job/v1",
+    imageReference: "registry.example/processing@sha256:image",
+  },
+  {
+    containerClass: "thumbnail",
+    stableSlot: "thumbnail-slot-1",
+    providerInstance: "provider-thumbnail-1",
+    buildIdentity: "build-thumbnail",
+    contractRevision: "gallery-job/v1",
+    imageReference: "registry.example/thumbnail@sha256:image",
+  },
+];
+const expected = {
+  jobsWorker: {
+    versionId: "jobs-version-1",
+    releaseBundleIdentity: `sha256:${"b".repeat(64)}`,
+    configurationDigest: `sha256:${"c".repeat(64)}`,
+    exportsDigest: `sha256:${"d".repeat(64)}`,
+  },
+  migrationHead: "0040_cloudflare_release_verification_cleanup.sql",
+  configuredContainerImages: {
+    trustedProcessing: "registry.example/processing@sha256:image",
+    thumbnail: "registry.example/thumbnail@sha256:image",
+  },
+  containers,
+};
+const lifecycle = {
+  tombstoneSeconds: 345_660,
+  quiescenceSeconds: 660,
+};
+const evidence = {
+  version: 1,
+  scope: {
+    nonce: scope.nonce,
+    releaseId: scope.releaseId,
+    fence: scope.fence,
+    subFence: scope.subFence,
+  },
+  jobsWorker: {
+    ...expected.jobsWorker,
+    versionTimestamp: "2026-07-24T00:00:00.000Z",
+  },
+  migrationHead: expected.migrationHead,
+  database: {mode: "hyperdrive", reachable: true},
+  broker: {
+    origin: "http://shareslices-broker.internal",
+    publicIngress: false,
+  },
+  configuredContainerImages: expected.configuredContainerImages,
+  containers: containers.map((container) => ({
+    ...container,
+    nonce: scope.nonce,
+    releaseId: scope.releaseId,
+    fence: scope.fence,
+    subFence: scope.subFence,
+    controllerInstance: `controller-${container.stableSlot}`,
+    observedAt: "2026-07-24T00:00:00.000Z",
+  })),
+  containerConvergence: "verified",
+};
+
+function fixture(overrides: Record<string, unknown> = {}) {
+  const ack = vi.fn();
+  const serialized = canonicalJson(evidence);
+  const evidenceDigest =
+    `sha256:${createHash("sha256").update(serialized).digest("hex")}`;
+  const fetch = vi.fn(async (request: Request) =>
+    new URL(request.url).pathname.endsWith("/finalize")
+      ? Response.json({
+        version: 1,
+        state: "terminal",
+        cleanupState: "quiescing",
+        nonce: scope.nonce,
+        releaseId: scope.releaseId,
+        fence: scope.fence,
+        terminalSubFence: scope.subFence + 1,
+        ...lifecycle,
+      })
+      : new Response(serialized, {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+          "x-shareslices-evidence-digest": evidenceDigest,
+        },
+      })
+  );
+  const batch = {
+    queue: "installation-verify-release-7",
+    messages: [{
+      id: "message-1",
+      timestamp: new Date(),
+      attempts: 1,
+      body: {
+        version: 1,
+        ...scope,
+        lifecycle,
+        expected,
+        ...overrides,
+      },
+      ack,
+      retry: vi.fn(),
+    }],
+    metadata: {metrics: {backlogCount: 1, backlogBytes: 1}},
+    ackAll: vi.fn(),
+    retryAll: vi.fn(),
+  };
+  return {ack, batch, fetch};
+}
+
+describe("Cloudflare release-only verifier entrypoint", () => {
+  it("calls Jobs only through its explicit Service Binding and acknowledges exact evidence", async () => {
+    const {ack, batch, fetch} = fixture();
+
+    await createCloudflareReleaseVerifier().queue(
+      batch,
+      {
+        JOBS_RELEASE_VERIFICATION: {fetch},
+        VERIFIER_QUEUE_NAME: batch.queue,
+      },
+      {
+        props: undefined,
+        waitUntil() {},
+        passThroughOnException() {},
+      },
+    );
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const request = fetch.mock.calls[0]![0] as Request;
+    expect(request.url).toBe(
+      "http://shareslices-jobs.internal/v1/release-verification",
+    );
+    expect(await request.json()).toEqual({version: 1, ...scope});
+    const finalize = fetch.mock.calls[1]![0] as Request;
+    expect(finalize.url).toBe(
+      "http://shareslices-jobs.internal/v1/release-verification/finalize",
+    );
+    expect(await finalize.json()).toEqual({
+      version: 1,
+      ...scope,
+      evidenceDigest:
+        `sha256:${createHash("sha256").update(canonicalJson(evidence)).digest("hex")}`,
+      ...lifecycle,
+    });
+    expect(ack).toHaveBeenCalledOnce();
+  });
+
+  it("leaves malformed, wrong-queue, digest-mismatched, and identity-mismatched work unacknowledged", async () => {
+    const verifier = createCloudflareReleaseVerifier();
+    const context = {
+      props: undefined,
+      waitUntil() {},
+      passThroughOnException() {},
+    };
+    const malformed = fixture({nonce: "short"});
+    await expect(verifier.queue(
+      malformed.batch,
+      {
+        JOBS_RELEASE_VERIFICATION: {fetch: malformed.fetch},
+        VERIFIER_QUEUE_NAME: malformed.batch.queue,
+      },
+      context,
+    )).rejects.toThrow("release_verifier_message_invalid");
+    expect(malformed.ack).not.toHaveBeenCalled();
+
+    const mismatched = fixture();
+    mismatched.fetch.mockImplementationOnce(async () => {
+      const body = canonicalJson({
+        ...evidence,
+        migrationHead: "wrong-migration",
+      });
+      return new Response(body, {
+        status: 200,
+        headers: {
+          "x-shareslices-evidence-digest":
+            `sha256:${createHash("sha256").update(body).digest("hex")}`,
+        },
+      });
+    });
+    await expect(verifier.queue(
+      mismatched.batch,
+      {
+        JOBS_RELEASE_VERIFICATION: {fetch: mismatched.fetch},
+        VERIFIER_QUEUE_NAME: mismatched.batch.queue,
+      },
+      context,
+    )).rejects.toThrow("release_verifier_evidence_mismatch");
+    expect(mismatched.ack).not.toHaveBeenCalled();
+
+    const wrongQueue = fixture();
+    await expect(verifier.queue(
+      {...wrongQueue.batch, queue: "production-jobs"},
+      {
+        JOBS_RELEASE_VERIFICATION: {fetch: wrongQueue.fetch},
+        VERIFIER_QUEUE_NAME: wrongQueue.batch.queue,
+      },
+      context,
+    )).rejects.toThrow("release_verifier_queue_scope_invalid");
+    expect(wrongQueue.fetch).not.toHaveBeenCalled();
+  });
+
+  it("executes final cleanup only through the same private Jobs binding", async () => {
+    const ack = vi.fn();
+    const body = {
+      version: 1,
+      operation: "cleanup",
+      nonce: scope.nonce,
+      releaseId: scope.releaseId,
+      fence: scope.fence,
+    } as const;
+    const fetch = vi.fn(async (request: Request) => {
+      expect(request.url).toBe(
+        "http://shareslices-jobs.internal/v1/release-verification/cleanup",
+      );
+      expect(await request.json()).toEqual({
+        version: 1,
+        nonce: scope.nonce,
+        releaseId: scope.releaseId,
+        fence: scope.fence,
+      });
+      return Response.json({
+        version: 1,
+        state: "complete",
+        cleanupState: "complete",
+        nonce: scope.nonce,
+        releaseId: scope.releaseId,
+        fence: scope.fence,
+      });
+    });
+    const batch = {
+      queue: "installation-verify-release-7",
+      messages: [{
+        id: "cleanup-message",
+        timestamp: new Date(),
+        attempts: 1,
+        body,
+        ack,
+        retry: vi.fn(),
+      }],
+      metadata: {metrics: {backlogCount: 1, backlogBytes: 1}},
+      ackAll: vi.fn(),
+      retryAll: vi.fn(),
+    };
+
+    await createCloudflareReleaseVerifier().queue(
+      batch,
+      {
+        JOBS_RELEASE_VERIFICATION: {fetch},
+        VERIFIER_QUEUE_NAME: batch.queue,
+      },
+      {
+        props: undefined,
+        waitUntil() {},
+        passThroughOnException() {},
+      },
+    );
+
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(ack).toHaveBeenCalledOnce();
+  });
+
+  it("exports Queue authority only and no public fetch or scheduled handler", () => {
+    expect(Object.keys(createCloudflareReleaseVerifier())).toEqual(["queue"]);
+  });
+});

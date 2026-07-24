@@ -2,6 +2,7 @@ import {beforeEach, describe, expect, it, vi} from "vitest";
 import type {
   RecordedReleaseVerificationContainerEvidence,
   ReleaseVerificationBegin,
+  ReleaseVerificationCleanupInventory,
 } from "../src/cloudflare/release-verification-repository.js";
 
 const mocks = vi.hoisted(() => ({
@@ -15,6 +16,16 @@ const mocks = vi.hoisted(() => ({
   listContainerEvidence: vi.fn<
     () => Promise<readonly RecordedReleaseVerificationContainerEvidence[]>
   >(async () => []),
+  prepareSyntheticResource: vi.fn(async () => true),
+  commitSyntheticResource: vi.fn(async () => true),
+  markTerminal: vi.fn(async () => true),
+  cleanupInventory: vi.fn<
+    () => Promise<ReleaseVerificationCleanupInventory | null>
+  >(async () => null),
+  markCleanupOrphaned: vi.fn(async () => true),
+  markR2ResourceDeleted: vi.fn(async () => true),
+  cleanupDatabaseSyntheticState: vi.fn(async () => true),
+  markCleanupComplete: vi.fn(async () => true),
   createDatabaseConnection: vi.fn(),
 }));
 
@@ -27,11 +38,20 @@ vi.mock("../src/cloudflare/release-verification-repository.js", () => ({
     complete: mocks.complete,
     fail: mocks.fail,
     listContainerEvidence: mocks.listContainerEvidence,
+    prepareSyntheticResource: mocks.prepareSyntheticResource,
+    commitSyntheticResource: mocks.commitSyntheticResource,
+    markTerminal: mocks.markTerminal,
+    cleanupInventory: mocks.cleanupInventory,
+    markCleanupOrphaned: mocks.markCleanupOrphaned,
+    markR2ResourceDeleted: mocks.markR2ResourceDeleted,
+    cleanupDatabaseSyntheticState: mocks.cleanupDatabaseSyntheticState,
+    markCleanupComplete: mocks.markCleanupComplete,
   }),
 }));
 
 import {createJobsReleaseVerificationFetch} from "../src/cloudflare/jobs-release-verification.js";
 
+const r2Objects = new Map<string, Uint8Array>();
 const bindings = {
   HYPERDRIVE: {connectionString: "postgres://binding"},
   CF_VERSION_METADATA: {
@@ -60,6 +80,46 @@ const bindings = {
       fetch: vi.fn(async () => new Response(null, {status: 202})),
     })),
   },
+  ARTIFACTS: {
+    async put(key: string, stream: ReadableStream<Uint8Array>) {
+      r2Objects.set(
+        key,
+        new Uint8Array(await new Response(stream).arrayBuffer()),
+      );
+      return {key, size: r2Objects.get(key)!.byteLength, uploaded: new Date()};
+    },
+    async get(key: string) {
+      const bytes = r2Objects.get(key);
+      return bytes
+        ? {
+          key,
+          size: bytes.byteLength,
+          uploaded: new Date(),
+          body: new Response(bytes.slice().buffer as ArrayBuffer).body!,
+        }
+        : null;
+    },
+    async delete(key: string | string[]) {
+      for (const entry of Array.isArray(key) ? key : [key]) {
+        r2Objects.delete(entry);
+      }
+    },
+    async list({prefix}: {prefix: string}) {
+      return {
+        objects: [...r2Objects.entries()]
+          .filter(([key]) => key.startsWith(prefix))
+          .map(([key, value]) => ({
+            key,
+            size: value.byteLength,
+            uploaded: new Date(),
+          })),
+        truncated: false,
+      };
+    },
+    async createMultipartUpload() {
+      throw new Error("not_used");
+    },
+  },
 };
 const context = {
   props: undefined,
@@ -78,6 +138,7 @@ const probe = {
 describe("route-free Jobs release verification", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    r2Objects.clear();
     mocks.createDatabaseConnection.mockReturnValue({
       close: mocks.close,
     });
@@ -86,6 +147,12 @@ describe("route-free Jobs release verification", () => {
       migrationHead: "0038_cloudflare_release_verification_probe",
     });
     mocks.complete.mockResolvedValue(true);
+    mocks.markTerminal.mockResolvedValue(true);
+    mocks.cleanupInventory.mockResolvedValue(null);
+    mocks.markCleanupOrphaned.mockResolvedValue(true);
+    mocks.markR2ResourceDeleted.mockResolvedValue(true);
+    mocks.cleanupDatabaseSyntheticState.mockResolvedValue(true);
+    mocks.markCleanupComplete.mockResolvedValue(true);
     mocks.listContainerEvidence.mockResolvedValue([
       {
         nonce: probe.nonce,
@@ -158,6 +225,8 @@ describe("route-free Jobs release verification", () => {
     });
     expect(mocks.begin).toHaveBeenCalledWith(probe, 60);
     expect(mocks.listContainerEvidence).toHaveBeenCalledWith(probe);
+    expect(mocks.prepareSyntheticResource).toHaveBeenCalledTimes(3);
+    expect(mocks.commitSyntheticResource).toHaveBeenCalledTimes(3);
     expect(mocks.complete).toHaveBeenCalledWith(
       probe,
       response.headers.get("x-shareslices-evidence-digest"),
@@ -193,6 +262,127 @@ describe("route-free Jobs release verification", () => {
     expect(response.headers.get("x-shareslices-evidence-digest")).toBe(digest);
     await expect(response.json()).resolves.toEqual(persisted);
     expect(mocks.complete).not.toHaveBeenCalled();
+  });
+
+  it("atomically makes one exact evidence digest terminal without extending replay", async () => {
+    const evidenceDigest = `sha256:${"e".repeat(64)}`;
+    const request = () => new Request(
+      "http://shareslices-jobs.internal/v1/release-verification/finalize",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...probe,
+          evidenceDigest,
+          tombstoneSeconds: 345_660,
+          quiescenceSeconds: 660,
+        }),
+      },
+    );
+
+    const response = await createJobsReleaseVerificationFetch()(
+      request(),
+      bindings,
+      context,
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      state: "terminal",
+      cleanupState: "quiescing",
+      nonce: probe.nonce,
+      terminalSubFence: probe.subFence + 1,
+      tombstoneSeconds: 345_660,
+      quiescenceSeconds: 660,
+    });
+    expect(mocks.markTerminal).toHaveBeenCalledWith({
+      invocationId: probe.invocationId,
+      nonce: probe.nonce,
+      releaseId: probe.releaseId,
+      fence: probe.fence,
+      subFence: probe.subFence,
+      evidenceDigest,
+      tombstoneSeconds: 345_660,
+      quiescenceSeconds: 660,
+    });
+
+    mocks.markTerminal.mockResolvedValueOnce(false);
+    expect((await createJobsReleaseVerificationFetch()(
+      request(),
+      bindings,
+      context,
+    )).status).toBe(404);
+  });
+
+  it("cleans only inventoried nonce-owned R2 and database state after quiescence", async () => {
+    const r2Key =
+      `release-verification/${probe.nonce}/r2/${probe.invocationId}.json`;
+    r2Objects.set(r2Key, new TextEncoder().encode("{}"));
+    const committed = [
+      {
+        kind: "database" as const,
+        key: `release-verification/${probe.nonce}/database/jobs-worker`,
+        state: "committed" as const,
+      },
+      {
+        kind: "broker" as const,
+        key: `release-verification/${probe.nonce}/broker/private-execution`,
+        state: "committed" as const,
+      },
+      {kind: "r2" as const, key: r2Key, state: "committed" as const},
+    ];
+    const deleted = committed.map((resource) => ({
+      ...resource,
+      state: "deleted" as const,
+    }));
+    mocks.cleanupInventory
+      .mockResolvedValueOnce({
+        terminal: true,
+        quiescenceReached: true,
+        activeInvocations: 0,
+        containerEvidence: 2,
+        resources: committed,
+        cleanupState: "quiescing",
+      })
+      .mockResolvedValueOnce({
+        terminal: true,
+        quiescenceReached: true,
+        activeInvocations: 0,
+        containerEvidence: 0,
+        resources: deleted,
+        cleanupState: "quiescing",
+      });
+    const request = new Request(
+      "http://shareslices-jobs.internal/v1/release-verification/cleanup",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          version: 1,
+          nonce: probe.nonce,
+          releaseId: probe.releaseId,
+          fence: probe.fence,
+        }),
+      },
+    );
+
+    const response = await createJobsReleaseVerificationFetch()(
+      request,
+      bindings,
+      context,
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      state: "complete",
+      cleanupState: "complete",
+      inventory: {r2Objects: 0, activeInvocations: 0},
+    });
+    expect(r2Objects.has(r2Key)).toBe(false);
+    expect(mocks.markR2ResourceDeleted).toHaveBeenCalledWith({
+      nonce: probe.nonce,
+      releaseId: probe.releaseId,
+      fence: probe.fence,
+      resourceKey: r2Key,
+    });
+    expect(mocks.cleanupDatabaseSyntheticState).toHaveBeenCalledOnce();
+    expect(mocks.markCleanupComplete).toHaveBeenCalledOnce();
   });
 
   it("rejects oversized bodies before opening Hyperdrive", async () => {

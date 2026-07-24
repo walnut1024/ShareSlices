@@ -656,6 +656,7 @@ describe("Cloudflare route-free Jobs release verification", () => {
     const connectionUrl = new URL(process.env.DATABASE_URL!);
     connectionUrl.searchParams.set("options", `-c search_path=${schemaName}`);
     const fetch = createJobsReleaseVerificationFetch();
+    const verifierObjects = new Map<string, Uint8Array>();
     const containerNamespace = (
       containerClass: "trusted-processing" | "thumbnail",
       buildIdentity: string,
@@ -720,6 +721,37 @@ describe("Cloudflare route-free Jobs release verification", () => {
         "thumbnail-build",
         "registry.example/thumbnail@sha256:b",
       ),
+      ARTIFACTS: {
+        async put(key: string, stream: ReadableStream<Uint8Array>) {
+          const bytes = new Uint8Array(
+            await new Response(stream).arrayBuffer(),
+          );
+          verifierObjects.set(key, bytes);
+          return {key, size: bytes.byteLength, uploaded: new Date()};
+        },
+        async get(key: string) {
+          const bytes = verifierObjects.get(key);
+          return bytes
+            ? {
+              key,
+              size: bytes.byteLength,
+              uploaded: new Date(),
+              body: new Response(bytes.slice().buffer as ArrayBuffer).body!,
+            }
+            : null;
+        },
+        async delete(key: string | string[]) {
+          for (const entry of Array.isArray(key) ? key : [key]) {
+            verifierObjects.delete(entry);
+          }
+        },
+        async list() {
+          return {objects: [], truncated: false};
+        },
+        async createMultipartUpload() {
+          throw new Error("not_used");
+        },
+      },
     };
     const request = () => new Request(
       "http://shareslices-jobs.internal/v1/release-verification",
@@ -748,8 +780,12 @@ describe("Cloudflare route-free Jobs release verification", () => {
       scope: {nonce, releaseId, fence: 1, subFence: 1},
       jobsWorker: {versionId: "jobs-version-id"},
       migrationHead:
-        "0039_cloudflare_release_verification_container_evidence.sql",
+        "0040_cloudflare_release_verification_cleanup.sql",
       containerConvergence: "verified",
+      synthetic: {
+        namespace: `release-verification/${nonce}/`,
+        r2: {roundTrip: true},
+      },
     });
     const replay = await fetch(request(), bindings, context);
     expect(replay.status).toBe(200);
