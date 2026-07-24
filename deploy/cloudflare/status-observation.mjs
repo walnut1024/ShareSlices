@@ -1,0 +1,164 @@
+import {TargetAdapterError} from "../automation/target-adapter.mjs";
+
+const markerPattern =
+  /^shareslices:([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?):(sha256:[a-f0-9]{64}):(sha256:[a-f0-9]{64})$/;
+
+function currentDeployment(deployments) {
+  if (!Array.isArray(deployments)) {
+    throw new TargetAdapterError(
+      "cloudflare_status_deployment_invalid",
+      "Cloudflare status received an invalid Worker deployment observation.",
+    );
+  }
+  return [...deployments].sort((left, right) =>
+    String(left?.created_on).localeCompare(String(right?.created_on))
+  ).at(-1) ?? null;
+}
+
+function projectDeployment(config, role, name, deployment, drift) {
+  const logicalId = `cloudflare/worker/${name}`;
+  if (!deployment) {
+    drift.push({logicalId, reasonCode: "worker_deployment_absent"});
+    return {logicalId, role, releaseId: null, ready: false, deploymentId: null, versions: []};
+  }
+  if (
+    typeof deployment.id !== "string" ||
+    !Number.isFinite(Date.parse(deployment.created_on ?? "")) ||
+    !Array.isArray(deployment.versions) ||
+    deployment.versions.length === 0 ||
+    !deployment.versions.every(({version_id: versionId, percentage}) =>
+      typeof versionId === "string" &&
+      typeof percentage === "number" &&
+      percentage >= 0 &&
+      percentage <= 100
+    )
+  ) {
+    throw new TargetAdapterError(
+      "cloudflare_status_deployment_invalid",
+      "Cloudflare status received an invalid Worker deployment observation.",
+    );
+  }
+  const marker = markerPattern.exec(
+    deployment.annotations?.["workers/message"] ?? "",
+  );
+  const owned = marker?.[1] === config.installationId;
+  const releaseId = owned ? marker[2] : null;
+  const fullyPromoted = deployment.versions.length === 1 &&
+    deployment.versions[0].percentage === 100;
+  if (!owned) drift.push({logicalId, reasonCode: "worker_release_marker_unowned"});
+  if (!fullyPromoted) drift.push({logicalId, reasonCode: "worker_deployment_mixed"});
+  return {
+    logicalId,
+    role,
+    releaseId,
+    ready: owned && fullyPromoted,
+    deploymentId: deployment.id,
+    createdOn: deployment.created_on,
+    versions: deployment.versions.map(({version_id: versionId, percentage}) => ({
+      versionId,
+      percentage,
+    })),
+    resourceDigest: owned ? marker[3] : null,
+  };
+}
+
+export function createCloudflareStatusObserver({
+  observeControl,
+  readTerraformState,
+  readWranglerDeployments,
+} = {}) {
+  if (
+    typeof observeControl !== "function" ||
+    typeof readTerraformState !== "function" ||
+    typeof readWranglerDeployments !== "function"
+  ) {
+    throw new TypeError(
+      "Cloudflare status requires control, Terraform, and Wrangler readers.",
+    );
+  }
+  return async ({config}) => {
+    const control = await observeControl({config});
+    if (!control?.controlSchema || typeof control.controlSchema.revision !== "string") {
+      throw new TargetAdapterError(
+        "cloudflare_status_control_invalid",
+        "Cloudflare status control observation is incomplete.",
+      );
+    }
+    if (control.controlSchema.state === "absent") {
+      return Object.freeze({
+        target: "cloudflare",
+        desiredReleaseId: null,
+        observedReleaseId: null,
+        phases: [],
+        components: [],
+        drift: [],
+        orphans: [],
+      });
+    }
+    const [terraform, deployments] = await Promise.all([
+      readTerraformState({config}),
+      Promise.all(Object.entries(config.cloudflare.workers).map(
+        async ([role, name]) => [
+          role,
+          name,
+          await readWranglerDeployments({config, role, name}),
+        ],
+      )),
+    ]);
+    if (
+      typeof terraform?.lineage !== "string" ||
+      !Number.isSafeInteger(terraform?.serial) ||
+      typeof terraform?.outputs !== "object" ||
+      terraform.outputs === null
+    ) {
+      throw new TargetAdapterError(
+        "cloudflare_status_terraform_invalid",
+        "Cloudflare status Terraform observation is incomplete.",
+      );
+    }
+    const drift = [];
+    const components = deployments.map(([role, name, values]) =>
+      projectDeployment(config, role, name, currentDeployment(values), drift)
+    );
+    const active = control.releaseRecords?.active ?? null;
+    const desiredReleaseId =
+      control.operation?.desiredReleaseId ?? active?.releaseId ?? null;
+    const databaseSchemaHead = control.databaseSchemaHead ?? null;
+    if (active && databaseSchemaHead !== active.compatibility?.schemaHead) {
+      drift.push({
+        logicalId: "postgresql/schema-head",
+        reasonCode: "database_schema_head_mismatch",
+      });
+    }
+    const allDesired = desiredReleaseId !== null &&
+      components.length === Object.keys(config.cloudflare.workers).length &&
+      components.every(({ready, releaseId}) => ready && releaseId === desiredReleaseId);
+    const activeMatches = active?.target === "cloudflare" &&
+      active.releaseId === desiredReleaseId &&
+      databaseSchemaHead === active.compatibility?.schemaHead;
+    const verificationPassed = control.phases?.some(
+      ({phase, state}) => phase === "verification" && state === "completed",
+    ) === true;
+    return Object.freeze({
+      target: "cloudflare",
+      desiredReleaseId,
+      observedReleaseId: allDesired && activeMatches ? desiredReleaseId : null,
+      verification: verificationPassed ? "passed" : "pending",
+      phases: control.phases ?? [],
+      components,
+      migration: {
+        schemaHead: databaseSchemaHead,
+        expectedSchemaHead: active?.compatibility?.schemaHead ?? null,
+      },
+      drift,
+      orphans: [],
+      configurationDigests: active?.configurationDigest
+        ? [active.configurationDigest]
+        : [],
+      provider: {
+        terraformLineage: terraform.lineage,
+        terraformSerial: terraform.serial,
+      },
+    });
+  };
+}

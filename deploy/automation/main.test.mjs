@@ -211,6 +211,37 @@ test("production Cloudflare planning composes all three read-only state sources"
   ]);
 });
 
+test("production Cloudflare status composes control, Terraform, and Wrangler readers", async () => {
+  const calls = [];
+  let adapterOptions;
+  createProductionCloudflareAdapter({
+    environment: {SHARESLICES_SECRET_ROOT: "/deployment/secrets"},
+    createAdapter: (options) => {
+      adapterOptions = options;
+      return {};
+    },
+    createControlObserver: () => async () => ({controlSchema: {state: "absent"}}),
+    createStateObserver: () => async () => ({}),
+    createStatusObserver: (sources) => {
+      calls.push(Object.keys(sources).sort());
+      return async ({config}) => ({target: config.target});
+    },
+    createTerraformObserver: () => async () => ({}),
+    createWranglerObserver: () => async () => ({}),
+    readTerraformState: async () => ({}),
+    readWranglerDeployments: async () => [],
+  });
+  assert.equal(typeof adapterOptions.observeStatus, "function");
+  assert.deepEqual(calls, [[
+    "observeControl",
+    "readTerraformState",
+    "readWranglerDeployments",
+  ]]);
+  assert.deepEqual(await adapterOptions.observeStatus({config: {target: "cloudflare"}}), {
+    target: "cloudflare",
+  });
+});
+
 test("production Cloudflare doctor resolves the provider read token only during observation", async () => {
   let adapterOptions;
   let providerOptions;

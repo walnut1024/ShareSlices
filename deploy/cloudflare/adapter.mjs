@@ -94,6 +94,7 @@ export function createCloudflareAdapter({
   probeTls = defaultProbeTls,
   observeProvider,
   observeState,
+  observeStatus,
   probeReleaseStoreAccess,
   now = () => new Date(),
   renderBundle = renderCloudflareBundle,
@@ -411,12 +412,22 @@ export function createCloudflareAdapter({
     });
   }
 
+  async function status({config}) {
+    if (typeof observeStatus !== "function") {
+      throw new TargetAdapterError(
+        "cloudflare_status_observation_unavailable",
+        "Cloudflare status requires authoritative control and provider observations.",
+      );
+    }
+    return observeStatus({config});
+  }
+
   return Object.freeze({
     doctor,
     render: ({config, release}) => renderBundle({config, release}),
     plan,
     apply: unavailableOperation("apply"),
-    status: unavailableOperation("status"),
+    status,
     verify: unavailableOperation("verify"),
     rollback: unavailableOperation("rollback"),
   });

@@ -230,6 +230,24 @@ test("render delegates without resolving Secret values", async () => {
   assert.deepEqual(received, {config, release});
 });
 
+test("status delegates only to the authoritative Cloudflare observer", async () => {
+  const config = {installationId: "installation-1"};
+  const adapter = createCloudflareAdapter({
+    observeStatus: async (input) => ({
+      target: "cloudflare",
+      desiredReleaseId: input.config.installationId,
+    }),
+  });
+  assert.deepEqual(await adapter.status({config}), {
+    target: "cloudflare",
+    desiredReleaseId: "installation-1",
+  });
+  await assert.rejects(
+    createCloudflareAdapter().status({config}),
+    (error) => error.code === "cloudflare_status_observation_unavailable",
+  );
+});
+
 test("plan compares a canonical bundle with authoritative observations without mutation", async () => {
   const checksum = `sha256:${"a".repeat(64)}`;
   const observed = {
