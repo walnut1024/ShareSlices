@@ -415,6 +415,21 @@ export function createReleaseVerificationRepository(
              set state = 'terminal',
                  sub_fence = sub_fence + 1,
                  evidence_digest = $5,
+                 terminal_evidence = (
+                   select invocation.evidence
+                   from cloudflare_release_verification_invocation invocation
+                   where invocation.id = $8
+                     and invocation.nonce =
+                       cloudflare_release_verification_probe.nonce
+                     and invocation.release_id =
+                       cloudflare_release_verification_probe.release_id
+                     and invocation.fence =
+                       cloudflare_release_verification_probe.fence
+                     and invocation.sub_fence =
+                       cloudflare_release_verification_probe.sub_fence
+                     and invocation.state = 'completed'
+                     and invocation.evidence_digest = $5
+                 ),
                  terminal_at = now(),
                  tombstone_until = now() + make_interval(secs => $6),
                  quiescence_not_before =
@@ -435,7 +450,9 @@ export function createReleaseVerificationRepository(
                      cloudflare_release_verification_probe.fence
                    and invocation.sub_fence =
                      cloudflare_release_verification_probe.sub_fence
-                   and invocation.state in ('active', 'completed')
+                   and invocation.state = 'completed'
+                   and invocation.evidence_digest = $5
+                   and invocation.evidence is not null
                )`,
             [
               input.nonce,

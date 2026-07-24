@@ -118,7 +118,7 @@ describe("Cloudflare release-verification probe fencing", () => {
     await expect(repository.begin(candidate, 30)).resolves.toEqual({
       state: "started",
       migrationHead:
-        "0040_cloudflare_release_verification_cleanup.sql",
+        "0041_cloudflare_release_verification_terminal_evidence.sql",
     });
     await expect(repository.begin(candidate, 30)).resolves.toBeNull();
     await expect(repository.begin(
@@ -153,10 +153,12 @@ describe("Cloudflare release-verification probe fencing", () => {
     await expect(repository.begin(candidate, 30)).resolves.toEqual({
       state: "started",
       migrationHead:
-        "0040_cloudflare_release_verification_cleanup.sql",
+        "0041_cloudflare_release_verification_terminal_evidence.sql",
     });
 
     const digest = `sha256:${"b".repeat(64)}`;
+    const evidence = {version: 1, result: "verified"};
+    await expect(repository.complete(candidate, digest, evidence)).resolves.toBe(true);
     await expect(repository.markTerminal({
       invocationId: candidate.invocationId,
       nonce: candidate.nonce,
@@ -174,7 +176,7 @@ describe("Cloudflare release-verification probe fencing", () => {
       invocationId: `${candidate.invocationId}-late`,
     }, 30)).resolves.toBeNull();
     expect((await pool.query(
-      `select state, sub_fence, evidence_digest,
+      `select state, sub_fence, evidence_digest, terminal_evidence,
               tombstone_until > terminal_at as retained
        from cloudflare_release_verification_probe where nonce = $1`,
       [candidate.nonce],
@@ -182,6 +184,7 @@ describe("Cloudflare release-verification probe fencing", () => {
       state: "terminal",
       sub_fence: "4",
       evidence_digest: digest,
+      terminal_evidence: evidence,
       retained: true,
     });
     expect((await pool.query(
@@ -189,8 +192,8 @@ describe("Cloudflare release-verification probe fencing", () => {
        from cloudflare_release_verification_invocation where id = $1`,
       [candidate.invocationId],
     )).rows[0]).toEqual({
-      state: "fenced",
-      failure_reason_code: "verification_nonce_terminal",
+      state: "completed",
+      failure_reason_code: null,
     });
   });
 
@@ -200,7 +203,7 @@ describe("Cloudflare release-verification probe fencing", () => {
     const repository = createReleaseVerificationRepository(connection);
     await expect(repository.begin(candidate, 30)).resolves.toEqual({
       state: "started",
-      migrationHead: "0040_cloudflare_release_verification_cleanup.sql",
+      migrationHead: "0041_cloudflare_release_verification_terminal_evidence.sql",
     });
     const evidence = {
       nonce: candidate.nonce,
@@ -232,13 +235,18 @@ describe("Cloudflare release-verification probe fencing", () => {
       providerInstance: `deployment-${randomUUID()}`,
     })).resolves.toBe(false);
 
+    const digest = `sha256:${"c".repeat(64)}`;
+    await expect(repository.complete(candidate, digest, {
+      version: 1,
+      containers: [evidence],
+    })).resolves.toBe(true);
     await expect(repository.markTerminal({
       invocationId: candidate.invocationId,
       nonce: candidate.nonce,
       releaseId: candidate.releaseId,
       fence: candidate.fence,
       subFence: candidate.subFence,
-      evidenceDigest: `sha256:${"c".repeat(64)}`,
+      evidenceDigest: digest,
       tombstoneSeconds: 3_600,
       quiescenceSeconds: 1,
     })).resolves.toBe(true);
@@ -255,7 +263,7 @@ describe("Cloudflare release-verification probe fencing", () => {
     await expect(repository.begin(candidate, 30)).resolves.toEqual({
       state: "started",
       migrationHead:
-        "0040_cloudflare_release_verification_cleanup.sql",
+        "0041_cloudflare_release_verification_terminal_evidence.sql",
     });
     const resources = [
       ["database", `release-verification/${candidate.nonce}/database/probe`],
@@ -277,6 +285,10 @@ describe("Cloudflare release-verification probe fencing", () => {
     )).resolves.toBe(false);
 
     const digest = `sha256:${"d".repeat(64)}`;
+    await expect(repository.complete(candidate, digest, {
+      version: 1,
+      resources: resources.map(([kind, key]) => ({kind, key})),
+    })).resolves.toBe(true);
     await expect(repository.markTerminal({
       invocationId: candidate.invocationId,
       nonce: candidate.nonce,

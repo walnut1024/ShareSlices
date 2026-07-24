@@ -806,7 +806,7 @@ describe("Cloudflare route-free Jobs release verification", () => {
       scope: {nonce, releaseId, fence: 1, subFence: 1},
       jobsWorker: {versionId: "jobs-version-id"},
       migrationHead:
-        "0040_cloudflare_release_verification_cleanup.sql",
+        "0041_cloudflare_release_verification_terminal_evidence.sql",
       containerConvergence: "verified",
       synthetic: {
         namespace: `release-verification/${nonce}/`,
