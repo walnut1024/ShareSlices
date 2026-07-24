@@ -10,7 +10,7 @@ const config = JSON.parse(await readFile(
 ));
 
 function response(result, {ok = true, success = true} = {}) {
-  return {ok, json: async () => ({success, result})};
+  return {ok, status: ok ? 200 : 500, json: async () => ({success, result})};
 }
 
 test("observes exact active zones, queues, private buckets, and Workers Paid subscription", async () => {
@@ -38,6 +38,20 @@ test("observes exact active zones, queues, private buckets, and Workers Paid sub
         if (url.endsWith("/domains/custom")) return response({domains: []});
         return response({buckets: Object.values(config.cloudflare.r2).map((name) => ({name}))});
       }
+      if (url.endsWith("/settings")) {
+        return response({
+          bindings: [{name: "ARTIFACTS", type: "r2_bucket", bucket_name: "shareslices-artifacts"}],
+          limits: {cpu_ms: 30_000},
+        });
+      }
+      if (url.endsWith("/subdomain")) {
+        return response({enabled: false, previews_enabled: false});
+      }
+      if (url.endsWith("/schedules")) {
+        return response({schedules: url.includes("shareslices-jobs")
+          ? [{cron: config.cloudflare.costControls.schedule.cron}]
+          : []});
+      }
       return response([{
         state: "Paid",
         rate_plan: {public_name: "Workers Paid", scope: "workers", sets: ["workers"]},
@@ -64,8 +78,16 @@ test("observes exact active zones, queues, private buckets, and Workers Paid sub
       privateR2: true,
     },
   );
-  assert.equal(seen.length, 8);
+  assert.equal(seen.length, 17);
   assert.equal(seen.every(({authorization}) => authorization === "Bearer provider-token"), true);
+  assert.equal(observed.workers.jobs.workersDevEnabled, false);
+  assert.equal(observed.workers.jobs.previewUrlsEnabled, false);
+  assert.deepEqual(observed.workers.jobs.schedules, ["*/5 * * * *"]);
+  assert.deepEqual(observed.workers.application.bindings, [{
+    name: "ARTIFACTS",
+    type: "r2_bucket",
+    bucketName: "shareslices-artifacts",
+  }]);
 });
 
 test("fails closed for ambiguous subscription identity and provider errors", async () => {
@@ -77,6 +99,17 @@ test("fails closed for ambiguous subscription identity and provider errors", asy
       }
       if (url.includes("/zones?")) return response([]);
       if (url.includes("/queues?")) return response([]);
+      if (
+        url.endsWith("/settings") ||
+        url.endsWith("/subdomain") ||
+        url.endsWith("/schedules")
+      ) {
+        return {
+          ok: false,
+          status: 404,
+          json: async () => ({success: false, result: null}),
+        };
+      }
       return response({buckets: []});
     },
   });
@@ -85,6 +118,7 @@ test("fails closed for ambiguous subscription identity and provider errors", asy
   assert.equal(observed.zonesReady, false);
   assert.equal(observed.queuesReady, false);
   assert.equal(observed.privateR2, false);
+  assert.equal(observed.workers.application.exists, false);
 
   const failed = createCloudflareProviderObserver({
     resolvers: {secret: async () => "provider-token"},

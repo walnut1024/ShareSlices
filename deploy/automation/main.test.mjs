@@ -234,6 +234,7 @@ test("production Cloudflare status composes control, Terraform, and Wrangler rea
   assert.equal(typeof adapterOptions.observeStatus, "function");
   assert.deepEqual(calls, [[
     "observeControl",
+    "observeProvider",
     "readTerraformState",
     "readWranglerDeployments",
   ]]);

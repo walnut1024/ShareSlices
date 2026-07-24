@@ -64,11 +64,13 @@ function projectDeployment(config, role, name, deployment, drift) {
 
 export function createCloudflareStatusObserver({
   observeControl,
+  observeProvider,
   readTerraformState,
   readWranglerDeployments,
 } = {}) {
   if (
     typeof observeControl !== "function" ||
+    typeof observeProvider !== "function" ||
     typeof readTerraformState !== "function" ||
     typeof readWranglerDeployments !== "function"
   ) {
@@ -95,7 +97,7 @@ export function createCloudflareStatusObserver({
         orphans: [],
       });
     }
-    const [terraform, deployments] = await Promise.all([
+    const [terraform, deployments, provider] = await Promise.all([
       readTerraformState({config}),
       Promise.all(Object.entries(config.cloudflare.workers).map(
         async ([role, name]) => [
@@ -104,6 +106,10 @@ export function createCloudflareStatusObserver({
           await readWranglerDeployments({config, role, name}),
         ],
       )),
+      observeProvider({
+        config,
+        account: {id: config.cloudflare.accountId},
+      }),
     ]);
     if (
       typeof terraform?.lineage !== "string" ||
@@ -121,6 +127,38 @@ export function createCloudflareStatusObserver({
       projectDeployment(config, role, name, currentDeployment(values), drift)
     );
     const active = control.releaseRecords?.active ?? null;
+    if (!provider || typeof provider !== "object" || !provider.workers) {
+      throw new TargetAdapterError(
+        "cloudflare_status_provider_invalid",
+        "Cloudflare status provider observation is incomplete.",
+      );
+    }
+    for (const [role, expectedName] of Object.entries(config.cloudflare.workers)) {
+      const worker = provider.workers[role];
+      const logicalId = `cloudflare/worker/${expectedName}`;
+      if (!worker?.exists) {
+        drift.push({logicalId, reasonCode: "worker_settings_absent"});
+        continue;
+      }
+      if (worker.workersDevEnabled !== false) {
+        drift.push({logicalId, reasonCode: "worker_workers_dev_enabled"});
+      }
+      if (worker.previewUrlsEnabled !== false) {
+        drift.push({logicalId, reasonCode: "worker_preview_urls_enabled"});
+      }
+      if (
+        worker.cpuMilliseconds !==
+        config.cloudflare.costControls.workerCpuMilliseconds[role]
+      ) {
+        drift.push({logicalId, reasonCode: "worker_cpu_limit_mismatch"});
+      }
+      const expectedSchedules = role === "jobs"
+        ? [config.cloudflare.costControls.schedule.cron]
+        : [];
+      if (JSON.stringify(worker.schedules) !== JSON.stringify(expectedSchedules)) {
+        drift.push({logicalId, reasonCode: "worker_schedule_mismatch"});
+      }
+    }
     const desiredReleaseId =
       control.operation?.desiredReleaseId ?? active?.releaseId ?? null;
     const databaseSchemaHead = control.databaseSchemaHead ?? null;
@@ -158,6 +196,9 @@ export function createCloudflareStatusObserver({
       provider: {
         terraformLineage: terraform.lineage,
         terraformSerial: terraform.serial,
+        workersPaid: provider.workersPaid === true,
+        workers: provider.workers,
+        queues: provider.queues ?? {},
       },
     });
   };

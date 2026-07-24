@@ -13,7 +13,7 @@ function apiError() {
   );
 }
 
-async function readApi(fetchImplementation, token, path) {
+async function readApi(fetchImplementation, token, path, {allowNotFound = false} = {}) {
   let response;
   try {
     response = await fetchImplementation(`${apiOrigin}${path}`, {
@@ -29,6 +29,7 @@ async function readApi(fetchImplementation, token, path) {
   } catch {
     throw apiError();
   }
+  if (allowNotFound && response.status === 404) return null;
   if (!response.ok || body?.success !== true) throw apiError();
   return body;
 }
@@ -68,6 +69,62 @@ function configuredSites(config) {
   return Object.values(config.shared.publicOrigins).map(
     (origin) => getDomain(new URL(origin).hostname),
   );
+}
+
+function safeBinding(binding) {
+  if (
+    typeof binding?.name !== "string" ||
+    typeof binding?.type !== "string"
+  ) {
+    throw apiError();
+  }
+  return Object.freeze(Object.fromEntries([
+    ["name", binding.name],
+    ["type", binding.type],
+    ["bucketName", binding.bucket_name],
+    ["queueName", binding.queue_name],
+    ["service", binding.service],
+    ["className", binding.class_name],
+    ["namespace", binding.namespace],
+  ].filter(([, value]) => typeof value === "string")));
+}
+
+async function observeWorkers(fetchImplementation, token, accountId, config) {
+  return Object.freeze(Object.fromEntries(await Promise.all(
+    Object.entries(config.cloudflare.workers).map(async ([role, name]) => {
+      const scriptName = encodeURIComponent(name);
+      const prefix = `/accounts/${accountId}/workers/scripts/${scriptName}`;
+      const [settings, subdomain, schedules] = await Promise.all([
+        readApi(fetchImplementation, token, `${prefix}/settings`, {allowNotFound: true}),
+        readApi(fetchImplementation, token, `${prefix}/subdomain`, {allowNotFound: true}),
+        readApi(fetchImplementation, token, `${prefix}/schedules`, {allowNotFound: true}),
+      ]);
+      if (!settings && !subdomain && !schedules) {
+        return [role, Object.freeze({name, exists: false})];
+      }
+      if (!settings || !subdomain || !schedules) throw apiError();
+      if (
+        !Array.isArray(settings.result?.bindings) ||
+        typeof subdomain.result?.enabled !== "boolean" ||
+        typeof subdomain.result?.previews_enabled !== "boolean" ||
+        !Array.isArray(schedules.result?.schedules)
+      ) {
+        throw apiError();
+      }
+      return [role, Object.freeze({
+        name,
+        exists: true,
+        workersDevEnabled: subdomain.result.enabled,
+        previewUrlsEnabled: subdomain.result.previews_enabled,
+        bindings: Object.freeze(settings.result.bindings.map(safeBinding)),
+        cpuMilliseconds: settings.result.limits?.cpu_ms ?? null,
+        schedules: Object.freeze(schedules.result.schedules.map(({cron}) => {
+          if (typeof cron !== "string") throw apiError();
+          return cron;
+        }).sort()),
+      })];
+    }),
+  )));
 }
 
 export function createCloudflareProviderObserver({
@@ -129,6 +186,30 @@ export function createCloudflareProviderObserver({
               };
             }))
           : [];
+        const workers = await observeWorkers(
+          fetchImplementation,
+          token,
+          accountId,
+          config,
+        );
+        const queueState = Object.freeze(Object.fromEntries(
+          queues
+            .filter(({queue_name: name}) =>
+              Object.values(config.cloudflare.queues).includes(name)
+            )
+            .map((queue) => [queue.queue_name, Object.freeze({
+              deliveryPaused: queue.settings?.delivery_paused ?? null,
+              consumers: Object.freeze((queue.consumers ?? []).map((consumer) =>
+                Object.freeze({
+                  scriptName: consumer.script_name ?? null,
+                  deadLetterQueue: consumer.dead_letter_queue || null,
+                  batchSize: consumer.settings?.batch_size ?? null,
+                  maximumConcurrency: consumer.settings?.max_concurrency ?? null,
+                  maximumRetries: consumer.settings?.max_retries ?? null,
+                })
+              )),
+            })]),
+        ));
         return Object.freeze({
           observedAt: now().toISOString(),
           workersPaid: subscriptions.some(subscriptionIsWorkersPaid),
@@ -139,6 +220,8 @@ export function createCloudflareProviderObserver({
           ),
           privateR2: bucketAccess.length === configuredBuckets.length &&
             bucketAccess.every(({private: isPrivate}) => isPrivate),
+          workers,
+          queues: queueState,
           limits: Object.freeze({}),
         });
       },

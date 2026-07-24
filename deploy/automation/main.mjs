@@ -131,14 +131,15 @@ export function createProductionCloudflareAdapter({
       readDeployments: readWranglerDeployments,
     }),
   });
-  const observeStatus = createStatusObserver({
-    observeControl,
-    readTerraformState,
-    readWranglerDeployments,
-  });
   const observeProvider = async (input) => createProviderObserver({
     resolvers: resolvers(),
   })(input);
+  const observeStatus = createStatusObserver({
+    observeControl,
+    observeProvider,
+    readTerraformState,
+    readWranglerDeployments,
+  });
   const probeReleaseStoreAccess = async (input) => createReleaseStoreAccessProbe({
     resolvers: resolvers(),
   })(input);

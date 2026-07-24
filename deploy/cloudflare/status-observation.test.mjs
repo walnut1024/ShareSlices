@@ -8,10 +8,19 @@ const digest = `sha256:${"b".repeat(64)}`;
 const config = {
   installationId: "installation-1",
   cloudflare: {
+    accountId: "0123456789abcdef0123456789abcdef",
     workers: {
       application: "shareslices-app",
       content: "shareslices-content",
       jobs: "shareslices-jobs",
+    },
+    costControls: {
+      workerCpuMilliseconds: {
+        application: 30_000,
+        content: 30_000,
+        jobs: 30_000,
+      },
+      schedule: {cron: "*/5 * * * *"},
     },
   },
 };
@@ -47,6 +56,22 @@ function observer(overrides = {}) {
       outputs: {},
       ...overrides.terraform,
     }),
+    observeProvider: async () => ({
+      workersPaid: true,
+      queues: {},
+      workers: Object.fromEntries(Object.entries(config.cloudflare.workers).map(
+        ([role, name]) => [role, {
+          name,
+          exists: true,
+          workersDevEnabled: false,
+          previewUrlsEnabled: false,
+          bindings: [],
+          cpuMilliseconds: 30_000,
+          schedules: role === "jobs" ? ["*/5 * * * *"] : [],
+        }],
+      )),
+      ...overrides.provider,
+    }),
     readWranglerDeployments: async ({role}) => overrides.deployments?.[role] ?? [
       deployment(
         `${role}-1`,
@@ -67,6 +92,37 @@ test("projects an exact active Cloudflare release as verified", async () => {
   assert.deepEqual(status.provider, {
     terraformLineage: "lineage-1",
     terraformSerial: 7,
+    workersPaid: true,
+    workers: {
+      application: {
+        name: "shareslices-app",
+        exists: true,
+        workersDevEnabled: false,
+        previewUrlsEnabled: false,
+        bindings: [],
+        cpuMilliseconds: 30_000,
+        schedules: [],
+      },
+      content: {
+        name: "shareslices-content",
+        exists: true,
+        workersDevEnabled: false,
+        previewUrlsEnabled: false,
+        bindings: [],
+        cpuMilliseconds: 30_000,
+        schedules: [],
+      },
+      jobs: {
+        name: "shareslices-jobs",
+        exists: true,
+        workersDevEnabled: false,
+        previewUrlsEnabled: false,
+        bindings: [],
+        cpuMilliseconds: 30_000,
+        schedules: ["*/5 * * * *"],
+      },
+    },
+    queues: {},
   });
 });
 
@@ -96,6 +152,43 @@ test("reports mixed, unowned, absent, and schema-drifted state without claiming 
   );
 });
 
+test("reports unsafe Worker ingress, CPU, and Cron settings as drift", async () => {
+  const status = await observer({
+    provider: {
+      workers: {
+        application: {
+          exists: true,
+          workersDevEnabled: true,
+          previewUrlsEnabled: true,
+          cpuMilliseconds: 10,
+          schedules: ["* * * * *"],
+        },
+        content: {
+          exists: false,
+        },
+        jobs: {
+          exists: true,
+          workersDevEnabled: false,
+          previewUrlsEnabled: false,
+          cpuMilliseconds: 30_000,
+          schedules: [],
+        },
+      },
+    },
+  })({config});
+  assert.deepEqual(
+    status.drift.map(({reasonCode}) => reasonCode).sort(),
+    [
+      "worker_cpu_limit_mismatch",
+      "worker_preview_urls_enabled",
+      "worker_schedule_mismatch",
+      "worker_schedule_mismatch",
+      "worker_settings_absent",
+      "worker_workers_dev_enabled",
+    ],
+  );
+});
+
 test("returns an empty desired state when deployment control is absent", async () => {
   let providerRead = false;
   const status = await createCloudflareStatusObserver({
@@ -103,6 +196,9 @@ test("returns an empty desired state when deployment control is absent", async (
       controlSchema: {state: "absent", revision: "control-absent"},
     }),
     readTerraformState: async () => {
+      providerRead = true;
+    },
+    observeProvider: async () => {
       providerRead = true;
     },
     readWranglerDeployments: async () => {
@@ -122,5 +218,9 @@ test("fails closed for malformed provider observations", async () => {
   await assert.rejects(
     observer({deployments: {jobs: [{}]}})({config}),
     (error) => error.code === "cloudflare_status_deployment_invalid",
+  );
+  await assert.rejects(
+    observer({provider: {workers: null}})({config}),
+    (error) => error.code === "cloudflare_status_provider_invalid",
   );
 });
