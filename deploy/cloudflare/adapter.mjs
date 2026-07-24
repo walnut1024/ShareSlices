@@ -4,6 +4,7 @@ import {readFile} from "node:fs/promises";
 import {fileURLToPath} from "node:url";
 
 import {TargetAdapterError} from "../automation/target-adapter.mjs";
+import {loadControlSchema} from "../automation/control-store.mjs";
 import {renderCloudflareBundle} from "./render.mjs";
 
 const baseline = JSON.parse(await readFile(
@@ -92,8 +93,10 @@ export function createCloudflareAdapter({
   resolveHost = defaultResolveHost,
   probeTls = defaultProbeTls,
   observeProvider,
+  observeState,
   renderBundle = renderCloudflareBundle,
   ownershipMatrix = ownership,
+  controlSchemaChecksum,
 } = {}) {
   async function doctor({config, prerequisites, release}) {
     const checks = [];
@@ -217,10 +220,62 @@ export function createCloudflareAdapter({
     return Object.freeze({checks, database: provider?.database ?? null});
   }
 
+  async function plan({config, release, bundle, bundleDigest, operation = "apply"}) {
+    if (typeof observeState !== "function") {
+      throw new TargetAdapterError(
+        "cloudflare_plan_observation_unavailable",
+        "Cloudflare planning requires authoritative control and provider observations.",
+      );
+    }
+    const observed = await observeState({config, release, bundle});
+    if (
+      !observed ||
+      typeof observed !== "object" ||
+      typeof observed.revision !== "string" ||
+      !observed.controlSchema ||
+      !Array.isArray(observed.resources)
+    ) {
+      throw new TargetAdapterError(
+        "cloudflare_plan_observation_invalid",
+        "Cloudflare planning observations are incomplete.",
+      );
+    }
+    const phases = operation === "rollback"
+      ? bundle.phases.filter(({id}) => id !== "migration")
+      : bundle.phases;
+    const desired = {
+      target: "cloudflare",
+      releaseId: release.releaseId,
+      bundleDigest,
+      resources: phases.flatMap(({resources}) => resources.map((resource) => ({
+        logicalId: resource.logicalId,
+        phase: resource.phase,
+        digest: resource.digest,
+        owner: resource.owner,
+        retention: resource.retention,
+        securitySensitive: resource.securitySensitive,
+        durable: resource.retention === "durable",
+      }))),
+    };
+    const refusalReasons = [];
+    if (ownershipMatrix.fields.some(({activationBlocked}) => activationBlocked)) {
+      refusalReasons.push("cloudflare_field_ownership_unqualified");
+    }
+    if (operation === "rollback" && release.configurationDigest !== bundle.configurationDigest) {
+      refusalReasons.push("rollback_configuration_digest_mismatch");
+    }
+    return Object.freeze({
+      desired,
+      observed,
+      controlSchemaChecksum: controlSchemaChecksum ?? (await loadControlSchema()).checksum,
+      refusalReasons,
+    });
+  }
+
   return Object.freeze({
     doctor,
     render: ({config, release}) => renderBundle({config, release}),
-    plan: unavailableOperation("plan"),
+    plan,
     apply: unavailableOperation("apply"),
     status: unavailableOperation("status"),
     verify: unavailableOperation("verify"),

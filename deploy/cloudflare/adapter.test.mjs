@@ -3,6 +3,8 @@ import {readFile} from "node:fs/promises";
 import test from "node:test";
 
 import {discoverPrerequisites} from "../automation/config.mjs";
+import {buildDeploymentPlan} from "../automation/plan.mjs";
+import {serializeCanonicalTargetBundle} from "../automation/release.mjs";
 import {createCloudflareAdapter} from "./adapter.mjs";
 
 const config = JSON.parse(await readFile(
@@ -157,4 +159,96 @@ test("render delegates without resolving Secret values", async () => {
   });
   assert.equal(await adapter.render({config, release}), expected);
   assert.deepEqual(received, {config, release});
+});
+
+test("plan compares a canonical bundle with authoritative observations without mutation", async () => {
+  const checksum = `sha256:${"a".repeat(64)}`;
+  const observed = {
+    revision: "cloudflare-observation-1",
+    controlSchema: {state: "present", checksum},
+    resources: [{
+      logicalId: "cloudflare/r2/public-access",
+      digest: `sha256:${"b".repeat(64)}`,
+      owner: "deployment-module",
+      retention: "active",
+    }],
+  };
+  let observationInput;
+  const adapter = createCloudflareAdapter({
+    ownershipMatrix: qualifiedOwnership,
+    controlSchemaChecksum: checksum,
+    observeState: async (input) => {
+      observationInput = input;
+      return observed;
+    },
+  });
+  const completeRelease = {
+    ...JSON.parse(await readFile(
+      new URL("../contract/fixtures/release.valid.json", import.meta.url),
+      "utf8",
+    )),
+    artifacts: [
+      ["app-worker-bundle", "worker-bundle"],
+      ["content-worker-bundle", "worker-bundle"],
+      ["jobs-worker-bundle", "worker-bundle"],
+      ["static-assets", "static-assets"],
+      ["trusted-processing-image", "oci-image"],
+      ["thumbnail-image", "oci-image"],
+    ].map(([name, artifactKind], index) => {
+      const contentDigest = `sha256:${String(index + 1).repeat(64)}`;
+      return {
+        name,
+        artifactKind,
+        ...(artifactKind === "oci-image" ? {platforms: ["linux/amd64"]} : {}),
+        contentDigest,
+        providerIdentity: {
+          kind: "digest",
+          value: contentDigest,
+          qualified: true,
+          mutable: false,
+        },
+      };
+    }),
+  };
+  const bundle = await adapter.render({config, release: completeRelease});
+  const bundleDigest = serializeCanonicalTargetBundle(bundle).digest;
+  const planning = await adapter.plan({
+    config,
+    release: completeRelease,
+    bundle,
+    bundleDigest,
+  });
+  const plan = buildDeploymentPlan(planning);
+
+  assert.equal(observationInput.config, config);
+  assert.equal(observationInput.bundle, bundle);
+  assert.equal(planning.desired.resources.length > 0, true);
+  assert.deepEqual(planning.refusalReasons, []);
+  assert.equal(plan.target, "cloudflare");
+  assert.equal(plan.observedStateRevision, observed.revision);
+  assert.equal(plan.actions.some(({action}) => action === "update"), true);
+});
+
+test("plan fails closed without authoritative observations and blocks unqualified ownership", async () => {
+  const unavailableAdapter = createCloudflareAdapter();
+  await assert.rejects(
+    unavailableAdapter.plan({config, release, bundle: {phases: []}, bundleDigest: "digest"}),
+    (error) => error.code === "cloudflare_plan_observation_unavailable",
+  );
+
+  const adapter = createCloudflareAdapter({
+    controlSchemaChecksum: `sha256:${"a".repeat(64)}`,
+    observeState: async () => ({
+      revision: "cloudflare-observation-2",
+      controlSchema: {state: "absent"},
+      resources: [],
+    }),
+  });
+  const planning = await adapter.plan({
+    config,
+    release: {releaseId: "release", configurationDigest: "configuration"},
+    bundle: {configurationDigest: "configuration", phases: []},
+    bundleDigest: `sha256:${"b".repeat(64)}`,
+  });
+  assert.deepEqual(planning.refusalReasons, ["cloudflare_field_ownership_unqualified"]);
 });
