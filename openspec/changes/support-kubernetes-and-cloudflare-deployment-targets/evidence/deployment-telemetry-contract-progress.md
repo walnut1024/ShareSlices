@@ -80,3 +80,9 @@ Official sources refreshed on 2026-07-25:
 - [R2 metrics and analytics](https://developers.cloudflare.com/r2/platform/metrics-analytics/)
 - [Cron Triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
 - [GraphQL Analytics limits](https://developers.cloudflare.com/analytics/graphql-api/limits/)
+
+Resend status now derives a redacted health classification only from current
+operator evidence already validated by deployment configuration. It emits the
+source, age, and maximum age. Missing, future, or stale evidence is normalized
+to `unknown`; it never reuses a historical healthy classification or exports
+the team, domain, key, or sender.

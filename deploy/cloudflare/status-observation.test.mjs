@@ -78,6 +78,7 @@ function observer(overrides = {}) {
         `shareslices:${config.installationId}:${releaseId}:${digest}`,
       ),
     ],
+    now: overrides.now,
   });
 }
 
@@ -124,6 +125,39 @@ test("projects an exact active Cloudflare release as verified", async () => {
     },
     queues: {},
   });
+});
+
+test("projects only fresh redacted Resend operator evidence", async () => {
+  const withEmail = structuredClone(config);
+  withEmail.cloudflare.email = {
+    operatorEvidence: {
+      observedAt: "2026-07-25T11:59:00.000Z",
+      maximumAgeSeconds: 300,
+      domainVerified: true,
+      trackingDisabled: true,
+      teamRatePosture: "within_limits",
+      bounceSpamHealth: "healthy",
+      accountSuspended: false,
+      sameTeamDomainRotationAttested: true,
+    },
+  };
+  const status = await observer({
+    now: () => new Date("2026-07-25T12:00:00.000Z"),
+  })({config: withEmail});
+  assert.deepEqual(status.provider.resendEvidence, {
+    classification: "healthy",
+    evidenceSource: "operator_evidence",
+    evidenceAgeSeconds: 60,
+    maximumAgeSeconds: 300,
+    reasonCode: "resend_operator_evidence_healthy",
+  });
+  withEmail.cloudflare.email.operatorEvidence.observedAt =
+    "2026-07-25T11:00:00.000Z";
+  const stale = await observer({
+    now: () => new Date("2026-07-25T12:00:00.000Z"),
+  })({config: withEmail});
+  assert.equal(stale.provider.resendEvidence.classification, "unknown");
+  assert.equal(JSON.stringify(stale.provider.resendEvidence).includes("mail"), false);
 });
 
 test("reports mixed, unowned, absent, and schema-drifted state without claiming observation", async () => {

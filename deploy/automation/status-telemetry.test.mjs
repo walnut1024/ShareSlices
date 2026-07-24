@@ -63,6 +63,13 @@ test("projects actual Cloudflare ready and dead-letter backlogs", async () => {
       analytics: {
         r2: {state: "observed", requests: 10, bytes: 1320},
       },
+      resendEvidence: {
+        classification: "healthy",
+        evidenceSource: "operator_evidence",
+        evidenceAgeSeconds: 60,
+        maximumAgeSeconds: 300,
+        reasonCode: "resend_operator_evidence_healthy",
+      },
     },
     telemetry: {trigger: {delaySeconds: 75}},
   });
@@ -76,6 +83,7 @@ test("projects actual Cloudflare ready and dead-letter backlogs", async () => {
     "r2.requests": 10,
     "r2.bytes": 1320,
   });
+  assert.equal((await observers.resend()).state, "ok");
   assert.equal((await observers["deployment-operation"]()).state, "unknown");
 });
 

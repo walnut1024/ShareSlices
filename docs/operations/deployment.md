@@ -298,6 +298,12 @@ payload-plus-metadata bytes. Missing Analytics permission, dataset
 unavailability, GraphQL errors, or malformed aggregates produce `unknown`
 without exposing provider diagnostics.
 
+Cloudflare status projects only the Resend classification, evidence source,
+age, maximum age, and stable reason. Fresh operator evidence may report healthy
+or unhealthy. Missing, future-dated, or stale evidence is normalized to
+explicit `unknown`; team, domain, key, sender, and dashboard details are not
+copied into telemetry.
+
 ## Configuration and release inputs
 
 The versioned deployment schema is

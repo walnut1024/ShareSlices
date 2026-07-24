@@ -203,6 +203,32 @@ function r2Observation(status) {
   });
 }
 
+function resendObservation(status) {
+  const evidence = status.provider?.resendEvidence;
+  if (!evidence) {
+    return observation("unknown", "resend_evidence_unknown", {
+      "resend.classification": "unknown",
+      "resend.evidence_source": "unknown",
+      "resend.evidence_age_seconds": 0,
+      "resend.maximum_age_seconds": 0,
+    });
+  }
+  return observation(
+    evidence.classification === "healthy"
+      ? "ok"
+      : evidence.classification === "unknown"
+        ? "unknown"
+        : "critical",
+    evidence.reasonCode,
+    {
+      "resend.classification": evidence.classification,
+      "resend.evidence_source": evidence.evidenceSource,
+      "resend.evidence_age_seconds": evidence.evidenceAgeSeconds,
+      "resend.maximum_age_seconds": evidence.maximumAgeSeconds,
+    },
+  );
+}
+
 export function createStatusTelemetryObservers(status) {
   if (!status || !["compose", "kubernetes", "cloudflare"].includes(status.target)) {
     throw new TypeError("Status telemetry requires one target status observation.");
@@ -223,6 +249,7 @@ export function createStatusTelemetryObservers(status) {
     observers.queue = async () => queueObservation(status);
     observers.trigger = async () => triggerObservation(status);
     observers.r2 = async () => r2Observation(status);
+    observers.resend = async () => resendObservation(status);
   }
   return Object.freeze(observers);
 }

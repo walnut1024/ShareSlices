@@ -62,12 +62,54 @@ function projectDeployment(config, role, name, deployment, drift) {
   };
 }
 
+function projectResendEvidence(config, now) {
+  const evidence = config.cloudflare.email?.operatorEvidence;
+  const observedAt = Date.parse(evidence?.observedAt ?? "");
+  const ageSeconds = Math.max(
+    0,
+    Math.floor((now.getTime() - observedAt) / 1_000),
+  );
+  const maximumAgeSeconds = evidence?.maximumAgeSeconds;
+  if (
+    !Number.isFinite(observedAt) ||
+    observedAt > now.getTime() ||
+    !Number.isSafeInteger(maximumAgeSeconds) ||
+    maximumAgeSeconds < 0 ||
+    ageSeconds > maximumAgeSeconds
+  ) {
+    return Object.freeze({
+      classification: "unknown",
+      evidenceSource: "unknown",
+      evidenceAgeSeconds: 0,
+      maximumAgeSeconds: 0,
+      reasonCode: "resend_operator_evidence_unknown",
+    });
+  }
+  const healthy =
+    evidence.domainVerified === true &&
+    evidence.trackingDisabled === true &&
+    evidence.teamRatePosture === "within_limits" &&
+    evidence.bounceSpamHealth === "healthy" &&
+    evidence.accountSuspended === false &&
+    evidence.sameTeamDomainRotationAttested === true;
+  return Object.freeze({
+    classification: healthy ? "healthy" : "unhealthy",
+    evidenceSource: "operator_evidence",
+    evidenceAgeSeconds: ageSeconds,
+    maximumAgeSeconds,
+    reasonCode: healthy
+      ? "resend_operator_evidence_healthy"
+      : "resend_operator_evidence_unhealthy",
+  });
+}
+
 export function createCloudflareStatusObserver({
   observeControl,
   observeProvider,
   observeAnalytics,
   readTerraformState,
   readWranglerDeployments,
+  now = () => new Date(),
 } = {}) {
   if (
     typeof observeControl !== "function" ||
@@ -209,6 +251,9 @@ export function createCloudflareStatusObserver({
           : {}),
         queues: provider.queues ?? {},
         ...(analytics ? {analytics} : {}),
+        ...(config.cloudflare.email
+          ? {resendEvidence: projectResendEvidence(config, now())}
+          : {}),
       },
     });
   };
