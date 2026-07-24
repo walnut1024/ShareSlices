@@ -29,6 +29,15 @@ mise run dev-down
 These commands do not produce production qualification evidence. Production
 configuration rejects `target: compose`.
 
+Before its first mutation, the local controller verifies the checked Compose
+model and the capabilities named by
+[`deploy/compose/feature-baseline.json`](../../deploy/compose/feature-baseline.json):
+bounded `up --wait` with `--wait-timeout`, long-form healthy and completed
+dependency conditions, and machine-readable JSON `ps`. The file records the
+currently exercised Compose version; another version is accepted only when
+those capability probes and quiet model validation pass. Container state,
+health, and host HTTP and SMTP reachability are then verified separately.
+
 ## Production command interface
 
 All production commands use one machine-oriented entrypoint:

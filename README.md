@@ -196,7 +196,10 @@ Web/Caddy entrypoint as separate local roles.
 ### Prerequisites
 
 - [mise](https://mise.jdx.dev/)
-- [Docker](https://docs.docker.com/get-docker/) with Docker Compose
+- [Docker](https://docs.docker.com/get-docker/) with Docker Compose. The local
+  controller checks the required Compose capabilities before it mutates the
+  stack; the exercised version and feature contract are recorded in
+  [`deploy/compose/feature-baseline.json`](deploy/compose/feature-baseline.json).
 - [pnpm](https://pnpm.io/) through the version declared by this repository
 
 ### Start
@@ -252,9 +255,13 @@ mise run check       # authoritative local quality gate
 Focused tasks such as `mise run web-test`, `mise run api-test`, and
 `mise run rust-check` are available while iterating. API tests use their own
 Compose project and ports, so they can run without stopping the development
-stack. Administrative mutations remain explicit `ops-*` tasks. Start with
-[AGENTS.md](AGENTS.md), then read the scoped guidance for the surface you plan
-to change.
+stack. Run `mise run check` before handing off a change; it is the authoritative
+repository-wide local gate. A local pass does not qualify either production
+deployment target: checks that require a real provider account, entitlement,
+credential, route, or network path remain target-specific qualification work
+and may report `not_applicable` outside that target. Administrative mutations
+remain explicit `ops-*` tasks. Start with [AGENTS.md](AGENTS.md), then read the
+scoped guidance for the surface you plan to change.
 
 ## Product and architecture
 
