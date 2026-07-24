@@ -103,6 +103,22 @@ Read the durable phase and step checkpoints and use the applicable recovery
 procedure. An `external_reconciler_required` result means immutable GitOps
 artifacts were handed off; it does not mean the external owner promoted them.
 
+## Gallery readiness verification
+
+Gallery readiness is evaluated independently from core release health. A
+release-bound pre-traffic or deep verification observes five live dimensions:
+the distinct registrable-site topology, Gallery credentials, governance,
+isolated content runtime, and network policy. Every observation must carry a
+fresh evidence timestamp and digest; stale, malformed, or unavailable evidence
+is indeterminate.
+
+Gallery remains disabled unless all five dimensions pass for the exact target
+and release. Core health cannot substitute for a Gallery observation, and one
+failed Gallery dimension does not make an otherwise healthy core release
+unhealthy when Gallery is optional. Target Adapters collect the real
+Kubernetes or Cloudflare observations; the shared projection never infers them
+from configuration alone.
+
 ## Explicit email deep verification
 
 Ordinary `doctor` and `verify` never send email. To prove one enterprise SMTP

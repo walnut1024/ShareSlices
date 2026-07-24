@@ -91,6 +91,20 @@
       }
     },
     {
+      "id": "gallery-readiness",
+      "level": "pre_traffic",
+      "appliesTo": ["kubernetes", "cloudflare"],
+      "capability": "gallery",
+      "requiredWhenEnabled": false,
+      "disabledExpectation": "fail_closed",
+      "mutating": false,
+      "authorization": "release-bound pre-traffic or deep authorization",
+      "owner": {
+        "capability": "deployment-orchestration",
+        "requirement": "Verify one product contract across deployment targets"
+      }
+    },
+    {
       "id": "cloudflare-static-assets",
       "level": "pre_traffic",
       "appliesTo": ["compose", "cloudflare"],
