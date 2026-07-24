@@ -235,6 +235,22 @@
       }
     },
     {
+      "id": "product-lifecycle-deep-smoke",
+      "level": "deep",
+      "appliesTo": ["compose", "kubernetes", "cloudflare"],
+      "capability": "product-lifecycle",
+      "requiredWhenEnabled": true,
+      "disabledExpectation": "fail_closed",
+      "mutating": true,
+      "authorization": "fenced isolated deep authorization",
+      "ownership": "release, operation, fence, nonce, and exact test-owned resources",
+      "cleanup": "remove every positively owned product fixture after pass or failure",
+      "owner": {
+        "capability": "deployment-orchestration",
+        "requirement": "Verify one product contract across deployment targets"
+      }
+    },
+    {
       "id": "deployment-drift-drill",
       "level": "deep",
       "appliesTo": ["kubernetes", "cloudflare"],

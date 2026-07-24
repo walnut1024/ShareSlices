@@ -155,6 +155,25 @@ because it contains the test recipient, and remove it after the receipt and
 provider/dashboard evidence have been retained under the deployment evidence
 policy. Provider acceptance proves submission only, not inbox delivery.
 
+## Product deep smoke
+
+The stateful product smoke is forbidden in core and pre-traffic verification.
+An Adapter may run it only with isolated deep authorization bound to one target,
+release, operation, positive fencing token, nonce, Gallery expectation, and an
+exact set of positively owned test resources.
+
+The smoke runs Upload, processing, Preview, Publish, Viewer, Unpublish, and
+Gallery eligibility or fail-closed verification in that order. Every step must
+return a redacted evidence digest before the next begins. Gallery's expected
+result is authorized explicitly; a disabled installation must prove
+fail-closed behavior rather than silently skipping the step.
+
+Cleanup runs after success or failure and must account for exactly every
+authorized resource. Missing, duplicate, incomplete, or indeterminate cleanup
+blocks the result. Evidence records step digests and resource counts, never
+Artifact identifiers, Publication identifiers, content, credentials, or raw
+provider diagnostics.
+
 ## Processing failure drills
 
 Duplicate-wake, lost-wake, Container-termination, stale-fence, and follow-on-work
