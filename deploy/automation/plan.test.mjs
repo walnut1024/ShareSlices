@@ -191,7 +191,76 @@ test("refuses replacement of a deployment-owned durable resource", () => {
   const replacement = plan.actions.find(({ logicalId }) => logicalId === "runtime/stateful");
   assert.equal(replacement.action, "replace");
   assert.equal(replacement.destructive, true);
+  assert.equal(replacement.requiredProcedure, "separately_reviewed_recovery");
   assert.deepEqual(plan.refusalReasons, ["destructive_change_requires_review"]);
+});
+
+test("reports the reviewed procedure required instead of planning other deletion", () => {
+  const migrationDesired = structuredClone(desired);
+  migrationDesired.resources.push({
+    logicalId: "migration/destructive-schema",
+    phase: "migration",
+    digest: "schema-2",
+    durable: true,
+    replacement: true,
+  });
+  const plan = buildDeploymentPlan({
+    desired: migrationDesired,
+    observed: {
+      revision: "observed-procedure",
+      controlSchema: {state: "present", checksum},
+      resources: [
+        {
+          logicalId: "database/external",
+          digest: "external-1",
+          owner: "external-prerequisite",
+          retention: "external",
+        },
+        {
+          logicalId: "migration/destructive-schema",
+          digest: "schema-1",
+          owner: "deployment-module",
+          retention: "durable",
+        },
+        {
+          logicalId: "provider/unowned",
+          digest: "external-resource",
+          owner: "external-operator",
+          retention: "external",
+        },
+      ],
+    },
+    controlSchemaChecksum: checksum,
+  });
+
+  assert.equal(plan.outcome, "refused");
+  assert.deepEqual(
+    plan.actions.find(({logicalId}) =>
+      logicalId === "migration/destructive-schema"),
+    {
+      logicalId: "migration/destructive-schema",
+      phase: "migration",
+      action: "replace",
+      desiredDigest: "schema-2",
+      observedDigest: "schema-1",
+      securitySensitive: false,
+      destructive: true,
+      requiredProcedure: "separately_reviewed_migration",
+    },
+  );
+  assert.deepEqual(
+    plan.actions.find(({logicalId}) => logicalId === "provider/unowned"),
+    {
+      logicalId: "provider/unowned",
+      phase: "retirement",
+      action: "report_orphan",
+      desiredDigest: null,
+      observedDigest: "external-resource",
+      securitySensitive: false,
+      destructive: true,
+      requiredProcedure: "separately_reviewed_recovery",
+    },
+  );
 });
 
 test("retains rollback resources without making an ordinary plan destructive", () => {

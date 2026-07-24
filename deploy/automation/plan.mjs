@@ -22,6 +22,7 @@ function compareResources(desired, observed) {
     else if (prerequisite && current.digest !== resource.digest) action = "prerequisite_drift";
     else if (!current) action = "create";
     else if (current.digest !== resource.digest) action = resource.replacement ? "replace" : "update";
+    const destructive = action === "replace" && resource.durable === true;
     actions.push({
       logicalId: resource.logicalId,
       phase: resource.phase,
@@ -29,7 +30,14 @@ function compareResources(desired, observed) {
       desiredDigest: resource.digest,
       observedDigest: current?.digest ?? null,
       securitySensitive: resource.securitySensitive === true,
-      destructive: action === "replace" && resource.durable === true,
+      destructive,
+      ...(destructive
+        ? {
+          requiredProcedure: resource.phase === "migration"
+            ? "separately_reviewed_migration"
+            : "separately_reviewed_recovery",
+        }
+        : {}),
     });
   }
   for (const resource of observed) {
@@ -44,6 +52,9 @@ function compareResources(desired, observed) {
       observedDigest: resource.digest,
       securitySensitive: false,
       destructive: !owned,
+      ...(!owned
+        ? {requiredProcedure: "separately_reviewed_recovery"}
+        : {}),
     });
   }
   return actions.sort((left, right) => {
@@ -88,6 +99,7 @@ export function buildDeploymentPlan({
       observedDigest: observed.controlSchema.checksum,
       securitySensitive: true,
       destructive: true,
+      requiredProcedure: "separately_reviewed_migration",
     });
   }
 
