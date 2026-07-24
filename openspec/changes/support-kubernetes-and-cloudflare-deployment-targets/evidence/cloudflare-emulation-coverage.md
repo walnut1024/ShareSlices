@@ -289,3 +289,38 @@ Current first-party references:
 
 - [Durable Object migrations](https://developers.cloudflare.com/durable-objects/reference/durable-objects-migrations/)
 - [Worker versions and deployments](https://developers.cloudflare.com/workers/versions-and-deployments/)
+
+## Jobs Secret preservation and deletion staging run
+
+On 2026-07-25, the same minimal route-free exports Worker tested immediate
+Secret behavior with one disposable `PROBE_SECRET`. Ordinary `wrangler secret
+put` immediately created and activated a new version. Provider `versions view`
+showed the Secret binding name, the original `ProbeObject` Durable Object
+namespace, and its SQLite `exports` declaration together.
+
+A subsequent ordinary `wrangler deploy` omitted any secrets file. The new
+provider version retained the same Secret binding name, namespace, and exports
+declaration. This verifies Secret preservation for the minimal immediate
+exports path without exposing the Secret value.
+
+The versioned deletion path did not qualify. `wrangler versions secret delete`
+created a non-active version without the Secret, but `versions view` also
+showed that `script_runtime.exports` was missing. Activating that version failed
+closed with provider code `100402`,
+`provisioned_class_missing_from_config`: the provisioned `ProbeObject`
+namespace remained bound but its required live export or tombstone declaration
+was absent. The active Secret-bearing deployment remained unchanged.
+
+Therefore:
+
+- ordinary immediate deploy preserves an existing Secret in the minimal
+  exports configuration;
+- the tested versioned deletion command is unsafe for Jobs because its output
+  cannot activate while preserving the Durable Object lifecycle declaration;
+  and
+- task 12.11 remains blocked pending a deletion interface that preserves the
+  exact full Jobs code, exports, Container image, and retained bindings, or an
+  authorized forward-fix design.
+
+Cleanup deleted the Worker and disposable Secret. A fresh deployments read
+returned provider code `10007`.
