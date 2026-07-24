@@ -360,6 +360,10 @@ export function createCloudflareAdapter({
       target: "cloudflare",
       releaseId: release.releaseId,
       bundleDigest,
+      phases: phases.map(({id, resources}) => Object.freeze({
+        id,
+        resourceIds: Object.freeze(resources.map(({logicalId}) => logicalId)),
+      })),
       resources: phases.flatMap(({resources}) => resources.map((resource) => ({
         logicalId: resource.logicalId,
         phase: resource.phase,
@@ -377,11 +381,33 @@ export function createCloudflareAdapter({
     if (operation === "rollback" && release.configurationDigest !== bundle.configurationDigest) {
       refusalReasons.push("rollback_configuration_digest_mismatch");
     }
+    const costControls = config.cloudflare.costControls;
     return Object.freeze({
       desired,
       observed,
       controlSchemaChecksum: controlSchemaChecksum ?? (await loadControlSchema()).checksum,
       refusalReasons,
+      phaseProjection: Object.freeze({
+        infrastructureAsCode: Object.freeze(["prerequisites"]),
+        migration: Object.freeze(
+          operation === "rollback" ? [] : ["migration"],
+        ),
+        workerVersionsAndContainers: Object.freeze(["private-runtime"]),
+        routesAndDomains: Object.freeze(["public-runtime"]),
+        compatibilityAndVerification: Object.freeze(["verification"]),
+      }),
+      costPosture: Object.freeze({
+        paidPrerequisite: "workers-paid-containers",
+        configuredMaxima: Object.freeze(structuredClone(costControls)),
+        quotaHeadroom: Object.freeze({
+          state: "unknown",
+          reasonCode: "cloudflare_quota_headroom_not_live_readable",
+        }),
+        warnings: Object.freeze([
+          "cloudflare_worker_first_429_has_no_static_fallback",
+          "cloudflare_exact_future_spend_not_available",
+        ]),
+      }),
     });
   }
 

@@ -292,8 +292,41 @@ test("plan compares a canonical bundle with authoritative observations without m
   assert.equal(observationInput.config, config);
   assert.equal(observationInput.bundle, bundle);
   assert.equal(planning.desired.resources.length > 0, true);
+  assert.deepEqual(
+    planning.desired.phases.map(({id}) => id),
+    [
+      "prerequisites",
+      "migration",
+      "private-runtime",
+      "public-runtime",
+      "verification",
+    ],
+  );
+  assert.deepEqual(planning.phaseProjection, {
+    infrastructureAsCode: ["prerequisites"],
+    migration: ["migration"],
+    workerVersionsAndContainers: ["private-runtime"],
+    routesAndDomains: ["public-runtime"],
+    compatibilityAndVerification: ["verification"],
+  });
+  assert.equal(
+    planning.costPosture.configuredMaxima.workerCpuMilliseconds.application,
+    30_000,
+  );
+  assert.deepEqual(planning.costPosture.quotaHeadroom, {
+    state: "unknown",
+    reasonCode: "cloudflare_quota_headroom_not_live_readable",
+  });
+  assert.equal(
+    planning.costPosture.warnings.includes(
+      "cloudflare_worker_first_429_has_no_static_fallback",
+    ),
+    true,
+  );
   assert.deepEqual(planning.refusalReasons, []);
   assert.equal(plan.target, "cloudflare");
+  assert.deepEqual(plan.phaseProjection, planning.phaseProjection);
+  assert.deepEqual(plan.costPosture, planning.costPosture);
   assert.equal(plan.observedStateRevision, observed.revision);
   assert.equal(plan.actions.some(({action}) => action === "update"), true);
 });

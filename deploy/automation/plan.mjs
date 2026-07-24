@@ -58,6 +58,8 @@ export function buildDeploymentPlan({
   controlSchemaChecksum,
   operation = "apply",
   refusalReasons: suppliedRefusalReasons = [],
+  phaseProjection,
+  costPosture,
 }) {
   if (!desired || !observed || typeof controlSchemaChecksum !== "string") {
     throw new TypeError("Desired state, observed state, and control schema checksum are required.");
@@ -116,6 +118,8 @@ export function buildDeploymentPlan({
     actions,
     outcome: refusalReasons.length === 0 ? "ready" : "refused",
     refusalReasons: [...new Set(refusalReasons)].sort(),
+    ...(phaseProjection ? {phaseProjection: structuredClone(phaseProjection)} : {}),
+    ...(costPosture ? {costPosture: structuredClone(costPosture)} : {}),
   };
   return Object.freeze({ ...body, planDigest: sha256Digest(body) });
 }
