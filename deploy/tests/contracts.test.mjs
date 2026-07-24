@@ -311,6 +311,7 @@ test("email deep verification requires a bounded explicit authorization and reda
     adapter: "resend",
     recipientDigest: `sha256:${"b".repeat(64)}`,
     providerMessageId: "provider-1",
+    providerSafeReplayUntil: "2026-07-25T11:55:00.000Z",
     completedAt: "2026-07-24T12:01:00.000Z",
   });
   assertInvalid("email-deep-verification-receipt.schema.json", {

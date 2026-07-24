@@ -183,9 +183,24 @@ export async function runEmailDeepVerification({
   try {
     result = await send(authorized.execution);
   } catch {
-    result = {outcome: "indeterminate", providerMessageId: null};
+    result = {
+      outcome: "indeterminate",
+      providerMessageId: null,
+      providerSafeReplayUntil: null,
+    };
   }
-  const accepted = result?.outcome === "provider_accepted";
+  const replayUntil = Date.parse(result?.providerSafeReplayUntil ?? "");
+  const accepted =
+    result?.outcome === "provider_accepted" &&
+    (
+      authorized.execution.adapter === "smtp" ||
+      (
+        typeof result?.providerMessageId === "string" &&
+        result.providerMessageId.length > 0 &&
+        Number.isFinite(replayUntil) &&
+        replayUntil > now.getTime()
+      )
+    );
   const finalReceipt = Object.freeze({
     schemaVersion: "shareslices.email-deep-verification-receipt/v1",
     state: accepted ? "provider_accepted" : "indeterminate",
@@ -194,6 +209,10 @@ export async function runEmailDeepVerification({
     recipientDigest: authorized.execution.recipientDigest,
     providerMessageId:
       typeof result?.providerMessageId === "string" ? result.providerMessageId : null,
+    providerSafeReplayUntil:
+      accepted && authorized.execution.adapter === "resend"
+        ? result.providerSafeReplayUntil
+        : null,
     completedAt: new Date().toISOString(),
   });
   await writeFile(receiptPath, `${JSON.stringify(finalReceipt)}\n`, {mode: 0o600});

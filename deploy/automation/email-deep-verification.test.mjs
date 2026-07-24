@@ -88,10 +88,18 @@ test("claims a receipt before sending, redacts recipient, and refuses replay", a
       send: async ({recipient}) => {
         calls += 1;
         assert.equal(recipient, "operator@example.test");
-        return {outcome: "provider_accepted", providerMessageId: "provider-1"};
+        return {
+          outcome: "provider_accepted",
+          providerMessageId: "provider-1",
+          providerSafeReplayUntil: "2026-07-25T11:55:00.000Z",
+        };
       },
     });
     assert.equal(result.state, "provider_accepted");
+    assert.equal(
+      result.providerSafeReplayUntil,
+      "2026-07-25T11:55:00.000Z",
+    );
     assert.equal(JSON.stringify(result).includes("operator@example.test"), false);
     await assert.rejects(
       runEmailDeepVerification({
@@ -106,6 +114,36 @@ test("claims a receipt before sending, redacts recipient, and refuses replay", a
     assert.equal(calls, 1);
   } finally {
     await rm(root, {recursive: true, force: true});
+  }
+});
+
+test("Resend acceptance requires a provider ID and a live safe replay window", async () => {
+  for (const result of [
+    {
+      outcome: "provider_accepted",
+      providerMessageId: null,
+      providerSafeReplayUntil: "2026-07-25T11:55:00.000Z",
+    },
+    {
+      outcome: "provider_accepted",
+      providerMessageId: "provider-1",
+      providerSafeReplayUntil: "2026-07-24T11:59:59.000Z",
+    },
+  ]) {
+    const root = await mkdtemp(resolve(tmpdir(), "shareslices-email-deep-"));
+    try {
+      const receipt = await runEmailDeepVerification({
+        config: fixture,
+        authorization: authorization(),
+        receiptPath: resolve(root, "receipt.json"),
+        now,
+        send: async () => result,
+      });
+      assert.equal(receipt.state, "indeterminate");
+      assert.equal(receipt.providerSafeReplayUntil, null);
+    } finally {
+      await rm(root, {recursive: true, force: true});
+    }
   }
 });
 

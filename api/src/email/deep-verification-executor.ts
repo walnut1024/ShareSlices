@@ -53,7 +53,11 @@ async function execute() {
     try {
       const evidence = await smtp.verify(recipient);
       if (!evidence.messageSent) throw new Error("email_deep_verification_not_sent");
-      return { outcome: "provider_accepted", providerMessageId: null };
+      return {
+        outcome: "provider_accepted",
+        providerMessageId: null,
+        providerSafeReplayUntil: null,
+      };
     } finally {
       smtp.close();
     }
@@ -78,8 +82,18 @@ async function execute() {
     });
     const result = await sendWithResend({ apiKey: secret, frozen, payload: providerPayload });
     return result.kind === "provider_accepted"
-      ? { outcome: result.kind, providerMessageId: result.providerMessageId }
-      : { outcome: "indeterminate", providerMessageId: null };
+      ? {
+          outcome: result.kind,
+          providerMessageId: result.providerMessageId,
+          providerSafeReplayUntil: new Date(
+            frozen.providerSafeReplayUntilMs,
+          ).toISOString(),
+        }
+      : {
+          outcome: "indeterminate",
+          providerMessageId: null,
+          providerSafeReplayUntil: null,
+        };
   }
 
   throw new Error("email_deep_verification_adapter_invalid");
@@ -91,6 +105,7 @@ try {
   process.stdout.write(`${JSON.stringify({
     outcome: "indeterminate",
     providerMessageId: null,
+    providerSafeReplayUntil: null,
   })}\n`);
   process.exitCode = 1;
 }

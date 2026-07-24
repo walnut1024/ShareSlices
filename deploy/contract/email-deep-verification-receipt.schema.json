@@ -30,6 +30,10 @@
     "providerMessageId": {
       "type": ["string", "null"]
     },
+    "providerSafeReplayUntil": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
     "startedAt": { "type": "string", "format": "date-time" },
     "completedAt": { "type": "string", "format": "date-time" }
   },
@@ -44,13 +48,33 @@
         "not": {
           "anyOf": [
             { "required": ["completedAt"] },
-            { "required": ["providerMessageId"] }
+            { "required": ["providerMessageId"] },
+            { "required": ["providerSafeReplayUntil"] }
           ]
         }
       },
       "else": {
-        "required": ["completedAt", "providerMessageId"],
+        "required": [
+          "completedAt",
+          "providerMessageId",
+          "providerSafeReplayUntil"
+        ],
         "not": { "required": ["startedAt"] }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": { "const": "provider_accepted" },
+          "adapter": { "const": "resend" }
+        },
+        "required": ["state", "adapter"]
+      },
+      "then": {
+        "properties": {
+          "providerMessageId": { "type": "string", "minLength": 1 },
+          "providerSafeReplayUntil": { "type": "string", "format": "date-time" }
+        }
       }
     }
   ]

@@ -155,6 +155,14 @@ because it contains the test recipient, and remove it after the receipt and
 provider/dashboard evidence have been retained under the deployment evidence
 policy. Provider acceptance proves submission only, not inbox delivery.
 
+For Resend, `provider_accepted` additionally requires a non-empty provider
+message ID and a future provider-safe replay cutoff derived from the frozen
+logical-delivery idempotency window. A missing, expired, or malformed cutoff is
+recorded as indeterminate. SMTP uses the same exclusive receipt as its durable
+one-shot boundary because SMTP has no equivalent provider idempotency key.
+Neither probe depends on API readiness; the short-lived executor invokes the
+configured transport directly.
+
 ## Product deep smoke
 
 The stateful product smoke is forbidden in core and pre-traffic verification.
