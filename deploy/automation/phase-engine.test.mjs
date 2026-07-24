@@ -109,6 +109,26 @@ test("resumes from checkpoints without repeating a completed migration", async (
   );
 });
 
+test("repeating a fully checkpointed apply is idempotent and executes no provider writes", async () => {
+  const runtime = harness({completed: ["migration", "public-runtime"]});
+  runtime.executePhase = async () => assert.fail("completed phases must not execute again");
+  const result = await applyDeploymentPlan({
+    plan: plan(),
+    authorizedPlanDigest: `sha256:${"a".repeat(64)}`,
+    ...runtime,
+  });
+  assert.equal(result.outcome, "succeeded");
+  assert.deepEqual(result.phases, [
+    {phase: "migration", outcome: "already_completed"},
+    {phase: "public-runtime", outcome: "already_completed"},
+  ]);
+  assert.equal(
+    runtime.calls.some(([operation, checkpoint]) =>
+      operation === "record" && checkpoint.state === "running"),
+    false,
+  );
+});
+
 test("returns an explicit external reconciler handoff without later phases", async () => {
   const runtime = harness();
   runtime.executePhase = async ({ phase }) => ({
