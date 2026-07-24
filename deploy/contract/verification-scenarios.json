@@ -251,6 +251,22 @@
       }
     },
     {
+      "id": "viewer-cache-deep-verification",
+      "level": "deep",
+      "appliesTo": ["kubernetes", "cloudflare"],
+      "capability": "viewer-cache",
+      "requiredWhenEnabled": true,
+      "disabledExpectation": "fail_closed",
+      "mutating": true,
+      "authorization": "fenced isolated delivery-mode-bound deep authorization",
+      "ownership": "release, operation, fence, nonce, and exact test-owned Viewer resources",
+      "cleanup": "remove every positively owned Viewer fixture after pass or failure",
+      "owner": {
+        "capability": "artifact-viewer",
+        "requirement": "Disable Preview and Viewer caching"
+      }
+    },
+    {
       "id": "deployment-drift-drill",
       "level": "deep",
       "appliesTo": ["kubernetes", "cloudflare"],

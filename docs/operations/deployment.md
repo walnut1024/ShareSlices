@@ -174,6 +174,26 @@ blocks the result. Evidence records step digests and resource counts, never
 Artifact identifiers, Publication identifiers, content, credentials, or raw
 provider diagnostics.
 
+## Viewer cache deep verification
+
+Viewer cache and current-state transitions are forbidden in core verification.
+An Adapter may run them only with isolated deep authorization bound to one
+delivery mode, release, operation, positive fencing token, nonce, and exact
+positively owned Viewer fixtures.
+
+The same contract applies to Kubernetes direct ingress, Kubernetes external
+CDN, Cloudflare `web-assets-only`, and Cloudflare
+`web-and-public-viewer-bytes`. It verifies full-body internal-cache behavior,
+Range/`206` bypass, and a prior cache hit followed by Unpublish, expiry,
+replacement, or restriction. Only the last Cloudflare mode expects an internal
+Viewer-byte cache; every mode must preserve current authorization and outward
+`no-store` behavior.
+
+Cleanup runs after success or failure and must account for every authorized
+fixture exactly. Evidence records the delivery mode, stable check names, and
+digests without retaining Artifact, Publication, object, or provider
+identifiers.
+
 ## Processing failure drills
 
 Duplicate-wake, lost-wake, Container-termination, stale-fence, and follow-on-work
