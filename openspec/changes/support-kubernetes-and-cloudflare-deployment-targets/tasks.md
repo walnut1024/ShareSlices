@@ -333,7 +333,7 @@ rather than numeric section order:
 - [ ] 14.5 Verify Gallery independently from core health and keep it disabled unless actual registrable-site, credential, governance, content, and network gates pass.
 - [ ] 14.6 Implement explicitly authorized deep smoke for Upload, processing, Preview, Publish, Viewer, Unpublish, Gallery eligibility or fail-closed behavior, and cleanup of only test-owned data.
 - [ ] 14.7 Add deep SMTP delivery and Resend provider-acceptance probes with test recipients, redacted evidence, durable delivery and idempotency-window checks, disabled-tracking evidence, and no dependency on API request readiness.
-- [ ] 14.8 Add synthetic duplicate-wake, lost-wake, Container-termination, stale-fence, and follow-on-work checks only to explicitly authorized pre-traffic verification or isolated release drills, never default core verification.
+- [x] 14.8 Add synthetic duplicate-wake, lost-wake, Container-termination, stale-fence, and follow-on-work checks only to explicitly authorized pre-traffic verification or isolated release drills, never default core verification.
 - [ ] 14.9 Add drift drills for Kubernetes resources, Cloudflare versions/routes/bindings, configuration digests, and deployment records.
 - [x] 14.10 Add failure drills for migration failure, dependency outage, incorrect CDN caching, Resend rate limiting, SMTP outage, unsafe Gallery topology, and incompatible rollback.
 - [x] 14.11 Prove ordinary apply refuses destructive prerequisite actions, retires only positively inventoried release-owned resources after traffic and schedule removal, and reports the separately reviewed recovery or migration procedure required for every other deletion.

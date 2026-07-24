@@ -139,6 +139,20 @@ because it contains the test recipient, and remove it after the receipt and
 provider/dashboard evidence have been retained under the deployment evidence
 policy. Provider acceptance proves submission only, not inbox delivery.
 
+## Processing failure drills
+
+Duplicate-wake, lost-wake, Container-termination, stale-fence, and follow-on-work
+probes are forbidden in core verification. A target Adapter may invoke the
+shared processing failure-drill contract only from an isolated pre-traffic or
+deep release drill with an exact release, operation, positive fencing token,
+nonce, and list of positively owned probe resources.
+
+Every probe must return durable evidence before the next begins. Cleanup runs
+after both success and failure and must account for every authorized probe
+resource. Missing or indeterminate cleanup overrides a passing probe result and
+blocks activation. Drill output records evidence digests and resource counts,
+not job payloads, object keys, credentials, or raw provider diagnostics.
+
 ## Configuration and release inputs
 
 The versioned deployment schema is

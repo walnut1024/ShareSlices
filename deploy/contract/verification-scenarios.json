@@ -203,6 +203,22 @@
         "capability": "account-entry",
         "requirement": "Durable and idempotent email delivery"
       }
+    },
+    {
+      "id": "background-processing-failure-drill",
+      "level": "deep",
+      "appliesTo": ["kubernetes", "cloudflare"],
+      "capability": "background-processing",
+      "requiredWhenEnabled": true,
+      "disabledExpectation": "fail_closed",
+      "mutating": true,
+      "authorization": "fenced isolated pre-traffic or deep authorization",
+      "ownership": "release, operation, fence, nonce, and positively owned probe resources",
+      "cleanup": "remove every positively owned probe job and object while retaining redacted evidence",
+      "owner": {
+        "capability": "deployment-orchestration",
+        "requirement": "Verify one product contract across deployment targets"
+      }
     }
   ]
 }
