@@ -239,6 +239,25 @@ provider mutations and must retain their redacted evidence during representative
 pre-traffic acceptance; the shared contract alone is not evidence that either
 provider drill ran.
 
+## Deployment telemetry contract
+
+Deployment telemetry uses one redacted record shape across Compose, Kubernetes,
+and Cloudflare. Stable events cover operation lease/fence and phase, migration
+head, job backlog and leases, Queue/DLQ, trigger delay, Container startup and
+runtime, database connections, R2 usage, SMTP, Kubernetes readiness,
+provider-limit headroom, cost risk, and Resend health.
+
+Each event accepts only its exact scalar attribute set and numeric alert
+thresholds that name a numeric attribute. Nested provider diagnostics and
+undeclared attributes are rejected. A Resend quota or account-health
+classification may be non-unknown only when its source is a provider response
+or fresh operator evidence; without either, emit `unknown` rather than
+replaying historical plan or dashboard facts.
+
+This record contract does not itself collect observations. Target and runtime
+Adapters must emit every applicable event and tests must prove their thresholds
+before unified telemetry task 14.13 is complete.
+
 ## Configuration and release inputs
 
 The versioned deployment schema is
