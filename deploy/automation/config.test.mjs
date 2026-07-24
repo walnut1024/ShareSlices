@@ -69,6 +69,23 @@ test("rejects Cloudflare execution bounds above operator safety caps", async () 
   );
 });
 
+test("binds Cloudflare Resend evidence to one sender, team, domain, and key revision", async () => {
+  for (const mutate of [
+    (value) => { value.cloudflare.email.senderAddress = "no-reply@other.test"; },
+    (value) => { value.cloudflare.email.operatorEvidence.teamNamespace = "other-team"; },
+    (value) => { value.cloudflare.email.operatorEvidence.sendingDomain = "other.test"; },
+    (value) => { value.cloudflare.email.operatorEvidence.keyRevision = "previous"; },
+  ]) {
+    const config = await readFixture("deployment.cloudflare.valid.json");
+    mutate(config);
+    await assert.rejects(
+      validateDeploymentConfig(config),
+      (error) => error instanceof DeploymentConfigError &&
+        error.message.includes("Resend sender"),
+    );
+  }
+});
+
 test("rejects unsupported schema versions before target discovery", async () => {
   const config = await readFixture("deployment.cloudflare.valid.json");
   config.schemaVersion = "shareslices.deployment/v2";

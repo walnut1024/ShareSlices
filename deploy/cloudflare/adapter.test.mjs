@@ -103,7 +103,7 @@ test("doctor performs only read-only checks and returns qualified observations",
     resolveHost: async () => ["192.0.2.1"],
     probeTls: async () => ({status: 200}),
     ownershipMatrix: qualifiedOwnership,
-    now: () => new Date("2026-07-24T00:00:00Z"),
+    now: () => new Date("2026-07-24T12:00:00Z"),
     probeReleaseStoreAccess: async () => true,
     observeProvider: async ({account}) => ({
       workersPaid: true,
@@ -246,6 +246,42 @@ test("doctor rejects stale or insufficient account-plan Upload evidence", async 
     result.checks.find(({id}) => id === "cloudflare-static-assets-limits")
       ?.evidence.source,
     "release-static",
+  );
+});
+
+test("doctor rejects stale or mismatched Resend operator evidence without sending", async () => {
+  const stale = structuredClone(config);
+  stale.cloudflare.email.operatorEvidence.observedAt = "2026-07-20T00:00:00Z";
+  const adapter = createCloudflareAdapter({
+    runCommand: commandRunner([]),
+    resolveHost: async () => ["192.0.2.1"],
+    probeTls: async () => ({status: 200}),
+    ownershipMatrix: qualifiedOwnership,
+    now: () => new Date("2026-07-24T00:00:00Z"),
+    probeReleaseStoreAccess: async () => true,
+    observeProvider: async () => ({
+      workersPaid: true,
+      privateR2: true,
+      distinctSites: true,
+      zonesReady: true,
+      queuesReady: true,
+      workers: qualifiedWorkerControls,
+      queues: qualifiedQueueControls,
+      limits: {},
+    }),
+  });
+  const result = await adapter.doctor({
+    config: stale,
+    prerequisites: discoverPrerequisites(stale),
+    release,
+  });
+  assert.deepEqual(
+    result.checks.find(({id}) => id === "cloudflare-resend-configuration"),
+    {
+      id: "cloudflare-resend-configuration",
+      state: "unavailable",
+      reasonCode: "cloudflare_resend_evidence_unknown_stale_or_mismatched",
+    },
   );
 });
 

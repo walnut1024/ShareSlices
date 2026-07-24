@@ -371,10 +371,38 @@ export function createCloudflareAdapter({
             "release_store_read_unavailable",
           ),
     );
-    checks.push(available("cloudflare-resend-reference", {
-      revision: config.cloudflare.email.resend.revision,
-      valueResolved: false,
-    }));
+    const email = config.cloudflare.email;
+    const resendEvidence = email.operatorEvidence;
+    const resendObservedAt = Date.parse(resendEvidence.observedAt);
+    const resendEvidenceCurrent =
+      Number.isFinite(resendObservedAt) &&
+      now().getTime() - resendObservedAt >= 0 &&
+      now().getTime() - resendObservedAt <=
+        resendEvidence.maximumAgeSeconds * 1_000;
+    const resendReady =
+      email.endpoint === "https://api.resend.com/emails" &&
+      email.trackingDisabled === true &&
+      resendEvidenceCurrent &&
+      resendEvidence.domainVerified === true &&
+      resendEvidence.trackingDisabled === true &&
+      resendEvidence.accountOperational === true &&
+      resendEvidence.teamNamespace === email.teamNamespace &&
+      resendEvidence.sendingDomain === email.sendingDomain &&
+      resendEvidence.keyRevision === email.resend.revision;
+    checks.push(
+      resendReady
+        ? available("cloudflare-resend-configuration", {
+            source: "operator-evidenced",
+            revision: email.resend.revision,
+            transportRevision: email.transportRevision,
+            observedAt: resendEvidence.observedAt,
+            valueResolved: false,
+          })
+        : unavailable(
+            "cloudflare-resend-configuration",
+            "cloudflare_resend_evidence_unknown_stale_or_mismatched",
+          ),
+    );
     if (config.cloudflare.edgeCdn.mode === "web-and-public-viewer-bytes") {
       checks.push(warning("cloudflare-viewer-byte-cache-measurement", "cloudflare_cache_measurement_pending", {
         maximumViewerAssetBytes: config.cloudflare.edgeCdn.maximumViewerAssetBytes,

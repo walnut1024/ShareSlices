@@ -80,6 +80,20 @@ test("keeps provider IDs unresolved until authoritative observation", async () =
     prerequisite.desired.releaseStoreReference,
     config.cloudflare.releaseStore,
   );
+  const jobs = bundle.phases[2].resources.find(
+    ({logicalId}) =>
+      logicalId === `cloudflare/worker/${config.cloudflare.workers.jobs}`,
+  );
+  assert.deepEqual(jobs.desired.email, {
+    adapter: "resend",
+    endpoint: "https://api.resend.com/emails",
+    teamNamespace: "shareslices-production",
+    senderAddress: "no-reply@mail.example.test",
+    sendingDomain: "mail.example.test",
+    transportRevision: "resend-v1",
+    trackingDisabled: true,
+    secretReference: config.cloudflare.email.resend,
+  });
   assert.deepEqual(bundle.unresolvedProviderInputs, [
     "hyperdrive-id",
     "r2-bucket-observations",

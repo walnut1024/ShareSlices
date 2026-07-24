@@ -135,6 +135,18 @@ export async function renderCloudflareBundle({config, release}) {
         triggerAttached: false,
         cpuMilliseconds:
           config.cloudflare.costControls.workerCpuMilliseconds[role],
+        ...(role === "jobs" ? {
+          email: {
+            adapter: config.cloudflare.email.adapter,
+            endpoint: config.cloudflare.email.endpoint,
+            teamNamespace: config.cloudflare.email.teamNamespace,
+            senderAddress: config.cloudflare.email.senderAddress,
+            sendingDomain: config.cloudflare.email.sendingDomain,
+            transportRevision: config.cloudflare.email.transportRevision,
+            trackingDisabled: config.cloudflare.email.trackingDisabled,
+            secretReference: config.cloudflare.email.resend,
+          },
+        } : {}),
       },
       {securitySensitive: true},
     )),

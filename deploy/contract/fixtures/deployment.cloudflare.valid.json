@@ -90,7 +90,23 @@
     "releaseStore": { "ref": "secret://release-store/deploy-pull", "revision": "5" },
     "email": {
       "adapter": "resend",
-      "resend": { "ref": "secret://resend/sending", "revision": "2" }
+      "endpoint": "https://api.resend.com/emails",
+      "teamNamespace": "shareslices-production",
+      "senderAddress": "no-reply@mail.example.test",
+      "sendingDomain": "mail.example.test",
+      "transportRevision": "resend-v1",
+      "trackingDisabled": true,
+      "resend": { "ref": "secret://resend/sending", "revision": "2" },
+      "operatorEvidence": {
+        "observedAt": "2026-07-24T00:00:00Z",
+        "maximumAgeSeconds": 86400,
+        "teamNamespace": "shareslices-production",
+        "sendingDomain": "mail.example.test",
+        "keyRevision": "2",
+        "domainVerified": true,
+        "trackingDisabled": true,
+        "accountOperational": true
+      }
     },
     "edgeCdn": {
       "mode": "web-assets-only",

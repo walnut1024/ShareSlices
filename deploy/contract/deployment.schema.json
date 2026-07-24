@@ -567,10 +567,60 @@
         "email": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["adapter", "resend"],
+          "required": [
+            "adapter",
+            "endpoint",
+            "teamNamespace",
+            "senderAddress",
+            "sendingDomain",
+            "transportRevision",
+            "trackingDisabled",
+            "resend",
+            "operatorEvidence"
+          ],
           "properties": {
             "adapter": { "const": "resend" },
-            "resend": { "$ref": "#/$defs/secretReference" }
+            "endpoint": { "const": "https://api.resend.com/emails" },
+            "teamNamespace": { "type": "string", "minLength": 1 },
+            "senderAddress": { "type": "string", "format": "email" },
+            "sendingDomain": {
+              "type": "string",
+              "pattern": "^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z]{2,63}$"
+            },
+            "transportRevision": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+            },
+            "trackingDisabled": { "const": true },
+            "resend": { "$ref": "#/$defs/secretReference" },
+            "operatorEvidence": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "observedAt",
+                "maximumAgeSeconds",
+                "teamNamespace",
+                "sendingDomain",
+                "keyRevision",
+                "domainVerified",
+                "trackingDisabled",
+                "accountOperational"
+              ],
+              "properties": {
+                "observedAt": { "type": "string", "format": "date-time" },
+                "maximumAgeSeconds": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2592000
+                },
+                "teamNamespace": { "type": "string", "minLength": 1 },
+                "sendingDomain": { "type": "string", "minLength": 1 },
+                "keyRevision": { "type": "string", "minLength": 1 },
+                "domainVerified": { "type": "boolean" },
+                "trackingDisabled": { "type": "boolean" },
+                "accountOperational": { "type": "boolean" }
+              }
+            }
           }
         },
         "edgeCdn": {

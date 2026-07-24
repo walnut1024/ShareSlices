@@ -114,6 +114,20 @@ export async function validateDeploymentConfig(value) {
   }
   if (value.target === "cloudflare") {
     const controls = value.cloudflare.costControls;
+    const email = value.cloudflare.email;
+    const senderDomain = email.senderAddress.split("@").at(-1)?.toLowerCase();
+    const evidence = email.operatorEvidence;
+    if (
+      senderDomain !== email.sendingDomain.toLowerCase() ||
+      evidence.teamNamespace !== email.teamNamespace ||
+      evidence.sendingDomain.toLowerCase() !== email.sendingDomain.toLowerCase() ||
+      evidence.keyRevision !== email.resend.revision
+    ) {
+      throw new DeploymentConfigError(
+        "deployment_config_invalid",
+        "Cloudflare Resend sender, team, domain, key revision, and operator evidence must describe one transport.",
+      );
+    }
     const workerCpu = controls.workerCpuMilliseconds;
     if (
       ["application", "content", "jobs"].some(
