@@ -164,6 +164,73 @@ function projectCronSafety(config, provider, phaseSteps, now) {
   });
 }
 
+function projectVerifier(phaseSteps) {
+  const checkpoints = (phaseSteps ?? []).filter(({step}) => [
+    "terminal-observed",
+    "triggers-isolated",
+    "cleanup-observed",
+    "queues-deleted",
+    "worker-deleted",
+  ].includes(step));
+  const byStep = new Map(checkpoints.map((checkpoint) => [
+    checkpoint.step,
+    checkpoint,
+  ]));
+  const terminal = byStep.get("terminal-observed");
+  const cleanup = byStep.get("cleanup-observed");
+  const isolated = byStep.get("triggers-isolated");
+  const blocking = checkpoints.filter(({state}) =>
+    ["isolated_orphan", "indeterminate"].includes(state)
+  );
+  const complete =
+    terminal?.state === "completed" &&
+    terminal.evidence?.outcome === "passed" &&
+    isolated?.state === "completed" &&
+    cleanup?.state === "completed" &&
+    cleanup.evidence?.cleanupState === "complete" &&
+    cleanup.evidence?.quiescenceReached === true &&
+    cleanup.evidence?.activeInvocations === 0 &&
+    cleanup.evidence?.tombstoneRetained === true &&
+    byStep.get("queues-deleted")?.state === "completed" &&
+    byStep.get("worker-deleted")?.state === "completed";
+  return Object.freeze({
+    status: blocking.length > 0
+      ? "blocked"
+      : complete
+        ? "complete"
+        : checkpoints.length > 0
+          ? "pending"
+          : "unobserved",
+    nonce: typeof terminal?.evidence?.nonce === "string"
+      ? terminal.evidence.nonce
+      : typeof cleanup?.evidence?.nonce === "string"
+        ? cleanup.evidence.nonce
+        : null,
+    terminal: terminal?.state === "completed"
+      ? terminal.evidence?.outcome ?? "unknown"
+      : "unobserved",
+    triggersIsolated: isolated?.state === "completed",
+    cleanup: cleanup?.state === "completed"
+      ? cleanup.evidence?.cleanupState ?? "unknown"
+      : "unobserved",
+    quiescenceReached: cleanup?.state === "completed"
+      ? cleanup.evidence?.quiescenceReached === true
+      : false,
+    tombstone: cleanup?.state === "completed" &&
+      cleanup.evidence?.tombstoneRetained === true
+      ? "retained"
+      : "unobserved",
+    resourcesDeleted:
+      byStep.get("queues-deleted")?.state === "completed" &&
+      byStep.get("worker-deleted")?.state === "completed",
+    blockingSteps: Object.freeze(blocking.map(({phase, step, state}) => ({
+      phase,
+      step,
+      state,
+    }))),
+  });
+}
+
 export function createCloudflareStatusObserver({
   observeControl,
   observeProvider,
@@ -284,6 +351,14 @@ export function createCloudflareStatusObserver({
     const verificationPassed = control.phases?.some(
       ({phase, state}) => phase === "verification" && state === "completed",
     ) === true;
+    const verifier = projectVerifier(control.phaseSteps);
+    const orphans = verifier.blockingSteps.map(({phase, step, state}) => ({
+      logicalId: `cloudflare/verifier/${phase}/${step}`,
+      reasonCode: state === "isolated_orphan"
+        ? "cloudflare_verifier_isolated_orphan"
+        : "cloudflare_verifier_state_indeterminate",
+      blocking: true,
+    }));
     return Object.freeze({
       target: "cloudflare",
       desiredReleaseId,
@@ -298,7 +373,7 @@ export function createCloudflareStatusObserver({
         expectedSchemaHead: active?.compatibility?.schemaHead ?? null,
       },
       drift,
-      orphans: [],
+      orphans,
       configurationDigests: active?.configurationDigest
         ? [active.configurationDigest]
         : [],
@@ -311,6 +386,7 @@ export function createCloudflareStatusObserver({
           ? {queueRoles: config.cloudflare.queues}
           : {}),
         queues: provider.queues ?? {},
+        verifier,
         cronSafety: projectCronSafety(
           config,
           provider,

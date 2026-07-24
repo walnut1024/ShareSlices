@@ -125,6 +125,17 @@ test("projects an exact active Cloudflare release as verified", async () => {
       },
     },
     queues: {},
+    verifier: {
+      status: "unobserved",
+      nonce: null,
+      terminal: "unobserved",
+      triggersIsolated: false,
+      cleanup: "unobserved",
+      quiescenceReached: false,
+      tombstone: "unobserved",
+      resourcesDeleted: false,
+      blockingSteps: [],
+    },
     cronSafety: {
       controlPlaneState: "attached",
       propagationCompletion: "unobservable",
@@ -135,6 +146,98 @@ test("projects an exact active Cloudflare release as verified", async () => {
       reasonCode: "cloudflare_cron_safety_checkpoint_unobserved",
     },
   });
+});
+
+test("reports a completed verifier with a retained tombstone as non-orphan state", async () => {
+  const nonce = "nonce_1234567890";
+  const status = await observer({
+    control: {
+      phaseSteps: [
+        {
+          phase: "verification",
+          step: "terminal-observed",
+          state: "completed",
+          evidence: {nonce, outcome: "passed"},
+        },
+        {
+          phase: "verification",
+          step: "triggers-isolated",
+          state: "completed",
+          evidence: {delivery: "paused"},
+        },
+        {
+          phase: "verification",
+          step: "cleanup-observed",
+          state: "completed",
+          evidence: {
+            nonce,
+            cleanupState: "complete",
+            quiescenceReached: true,
+            activeInvocations: 0,
+            tombstoneRetained: true,
+          },
+        },
+        {
+          phase: "verification",
+          step: "queues-deleted",
+          state: "completed",
+          evidence: {state: "queues-deleted"},
+        },
+        {
+          phase: "verification",
+          step: "worker-deleted",
+          state: "completed",
+          evidence: {state: "worker-deleted"},
+        },
+      ],
+    },
+  })({config});
+  assert.deepEqual(status.provider.verifier, {
+    status: "complete",
+    nonce,
+    terminal: "passed",
+    triggersIsolated: true,
+    cleanup: "complete",
+    quiescenceReached: true,
+    tombstone: "retained",
+    resourcesDeleted: true,
+    blockingSteps: [],
+  });
+  assert.deepEqual(status.orphans, []);
+});
+
+test("reports isolated and indeterminate verifier checkpoints as blocking orphans", async () => {
+  const status = await observer({
+    control: {
+      phaseSteps: [
+        {
+          phase: "verification",
+          step: "triggers-isolated",
+          state: "isolated_orphan",
+          evidence: {isolation: "confirmed"},
+        },
+        {
+          phase: "verification",
+          step: "cleanup-observed",
+          state: "indeterminate",
+          evidence: {cleanupState: "unknown"},
+        },
+      ],
+    },
+  })({config});
+  assert.equal(status.provider.verifier.status, "blocked");
+  assert.deepEqual(status.orphans, [
+    {
+      logicalId: "cloudflare/verifier/verification/triggers-isolated",
+      reasonCode: "cloudflare_verifier_isolated_orphan",
+      blocking: true,
+    },
+    {
+      logicalId: "cloudflare/verifier/verification/cleanup-observed",
+      reasonCode: "cloudflare_verifier_state_indeterminate",
+      blocking: true,
+    },
+  ]);
 });
 
 test("projects elapsed and remaining Cron safety time from an exact control-plane checkpoint", async () => {

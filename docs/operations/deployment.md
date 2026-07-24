@@ -301,6 +301,14 @@ completed control-plane readback checkpoint whose state and exact schedule set
 still match the provider observation. Without that checkpoint, safety-window
 state is explicitly unknown.
 
+Cloudflare verifier status is projected from the current fenced operation's
+durable phase-step checkpoints. A passed terminal nonce, confirmed trigger
+isolation, zero-active-invocation quiescence, completed cleanup, retained
+terminal tombstone, and deleted ephemeral Queue and Worker resources form a
+complete verifier result. The expected retained tombstone is not an orphan.
+An `isolated_orphan` or `indeterminate` checkpoint is reported as a blocking
+orphan without exposing raw verifier evidence.
+
 Cloudflare R2 telemetry queries the official GraphQL Analytics operations and
 storage datasets for the configured private Artifact and deployment-state
 buckets over a bounded window. It records aggregate requests and current
