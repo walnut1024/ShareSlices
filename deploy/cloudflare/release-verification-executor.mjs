@@ -11,6 +11,7 @@ export class CloudflareReleaseVerificationError extends Error {
 const orderedSteps = Object.freeze([
   "worker-deployed",
   "queue-provisioned",
+  "probe-initialized",
   "message-published",
   "terminal-observed",
   "triggers-isolated",
@@ -162,6 +163,7 @@ function requireWorkerDeletion(value, expectedName) {
 export function createCloudflareReleaseVerificationExecutor({
   workerLifecycle,
   queueLifecycle,
+  initializeProbe,
   observeUntilTerminal,
   observeUntilCleanup,
 } = {}) {
@@ -180,6 +182,7 @@ export function createCloudflareReleaseVerificationExecutor({
     queueLifecycle?.deleteAfterQuiescence,
     "Queue deletion",
   );
+  requireFunction(initializeProbe, "probe initialization");
   requireFunction(observeUntilTerminal, "terminal observation");
   requireFunction(observeUntilCleanup, "cleanup observation");
 
@@ -244,6 +247,23 @@ export function createCloudflareReleaseVerificationExecutor({
       checkpoints.set(step, {step, state: "completed", evidence});
       return evidence;
     };
+    const mutateIdempotently = async (step, runningEvidence, operation) => {
+      const existing = checkpoints.get(step);
+      if (existing?.state === "completed") return existing.evidence;
+      await assertLease();
+      if (existing?.state !== "running") {
+        await recordStepCheckpoint({
+          step,
+          state: "running",
+          evidence: runningEvidence,
+        });
+      }
+      const evidence = await operation();
+      await assertLease();
+      await recordStepCheckpoint({step, state: "completed", evidence});
+      checkpoints.set(step, {step, state: "completed", evidence});
+      return evidence;
+    };
 
     let worker = completedEvidence(checkpoints, "worker-deployed");
     let queue = completedEvidence(checkpoints, "queue-provisioned");
@@ -265,6 +285,16 @@ export function createCloudflareReleaseVerificationExecutor({
           deliveryPaused: true,
         },
         () => provisionQueue(lifecycleInput),
+      );
+      await mutateIdempotently(
+        "probe-initialized",
+        {
+          nonce: message.nonce,
+          releaseId: message.releaseId,
+          fence: message.fence,
+          subFence: message.subFence,
+        },
+        () => initializeProbe({lease: lifecycleInput.lease, message}),
       );
       await mutate(
         "message-published",

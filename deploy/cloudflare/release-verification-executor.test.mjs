@@ -13,6 +13,14 @@ const lifecycleInput = {
   fence: 7,
   queueName: "shareslices-verify-aaaaaaaaaaaa-7",
   deadLetterQueueName: "shareslices-verify-dlq-aaaaaaaaaaaa-7",
+  lease: {
+    installationId: "shareslices",
+    operationId: "operation-1",
+    owner: "controller-1",
+    target: "cloudflare",
+    desiredReleaseId: releaseId,
+    fencingToken: 7,
+  },
 };
 const message = {
   nonce: "nonce_123456789012",
@@ -74,6 +82,16 @@ function harness({existing = [], failPublish = false} = {}) {
         return {state: "queues-deleted"};
       },
     },
+    initializeProbe: async () => {
+      calls.push("probe.initialize");
+      return {
+        nonce: message.nonce,
+        releaseId,
+        fence: 7,
+        subFence: 3,
+        state: "active",
+      };
+    },
     observeUntilTerminal: async () => ({
       ...message,
       terminal: true,
@@ -118,6 +136,7 @@ test("runs the route-free verifier lifecycle in cleanup-safe order", async () =>
     [
       "worker.deploy",
       "queue.provision",
+      "probe.initialize",
       "queue.publish",
       "queue.isolate",
       "queue.delete",
@@ -173,6 +192,17 @@ test("retries an interrupted read-only terminal observation", async () => {
     {step: "worker-deployed", state: "completed", evidence: worker},
     {step: "queue-provisioned", state: "completed", evidence: queue},
     {
+      step: "probe-initialized",
+      state: "completed",
+      evidence: {
+        nonce: message.nonce,
+        releaseId,
+        fence: 7,
+        subFence: 3,
+        state: "active",
+      },
+    },
+    {
       step: "message-published",
       state: "completed",
       evidence: {state: "delivery-resumed", nonce: message.nonce},
@@ -188,6 +218,28 @@ test("retries an interrupted read-only terminal observation", async () => {
   assert.equal(runtime.calls.includes("worker.deploy"), false);
   assert.equal(runtime.calls.includes("queue.publish"), false);
   assert.equal(runtime.checkpoints.get("terminal-observed").state, "completed");
+});
+
+test("retries an interrupted exact-idempotent probe initialization", async () => {
+  const runtime = harness({existing: [
+    {step: "worker-deployed", state: "completed", evidence: worker},
+    {step: "queue-provisioned", state: "completed", evidence: queue},
+    {
+      step: "probe-initialized",
+      state: "running",
+      evidence: {
+        nonce: message.nonce,
+        releaseId,
+        fence: 7,
+        subFence: 3,
+      },
+    },
+  ]});
+  await runtime.execute();
+  assert.equal(runtime.calls.includes("probe.initialize"), true);
+  assert.equal(runtime.calls.includes("worker.deploy"), false);
+  assert.equal(runtime.calls.includes("queue.provision"), false);
+  assert.equal(runtime.checkpoints.get("probe-initialized").state, "completed");
 });
 
 test("fails closed on wrong terminal identity or incomplete cleanup", async () => {
@@ -206,6 +258,13 @@ test("fails closed on wrong terminal identity or incomplete cleanup", async () =
       pauseAndDetach: async () => ({handle: {...queue, consumer: null}}),
       deleteAfterQuiescence: async () => ({state: "queues-deleted"}),
     },
+    initializeProbe: async () => ({
+      nonce: message.nonce,
+      releaseId,
+      fence: 7,
+      subFence: 3,
+      state: "active",
+    }),
     observeUntilTerminal: async () => ({
       ...message,
       nonce: "wrong_nonce_123456",
