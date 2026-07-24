@@ -123,7 +123,8 @@ function requireContainerImages(images, accountId) {
         image.reference,
       ) ||
       !image.reference.startsWith(`registry.cloudflare.com/${accountId}/`) ||
-      !/^sha256:[a-f0-9]{64}$/.test(image.contentDigest)
+      !/^sha256:[a-f0-9]{64}$/.test(image.contentDigest) ||
+      !/^build-[a-f0-9]{16,64}$/.test(image.buildIdentity)
     ) {
       throw new Error("cloudflare_container_image_identity_invalid");
     }
@@ -285,6 +286,39 @@ export async function generateStagedWorkerConfigs(input) {
     },
   };
   const controls = input.config.cloudflare.costControls;
+  if (
+    typeof input.jobsContractRevision !== "string" ||
+    input.jobsContractRevision.length === 0
+  ) {
+    throw new Error("cloudflare_jobs_contract_revision_required");
+  }
+  const containerVariables = Object.fromEntries(
+    Object.entries(controls.containers).flatMap(([role, container]) => {
+      const prefix = role === "trustedProcessing"
+        ? "TRUSTED_PROCESSING"
+        : "THUMBNAIL";
+      const image = input.containerImages[role];
+      const slotPrefix = role === "trustedProcessing" ? "processing" : "thumbnail";
+      const stableSlots = Array.from(
+        {length: container.runnerSlots},
+        (_, index) => `${input.config.installationId}-${slotPrefix}-slot-${index + 1}`,
+      );
+      return [
+        [`${prefix}_RUNNER_SLOTS`, String(container.runnerSlots)],
+        [`${prefix}_STABLE_SLOTS`, JSON.stringify(stableSlots)],
+        [`${prefix}_OPERATOR_SAFETY_CAP_INSTANCES`, String(
+          container.operatorSafetyCapInstances,
+        )],
+        [`${prefix}_MAXIMUM_CLAIMS_PER_DRAIN`, String(container.maximumClaimsPerDrain)],
+        [`${prefix}_MAXIMUM_WALL_TIME_SECONDS`, String(container.maximumWallTimeSeconds)],
+        [`${prefix}_MAXIMUM_CONCURRENCY`, String(container.maximumConcurrency)],
+        [`${prefix}_SLEEP_AFTER_SECONDS`, String(container.sleepAfterSeconds)],
+        [`${prefix}_IMAGE_BUILD_IDENTITY`, image.buildIdentity],
+        [`${prefix}_IMAGE_REFERENCE`, image.reference],
+        [`${prefix}_IMAGE_CONTENT_DIGEST`, image.contentDigest],
+      ];
+    }),
+  );
   const jobs = {
     ...commonConfig(
       input.config,
@@ -341,12 +375,9 @@ export async function generateStagedWorkerConfigs(input) {
       JOB_OUTBOX_MAX_MESSAGES: String(controls.queue.maximumBatchSize),
       JOB_OUTBOX_LEASE_SECONDS: "30",
       JOB_OUTBOX_RETRY_DELAY_SECONDS: "30",
-      TRUSTED_PROCESSING_SLEEP_AFTER_SECONDS: String(
-        controls.containers.trustedProcessing.sleepAfterSeconds,
-      ),
-      THUMBNAIL_SLEEP_AFTER_SECONDS: String(
-        controls.containers.thumbnail.sleepAfterSeconds,
-      ),
+      CONTAINER_RELEASE_ID: input.releaseId,
+      CONTAINER_CONTRACT_REVISION: input.jobsContractRevision,
+      ...containerVariables,
     },
   };
   const validate = new Ajv({ allErrors: true, strict: false }).compile(

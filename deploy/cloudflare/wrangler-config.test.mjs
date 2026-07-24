@@ -42,11 +42,13 @@ function containerImages() {
       reference:
         "registry.cloudflare.com/0123456789abcdef0123456789abcdef/shareslices-processing:release-aaaaaaaa",
       contentDigest: `sha256:${"a".repeat(64)}`,
+      buildIdentity: "build-aaaaaaaaaaaaaaaa",
     },
     thumbnail: {
       reference:
         "registry.cloudflare.com/0123456789abcdef0123456789abcdef/shareslices-thumbnail:release-bbbbbbbb",
       contentDigest: `sha256:${"b".repeat(64)}`,
+      buildIdentity: "build-bbbbbbbbbbbbbbbb",
     },
   };
 }
@@ -58,6 +60,7 @@ async function generated() {
     privatePrerequisites: prerequisites(),
     containerImages: containerImages(),
     releaseId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    jobsContractRevision: "gallery-job/v1",
     configDirectory: "/release/cloudflare",
     workerDirectory: "/release/workers",
     staticAssetsDirectory: "/release/static-assets",
@@ -199,6 +202,28 @@ test("generates schema-valid staged App, Content, and immediate Jobs Wrangler in
   });
   assert.deepEqual(first.containerImages, containerImages());
   assert.equal("migrations" in first.configs.jobs, false);
+  assert.equal(first.configs.jobs.vars.TRUSTED_PROCESSING_RUNNER_SLOTS, "2");
+  assert.deepEqual(
+    JSON.parse(first.configs.jobs.vars.TRUSTED_PROCESSING_STABLE_SLOTS),
+    [
+      "example-cloudflare-processing-slot-1",
+      "example-cloudflare-processing-slot-2",
+    ],
+  );
+  assert.equal(
+    first.configs.jobs.vars.TRUSTED_PROCESSING_OPERATOR_SAFETY_CAP_INSTANCES,
+    "2",
+  );
+  assert.equal(
+    first.configs.jobs.vars.TRUSTED_PROCESSING_MAXIMUM_CLAIMS_PER_DRAIN,
+    "8",
+  );
+  assert.equal(first.configs.jobs.vars.THUMBNAIL_MAXIMUM_WALL_TIME_SECONDS, "300");
+  assert.equal(
+    first.configs.jobs.vars.CONTAINER_RELEASE_ID,
+    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  );
+  assert.equal(first.configs.jobs.vars.CONTAINER_CONTRACT_REVISION, "gallery-job/v1");
   assert.equal(
     first.configs.app.vars.CONTENT_FINGERPRINT_KEY_CURRENT_REVISION,
     "3",
@@ -225,6 +250,7 @@ test("rejects drifted or unsafe Terraform prerequisite outputs", async () => {
       },
       containerImages: containerImages(),
       releaseId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      jobsContractRevision: "gallery-job/v1",
       configDirectory: "/release/cloudflare",
       workerDirectory: "/release/workers",
       staticAssetsDirectory: "/release/static-assets",
@@ -257,6 +283,7 @@ test("writes complete staged configs outside the deployable Static Assets tree",
       privatePrerequisites: prerequisites(),
       containerImages: containerImages(),
       releaseId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      jobsContractRevision: "gallery-job/v1",
       configDirectory: output,
       workerDirectory: workers,
       staticAssetsDirectory: assets,
@@ -296,6 +323,7 @@ test("writes complete staged configs outside the deployable Static Assets tree",
         privatePrerequisites: prerequisites(),
         containerImages: containerImages(),
         releaseId: generated.configs.app.vars.SERVICE_VERSION,
+        jobsContractRevision: "gallery-job/v1",
         configDirectory: output,
         workerDirectory: workers,
         staticAssetsDirectory: assets,
@@ -308,6 +336,7 @@ test("writes complete staged configs outside the deployable Static Assets tree",
         privatePrerequisites: prerequisites(),
         containerImages: containerImages(),
         releaseId: generated.configs.app.vars.SERVICE_VERSION,
+        jobsContractRevision: "gallery-job/v1",
         configDirectory: resolve(assets, "private-config"),
         workerDirectory: workers,
         staticAssetsDirectory: assets,
