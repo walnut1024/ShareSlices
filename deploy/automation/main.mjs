@@ -2,6 +2,7 @@
 
 import {pathToFileURL} from "node:url";
 
+import {createCloudflareAdapter} from "../cloudflare/adapter.mjs";
 import {createKubernetesAdapter} from "../kubernetes/adapter.mjs";
 import {
   createOciImageAvailabilityProbe,
@@ -90,8 +91,12 @@ export function createProductionKubernetesAdapter({
 
 export function createProductionExecutor({
   kubernetesAdapter = createProductionKubernetesAdapter(),
+  cloudflareAdapter = createCloudflareAdapter(),
 } = {}) {
-  return createLifecycleExecutor({kubernetes: kubernetesAdapter});
+  return createLifecycleExecutor({
+    kubernetes: kubernetesAdapter,
+    cloudflare: cloudflareAdapter,
+  });
 }
 
 export async function main(

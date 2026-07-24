@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import {mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
 import test from "node:test";
 
 import {exitCodes} from "./cli.mjs";
@@ -32,17 +35,87 @@ test("production entrypoint registers Kubernetes and emits one machine-readable 
   assert.equal(result.outcome, "succeeded");
 });
 
-test("production entrypoint fails closed for a target whose Adapter is not registered", async () => {
+test("production entrypoint registers Cloudflare without hiding unavailable prerequisites", async () => {
   const output = [];
   const exitCode = await main(
     ["doctor", "--config", "deploy/contract/fixtures/deployment.cloudflare.valid.json"],
     {write: (value) => output.push(value)},
-    createProductionExecutor({kubernetesAdapter: adapter()}),
+    createProductionExecutor({
+      kubernetesAdapter: adapter(),
+      cloudflareAdapter: adapter({
+        doctor: async () => ({
+          checks: [{
+            id: "workers-paid",
+            state: "unavailable",
+            reasonCode: "cloudflare_workers_paid_unproven",
+          }],
+          database: null,
+        }),
+      }),
+    }),
   );
   assert.equal(exitCode, exitCodes.prerequisiteUnavailable);
   const result = JSON.parse(output[0]);
-  assert.equal(result.reason.code, "deployment_target_adapter_unavailable");
+  assert.equal(result.reason.code, "deployment_prerequisite_unavailable");
   assert.equal(result.target, "cloudflare");
+  assert.equal(result.data.checks.some(({id}) => id === "workers-paid"), true);
+});
+
+test("production entrypoint renders a complete canonical Cloudflare bundle", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "shareslices-cloudflare-render-"));
+  try {
+    const fixture = JSON.parse(await readFile(
+      new URL("../contract/fixtures/release.valid.json", import.meta.url),
+      "utf8",
+    ));
+    const artifactNames = [
+      ["app-worker-bundle", "worker-bundle"],
+      ["content-worker-bundle", "worker-bundle"],
+      ["jobs-worker-bundle", "worker-bundle"],
+      ["static-assets", "static-assets"],
+      ["trusted-processing-image", "oci-image"],
+      ["thumbnail-image", "oci-image"],
+    ];
+    fixture.artifacts = artifactNames.map(([name, artifactKind], index) => {
+      const contentDigest = `sha256:${String(index + 1).repeat(64)}`;
+      return {
+        name,
+        artifactKind,
+        ...(artifactKind === "oci-image" ? {platforms: ["linux/amd64"]} : {}),
+        contentDigest,
+        providerIdentity: {
+          kind: "digest",
+          value: contentDigest,
+          qualified: true,
+          mutable: false,
+        },
+      };
+    });
+    const releasePath = join(directory, "release.json");
+    await writeFile(releasePath, JSON.stringify(fixture));
+    const output = [];
+
+    const exitCode = await main(
+      [
+        "render",
+        "--config",
+        "deploy/contract/fixtures/deployment.cloudflare.valid.json",
+        "--release",
+        releasePath,
+      ],
+      {write: (value) => output.push(value)},
+      createProductionExecutor({kubernetesAdapter: adapter()}),
+    );
+
+    assert.equal(exitCode, exitCodes.succeeded);
+    const result = JSON.parse(output[0]);
+    assert.equal(result.outcome, "succeeded");
+    assert.equal(result.data.bundle.schemaVersion, "shareslices.cloudflare-target-bundle/v1");
+    assert.match(result.data.bundleDigest, /^sha256:[a-f0-9]{64}$/);
+    assert.equal(JSON.stringify(result).includes("secretValue"), false);
+  } finally {
+    await rm(directory, {recursive: true, force: true});
+  }
 });
 
 test("production Kubernetes planning requires an explicit file Secret root", async () => {
