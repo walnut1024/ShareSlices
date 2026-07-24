@@ -8,7 +8,11 @@ import {
   handoffContainerWake,
   type ContainerSlotBindings,
 } from "./container-slot-controller.js";
-import { drainCloudflareJobOutbox, type CloudflareWakeQueue } from "./job-outbox.js";
+import {
+  drainCloudflareJobOutbox,
+  recoverLostCloudflareJobWakes,
+  type CloudflareWakeQueue,
+} from "./job-outbox.js";
 import { createCloudflareAuthenticationEmailHandler, createCloudflareJobsDrains } from "./jobs.js";
 import { createCloudflareJobsEntrypoint } from "./jobs-runtime.js";
 import { createCloudflareLogger } from "./logger.js";
@@ -20,6 +24,7 @@ export type CloudflareJobsBindings = CloudflareAuthenticationEmailBindings & Con
   JOB_OUTBOX_MAX_MESSAGES: string;
   JOB_OUTBOX_LEASE_SECONDS: string;
   JOB_OUTBOX_RETRY_DELAY_SECONDS: string;
+  JOB_OUTBOX_LOST_WAKE_AFTER_SECONDS: string;
   SERVICE_VERSION: string;
   DEPLOYMENT_ENVIRONMENT: string;
 }>;
@@ -106,6 +111,18 @@ export function createCloudflareJobsWorker() {
             expiredBefore: new Date(),
             limit: positiveInteger("job_outbox_max_messages", bindings.JOB_OUTBOX_MAX_MESSAGES),
           });
+          const recoveredWakeCount = await recoverLostCloudflareJobWakes({
+            databaseClients: connection,
+            acceptedLanes: ["authentication-email", "artifact-processing", "thumbnail"],
+            lostAfterSeconds: positiveInteger(
+              "job_outbox_lost_wake_after_seconds",
+              bindings.JOB_OUTBOX_LOST_WAKE_AFTER_SECONDS,
+            ),
+            maxMessages: positiveInteger(
+              "job_outbox_max_messages",
+              bindings.JOB_OUTBOX_MAX_MESSAGES,
+            ),
+          });
           const result = await drainCloudflareJobOutbox({
             databaseClients: connection,
             queue: bindings.JOB_WAKE_QUEUE,
@@ -127,6 +144,7 @@ export function createCloudflareJobsWorker() {
               "shareslices.job_outbox.published": result.published,
               "shareslices.job_outbox.remaining": result.remaining,
               "shareslices.processing.recovered_lease_count": recoveredLeaseCount,
+              "shareslices.job_outbox.recovered_wake_count": recoveredWakeCount,
             },
           });
           await gate.complete(claim, {state: "completed"});

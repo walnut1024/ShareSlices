@@ -19,6 +19,66 @@ export type CloudflareOutboxDrainResult = Readonly<{
   remaining: boolean;
 }>;
 
+export async function recoverLostCloudflareJobWakes(input: Readonly<{
+  databaseClients: DatabaseClientSource;
+  acceptedLanes: readonly CloudflareJobWakeLane[];
+  lostAfterSeconds: number;
+  maxMessages: number;
+}>): Promise<number> {
+  if (
+    input.acceptedLanes.length === 0 ||
+    new Set(input.acceptedLanes).size !== input.acceptedLanes.length
+  ) {
+    throw new Error("invalid_cloudflare_outbox_accepted_lanes");
+  }
+  if (!Number.isSafeInteger(input.lostAfterSeconds) || input.lostAfterSeconds <= 0) {
+    throw new Error("invalid_cloudflare_outbox_lost_wake_seconds");
+  }
+  if (!Number.isSafeInteger(input.maxMessages) || input.maxMessages <= 0) {
+    throw new Error("invalid_cloudflare_outbox_max_messages");
+  }
+  return input.databaseClients.withClient(async (client) => {
+    const recovered = await client.query(
+      `with candidates as (
+         select outbox.lane, outbox.durable_job_id
+         from cloudflare_job_dispatch_outbox outbox
+         where outbox.state = 'published'
+           and outbox.lane = any($1::text[])
+           and outbox.published_at <= now() - ($2 * interval '1 second')
+           and (
+             (outbox.lane = 'authentication-email' and exists (
+               select 1 from authentication_email_delivery delivery
+               where delivery.id = outbox.durable_job_id
+                 and delivery.state = 'pending' and delivery.available_at <= now()
+             ))
+             or (outbox.lane = 'artifact-processing' and exists (
+               select 1 from artifact_processing_job job
+               where job.id = outbox.durable_job_id
+                 and job.state = 'queued' and job.available_at <= now()
+             ))
+             or (outbox.lane = 'thumbnail' and exists (
+               select 1 from content_bundle_thumbnail_job job
+               where job.id = outbox.durable_job_id
+                 and job.state = 'queued' and job.available_at <= now()
+             ))
+           )
+         order by outbox.published_at, outbox.lane, outbox.durable_job_id
+         for update of outbox skip locked
+         limit $3
+       )
+       update cloudflare_job_dispatch_outbox outbox
+       set state = 'pending', wake_id = null, available_at = now(),
+           failure_reason_code = 'published_wake_unobserved',
+           published_at = null, updated_at = now()
+       from candidates
+       where outbox.lane = candidates.lane
+         and outbox.durable_job_id = candidates.durable_job_id`,
+      [input.acceptedLanes, input.lostAfterSeconds, input.maxMessages],
+    );
+    return recovered.rowCount ?? 0;
+  });
+}
+
 export async function drainCloudflareJobOutbox(input: Readonly<{
   databaseClients: DatabaseClientSource;
   queue: CloudflareWakeQueue;

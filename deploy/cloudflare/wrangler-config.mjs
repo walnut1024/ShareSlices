@@ -375,6 +375,7 @@ export async function generateStagedWorkerConfigs(input) {
       JOB_OUTBOX_MAX_MESSAGES: String(controls.queue.maximumBatchSize),
       JOB_OUTBOX_LEASE_SECONDS: "30",
       JOB_OUTBOX_RETRY_DELAY_SECONDS: "30",
+      JOB_OUTBOX_LOST_WAKE_AFTER_SECONDS: "300",
       CONTAINER_RELEASE_ID: input.releaseId,
       CONTAINER_CONTRACT_REVISION: input.jobsContractRevision,
       ...containerVariables,
