@@ -153,6 +153,29 @@ resource. Missing or indeterminate cleanup overrides a passing probe result and
 blocks activation. Drill output records evidence digests and resource counts,
 not job payloads, object keys, credentials, or raw provider diagnostics.
 
+## Deployment drift drills
+
+Deployment drift injection is forbidden in core verification and against a
+serving production release. A target Adapter may invoke the shared drift-drill
+contract only with isolated deep authorization bound to one release, operation,
+positive fencing token, nonce, and a positively owned fixture set for every
+target dimension.
+
+Kubernetes acceptance injects and detects resource, configuration-digest, and
+deployment-record drift. Cloudflare acceptance injects and detects Worker
+version, route, binding, configuration-digest, and deployment-record drift.
+Every dimension starts from a clean observed baseline, is restored immediately
+after its observation, and is observed clean again before the next dimension.
+An indeterminate injection, missing detection, incomplete restoration, or
+unverified clean state blocks the drill. Restoration ambiguity overrides an
+otherwise useful detection result.
+
+The shared runner records stable dimensions and reason codes without resource
+identifiers or provider diagnostics. Concrete target Adapters own the live
+provider mutations and must retain their redacted evidence during representative
+pre-traffic acceptance; the shared contract alone is not evidence that either
+provider drill ran.
+
 ## Configuration and release inputs
 
 The versioned deployment schema is

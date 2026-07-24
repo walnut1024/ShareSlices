@@ -219,6 +219,22 @@
         "capability": "deployment-orchestration",
         "requirement": "Verify one product contract across deployment targets"
       }
+    },
+    {
+      "id": "deployment-drift-drill",
+      "level": "deep",
+      "appliesTo": ["kubernetes", "cloudflare"],
+      "capability": "deployment-drift",
+      "requiredWhenEnabled": true,
+      "disabledExpectation": "fail_closed",
+      "mutating": true,
+      "authorization": "fenced isolated deep authorization",
+      "ownership": "target-specific positively owned drift fixtures",
+      "cleanup": "restore and reobserve a clean baseline after every injected dimension",
+      "owner": {
+        "capability": "deployment-orchestration",
+        "requirement": "Verify one product contract across deployment targets"
+      }
     }
   ]
 }
