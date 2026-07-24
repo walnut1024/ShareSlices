@@ -77,6 +77,14 @@ test("refuses missing evidence, zero margin, or tombstone shorter than quiescenc
     }),
     /tombstone_not_beyond_quiescence/,
   );
+  assert.throws(
+    () => deriveVerifierLifecycleBounds({
+      ...valid,
+      queueMessageRetention: observed(1_000),
+      containerInvocation: observed(660),
+    }),
+    /quiescence_exceeds_invocation_window/,
+  );
 });
 
 test("Queue pause evidence never claims already in-flight work drained", () => {

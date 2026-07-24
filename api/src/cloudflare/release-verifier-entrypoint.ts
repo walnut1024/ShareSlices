@@ -57,6 +57,9 @@ type ReleaseCleanupMessage = Readonly<{
 }>;
 
 const MAXIMUM_EVIDENCE_BYTES = 256 * 1024;
+// Leave four minutes of the documented 15-minute Queue invocation window for
+// probe, terminal fencing, and final cleanup work.
+const MAXIMUM_QUIESCENCE_SECONDS = 11 * 60;
 
 function isNonEmptyString(value: unknown, maximum = 512): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= maximum;
@@ -113,6 +116,8 @@ function parseMessage(value: unknown): ReleaseVerificationMessage | null {
     Number((lifecycle as Record<string, unknown>).tombstoneSeconds) <= 0 ||
     !Number.isSafeInteger((lifecycle as Record<string, unknown>).quiescenceSeconds) ||
     Number((lifecycle as Record<string, unknown>).quiescenceSeconds) <= 0 ||
+    Number((lifecycle as Record<string, unknown>).quiescenceSeconds) >
+      MAXIMUM_QUIESCENCE_SECONDS ||
     Number((lifecycle as Record<string, unknown>).quiescenceSeconds) >=
       Number((lifecycle as Record<string, unknown>).tombstoneSeconds) ||
     Object.keys(expectedRecord).length !== 4 ||
@@ -318,7 +323,48 @@ function verifyEvidence(
   }
 }
 
-export function createCloudflareReleaseVerifier() {
+async function runCleanup(
+  binding: ServiceBinding,
+  scope: Readonly<{
+    nonce: string;
+    releaseId: string;
+    fence: number;
+  }>,
+): Promise<void> {
+  const response = await binding.fetch(
+    new Request(
+      "http://shareslices-jobs.internal/v1/release-verification/cleanup",
+      {
+        method: "POST",
+        headers: {"content-type": "application/json"},
+        body: JSON.stringify({
+          version: 1,
+          nonce: scope.nonce,
+          releaseId: scope.releaseId,
+          fence: scope.fence,
+        }),
+      },
+    ),
+  );
+  if (response.status !== 200) {
+    throw new Error("release_verifier_cleanup_rejected");
+  }
+  const body = await response.json() as Record<string, unknown>;
+  if (
+    body.state !== "complete" ||
+    body.cleanupState !== "complete" ||
+    body.nonce !== scope.nonce ||
+    body.releaseId !== scope.releaseId ||
+    body.fence !== scope.fence
+  ) {
+    throw new Error("release_verifier_cleanup_evidence_mismatch");
+  }
+}
+
+export function createCloudflareReleaseVerifier({
+  sleep = (milliseconds: number) =>
+    new Promise<void>((resolve) => setTimeout(resolve, milliseconds)),
+} = {}) {
   return Object.freeze({
     async queue(
       batch: CloudflareQueueBatch<unknown>,
@@ -333,34 +379,7 @@ export function createCloudflareReleaseVerifier() {
       }
       const cleanup = parseCleanupMessage(batch.messages[0]!.body);
       if (cleanup) {
-        const response = await bindings.JOBS_RELEASE_VERIFICATION.fetch(
-          new Request(
-            "http://shareslices-jobs.internal/v1/release-verification/cleanup",
-            {
-              method: "POST",
-              headers: {"content-type": "application/json"},
-              body: JSON.stringify({
-                version: 1,
-                nonce: cleanup.nonce,
-                releaseId: cleanup.releaseId,
-                fence: cleanup.fence,
-              }),
-            },
-          ),
-        );
-        if (response.status !== 200) {
-          throw new Error("release_verifier_cleanup_rejected");
-        }
-        const body = await response.json() as Record<string, unknown>;
-        if (
-          body.state !== "complete" ||
-          body.cleanupState !== "complete" ||
-          body.nonce !== cleanup.nonce ||
-          body.releaseId !== cleanup.releaseId ||
-          body.fence !== cleanup.fence
-        ) {
-          throw new Error("release_verifier_cleanup_evidence_mismatch");
-        }
+        await runCleanup(bindings.JOBS_RELEASE_VERIFICATION, cleanup);
         batch.messages[0]!.ack();
         return;
       }
@@ -427,6 +446,12 @@ export function createCloudflareReleaseVerifier() {
       ) {
         throw new Error("release_verifier_terminal_evidence_mismatch");
       }
+      await sleep(message.lifecycle.quiescenceSeconds * 1_000);
+      await runCleanup(bindings.JOBS_RELEASE_VERIFICATION, {
+        nonce: message.nonce,
+        releaseId: message.releaseId,
+        fence: message.fence,
+      });
       batch.messages[0]!.ack();
     },
   });

@@ -90,11 +90,23 @@ const evidence = {
 
 function fixture(overrides: Record<string, unknown> = {}) {
   const ack = vi.fn();
+  const sleep = vi.fn(async () => undefined);
   const serialized = canonicalJson(evidence);
   const evidenceDigest =
     `sha256:${createHash("sha256").update(serialized).digest("hex")}`;
-  const fetch = vi.fn(async (request: Request) =>
-    new URL(request.url).pathname.endsWith("/finalize")
+  const fetch = vi.fn(async (request: Request) => {
+    const pathname = new URL(request.url).pathname;
+    if (pathname.endsWith("/cleanup")) {
+      return Response.json({
+        version: 1,
+        state: "complete",
+        cleanupState: "complete",
+        nonce: scope.nonce,
+        releaseId: scope.releaseId,
+        fence: scope.fence,
+      });
+    }
+    return pathname.endsWith("/finalize")
       ? Response.json({
         version: 1,
         state: "terminal",
@@ -111,8 +123,8 @@ function fixture(overrides: Record<string, unknown> = {}) {
           "content-type": "application/json",
           "x-shareslices-evidence-digest": evidenceDigest,
         },
-      })
-  );
+      });
+  });
   const batch = {
     queue: "installation-verify-release-7",
     messages: [{
@@ -133,14 +145,14 @@ function fixture(overrides: Record<string, unknown> = {}) {
     ackAll: vi.fn(),
     retryAll: vi.fn(),
   };
-  return {ack, batch, fetch};
+  return {ack, batch, fetch, sleep};
 }
 
 describe("Cloudflare release-only verifier entrypoint", () => {
   it("calls Jobs only through its explicit Service Binding and acknowledges exact evidence", async () => {
-    const {ack, batch, fetch} = fixture();
+    const {ack, batch, fetch, sleep} = fixture();
 
-    await createCloudflareReleaseVerifier().queue(
+    await createCloudflareReleaseVerifier({sleep}).queue(
       batch,
       {
         JOBS_RELEASE_VERIFICATION: {fetch},
@@ -153,7 +165,7 @@ describe("Cloudflare release-only verifier entrypoint", () => {
       },
     );
 
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(3);
     const request = fetch.mock.calls[0]![0] as Request;
     expect(request.url).toBe(
       "http://shareslices-jobs.internal/v1/release-verification",
@@ -169,6 +181,17 @@ describe("Cloudflare release-only verifier entrypoint", () => {
       evidenceDigest:
         `sha256:${createHash("sha256").update(canonicalJson(evidence)).digest("hex")}`,
       ...lifecycle,
+    });
+    expect(sleep).toHaveBeenCalledWith(660_000);
+    const cleanup = fetch.mock.calls[2]![0] as Request;
+    expect(cleanup.url).toBe(
+      "http://shareslices-jobs.internal/v1/release-verification/cleanup",
+    );
+    expect(await cleanup.json()).toEqual({
+      version: 1,
+      nonce: scope.nonce,
+      releaseId: scope.releaseId,
+      fence: scope.fence,
     });
     expect(ack).toHaveBeenCalledOnce();
   });
@@ -225,6 +248,19 @@ describe("Cloudflare release-only verifier entrypoint", () => {
       context,
     )).rejects.toThrow("release_verifier_queue_scope_invalid");
     expect(wrongQueue.fetch).not.toHaveBeenCalled();
+
+    const unbounded = fixture({
+      lifecycle: {tombstoneSeconds: 1_000, quiescenceSeconds: 661},
+    });
+    await expect(verifier.queue(
+      unbounded.batch,
+      {
+        JOBS_RELEASE_VERIFICATION: {fetch: unbounded.fetch},
+        VERIFIER_QUEUE_NAME: unbounded.batch.queue,
+      },
+      context,
+    )).rejects.toThrow("release_verifier_message_invalid");
+    expect(unbounded.fetch).not.toHaveBeenCalled();
   });
 
   it("executes final cleanup only through the same private Jobs binding", async () => {
@@ -285,6 +321,47 @@ describe("Cloudflare release-only verifier entrypoint", () => {
 
     expect(fetch).toHaveBeenCalledOnce();
     expect(ack).toHaveBeenCalledOnce();
+  });
+
+  it("does not acknowledge a terminal nonce until quiescence cleanup succeeds", async () => {
+    const {ack, batch, fetch, sleep} = fixture();
+    fetch.mockImplementationOnce(async () => {
+      const serialized = canonicalJson(evidence);
+      return new Response(serialized, {
+        status: 200,
+        headers: {
+          "x-shareslices-evidence-digest":
+            `sha256:${createHash("sha256").update(serialized).digest("hex")}`,
+        },
+      });
+    });
+    fetch.mockImplementationOnce(async () => Response.json({
+      version: 1,
+      state: "terminal",
+      cleanupState: "quiescing",
+      nonce: scope.nonce,
+      releaseId: scope.releaseId,
+      fence: scope.fence,
+      terminalSubFence: scope.subFence + 1,
+      ...lifecycle,
+    }));
+    fetch.mockImplementationOnce(async () => new Response(null, {status: 409}));
+
+    await expect(createCloudflareReleaseVerifier({sleep}).queue(
+      batch,
+      {
+        JOBS_RELEASE_VERIFICATION: {fetch},
+        VERIFIER_QUEUE_NAME: batch.queue,
+      },
+      {
+        props: undefined,
+        waitUntil() {},
+        passThroughOnException() {},
+      },
+    )).rejects.toThrow("release_verifier_cleanup_rejected");
+
+    expect(sleep).toHaveBeenCalledWith(660_000);
+    expect(ack).not.toHaveBeenCalled();
   });
 
   it("exports Queue authority only and no public fetch or scheduled handler", () => {

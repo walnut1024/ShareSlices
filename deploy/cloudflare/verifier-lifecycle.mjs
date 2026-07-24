@@ -3,6 +3,7 @@ const evidenceClasses = new Set([
   "release-static",
   "operator-evidenced",
 ]);
+const maximumQuiescenceSeconds = 11 * 60;
 
 function observation(name, value) {
   if (
@@ -84,6 +85,11 @@ export function deriveVerifierLifecycleBounds(input) {
   const quiescenceBase = maximum(Object.entries(quiescenceInputs));
   const tombstoneSeconds = tombstoneBase.seconds + safetyMargin.seconds;
   const quiescenceSeconds = quiescenceBase.seconds + safetyMargin.seconds;
+  if (quiescenceSeconds > maximumQuiescenceSeconds) {
+    throw new Error(
+      "cloudflare_verifier_lifecycle_quiescence_exceeds_invocation_window",
+    );
+  }
   if (quiescenceSeconds >= tombstoneSeconds) {
     throw new Error(
       "cloudflare_verifier_lifecycle_tombstone_not_beyond_quiescence",
