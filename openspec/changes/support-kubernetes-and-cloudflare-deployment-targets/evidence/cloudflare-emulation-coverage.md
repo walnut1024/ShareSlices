@@ -52,3 +52,27 @@ require remote or deployed verification:
 Task 11.16 remains open until the staging-required rows have current redacted
 evidence and all disposable routes, triggers, consumers, and Workers are
 removed or disabled afterward.
+
+## Route-free Service Binding staging run
+
+On 2026-07-25, a bounded Workers Free staging run deployed two target Workers
+with `workers_dev = false`, Preview URLs disabled, and no routes, domains,
+Queues, or triggers. A third short-lived verifier Worker was the only
+`workers.dev` target and held exactly two Service Bindings to those Workers.
+
+One POST verification returned the expected App and Content role/version
+identities through the real Cloudflare Service Bindings. Direct requests to
+both target Workers' possible `workers.dev` hostnames returned 404, confirming
+that the targets were not publicly served there.
+
+Cleanup deleted the verifier first and then both targets. A fresh deployments
+read returned provider code `10007` for all three exact names, and the prior
+verifier URL returned 404. No route, Preview URL, Cron, Queue consumer,
+Container, custom domain, or retained Worker was created by this run. The
+checked prototype inputs remain under
+`deploy/cloudflare/prototypes/route-bindings/` so the same bounded test can be
+reviewed and repeated.
+
+This proves the staging Service Binding and private-target subset only. It does
+not satisfy the remaining edge Static Assets, version override, Hyperdrive,
+Queue/Cron control-plane, R2 transport, Container, or custom-domain rows.

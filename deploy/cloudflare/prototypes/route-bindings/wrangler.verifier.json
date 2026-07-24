@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../../node_modules/wrangler/config-schema.json",
+  "name": "shareslices-opsx-route-binding-verifier-20260725",
+  "main": "./verifier.mjs",
+  "compatibility_date": "2026-07-19",
+  "workers_dev": true,
+  "preview_urls": false,
+  "services": [
+    {
+      "binding": "APP",
+      "service": "shareslices-opsx-route-binding-app-20260725"
+    },
+    {
+      "binding": "CONTENT",
+      "service": "shareslices-opsx-route-binding-content-20260725"
+    }
+  ]
+}
