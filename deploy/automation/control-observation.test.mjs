@@ -54,6 +54,39 @@ test("PostgreSQL control observation distinguishes absent schema without mutatio
   assert.equal(calls.some(([, sql]) => /insert|update|delete/i.test(sql ?? "")), false);
 });
 
+test("Cloudflare control observation uses the direct database Secret without Kubernetes topology", async () => {
+  class FakeClient {
+    async connect() {}
+    async query() {
+      return {rows: [
+        {name: "shareslices_deployment_control_metadata", present: false},
+        {name: "shareslices_deployment_operation", present: false},
+        {name: "shareslices_deployment_phase_journal", present: false},
+        {name: "shareslices_deployment_release_record", present: false},
+      ]};
+    }
+    async end() {}
+  }
+  const observe = createPostgresControlObserver({
+    resolvers: {
+      secret: async () =>
+        "postgresql://user:password@cloudflare-direct.example.test/shareslices?sslmode=verify-full",
+    },
+    ClientClass: FakeClient,
+  });
+  const result = await observe({
+    config: {
+      target: "cloudflare",
+      installationId: "example-cloudflare",
+      shared: {
+        database: {ref: "secret://postgres/application", revision: "1"},
+      },
+      cloudflare: {},
+    },
+  });
+  assert.equal(result.controlSchema.state, "absent");
+});
+
 test("Kubernetes observation trusts only owned resources with checked desired digests", async () => {
   const desired = {
     apiVersion: "apps/v1",

@@ -5,7 +5,12 @@ import {join} from "node:path";
 import test from "node:test";
 
 import {exitCodes} from "./cli.mjs";
-import {createProductionExecutor, createProductionKubernetesAdapter, main} from "./main.mjs";
+import {
+  createProductionCloudflareAdapter,
+  createProductionExecutor,
+  createProductionKubernetesAdapter,
+  main,
+} from "./main.mjs";
 import {lifecycleOperations} from "./target-adapter.mjs";
 
 function adapter(overrides = {}) {
@@ -167,5 +172,64 @@ test("production Kubernetes rollback requires an explicit principal", async () =
   await assert.rejects(
     rollbackRelease({}),
     (error) => error.code === "deployment_principal_required",
+  );
+});
+
+test("production Cloudflare planning composes all three read-only state sources", async () => {
+  const calls = [];
+  let adapterOptions;
+  createProductionCloudflareAdapter({
+    environment: {SHARESLICES_SECRET_ROOT: "/deployment/secrets"},
+    createAdapter: (options) => {
+      adapterOptions = options;
+      return {};
+    },
+    createControlObserver: ({resolvers}) => async ({config}) => {
+      calls.push(["control", typeof resolvers.resolve, config.installationId]);
+      return {controlSchema: {state: "present", revision: "control"}};
+    },
+    createStateObserver: (sources) => {
+      calls.push(["compose-state", Object.keys(sources).sort()]);
+      return async (input) => ({sources, input});
+    },
+    createTerraformObserver: ({readState}) => {
+      calls.push(["terraform-observer", typeof readState]);
+      return async () => ({revision: "terraform", resources: []});
+    },
+    createWranglerObserver: ({readDeployments}) => {
+      calls.push(["wrangler-observer", typeof readDeployments]);
+      return async () => ({revision: "wrangler", resources: []});
+    },
+    readTerraformState: async () => ({}),
+    readWranglerDeployments: async () => [],
+  });
+  assert.equal(typeof adapterOptions.observeState, "function");
+  assert.deepEqual(calls.slice(0, 3), [
+    ["terraform-observer", "function"],
+    ["wrangler-observer", "function"],
+    ["compose-state", ["observeControl", "observeTerraform", "observeWrangler"]],
+  ]);
+});
+
+test("production Cloudflare control observation requires an explicit Secret root", async () => {
+  let sources;
+  createProductionCloudflareAdapter({
+    environment: {},
+    createAdapter: () => ({}),
+    createStateObserver: (value) => {
+      sources = value;
+      return async () => ({});
+    },
+    createTerraformObserver: () => async () => ({}),
+    createWranglerObserver: () => async () => ({}),
+  });
+  await assert.rejects(
+    sources.observeControl({
+      config: {
+        target: "cloudflare",
+        shared: {database: {ref: "secret://postgres/application", revision: "1"}},
+      },
+    }),
+    (error) => error.code === "deployment_secret_root_required",
   );
 });

@@ -185,7 +185,10 @@ export async function withPostgresControlClient(
 ) {
   return withResolvedSecret(config.shared.database, resolvers ?? {}, async (value) => {
     const database = parseDatabaseSecret(value);
-    if (database.host !== config.kubernetes.databaseEndpoint.host) {
+    if (
+      config.target === "kubernetes" &&
+      database.host !== config.kubernetes.databaseEndpoint.host
+    ) {
       throw new TargetAdapterError(
         "deployment_database_endpoint_mismatch",
         "Database Secret endpoint does not match the declared PostgreSQL host.",

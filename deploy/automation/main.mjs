@@ -3,6 +3,13 @@
 import {pathToFileURL} from "node:url";
 
 import {createCloudflareAdapter} from "../cloudflare/adapter.mjs";
+import {
+  createCloudflareTerraformStateReader,
+  createCloudflareWranglerDeploymentReader,
+} from "../cloudflare/provider-readers.mjs";
+import {createCloudflareStateObserver} from "../cloudflare/state-observation.mjs";
+import {createCloudflareTerraformObserver} from "../cloudflare/terraform-observation.mjs";
+import {createCloudflareWranglerObserver} from "../cloudflare/wrangler-observation.mjs";
 import {createKubernetesAdapter} from "../kubernetes/adapter.mjs";
 import {
   createOciImageAvailabilityProbe,
@@ -89,9 +96,43 @@ export function createProductionKubernetesAdapter({
   });
 }
 
+export function createProductionCloudflareAdapter({
+  environment = process.env,
+  createAdapter = createCloudflareAdapter,
+  createControlObserver = createPostgresControlObserver,
+  createStateObserver = createCloudflareStateObserver,
+  createTerraformObserver = createCloudflareTerraformObserver,
+  createWranglerObserver = createCloudflareWranglerObserver,
+  readTerraformState = createCloudflareTerraformStateReader(),
+  readWranglerDeployments = createCloudflareWranglerDeploymentReader(),
+} = {}) {
+  const resolvers = () => {
+    const root = environment.SHARESLICES_SECRET_ROOT;
+    if (!root) {
+      throw new TargetAdapterError(
+        "deployment_secret_root_required",
+        "Production Cloudflare observation requires SHARESLICES_SECRET_ROOT.",
+      );
+    }
+    return createFileSecretResolvers(root);
+  };
+  const observeControl = async ({config}) => {
+    validateSecretReferenceForFileResolution(config.shared.database);
+    return createControlObserver({resolvers: resolvers()})({config});
+  };
+  const observeState = createStateObserver({
+    observeControl,
+    observeTerraform: createTerraformObserver({readState: readTerraformState}),
+    observeWrangler: createWranglerObserver({
+      readDeployments: readWranglerDeployments,
+    }),
+  });
+  return createAdapter({observeState});
+}
+
 export function createProductionExecutor({
   kubernetesAdapter = createProductionKubernetesAdapter(),
-  cloudflareAdapter = createCloudflareAdapter(),
+  cloudflareAdapter = createProductionCloudflareAdapter(),
 } = {}) {
   return createLifecycleExecutor({
     kubernetes: kubernetesAdapter,
