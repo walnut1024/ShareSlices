@@ -80,20 +80,45 @@ function kubernetesObservation(status) {
 function queueObservation(status) {
   const roles = status.provider?.queueRoles;
   const queues = status.provider?.queues;
-  const ready = roles?.jobs ? queues?.[roles.jobs]?.metrics?.backlogCount : null;
+  const jobsQueue = roles?.jobs ? queues?.[roles.jobs] : null;
+  const ready = jobsQueue?.metrics?.backlogCount;
   const dlq = roles?.deadLetter
     ? queues?.[roles.deadLetter]?.metrics?.backlogCount
     : null;
-  if (!Number.isSafeInteger(ready) || !Number.isSafeInteger(dlq)) {
-    return observation("unknown", "cloudflare_queue_metrics_unobserved", {
+  const deliveryPaused = jobsQueue?.deliveryPaused;
+  const consumerCount = Array.isArray(jobsQueue?.consumers)
+    ? jobsQueue.consumers.length
+    : null;
+  if (
+    !Number.isSafeInteger(ready) ||
+    !Number.isSafeInteger(dlq) ||
+    typeof deliveryPaused !== "boolean" ||
+    !Number.isSafeInteger(consumerCount)
+  ) {
+    return observation("unknown", "cloudflare_queue_state_unobserved", {
       "queue.ready": null,
       "queue.dlq": null,
+      "queue.delivery_paused": null,
+      "queue.consumer_count": null,
+    });
+  }
+  if (deliveryPaused) {
+    return observation("warning", "cloudflare_queue_delivery_paused", {
+      "queue.ready": ready,
+      "queue.dlq": dlq,
+      "queue.delivery_paused": true,
+      "queue.consumer_count": consumerCount,
     });
   }
   return observation(
     dlq > 0 ? "warning" : "ok",
     dlq > 0 ? "cloudflare_dlq_nonempty" : "cloudflare_queue_observed",
-    {"queue.ready": ready, "queue.dlq": dlq},
+    {
+      "queue.ready": ready,
+      "queue.dlq": dlq,
+      "queue.delivery_paused": false,
+      "queue.consumer_count": consumerCount,
+    },
   );
 }
 

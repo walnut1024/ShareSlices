@@ -2,7 +2,12 @@ const eventDefinitions = Object.freeze({
   "deployment-operation": ["operation.id", "lease.fence", "phase"],
   migration: ["migration.head"],
   jobs: ["job.backlog", "job.active_leases"],
-  queue: ["queue.ready", "queue.dlq"],
+  queue: [
+    "queue.ready",
+    "queue.dlq",
+    "queue.delivery_paused",
+    "queue.consumer_count",
+  ],
   trigger: ["trigger.delay_seconds"],
   container: [
     "container.startup_ms",

@@ -57,7 +57,11 @@ test("projects actual Cloudflare ready and dead-letter backlogs", async () => {
     provider: {
       queueRoles: {jobs: "jobs-queue", deadLetter: "jobs-dlq"},
       queues: {
-        "jobs-queue": {metrics: {backlogCount: 7}},
+        "jobs-queue": {
+          deliveryPaused: false,
+          consumers: [{scriptName: "jobs-worker"}],
+          metrics: {backlogCount: 7},
+        },
         "jobs-dlq": {metrics: {backlogCount: 2}},
       },
       analytics: {
@@ -92,7 +96,12 @@ test("projects actual Cloudflare ready and dead-letter backlogs", async () => {
   });
   const queue = await observers.queue();
   assert.equal(queue.state, "warning");
-  assert.deepEqual(queue.attributes, {"queue.ready": 7, "queue.dlq": 2});
+  assert.deepEqual(queue.attributes, {
+    "queue.ready": 7,
+    "queue.dlq": 2,
+    "queue.delivery_paused": false,
+    "queue.consumer_count": 1,
+  });
   assert.deepEqual((await observers.trigger()).attributes, {
     "trigger.delay_seconds": 75,
   });
@@ -138,8 +147,37 @@ test("uses null unknown evidence instead of invented zero values", async () => {
   assert.deepEqual((await cloudflare.queue()).attributes, {
     "queue.ready": null,
     "queue.dlq": null,
+    "queue.delivery_paused": null,
+    "queue.consumer_count": null,
   });
   assert.equal((await cloudflare.container()).state, "unknown");
   assert.equal((await cloudflare["provider-limit"]()).state, "unknown");
   assert.equal((await cloudflare["cost-risk"]()).state, "unknown");
+});
+
+test("reports an observed Queue delivery pause without treating it as drained", async () => {
+  const observers = createStatusTelemetryObservers({
+    target: "cloudflare",
+    phases: [],
+    provider: {
+      queueRoles: {jobs: "jobs-queue", deadLetter: "jobs-dlq"},
+      queues: {
+        "jobs-queue": {
+          deliveryPaused: true,
+          consumers: [{scriptName: "jobs-worker"}],
+          metrics: {backlogCount: 3},
+        },
+        "jobs-dlq": {metrics: {backlogCount: 0}},
+      },
+    },
+  });
+  const queue = await observers.queue();
+  assert.equal(queue.state, "warning");
+  assert.equal(queue.reasonCode, "cloudflare_queue_delivery_paused");
+  assert.deepEqual(queue.attributes, {
+    "queue.ready": 3,
+    "queue.dlq": 0,
+    "queue.delivery_paused": true,
+    "queue.consumer_count": 1,
+  });
 });

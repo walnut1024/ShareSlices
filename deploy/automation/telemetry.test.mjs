@@ -14,7 +14,12 @@ const requiredAttributes = {
   "deployment-operation": {"operation.id": "operation-1", "lease.fence": 3, phase: "verify"},
   migration: {"migration.head": "0009"},
   jobs: {"job.backlog": 2, "job.active_leases": 1},
-  queue: {"queue.ready": 2, "queue.dlq": 0},
+  queue: {
+    "queue.ready": 2,
+    "queue.dlq": 0,
+    "queue.delivery_paused": false,
+    "queue.consumer_count": 1,
+  },
   trigger: {"trigger.delay_seconds": 4},
   container: {
     "container.startup_ms": 100,
@@ -185,18 +190,33 @@ test("rejects missing dimensions, nested diagnostics, invalid thresholds, and fu
     },
     {
       event: "queue",
-      attributes: {"queue.ready": 1, "queue.dlq": {secret: "value"}},
+      attributes: {
+        "queue.ready": 1,
+        "queue.dlq": {secret: "value"},
+        "queue.delivery_paused": false,
+        "queue.consumer_count": 1,
+      },
       thresholds: [],
     },
     {
       event: "queue",
-      attributes: {"queue.ready": 1, "queue.dlq": 0},
+      attributes: {
+        "queue.ready": 1,
+        "queue.dlq": 0,
+        "queue.delivery_paused": false,
+        "queue.consumer_count": 1,
+      },
       thresholds: [{metric: "queue.ready", direction: "above", warning: NaN, critical: 20}],
     },
     {
       event: "queue",
       observedAt: "2026-07-25T12:00:01.000Z",
-      attributes: {"queue.ready": 1, "queue.dlq": 0},
+      attributes: {
+        "queue.ready": 1,
+        "queue.dlq": 0,
+        "queue.delivery_paused": false,
+        "queue.consumer_count": 1,
+      },
       thresholds: [],
     },
   ]) {
