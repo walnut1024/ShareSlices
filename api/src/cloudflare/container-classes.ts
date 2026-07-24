@@ -20,6 +20,10 @@ function sleepAfterMilliseconds(name: string, value: string): number {
 abstract class PrivateShareSlicesContainer extends Container<ContainerBindings> {
   defaultPort = 8080;
   enableInternet = false;
+
+  override async onActivityExpired(): Promise<void> {
+    await this.stop("SIGTERM");
+  }
 }
 
 function embeddedIdentity(
