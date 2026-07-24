@@ -1,0 +1,1 @@
+globalThis.shareSlicesStaticAssetsPrototype = true;

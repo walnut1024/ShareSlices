@@ -76,3 +76,32 @@ reviewed and repeated.
 This proves the staging Service Binding and private-target subset only. It does
 not satisfy the remaining edge Static Assets, version override, Hyperdrive,
 Queue/Cron control-plane, R2 transport, Container, or custom-domain rows.
+
+## Static Assets edge staging run
+
+On 2026-07-25, a second bounded Workers Free staging run deployed one
+Static-Assets Worker with no custom route, Preview URL, Cron, Queue, R2,
+Hyperdrive, Container, or Secret binding. Its asset tree deliberately contained
+an `/api/shadow.txt` file while `run_worker_first` selected `/api/*` and
+`/runtime-config.json`.
+
+Observed edge responses proved:
+
+- `/api/shadow.txt` returned the Worker body rather than the colliding asset and
+  carried `Cache-Control: no-store`;
+- `/runtime-config.json` returned the dynamic Worker response with `no-store`;
+- `/assets/app.abc123.js` returned the checked static body with
+  `Cache-Control: public, max-age=31536000, immutable`; and
+- an unknown nested path used the SPA fallback and retained Static Assets'
+  revalidating `Cache-Control: public, max-age=0, must-revalidate`.
+
+`CF-Cache-Status` was observed only as corroborating provider metadata and was
+not used as the correctness assertion. Cleanup deleted the exact Worker, after
+which a deployments read returned provider code `10007` and the prior URL
+returned 404. The repeatable prototype is checked under
+`deploy/cloudflare/prototypes/static-assets/`.
+
+This completes the Static Assets precedence/header staging row of 11.16. It
+does not prove version overrides, Hyperdrive, Queue/Cron control-plane
+propagation, R2 transport, Containers, custom domains, or representative cache
+economics.
