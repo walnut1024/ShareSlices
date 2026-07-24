@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shareslices.example/deploy/contract/email-deep-verification-receipt.schema.json",
+  "title": "ShareSlices email deep-verification receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "state",
+    "nonce",
+    "adapter",
+    "recipientDigest"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "shareslices.email-deep-verification-receipt/v1"
+    },
+    "state": {
+      "enum": ["submitting", "provider_accepted", "indeterminate"]
+    },
+    "nonce": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{16,128}$"
+    },
+    "adapter": { "enum": ["smtp", "resend"] },
+    "recipientDigest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "providerMessageId": {
+      "type": ["string", "null"]
+    },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": "string", "format": "date-time" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "state": { "const": "submitting" } },
+        "required": ["state"]
+      },
+      "then": {
+        "required": ["startedAt"],
+        "not": {
+          "anyOf": [
+            { "required": ["completedAt"] },
+            { "required": ["providerMessageId"] }
+          ]
+        }
+      },
+      "else": {
+        "required": ["completedAt", "providerMessageId"],
+        "not": { "required": ["startedAt"] }
+      }
+    }
+  ]
+}

@@ -72,6 +72,14 @@ run = "pnpm run api:test"
 description = "Verify SMTP connectivity and optionally deliver a probe message"
 run = "node tools/run-smtp-check.mjs"
 
+[tasks.ops-email-deep-verify]
+description = "Send one explicitly authorized SMTP or Resend verification message"
+run = "node deploy/automation/email-deep-verification-cli.mjs"
+
+[tasks.ops-email-deep-authorize]
+description = "Create one short-lived email deep-verification authorization"
+run = "node deploy/automation/email-deep-verification-authorize.mjs"
+
 [tasks.web-test]
 description = "Run Web tests"
 run = "pnpm run web:test"

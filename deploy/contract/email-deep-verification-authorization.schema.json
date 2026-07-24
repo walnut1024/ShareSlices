@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shareslices.example/deploy/contract/email-deep-verification-authorization.schema.json",
+  "title": "ShareSlices email deep-verification authorization",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "acknowledgement",
+    "installationId",
+    "target",
+    "adapter",
+    "recipient",
+    "configurationDigest",
+    "nonce",
+    "issuedAt",
+    "expiresAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "shareslices.email-deep-verification-authorization/v1"
+    },
+    "acknowledgement": { "const": "send-one-transactional-email" },
+    "installationId": { "type": "string", "minLength": 1 },
+    "target": { "enum": ["kubernetes", "cloudflare"] },
+    "adapter": { "enum": ["smtp", "resend"] },
+    "recipient": { "type": "string", "format": "email" },
+    "configurationDigest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "nonce": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{16,128}$"
+    },
+    "issuedAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" }
+  }
+}

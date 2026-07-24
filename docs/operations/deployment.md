@@ -103,6 +103,42 @@ Read the durable phase and step checkpoints and use the applicable recovery
 procedure. An `external_reconciler_required` result means immutable GitOps
 artifacts were handed off; it does not mean the external owner promoted them.
 
+## Explicit email deep verification
+
+Ordinary `doctor` and `verify` never send email. To prove one enterprise SMTP
+submission or one Resend provider acceptance, an operator must create a
+short-lived authorization and a new one-shot receipt path:
+
+```sh
+mise run ops-email-deep-authorize -- \
+  --config deployment.json \
+  --recipient operator-owned@example.com \
+  --output /secure/email-probe-authorization.json
+
+SHARESLICES_EMAIL_DEEP_SECRET='<ephemeral SMTP URL or Resend sending key>' \
+mise run ops-email-deep-verify -- \
+  --config deployment.json \
+  --authorization /secure/email-probe-authorization.json \
+  --receipt /secure/email-probe-receipt.json
+```
+
+The authorization binds the installation, target, Adapter, recipient,
+configuration digest, nonce, and a maximum 15-minute window. For Resend, the
+configured operator evidence must still prove the exact team/domain/key
+revision, verified domain, disabled tracking, healthy team-shared rate and
+bounce/spam posture, unsuspended account, and same-team/domain rotation scope.
+The runtime sending key is not permitted to substitute for those administrative
+facts.
+
+The receipt path must not exist before the command. It is claimed with
+owner-only permissions before the provider call; an existing, interrupted, or
+indeterminate receipt forbids another automatic attempt. The receipt contains a
+recipient digest and optional provider message ID, never the recipient, message
+body, or Secret. Store the authorization as sensitive operational evidence,
+because it contains the test recipient, and remove it after the receipt and
+provider/dashboard evidence have been retained under the deployment evidence
+policy. Provider acceptance proves submission only, not inbox delivery.
+
 ## Configuration and release inputs
 
 The versioned deployment schema is

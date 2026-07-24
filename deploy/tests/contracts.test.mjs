@@ -20,6 +20,8 @@ const schemas = Object.fromEntries(
       "release.schema.json",
       "artifact-publication.schema.json",
       "recovery-marker.schema.json",
+      "email-deep-verification-authorization.schema.json",
+      "email-deep-verification-receipt.schema.json",
       "route-projection.schema.json",
       "cache-projection.schema.json",
       "verification-scenarios.schema.json",
@@ -286,6 +288,37 @@ test("recovery marker schema binds one database/object consistency cut", () => {
     databaseRevision: "lsn:0/16B6C50",
     objectRevision: "inventory:42",
     createdAt: "2026-07-22T01:00:00.000Z",
+  });
+});
+
+test("email deep verification requires a bounded explicit authorization and redacted receipt", () => {
+  assertValid("email-deep-verification-authorization.schema.json", {
+    schemaVersion: "shareslices.email-deep-verification-authorization/v1",
+    acknowledgement: "send-one-transactional-email",
+    installationId: "example",
+    target: "cloudflare",
+    adapter: "resend",
+    recipient: "operator@example.test",
+    configurationDigest: `sha256:${"a".repeat(64)}`,
+    nonce: "one-time-nonce-1234",
+    issuedAt: "2026-07-24T12:00:00.000Z",
+    expiresAt: "2026-07-24T12:15:00.000Z",
+  });
+  assertValid("email-deep-verification-receipt.schema.json", {
+    schemaVersion: "shareslices.email-deep-verification-receipt/v1",
+    state: "provider_accepted",
+    nonce: "one-time-nonce-1234",
+    adapter: "resend",
+    recipientDigest: `sha256:${"b".repeat(64)}`,
+    providerMessageId: "provider-1",
+    completedAt: "2026-07-24T12:01:00.000Z",
+  });
+  assertInvalid("email-deep-verification-receipt.schema.json", {
+    schemaVersion: "shareslices.email-deep-verification-receipt/v1",
+    state: "provider_accepted",
+    nonce: "one-time-nonce-1234",
+    adapter: "resend",
+    recipient: "operator@example.test",
   });
 });
 
