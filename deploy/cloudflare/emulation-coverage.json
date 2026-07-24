@@ -1,0 +1,87 @@
+{
+  "schemaVersion": "shareslices.cloudflare-emulation-coverage/v1",
+  "rows": [
+    {
+      "id": "app-route-and-static-fallback",
+      "classification": "local-contract",
+      "evidence": [
+        "api/tests/cloudflare-app-entrypoint.test.ts",
+        "deploy/cloudflare/wrangler-config.test.mjs"
+      ]
+    },
+    {
+      "id": "content-route-least-authority",
+      "classification": "local-contract",
+      "evidence": [
+        "api/tests/cloudflare-content-entrypoint.test.ts",
+        "deploy/cloudflare/content-authority.test.mjs"
+      ]
+    },
+    {
+      "id": "route-free-service-binding-version-evidence",
+      "classification": "local-contract",
+      "evidence": [
+        "api/tests/cloudflare-app-entrypoint.test.ts",
+        "api/tests/cloudflare-content-entrypoint.test.ts",
+        "api/tests/cloudflare-release-verifier-entrypoint.test.ts"
+      ]
+    },
+    {
+      "id": "jobs-queue-schedule-and-private-bindings",
+      "classification": "local-contract",
+      "evidence": [
+        "api/tests/cloudflare-jobs.test.ts",
+        "api/tests/cloudflare-scheduled-execution-gate.test.ts",
+        "deploy/cloudflare/wrangler-config.test.mjs"
+      ]
+    },
+    {
+      "id": "r2-api-and-private-object-contract",
+      "classification": "local-contract",
+      "evidence": [
+        "api/tests/r2-object-storage.test.ts",
+        "deploy/cloudflare/provider-observation.test.mjs"
+      ]
+    },
+    {
+      "id": "worker-runtime-bundle-compatibility",
+      "classification": "staging-required",
+      "reasonCode": "emulation_cannot_qualify_deployed_worker_runtime"
+    },
+    {
+      "id": "static-assets-edge-precedence-and-headers",
+      "classification": "staging-required",
+      "reasonCode": "emulation_cannot_qualify_edge_asset_delivery"
+    },
+    {
+      "id": "version-deployment-and-external-override",
+      "classification": "staging-required",
+      "reasonCode": "emulation_has_no_provider_version_deployment"
+    },
+    {
+      "id": "hyperdrive-origin-tls-freshness-and-budget",
+      "classification": "staging-required",
+      "reasonCode": "emulation_cannot_qualify_hyperdrive_origin"
+    },
+    {
+      "id": "queue-cron-control-plane-and-propagation",
+      "classification": "staging-required",
+      "reasonCode": "emulation_has_no_provider_control_plane"
+    },
+    {
+      "id": "r2-private-streaming-and-range",
+      "classification": "staging-required",
+      "reasonCode": "emulation_cannot_qualify_r2_provider_transport"
+    },
+    {
+      "id": "container-runtime-isolation-and-rollout",
+      "classification": "staging-required",
+      "reasonCode": "emulation_cannot_qualify_container_runtime"
+    },
+    {
+      "id": "custom-domain-and-distinct-site-routing",
+      "classification": "staging-required",
+      "reasonCode": "emulation_has_no_owned_domain_routing"
+    }
+  ]
+}
