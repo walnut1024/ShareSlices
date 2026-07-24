@@ -228,3 +228,34 @@ Durable Object `exports` compatibility.
 Current first-party reference:
 
 - [Workers Secrets](https://developers.cloudflare.com/workers/configuration/secrets/)
+
+## Jobs exports compatibility staging run
+
+On 2026-07-25, a minimal route-free Worker used one SQLite Durable Object
+declared through `exports`, with no Container, Secret, Queue, Cron, storage,
+network, or public binding. Wrangler 4.112.0 first rejected a configuration that
+declared both `migrations` and `exports` because the lifecycle mechanisms are
+mutually exclusive.
+
+After correcting the prototype to use only `exports`, local dry-run succeeded.
+A live `versions upload` against the absent script then failed with the explicit
+bootstrap error that a Worker must already exist. Immediate deploy created the
+script and reconciled the `ProbeObject` export. Against that bootstrapped
+script, the same `versions upload` succeeded and returned a distinct provider
+version ID.
+
+This disproves the earlier absolute statement that any configuration containing
+`exports` fails version upload. It proves only the minimal exports-only
+interface. It does not prove that the full Jobs configuration with Containers,
+Secrets, Queues, Hyperdrive, R2, and image rollout can safely stage, activate,
+or roll back. The trigger-isolated immediate Jobs default remains until that
+exact path is qualified.
+
+Cleanup deleted the Worker without creating a Durable Object instance. A fresh
+deployments read returned provider code `10007`. Repeatable inputs remain under
+`deploy/cloudflare/prototypes/jobs-exports/`.
+
+Current first-party references:
+
+- [Durable Object migrations](https://developers.cloudflare.com/durable-objects/reference/durable-objects-migrations/)
+- [Worker versions and deployments](https://developers.cloudflare.com/workers/versions-and-deployments/)
