@@ -68,6 +68,27 @@ describe("Cloudflare stable Container slot controller", () => {
     });
   });
 
+  it("bounds a wake storm to the configured stable Container identities", async () => {
+    const target = harness();
+    await Promise.all(Array.from({length: 100}, async (_, index) => {
+      await handoffContainerWake({
+        bindings: target.bindings,
+        wake: createCloudflareJobWake({
+          lane: "artifact-processing",
+          durableJobId: `job-${index}`,
+          wakeId: `${String(index).padStart(8, "0")}-aaaa-4aaa-8aaa-aaaaaaaaaaaa`,
+        }),
+        authorizeWake: async () => undefined,
+        recordHandoff: async () => undefined,
+      });
+    }));
+
+    expect(new Set(target.names)).toEqual(
+      new Set(["processing-1", "processing-2"]),
+    );
+    expect(target.names).toHaveLength(100);
+  });
+
   it("does not record completion when Container handoff fails", async () => {
     const target = harness(new Response(null, {status: 503}));
     const recordHandoff = vi.fn(async () => undefined);

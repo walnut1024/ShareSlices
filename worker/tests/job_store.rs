@@ -754,10 +754,18 @@ async fn expired_leases_requeue_remaining_attempts_and_fail_exhausted_jobs() {
         .expect("claim query")
         .expect("first claim");
     database.expire_lease().await;
+    drop(store);
+    let replacement_store = PostgresJobStore::new(database.pool.clone());
 
-    assert_eq!(store.recover_expired_leases(10).await.expect("recovery"), 1);
     assert_eq!(
-        store
+        replacement_store
+            .recover_expired_leases(10)
+            .await
+            .expect("replacement recovery"),
+        1
+    );
+    assert_eq!(
+        replacement_store
             .recover_expired_leases(10)
             .await
             .expect("repeat recovery"),
@@ -765,7 +773,7 @@ async fn expired_leases_requeue_remaining_attempts_and_fail_exhausted_jobs() {
     );
     assert_eq!(database.job_state().await, "queued");
 
-    let second = store
+    let second = replacement_store
         .claim_next("worker-b", Duration::from_secs(30))
         .await
         .expect("second claim query")
@@ -773,7 +781,13 @@ async fn expired_leases_requeue_remaining_attempts_and_fail_exhausted_jobs() {
     assert_eq!(second.attempt_number, 2);
     database.expire_lease().await;
 
-    assert_eq!(store.recover_expired_leases(10).await.expect("recovery"), 1);
+    assert_eq!(
+        replacement_store
+            .recover_expired_leases(10)
+            .await
+            .expect("recovery"),
+        1
+    );
     assert_eq!(database.job_state().await, "failed");
     assert_eq!(database.upload_state().await, "failed");
     let summary: String = sqlx::query_scalar(

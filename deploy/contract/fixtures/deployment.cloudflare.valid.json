@@ -154,7 +154,7 @@
           "maximumClaimsPerDrain": 8,
           "maximumWallTimeSeconds": 600,
           "maximumConcurrency": 2,
-          "sleepAfterSeconds": 60
+          "sleepAfterSeconds": 660
         },
         "thumbnail": {
           "instanceType": "standard-1",
@@ -164,7 +164,7 @@
           "maximumClaimsPerDrain": 2,
           "maximumWallTimeSeconds": 300,
           "maximumConcurrency": 1,
-          "sleepAfterSeconds": 30
+          "sleepAfterSeconds": 360
         }
       },
       "workerFirstRouteFamilies": [

@@ -323,7 +323,7 @@ async fn compatible_raw_hit_skips_archive_read_and_reuses_worker_validation_evid
 }
 
 #[tokio::test]
-async fn lease_loss_after_writes_cannot_publish_bundle_metadata() {
+async fn ephemeral_runner_loss_keeps_private_input_and_rejects_unfenced_output() {
     let storage = TrackingStorage::new(Duration::ZERO);
     storage
         .inner
@@ -340,6 +340,14 @@ async fn lease_loss_after_writes_cannot_publish_bundle_metadata() {
 
     assert!(matches!(error, ProcessingError::LeaseLost));
     assert!(bundles.commits.lock().await.is_empty());
+    assert!(
+        storage
+            .inner
+            .read_raw_archive("raw/upload-1.zip")
+            .await
+            .is_ok(),
+        "the durable private input remains available to a replacement runner"
+    );
     assert!(
         storage
             .inner

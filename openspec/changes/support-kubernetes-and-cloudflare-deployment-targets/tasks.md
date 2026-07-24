@@ -228,10 +228,10 @@ rather than numeric section order:
 - [x] 7.7 Implement the Queue consumer and Container controller with a stable bounded slot pool so each wake rereads PostgreSQL, starts or nudges one Durable Object-backed Container, records controller handoff separately from job completion, and never creates one Container identity per job. Expand the Jobs publisher's accepted-lane allowlist only in the same change that registers and tests the corresponding consumer; an unsupported outbox row must remain pending rather than being acknowledged or published without a handler.
 - [x] 7.8 Implement scheduled dispatch recovery, expired-lease recovery, dead-letter visibility, and a PostgreSQL-backed scheduled-execution gate whose closed state makes late or duplicate Cron invocations fenced no-ops.
 - [x] 7.9 Add duplicate, delayed, reordered, stale, lost, and concurrent wake tests proving one fenced authoritative outcome.
-- [ ] 7.10 Add Container replacement, temporary-disk loss, wake-storm, deadline, and termination tests proving all recoverable state remains in PostgreSQL and private storage.
+- [x] 7.10 Add Container replacement, temporary-disk loss, wake-storm, deadline, and termination tests proving all recoverable state remains in PostgreSQL and private storage.
 - [ ] 7.11 Preserve the thumbnail renderer revision, Chromium/font bundle, fixed viewport, request blocking, 10-second readiness deadline, split capture/output capabilities, and fenced immutable output through Kubernetes resident mode and the Cloudflare secretless Container plus execution broker.
 - [ ] 7.12 Keep internal capture and the execution broker private on both targets and test that no public ingress or Worker route reaches either surface even with a valid-looking capture path or grant.
-- [ ] 7.13 Set and test explicit Container `sleepAfter`, idle `stop()`, `SIGTERM` draining, forced-stop deadline behavior, ephemeral-disk recovery, remaining-work wake-up, and `ssh.enabled = false` with no authorized keys or SSH listener.
+- [x] 7.13 Set and test explicit Container `sleepAfter`, idle `stop()`, `SIGTERM` draining, forced-stop deadline behavior, ephemeral-disk recovery, remaining-work wake-up, and `ssh.enabled = false` with no authorized keys or SSH listener.
 
 ## 8. Immutable Release Construction and CI
 

@@ -80,26 +80,30 @@ async fn main() {
     }
 
     let result = if command == Some("requeue-failed-thumbnails") {
-        requeue_failed_thumbnails(&config).await
+        requeue_failed_thumbnails(&config).await.map(|()| false)
     } else if let Some(command) = drain_command {
         run_bounded(config, command).await
     } else {
-        run(config).await
+        run(config).await.map(|()| false)
     };
-    if let Err(error) = result {
-        WorkerEvent::new(
-            Severity::Fatal,
-            "shareslices.worker.startup_failed",
-            "worker startup failed",
-        )
-        .with_exception(SanitizedException::new(
-            "WorkerStartupError",
-            error.to_string(),
-            Option::<&str>::None,
-            std::iter::empty::<&str>(),
-        ))
-        .emit();
-        std::process::exit(1);
+    match result {
+        Ok(true) => std::process::exit(75),
+        Ok(false) => {}
+        Err(error) => {
+            WorkerEvent::new(
+                Severity::Fatal,
+                "shareslices.worker.startup_failed",
+                "worker startup failed",
+            )
+            .with_exception(SanitizedException::new(
+                "WorkerStartupError",
+                error.to_string(),
+                Option::<&str>::None,
+                std::iter::empty::<&str>(),
+            ))
+            .emit();
+            std::process::exit(1);
+        }
     }
 }
 
@@ -225,7 +229,7 @@ async fn run(config: WorkerConfig) -> Result<(), Box<dyn std::error::Error>> {
 async fn run_bounded(
     config: WorkerConfig,
     command: DrainCommand,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<bool, Box<dyn std::error::Error>> {
     if command.lanes.contains(&RunnerLane::Thumbnail) {
         preflight_chromium(&config.chromium_path)?;
     }
@@ -307,7 +311,7 @@ async fn run_bounded(
     };
     println!("{}", serde_json::to_string(&outcome)?);
     pool.close().await;
-    Ok(())
+    Ok(outcome.remaining_work)
 }
 
 fn single_lane_runner(

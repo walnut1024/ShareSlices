@@ -294,6 +294,11 @@ export async function generateStagedWorkerConfigs(input) {
   }
   const containerVariables = Object.fromEntries(
     Object.entries(controls.containers).flatMap(([role, container]) => {
+      if (container.sleepAfterSeconds <= container.maximumWallTimeSeconds) {
+        throw new Error(
+          `cloudflare_${role}_sleep_after_must_exceed_maximum_wall_time`,
+        );
+      }
       const prefix = role === "trustedProcessing"
         ? "TRUSTED_PROCESSING"
         : "THUMBNAIL";

@@ -196,6 +196,18 @@ test("generates schema-valid staged App, Content, and immediate Jobs Wrangler in
       },
     ],
   );
+  for (const container of first.configs.jobs.containers) {
+    assert.equal("authorized_keys" in container, false);
+    assert.equal("ports" in container, false);
+    assert.deepEqual(Object.keys(container).sort(), [
+      "class_name",
+      "image",
+      "instance_type",
+      "max_instances",
+      "name",
+      "ssh",
+    ]);
+  }
   assert.deepEqual(first.configs.jobs.exports, {
     TrustedProcessingContainer: {type: "durable-object", storage: "sqlite"},
     ThumbnailContainer: {type: "durable-object", storage: "sqlite"},
@@ -219,6 +231,8 @@ test("generates schema-valid staged App, Content, and immediate Jobs Wrangler in
     "8",
   );
   assert.equal(first.configs.jobs.vars.THUMBNAIL_MAXIMUM_WALL_TIME_SECONDS, "300");
+  assert.equal(first.configs.jobs.vars.TRUSTED_PROCESSING_SLEEP_AFTER_SECONDS, "660");
+  assert.equal(first.configs.jobs.vars.THUMBNAIL_SLEEP_AFTER_SECONDS, "360");
   assert.equal(
     first.configs.jobs.vars.CONTAINER_RELEASE_ID,
     "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -236,6 +250,26 @@ test("generates schema-valid staged App, Content, and immediate Jobs Wrangler in
   assert.equal(
     first.configs.app.vars.VIEWER_BYTE_CACHE_MAX_ASSET_BYTES,
     5_242_880,
+  );
+});
+
+test("rejects a Container idle timeout that can interrupt its bounded drain", async () => {
+  const config = JSON.parse(await readFile(fixture, "utf8"));
+  config.cloudflare.costControls.containers.trustedProcessing.sleepAfterSeconds =
+    config.cloudflare.costControls.containers.trustedProcessing.maximumWallTimeSeconds;
+  await assert.rejects(
+    generateStagedWorkerConfigs({
+      config,
+      privatePrerequisites: prerequisites(),
+      containerImages: containerImages(),
+      releaseId:
+        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      jobsContractRevision: "gallery-job/v1",
+      configDirectory: "/release/cloudflare",
+      workerDirectory: "/release/workers",
+      staticAssetsDirectory: "/release/static-assets",
+    }),
+    /cloudflare_trustedProcessing_sleep_after_must_exceed_maximum_wall_time/,
   );
 });
 
