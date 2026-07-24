@@ -11,7 +11,46 @@ const eventDefinitions = Object.freeze({
   kubernetes: ["kubernetes.ready", "kubernetes.desired"],
   "provider-limit": ["provider_limit.headroom_percent"],
   "cost-risk": ["cost_risk.estimated_units"],
-  resend: ["resend.classification", "resend.evidence_source"],
+  resend: [
+    "resend.classification",
+    "resend.evidence_source",
+    "resend.evidence_age_seconds",
+    "resend.maximum_age_seconds",
+  ],
+});
+
+const eventsByTarget = Object.freeze({
+  compose: Object.freeze([
+    "deployment-operation",
+    "migration",
+    "jobs",
+    "database",
+    "smtp",
+    "cost-risk",
+  ]),
+  kubernetes: Object.freeze([
+    "deployment-operation",
+    "migration",
+    "jobs",
+    "database",
+    "smtp",
+    "kubernetes",
+    "provider-limit",
+    "cost-risk",
+  ]),
+  cloudflare: Object.freeze([
+    "deployment-operation",
+    "migration",
+    "jobs",
+    "queue",
+    "trigger",
+    "container",
+    "database",
+    "r2",
+    "resend",
+    "provider-limit",
+    "cost-risk",
+  ]),
 });
 
 const states = new Set(["ok", "warning", "critical", "unknown"]);
@@ -84,15 +123,25 @@ export function deploymentTelemetryRecord(input, now = new Date()) {
   if (input.event === "resend") {
     const source = attributes["resend.evidence_source"];
     const classification = attributes["resend.classification"];
+    const age = attributes["resend.evidence_age_seconds"];
+    const maximumAge = attributes["resend.maximum_age_seconds"];
     if (
       !evidenceSources.has(source) ||
+      typeof age !== "number" ||
+      typeof maximumAge !== "number" ||
+      age < 0 ||
+      maximumAge < 0 ||
       (
         source === "unknown" &&
-        classification !== "unknown"
+        (classification !== "unknown" || age !== 0 || maximumAge !== 0)
       ) ||
       (
         source !== "unknown" &&
-        input.state === "unknown"
+        (input.state === "unknown" || age > maximumAge)
+      ) ||
+      (
+        source === "provider_response" &&
+        age !== 0
       )
     ) {
       throw new DeploymentTelemetryError(
@@ -118,3 +167,46 @@ export function deploymentTelemetryRecord(input, now = new Date()) {
 export const deploymentTelemetryEvents = Object.freeze(
   Object.keys(eventDefinitions),
 );
+
+export async function collectDeploymentTelemetry({
+  target,
+  observers,
+  now = new Date(),
+}) {
+  const events = eventsByTarget[target];
+  if (
+    !events ||
+    !observers ||
+    events.some((event) => typeof observers[event] !== "function")
+  ) {
+    throw new DeploymentTelemetryError(
+      "deployment_telemetry_observers_incomplete",
+      "Every target-applicable telemetry observer is required.",
+    );
+  }
+  const records = [];
+  for (const event of events) {
+    let observation;
+    try {
+      observation = await observers[event]({target, event, now});
+    } catch {
+      throw new DeploymentTelemetryError(
+        "deployment_telemetry_observation_indeterminate",
+        `Telemetry observation for ${event} was indeterminate.`,
+      );
+    }
+    records.push(deploymentTelemetryRecord({
+      ...observation,
+      target,
+      event,
+    }, now));
+  }
+  return Object.freeze({
+    schemaVersion: "shareslices.deployment-telemetry-bundle/v1",
+    target,
+    observedAt: now.toISOString(),
+    records: Object.freeze(records),
+  });
+}
+
+export const deploymentTelemetryEventsByTarget = eventsByTarget;

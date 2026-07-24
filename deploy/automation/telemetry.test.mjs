@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  collectDeploymentTelemetry,
   deploymentTelemetryEvents,
+  deploymentTelemetryEventsByTarget,
   deploymentTelemetryRecord,
   DeploymentTelemetryError,
 } from "./telemetry.mjs";
@@ -21,7 +23,12 @@ const requiredAttributes = {
   kubernetes: {"kubernetes.ready": 3, "kubernetes.desired": 3},
   "provider-limit": {"provider_limit.headroom_percent": 80},
   "cost-risk": {"cost_risk.estimated_units": 12},
-  resend: {"resend.classification": "healthy", "resend.evidence_source": "provider_response"},
+  resend: {
+    "resend.classification": "healthy",
+    "resend.evidence_source": "provider_response",
+    "resend.evidence_age_seconds": 0,
+    "resend.maximum_age_seconds": 300,
+  },
 };
 
 test("emits every unified deployment telemetry event with stable attributes", () => {
@@ -56,6 +63,8 @@ test("requires explicit unknown when Resend has no provider or fresh operator ev
     attributes: {
       "resend.classification": "unknown",
       "resend.evidence_source": "unknown",
+      "resend.evidence_age_seconds": 0,
+      "resend.maximum_age_seconds": 0,
     },
     thresholds: [],
   }, now);
@@ -70,11 +79,92 @@ test("requires explicit unknown when Resend has no provider or fresh operator ev
       attributes: {
         "resend.classification": "healthy",
         "resend.evidence_source": "unknown",
+        "resend.evidence_age_seconds": 0,
+        "resend.maximum_age_seconds": 0,
       },
       thresholds: [],
     }, now),
     (error) =>
       error instanceof DeploymentTelemetryError &&
+      error.code === "deployment_telemetry_resend_evidence_invalid",
+  );
+});
+
+test("collects every target-applicable observer into one verified bundle", async () => {
+  for (const target of ["compose", "kubernetes", "cloudflare"]) {
+    const calls = [];
+    const observers = Object.fromEntries(
+      deploymentTelemetryEventsByTarget[target].map((event) => [
+        event,
+        async (context) => {
+          calls.push(context);
+          return {
+            state: "ok",
+            reasonCode: "within_threshold",
+            observedAt: now.toISOString(),
+            attributes: requiredAttributes[event],
+            thresholds: [],
+          };
+        },
+      ]),
+    );
+    const bundle = await collectDeploymentTelemetry({target, observers, now});
+    assert.deepEqual(
+      bundle.records.map(({eventName}) => eventName),
+      deploymentTelemetryEventsByTarget[target].map(
+        (event) => `shareslices.deployment.${event}`,
+      ),
+    );
+    assert.equal(calls.every((call) => call.target === target), true);
+  }
+});
+
+test("blocks collection before or during an incomplete observation set", async () => {
+  await assert.rejects(
+    collectDeploymentTelemetry({
+      target: "kubernetes",
+      observers: {},
+      now,
+    }),
+    (error) => error.code === "deployment_telemetry_observers_incomplete",
+  );
+  const observers = Object.fromEntries(
+    deploymentTelemetryEventsByTarget.compose.map((event) => [
+      event,
+      async () => {
+        if (event === "jobs") throw new Error("provider detail");
+        return {
+          state: "ok",
+          reasonCode: "within_threshold",
+          observedAt: now.toISOString(),
+          attributes: requiredAttributes[event],
+          thresholds: [],
+        };
+      },
+    ]),
+  );
+  await assert.rejects(
+    collectDeploymentTelemetry({target: "compose", observers, now}),
+    (error) => error.code === "deployment_telemetry_observation_indeterminate",
+  );
+});
+
+test("rejects stale Resend operator evidence", () => {
+  assert.throws(
+    () => deploymentTelemetryRecord({
+      target: "cloudflare",
+      event: "resend",
+      state: "ok",
+      reasonCode: "within_threshold",
+      attributes: {
+        "resend.classification": "healthy",
+        "resend.evidence_source": "operator_evidence",
+        "resend.evidence_age_seconds": 301,
+        "resend.maximum_age_seconds": 300,
+      },
+      thresholds: [],
+    }, now),
+    (error) =>
       error.code === "deployment_telemetry_resend_evidence_invalid",
   );
 });

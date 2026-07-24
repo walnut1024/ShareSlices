@@ -255,8 +255,14 @@ or fresh operator evidence; without either, emit `unknown` rather than
 replaying historical plan or dashboard facts.
 
 This record contract does not itself collect observations. Target and runtime
-Adapters must emit every applicable event and tests must prove their thresholds
-before unified telemetry task 14.13 is complete.
+Adapters register every event applicable to their target; collection refuses
+before observation when one is missing and fails indeterminate if an observer
+throws. Compose requires operation, migration, jobs, database, SMTP, and cost
+risk. Kubernetes additionally requires Kubernetes readiness and provider-limit
+headroom. Cloudflare requires Queue/DLQ, trigger, Container, R2, Resend,
+provider-limit, and cost-risk observations in addition to shared state. The
+remaining task is to connect these observer contracts to the real status
+sources and prove reviewed thresholds before task 14.13 is complete.
 
 ## Configuration and release inputs
 

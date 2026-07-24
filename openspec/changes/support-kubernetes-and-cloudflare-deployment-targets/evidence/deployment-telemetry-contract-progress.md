@@ -16,6 +16,13 @@ Resend classifications require an explicit evidence source. Provider responses
 and fresh operator evidence may support a known classification; absent either,
 the only accepted source and classification are `unknown`.
 
+The collector defines an exact event set for Compose, Kubernetes, and
+Cloudflare. It validates the complete observer set before starting, executes
+each applicable observer once, validates every record, and returns one frozen
+target bundle. A missing observer or thrown observation fails closed rather
+than returning a partially successful telemetry bundle. Resend operator
+evidence also carries an age and maximum age; stale evidence is rejected.
+
 Focused validation:
 
 - `node --test deploy/automation/telemetry.test.mjs`
@@ -23,5 +30,6 @@ Focused validation:
 - `git diff --check`
 
 Task 14.13 remains open. The next work is to connect each runtime and target
-observer to this record, set reviewed thresholds, and verify the emitted event
-set rather than treating this schema as collection evidence.
+observer to actual status and metrics sources, set reviewed thresholds, and
+verify the emitted event set rather than treating this collector as provider
+evidence.
