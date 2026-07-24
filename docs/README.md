@@ -89,3 +89,7 @@ Durable documentation must satisfy these stable invariants:
   prerequisites, cost and cache boundaries, target resources, Secret and
   release handling, emergency shutdown, and disposable-prototype teardown
   without claiming the unqualified target is available.
+- [Deployment recovery](operations/recovery.md) documents safe reconciliation
+  for interrupted releases, migrations, drift, orphans, Secret and email
+  failures, background work, rollback refusal, lost state, and mismatched
+  database/object restore points.
