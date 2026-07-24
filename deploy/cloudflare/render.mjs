@@ -79,6 +79,8 @@ export async function renderCloudflareBundle({config, release}) {
         hyperdriveCachingDisabled: true,
         hyperdriveOriginSslmode: "verify-full",
         postgresqlOriginReference: config.cloudflare.postgresqlOrigin,
+        releaseStoreReference: config.cloudflare.releaseStore,
+        costControls: config.cloudflare.costControls,
         activateIngress: false,
       },
       {securitySensitive: true},
@@ -131,6 +133,8 @@ export async function renderCloudflareBundle({config, release}) {
         releaseId: release.releaseId,
         routeAttached: false,
         triggerAttached: false,
+        cpuMilliseconds:
+          config.cloudflare.costControls.workerCpuMilliseconds[role],
       },
       {securitySensitive: true},
     )),

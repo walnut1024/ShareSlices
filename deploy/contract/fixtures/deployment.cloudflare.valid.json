@@ -86,6 +86,7 @@
   "cloudflare": {
     "accountId": "0123456789abcdef0123456789abcdef",
     "postgresqlOrigin": { "ref": "secret://supabase/hyperdrive", "revision": "8" },
+    "releaseStore": { "ref": "secret://release-store/deploy-pull", "revision": "5" },
     "email": {
       "adapter": "resend",
       "resend": { "ref": "secret://resend/sending", "revision": "2" }
@@ -106,6 +107,60 @@
     "queues": {
       "jobs": "shareslices-jobs",
       "deadLetter": "shareslices-jobs-dead-letter"
+    },
+    "costControls": {
+      "maximumUploadBytes": 52428800,
+      "staticAssets": {
+        "maximumFiles": 100000,
+        "maximumFileBytes": 26214400
+      },
+      "workerCpuMilliseconds": {
+        "application": 30000,
+        "content": 30000,
+        "jobs": 30000,
+        "operatorSafetyCap": 30000
+      },
+      "queue": {
+        "maximumBatchSize": 10,
+        "maximumRetries": 3,
+        "maximumConcurrency": 4
+      },
+      "schedule": {
+        "cron": "*/5 * * * *"
+      },
+      "containers": {
+        "trustedProcessing": {
+          "instanceType": "basic",
+          "runnerSlots": 2,
+          "maximumInstances": 2,
+          "operatorSafetyCapInstances": 2,
+          "maximumClaimsPerDrain": 8,
+          "maximumWallTimeSeconds": 600,
+          "maximumConcurrency": 2,
+          "sleepAfterSeconds": 60
+        },
+        "thumbnail": {
+          "instanceType": "standard-1",
+          "runnerSlots": 1,
+          "maximumInstances": 1,
+          "operatorSafetyCapInstances": 1,
+          "maximumClaimsPerDrain": 2,
+          "maximumWallTimeSeconds": 300,
+          "maximumConcurrency": 1,
+          "sleepAfterSeconds": 30
+        }
+      },
+      "workerFirstRouteFamilies": [
+        "web",
+        "api",
+        "authentication",
+        "management",
+        "upload",
+        "preview",
+        "viewer",
+        "gallery",
+        "content"
+      ]
     }
   }
 }

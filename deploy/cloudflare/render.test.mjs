@@ -75,6 +75,11 @@ test("keeps provider IDs unresolved until authoritative observation", async () =
   assert.equal(prerequisite.desired.activateIngress, false);
   assert.equal(prerequisite.desired.hyperdriveCachingDisabled, true);
   assert.equal(prerequisite.desired.hyperdriveOriginSslmode, "verify-full");
+  assert.deepEqual(prerequisite.desired.costControls, config.cloudflare.costControls);
+  assert.deepEqual(
+    prerequisite.desired.releaseStoreReference,
+    config.cloudflare.releaseStore,
+  );
   assert.deepEqual(bundle.unresolvedProviderInputs, [
     "hyperdrive-id",
     "r2-bucket-observations",

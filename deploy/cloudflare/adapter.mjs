@@ -94,6 +94,8 @@ export function createCloudflareAdapter({
   probeTls = defaultProbeTls,
   observeProvider,
   observeState,
+  probeReleaseStoreAccess,
+  now = () => new Date(),
   renderBundle = renderCloudflareBundle,
   ownershipMatrix = ownership,
   controlSchemaChecksum,
@@ -212,6 +214,117 @@ export function createCloudflareAdapter({
             "cloudflare_distinct_registrable_sites_unproven",
           ),
     );
+    checks.push(
+      provider?.zonesReady === true
+        ? available("cloudflare-zones", {source: "provider-observed"})
+        : unavailable("cloudflare-zones", "cloudflare_zones_unproven"),
+    );
+    checks.push(
+      provider?.queuesReady === true
+        ? available("cloudflare-queues", {source: "provider-observed"})
+        : unavailable("cloudflare-queues", "cloudflare_queues_unproven"),
+    );
+
+    const cpu = config.cloudflare.costControls.workerCpuMilliseconds;
+    checks.push(
+      ["application", "content", "jobs"].every(
+        (role) => cpu[role] <= cpu.operatorSafetyCap,
+      )
+        ? available("cloudflare-worker-cpu-limits", {
+            source: "operator-evidenced",
+            configuredMilliseconds: {
+              application: cpu.application,
+              content: cpu.content,
+              jobs: cpu.jobs,
+            },
+            operatorSafetyCapMilliseconds: cpu.operatorSafetyCap,
+          })
+        : unavailable("cloudflare-worker-cpu-limits", "cloudflare_worker_cpu_cap_exceeded"),
+    );
+    checks.push(available("cloudflare-container-bounds", {
+      source: "operator-evidenced",
+      configured: config.cloudflare.costControls.containers,
+    }));
+    checks.push(available("cloudflare-queue-and-schedule-bounds", {
+      source: "operator-evidenced",
+      queue: config.cloudflare.costControls.queue,
+      schedule: config.cloudflare.costControls.schedule,
+    }));
+
+    const maximumEvidenceAgeMilliseconds = 24 * 60 * 60 * 1_000;
+    const limitIsCurrent = (observation) => {
+      const observedAt = Date.parse(observation?.observedAt ?? "");
+      return (
+        ["provider-observed", "operator-evidenced"].includes(observation?.source) &&
+        Number.isFinite(observation?.value) &&
+        Number.isFinite(observedAt) &&
+        now().getTime() - observedAt >= 0 &&
+        now().getTime() - observedAt <= maximumEvidenceAgeMilliseconds
+      );
+    };
+    const uploadLimit = provider?.limits?.maximumRequestBodyBytes;
+    checks.push(
+      limitIsCurrent(uploadLimit) &&
+      uploadLimit.value >= config.cloudflare.costControls.maximumUploadBytes
+        ? available("cloudflare-upload-limit", {
+            source: uploadLimit.source,
+            configuredMaximumBytes:
+              config.cloudflare.costControls.maximumUploadBytes,
+            qualifiedMaximumBytes: uploadLimit.value,
+            observedAt: uploadLimit.observedAt,
+          })
+        : unavailable("cloudflare-upload-limit", "cloudflare_upload_limit_unknown_stale_or_exceeded"),
+    );
+    const assetFiles = baseline.platformLimits.workersPaidMaximumStaticAssetFiles;
+    const assetBytes = baseline.platformLimits.maximumStaticAssetFileBytes;
+    checks.push(
+      provider?.workersPaid === true &&
+      assetFiles >=
+        config.cloudflare.costControls.staticAssets.maximumFiles &&
+      assetBytes >=
+        config.cloudflare.costControls.staticAssets.maximumFileBytes
+        ? available("cloudflare-static-assets-limits", {
+            source: "release-static",
+            configured: config.cloudflare.costControls.staticAssets,
+            qualified: {
+              maximumFiles: assetFiles,
+              maximumFileBytes: assetBytes,
+            },
+            qualifiedOn: baseline.platformLimits.qualifiedOn,
+          })
+        : unavailable(
+            "cloudflare-static-assets-limits",
+            "cloudflare_static_assets_limit_unknown_stale_or_exceeded",
+          ),
+    );
+
+    let releaseStoreReadable = false;
+    if (typeof probeReleaseStoreAccess === "function") {
+      try {
+        releaseStoreReadable = await probeReleaseStoreAccess({
+          config,
+          reference: config.cloudflare.releaseStore,
+          release,
+        }) === true;
+      } catch {
+        releaseStoreReadable = false;
+      }
+    }
+    checks.push(
+      releaseStoreReadable
+        ? available("cloudflare-release-store-access", {
+            revision: config.cloudflare.releaseStore.revision,
+            access: "read-only",
+          })
+        : unavailable(
+            "cloudflare-release-store-access",
+            "release_store_read_unavailable",
+          ),
+    );
+    checks.push(available("cloudflare-resend-reference", {
+      revision: config.cloudflare.email.resend.revision,
+      valueResolved: false,
+    }));
     if (config.cloudflare.edgeCdn.mode === "web-and-public-viewer-bytes") {
       checks.push(warning("cloudflare-viewer-byte-cache-measurement", "cloudflare_cache_measurement_pending", {
         maximumViewerAssetBytes: config.cloudflare.edgeCdn.maximumViewerAssetBytes,

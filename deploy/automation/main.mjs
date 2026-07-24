@@ -127,7 +127,10 @@ export function createProductionCloudflareAdapter({
       readDeployments: readWranglerDeployments,
     }),
   });
-  return createAdapter({observeState});
+  const probeReleaseStoreAccess = async (input) => createReleaseStoreAccessProbe({
+    resolvers: resolvers(),
+  })(input);
+  return createAdapter({observeState, probeReleaseStoreAccess});
 }
 
 export function createProductionExecutor({

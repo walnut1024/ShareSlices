@@ -112,6 +112,32 @@ export async function validateDeploymentConfig(value) {
       "Disabled Gallery configuration cannot claim a ready capability.",
     );
   }
+  if (value.target === "cloudflare") {
+    const controls = value.cloudflare.costControls;
+    const workerCpu = controls.workerCpuMilliseconds;
+    if (
+      ["application", "content", "jobs"].some(
+        (role) => workerCpu[role] > workerCpu.operatorSafetyCap,
+      )
+    ) {
+      throw new DeploymentConfigError(
+        "deployment_config_invalid",
+        "Cloudflare Worker CPU limits cannot exceed the operator safety cap.",
+      );
+    }
+    for (const [role, container] of Object.entries(controls.containers)) {
+      if (
+        container.maximumInstances > container.operatorSafetyCapInstances ||
+        container.runnerSlots > container.maximumInstances ||
+        container.maximumConcurrency > container.runnerSlots
+      ) {
+        throw new DeploymentConfigError(
+          "deployment_config_invalid",
+          `Cloudflare ${role} Container bounds exceed the declared instance or slot safety cap.`,
+        );
+      }
+    }
+  }
   const signingVersions = value.shared.sessionSigningKeys.map(({ revision }) =>
     Number(revision),
   );
@@ -201,7 +227,12 @@ export function discoverPrerequisites(config) {
   return Object.freeze({
     ...common,
     tools: ["terraform", "wrangler"],
-    secretReferences: [...common.secretReferences, config.cloudflare.postgresqlOrigin, config.cloudflare.email.resend],
+    secretReferences: [
+      ...common.secretReferences,
+      config.cloudflare.postgresqlOrigin,
+      config.cloudflare.releaseStore,
+      config.cloudflare.email.resend,
+    ],
     capabilities: [...common.capabilities, "workers-paid-containers", "private-r2", "resend-https"],
   });
 }

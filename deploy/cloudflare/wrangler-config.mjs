@@ -128,7 +128,7 @@ function galleryVars(config, { includeSiteKey = false } = {}) {
   };
 }
 
-function commonConfig(config, baseline, name, main) {
+function commonConfig(config, baseline, name, main, cpuMilliseconds) {
   return {
     name,
     main,
@@ -137,6 +137,9 @@ function commonConfig(config, baseline, name, main) {
     compatibility_flags: baseline.workersRuntime.compatibilityFlags,
     workers_dev: false,
     preview_urls: false,
+    limits: {
+      cpu_ms: cpuMilliseconds,
+    },
     observability: {
       enabled: true,
       logs: { enabled: true, invocation_logs: true },
@@ -181,6 +184,7 @@ export async function generateStagedWorkerConfigs(input) {
       baseline,
       input.config.cloudflare.workers.application,
       slashPath(configDirectory, resolve(input.workerDirectory, "app-worker.js")),
+      input.config.cloudflare.costControls.workerCpuMilliseconds.application,
     ),
     assets: {
       directory: slashPath(configDirectory, resolve(input.staticAssetsDirectory)),
@@ -233,6 +237,7 @@ export async function generateStagedWorkerConfigs(input) {
       baseline,
       input.config.cloudflare.workers.content,
       slashPath(configDirectory, resolve(input.workerDirectory, "content-worker.js")),
+      input.config.cloudflare.costControls.workerCpuMilliseconds.content,
     ),
     hyperdrive: [{ binding: "HYPERDRIVE", id: input.privatePrerequisites.hyperdrive_id }],
     r2_buckets: [

@@ -28,7 +28,39 @@ test("loads one selected target and discovers only non-secret prerequisites", as
     discoverPrerequisites(cloudflare).secretReferences.every(({ ref, revision }) => ref.includes("://") && revision.length > 0),
     true,
   );
-  assert.equal(discoverPrerequisites(cloudflare).secretReferences.length, 8);
+  assert.equal(discoverPrerequisites(cloudflare).secretReferences.length, 9);
+  assert.equal(
+    discoverPrerequisites(cloudflare).secretReferences.some(
+      ({ref}) => ref === cloudflare.cloudflare.releaseStore.ref,
+    ),
+    true,
+  );
+});
+
+test("rejects Cloudflare execution bounds above operator safety caps", async () => {
+  const worker = await readFixture("deployment.cloudflare.valid.json");
+  worker.cloudflare.costControls.workerCpuMilliseconds.application = 30_001;
+  await assert.rejects(
+    validateDeploymentConfig(worker),
+    (error) => error instanceof DeploymentConfigError &&
+      error.message.includes("Worker CPU limits"),
+  );
+
+  const instances = await readFixture("deployment.cloudflare.valid.json");
+  instances.cloudflare.costControls.containers.trustedProcessing.maximumInstances = 3;
+  await assert.rejects(
+    validateDeploymentConfig(instances),
+    (error) => error instanceof DeploymentConfigError &&
+      error.message.includes("Container bounds"),
+  );
+
+  const concurrency = await readFixture("deployment.cloudflare.valid.json");
+  concurrency.cloudflare.costControls.containers.thumbnail.maximumConcurrency = 2;
+  await assert.rejects(
+    validateDeploymentConfig(concurrency),
+    (error) => error instanceof DeploymentConfigError &&
+      error.message.includes("Container bounds"),
+  );
 });
 
 test("rejects unsupported schema versions before target discovery", async () => {

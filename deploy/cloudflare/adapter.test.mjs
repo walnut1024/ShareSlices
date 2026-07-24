@@ -77,10 +77,31 @@ test("doctor performs only read-only checks and returns qualified observations",
     resolveHost: async () => ["192.0.2.1"],
     probeTls: async () => ({status: 200}),
     ownershipMatrix: qualifiedOwnership,
+    now: () => new Date("2026-07-24T00:00:00Z"),
+    probeReleaseStoreAccess: async () => true,
     observeProvider: async ({account}) => ({
       workersPaid: true,
       privateR2: true,
       distinctSites: true,
+      zonesReady: true,
+      queuesReady: true,
+      limits: {
+        maximumRequestBodyBytes: {
+          source: "provider-observed",
+          value: 100_000_000,
+          observedAt: "2026-07-24T00:00:00Z",
+        },
+        maximumStaticAssetFiles: {
+          source: "provider-observed",
+          value: 100_000,
+          observedAt: "2026-07-24T00:00:00Z",
+        },
+        maximumStaticAssetFileBytes: {
+          source: "provider-observed",
+          value: 25 * 1024 * 1024,
+          observedAt: "2026-07-24T00:00:00Z",
+        },
+      },
       database: qualifiedDatabase,
       accountId: account.id,
     }),
@@ -145,7 +166,55 @@ test("doctor fails closed when account, DNS, TLS, release, ownership, and provid
   assert.equal(unavailable.has("cloudflare-workers-paid"), true);
   assert.equal(unavailable.has("cloudflare-private-r2"), true);
   assert.equal(unavailable.has("cloudflare-distinct-registrable-sites"), true);
+  assert.equal(unavailable.has("cloudflare-zones"), true);
+  assert.equal(unavailable.has("cloudflare-queues"), true);
+  assert.equal(unavailable.has("cloudflare-upload-limit"), true);
+  assert.equal(unavailable.has("cloudflare-static-assets-limits"), true);
+  assert.equal(unavailable.has("cloudflare-release-store-access"), true);
   assert.equal(JSON.stringify(result).includes("secret://"), false);
+});
+
+test("doctor rejects stale or insufficient account-plan Upload evidence", async () => {
+  const adapter = createCloudflareAdapter({
+    runCommand: commandRunner([]),
+    resolveHost: async () => ["192.0.2.1"],
+    probeTls: async () => ({status: 200}),
+    ownershipMatrix: qualifiedOwnership,
+    now: () => new Date("2026-07-24T00:00:00Z"),
+    probeReleaseStoreAccess: async () => true,
+    observeProvider: async () => ({
+      workersPaid: true,
+      privateR2: true,
+      distinctSites: true,
+      zonesReady: true,
+      queuesReady: true,
+      limits: {
+        maximumRequestBodyBytes: {
+          source: "operator-evidenced",
+          value: config.cloudflare.costControls.maximumUploadBytes - 1,
+          observedAt: "2026-07-22T00:00:00Z",
+        },
+      },
+    }),
+  });
+  const result = await adapter.doctor({
+    config,
+    prerequisites: discoverPrerequisites(config),
+    release,
+  });
+  assert.deepEqual(
+    result.checks.find(({id}) => id === "cloudflare-upload-limit"),
+    {
+      id: "cloudflare-upload-limit",
+      state: "unavailable",
+      reasonCode: "cloudflare_upload_limit_unknown_stale_or_exceeded",
+    },
+  );
+  assert.deepEqual(
+    result.checks.find(({id}) => id === "cloudflare-static-assets-limits")
+      ?.evidence.source,
+    "release-static",
+  );
 });
 
 test("render delegates without resolving Secret values", async () => {

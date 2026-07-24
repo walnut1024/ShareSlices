@@ -550,15 +550,18 @@
       "required": [
         "accountId",
         "postgresqlOrigin",
+        "releaseStore",
         "email",
         "edgeCdn",
         "workers",
         "r2",
-        "queues"
+        "queues",
+        "costControls"
       ],
       "properties": {
         "accountId": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
         "postgresqlOrigin": { "$ref": "#/$defs/secretReference" },
+        "releaseStore": { "$ref": "#/$defs/secretReference" },
         "email": {
           "type": "object",
           "additionalProperties": false,
@@ -610,7 +613,107 @@
             "jobs": { "$ref": "#/$defs/dnsLabel" },
             "deadLetter": { "$ref": "#/$defs/dnsLabel" }
           }
+        },
+        "costControls": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "maximumUploadBytes",
+            "staticAssets",
+            "workerCpuMilliseconds",
+            "queue",
+            "schedule",
+            "containers",
+            "workerFirstRouteFamilies"
+          ],
+          "properties": {
+            "maximumUploadBytes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "staticAssets": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["maximumFiles", "maximumFileBytes"],
+              "properties": {
+                "maximumFiles": {"type": "integer", "minimum": 1},
+                "maximumFileBytes": {"type": "integer", "minimum": 1}
+              }
+            },
+            "workerCpuMilliseconds": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["application", "content", "jobs", "operatorSafetyCap"],
+              "properties": {
+                "application": {"type": "integer", "minimum": 1, "maximum": 300000},
+                "content": {"type": "integer", "minimum": 1, "maximum": 300000},
+                "jobs": {"type": "integer", "minimum": 1, "maximum": 300000},
+                "operatorSafetyCap": {"type": "integer", "minimum": 1, "maximum": 300000}
+              }
+            },
+            "queue": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["maximumBatchSize", "maximumRetries", "maximumConcurrency"],
+              "properties": {
+                "maximumBatchSize": {"type": "integer", "minimum": 1},
+                "maximumRetries": {"type": "integer", "minimum": 0},
+                "maximumConcurrency": {"type": "integer", "minimum": 1}
+              }
+            },
+            "schedule": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["cron"],
+              "properties": {
+                "cron": {"type": "string", "minLength": 1}
+              }
+            },
+            "containers": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["trustedProcessing", "thumbnail"],
+              "properties": {
+                "trustedProcessing": {"$ref": "#/$defs/cloudflareContainerCostControl"},
+                "thumbnail": {"$ref": "#/$defs/cloudflareContainerCostControl"}
+              }
+            },
+            "workerFirstRouteFamilies": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "enum": ["web", "api", "authentication", "management", "upload", "preview", "viewer", "gallery", "content"]
+              }
+            }
+          }
         }
+      }
+    },
+    "cloudflareContainerCostControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "instanceType",
+        "runnerSlots",
+        "maximumInstances",
+        "operatorSafetyCapInstances",
+        "maximumClaimsPerDrain",
+        "maximumWallTimeSeconds",
+        "maximumConcurrency",
+        "sleepAfterSeconds"
+      ],
+      "properties": {
+        "instanceType": {
+          "enum": ["lite", "basic", "standard-1", "standard-2", "standard-3", "standard-4"]
+        },
+        "runnerSlots": {"type": "integer", "minimum": 1},
+        "maximumInstances": {"type": "integer", "minimum": 1},
+        "operatorSafetyCapInstances": {"type": "integer", "minimum": 1},
+        "maximumClaimsPerDrain": {"type": "integer", "minimum": 1},
+        "maximumWallTimeSeconds": {"type": "integer", "minimum": 1, "maximum": 900},
+        "maximumConcurrency": {"type": "integer", "minimum": 1},
+        "sleepAfterSeconds": {"type": "integer", "minimum": 1}
       }
     }
   }

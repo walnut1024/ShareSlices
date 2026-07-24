@@ -27,11 +27,19 @@
     "name": "@cloudflare/containers",
     "version": "0.3.7"
   },
+  "platformLimits": {
+    "qualifiedOn": "2026-07-24",
+    "workersPaidMaximumCpuMilliseconds": 300000,
+    "workersPaidMaximumStaticAssetFiles": 100000,
+    "maximumStaticAssetFileBytes": 26214400
+  },
   "officialContracts": [
     "https://developers.cloudflare.com/workers/configuration/compatibility-dates/",
     "https://developers.cloudflare.com/workers/configuration/compatibility-flags/",
     "https://developers.cloudflare.com/workers/wrangler/configuration/",
+    "https://developers.cloudflare.com/workers/platform/limits/",
     "https://developers.cloudflare.com/containers/get-started/",
+    "https://developers.cloudflare.com/containers/platform-details/limits/",
     "https://registry.terraform.io/providers/cloudflare/cloudflare/5.22.0",
     "https://releases.hashicorp.com/terraform/1.15.7/",
     "https://developer.hashicorp.com/terraform/language/providers/requirements",

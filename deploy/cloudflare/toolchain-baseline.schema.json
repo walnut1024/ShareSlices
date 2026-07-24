@@ -11,6 +11,7 @@
     "terraformProvider",
     "workersRuntime",
     "containerPackage",
+    "platformLimits",
     "officialContracts"
   ],
   "properties": {
@@ -77,6 +78,31 @@
       "properties": {
         "name": { "const": "@cloudflare/containers" },
         "version": { "$ref": "#/$defs/version" }
+      }
+    },
+    "platformLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "qualifiedOn",
+        "workersPaidMaximumCpuMilliseconds",
+        "workersPaidMaximumStaticAssetFiles",
+        "maximumStaticAssetFileBytes"
+      ],
+      "properties": {
+        "qualifiedOn": {"type": "string", "format": "date"},
+        "workersPaidMaximumCpuMilliseconds": {
+          "type": "integer",
+          "const": 300000
+        },
+        "workersPaidMaximumStaticAssetFiles": {
+          "type": "integer",
+          "const": 100000
+        },
+        "maximumStaticAssetFileBytes": {
+          "type": "integer",
+          "const": 26214400
+        }
       }
     },
     "officialContracts": {

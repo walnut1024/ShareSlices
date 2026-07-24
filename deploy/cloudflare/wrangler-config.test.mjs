@@ -65,6 +65,8 @@ test("generates schema-valid staged App and Content Wrangler inputs", async () =
     assert.equal("routes" in config, false);
     assert.equal("triggers" in config, false);
   }
+  assert.deepEqual(first.configs.app.limits, {cpu_ms: 30_000});
+  assert.deepEqual(first.configs.content.limits, {cpu_ms: 30_000});
   assert.deepEqual(
     first.configs.app.assets.run_worker_first,
     cloudflareWorkerFirstPatterns,
