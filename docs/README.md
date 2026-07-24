@@ -79,3 +79,6 @@ Durable documentation must satisfy these stable invariants:
 - [Kubernetes external CDN](operations/external-cdn.md) documents the
   provider-neutral edge, trusted-ingress, cache, origin-parity, and failure
   boundary while retaining Kubernetes as the deployment target.
+- [Kubernetes target](operations/kubernetes.md) documents existing-cluster
+  prerequisites, direct and GitOps reconciliation, verification,
+  recoverability evidence, and compatible rollback.
