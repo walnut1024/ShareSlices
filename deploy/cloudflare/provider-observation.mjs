@@ -192,13 +192,50 @@ export function createCloudflareProviderObserver({
           accountId,
           config,
         );
+        const configuredQueues = queues.filter(({queue_name: name}) =>
+          Object.values(config.cloudflare.queues).includes(name)
+        );
+        const queueMetrics = new Map(await Promise.all(
+          configuredQueues.map(async ({queue_id: queueId, queue_name: queueName}) => {
+            if (typeof queueId !== "string" || queueId.length === 0) throw apiError();
+            const metrics = await readApi(
+              fetchImplementation,
+              token,
+              `/accounts/${accountId}/queues/${encodeURIComponent(queueId)}/metrics`,
+            );
+            const values = metrics.result;
+            if (
+              !Number.isSafeInteger(values?.backlog_count) ||
+              values.backlog_count < 0 ||
+              !Number.isSafeInteger(values?.backlog_bytes) ||
+              values.backlog_bytes < 0 ||
+              !Number.isSafeInteger(values?.oldest_message_timestamp_ms) ||
+              values.oldest_message_timestamp_ms < 0
+            ) {
+              throw apiError();
+            }
+            const oldestMessageTimestamp = values.oldest_message_timestamp_ms === 0
+              ? null
+              : new Date(values.oldest_message_timestamp_ms);
+            if (
+              oldestMessageTimestamp &&
+              Number.isNaN(oldestMessageTimestamp.getTime())
+            ) {
+              throw apiError();
+            }
+            return [queueName, Object.freeze({
+              approximate: true,
+              backlogCount: values.backlog_count,
+              backlogBytes: values.backlog_bytes,
+              oldestMessageTimestamp: oldestMessageTimestamp?.toISOString() ?? null,
+            })];
+          }),
+        ));
         const queueState = Object.freeze(Object.fromEntries(
-          queues
-            .filter(({queue_name: name}) =>
-              Object.values(config.cloudflare.queues).includes(name)
-            )
+          configuredQueues
             .map((queue) => [queue.queue_name, Object.freeze({
               deliveryPaused: queue.settings?.delivery_paused ?? null,
+              metrics: queueMetrics.get(queue.queue_name),
               consumers: Object.freeze((queue.consumers ?? []).map((consumer) =>
                 Object.freeze({
                   scriptName: consumer.script_name ?? null,

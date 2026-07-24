@@ -28,8 +28,26 @@ test("observes exact active zones, queues, private buckets, and Workers Paid sub
       }
       if (url.includes("/queues?")) {
         return response(Object.values(config.cloudflare.queues).map(
-          (queue_name) => ({queue_name}),
+          (queue_name, index) => ({
+            queue_id: `queue-${index + 1}`,
+            queue_name,
+            settings: {delivery_paused: index === 0},
+            consumers: index === 0 ? [{
+              script_name: config.cloudflare.workers.jobs,
+              dead_letter_queue: config.cloudflare.queues.deadLetter,
+              settings: {max_retries: 3},
+            }] : [],
+          }),
         ));
+      }
+      if (url.endsWith("/metrics")) {
+        return response({
+          backlog_count: url.includes("queue-2") ? 2 : 7,
+          backlog_bytes: url.includes("queue-2") ? 256 : 1024,
+          oldest_message_timestamp_ms: url.includes("queue-2")
+            ? Date.parse("2026-07-23T23:55:00Z")
+            : Date.parse("2026-07-23T23:59:00Z"),
+        });
       }
       if (url.includes("/r2/buckets")) {
         if (url.endsWith("/domains/managed")) {
@@ -78,7 +96,7 @@ test("observes exact active zones, queues, private buckets, and Workers Paid sub
       privateR2: true,
     },
   );
-  assert.equal(seen.length, 17);
+  assert.equal(seen.length, 19);
   assert.equal(seen.every(({authorization}) => authorization === "Bearer provider-token"), true);
   assert.equal(observed.workers.jobs.workersDevEnabled, false);
   assert.equal(observed.workers.jobs.previewUrlsEnabled, false);
@@ -88,6 +106,16 @@ test("observes exact active zones, queues, private buckets, and Workers Paid sub
     type: "r2_bucket",
     bucketName: "shareslices-artifacts",
   }]);
+  assert.deepEqual(observed.queues[config.cloudflare.queues.deadLetter].metrics, {
+    approximate: true,
+    backlogCount: 2,
+    backlogBytes: 256,
+    oldestMessageTimestamp: "2026-07-23T23:55:00.000Z",
+  });
+  assert.equal(
+    observed.queues[config.cloudflare.queues.jobs].consumers[0].deadLetterQueue,
+    config.cloudflare.queues.deadLetter,
+  );
 });
 
 test("fails closed for ambiguous subscription identity and provider errors", async () => {

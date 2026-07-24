@@ -231,6 +231,12 @@ describe("PostgreSQL reconciliation repository", () => {
         ('attempt-exhausted', 'owner-1', 'job-exhausted', 3, 'staging/upload-exhausted/attempt-exhausted/'),
         ('attempt-future', 'owner-1', 'job-future', 1, 'staging/upload-future/attempt-future/')`
     );
+    await databasePool.query(
+      `update cloudflare_job_dispatch_outbox
+       set state = 'published', wake_id = gen_random_uuid()::text,
+           fence = 1, attempt_count = 1, published_at = now()
+       where lane = 'artifact-processing' and durable_job_id = 'job-requeue'`
+    );
 
     await expect(
       repository.recoverExpiredLeases(new Date("2026-07-10T01:00:00Z"), 2)
@@ -261,6 +267,17 @@ describe("PostgreSQL reconciliation repository", () => {
       expect.objectContaining({ id: "attempt-future", state: "running", reason_code: null, finished_at: null }),
       expect.objectContaining({ id: "attempt-requeue", state: "failed", reason_code: "processing_lease_expired" })
     ]);
+    const retryDispatch = await databasePool.query(
+      `select state, wake_id, failure_reason_code, published_at
+       from cloudflare_job_dispatch_outbox
+       where lane = 'artifact-processing' and durable_job_id = 'job-requeue'`
+    );
+    expect(retryDispatch.rows).toEqual([{
+      state: "pending",
+      wake_id: null,
+      failure_reason_code: "processing_lease_recovered",
+      published_at: null,
+    }]);
   });
 
   it("rolls back an inconsistent expired lease for a retry-safe later pass", async () => {

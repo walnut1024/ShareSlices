@@ -13,6 +13,7 @@ import { createCloudflareAuthenticationEmailHandler, createCloudflareJobsDrains 
 import { createCloudflareJobsEntrypoint } from "./jobs-runtime.js";
 import { createCloudflareLogger } from "./logger.js";
 import {createScheduledExecutionGate} from "./scheduled-execution-gate.js";
+import {recoverExpiredCloudflareProcessingLeases} from "./expired-processing-lease-recovery.js";
 
 export type CloudflareJobsBindings = CloudflareAuthenticationEmailBindings & ContainerSlotBindings & Readonly<{
   JOB_WAKE_QUEUE: CloudflareWakeQueue;
@@ -100,6 +101,11 @@ export function createCloudflareJobsWorker() {
         }
         let completed = false;
         try {
+          const recoveredLeaseCount = await recoverExpiredCloudflareProcessingLeases({
+            databaseClients: connection,
+            expiredBefore: new Date(),
+            limit: positiveInteger("job_outbox_max_messages", bindings.JOB_OUTBOX_MAX_MESSAGES),
+          });
           const result = await drainCloudflareJobOutbox({
             databaseClients: connection,
             queue: bindings.JOB_WAKE_QUEUE,
@@ -120,6 +126,7 @@ export function createCloudflareJobsWorker() {
               "shareslices.job_outbox.attempted": result.attempted,
               "shareslices.job_outbox.published": result.published,
               "shareslices.job_outbox.remaining": result.remaining,
+              "shareslices.processing.recovered_lease_count": recoveredLeaseCount,
             },
           });
           await gate.complete(claim, {state: "completed"});
