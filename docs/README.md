@@ -76,3 +76,6 @@ Durable documentation must satisfy these stable invariants:
   boundary without claiming an unqualified target is available.
 - [Gallery rollout](operations/gallery-rollout.md) documents the independent
   fail-closed Gallery eligibility and rollout boundary.
+- [Kubernetes external CDN](operations/external-cdn.md) documents the
+  provider-neutral edge, trusted-ingress, cache, origin-parity, and failure
+  boundary while retaining Kubernetes as the deployment target.
