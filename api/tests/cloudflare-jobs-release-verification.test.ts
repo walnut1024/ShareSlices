@@ -148,7 +148,18 @@ describe("route-free Jobs release verification", () => {
     });
     mocks.complete.mockResolvedValue(true);
     mocks.markTerminal.mockResolvedValue(true);
-    mocks.cleanupInventory.mockResolvedValue(null);
+    mocks.cleanupInventory.mockResolvedValue({
+      terminal: false,
+      quiescenceReached: false,
+      activeInvocations: 1,
+      containerEvidence: 2,
+      resources: [{
+        kind: "broker",
+        key: `release-verification/${probe.nonce}/broker/thumbnail/provider`,
+        state: "committed",
+      }],
+      cleanupState: "not_started",
+    });
     mocks.markCleanupOrphaned.mockResolvedValue(true);
     mocks.markR2ResourceDeleted.mockResolvedValue(true);
     mocks.cleanupDatabaseSyntheticState.mockResolvedValue(true);
@@ -225,8 +236,8 @@ describe("route-free Jobs release verification", () => {
     });
     expect(mocks.begin).toHaveBeenCalledWith(probe, 60);
     expect(mocks.listContainerEvidence).toHaveBeenCalledWith(probe);
-    expect(mocks.prepareSyntheticResource).toHaveBeenCalledTimes(3);
-    expect(mocks.commitSyntheticResource).toHaveBeenCalledTimes(3);
+    expect(mocks.prepareSyntheticResource).toHaveBeenCalledTimes(2);
+    expect(mocks.commitSyntheticResource).toHaveBeenCalledTimes(2);
     expect(mocks.complete).toHaveBeenCalledWith(
       probe,
       response.headers.get("x-shareslices-evidence-digest"),

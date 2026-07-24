@@ -79,6 +79,9 @@ abstract class PrivateShareSlicesContainer extends Container<ContainerBindings> 
   protected startEnvironment(_payload: unknown): Record<string, string> {
     return this.envVars;
   }
+  protected verificationEnvironment(): Record<string, string> {
+    return {};
+  }
 
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -94,6 +97,8 @@ abstract class PrivateShareSlicesContainer extends Container<ContainerBindings> 
       }
       if (
         payload.version !== 1 ||
+        typeof payload.invocationId !== "string" ||
+        !/^[A-Za-z0-9_-]{16,256}$/.test(payload.invocationId) ||
         typeof payload.nonce !== "string" ||
         typeof payload.releaseId !== "string" ||
         payload.releaseId !== this.envVars.SHARESLICES_CONTAINER_RELEASE_ID ||
@@ -111,8 +116,11 @@ abstract class PrivateShareSlicesContainer extends Container<ContainerBindings> 
         entrypoint: ["shareslices-worker", "release-verification"],
         envVars: {
           ...this.envVars,
+          ...this.verificationEnvironment(),
           SHARESLICES_RELEASE_VERIFICATION_ORIGIN:
             "http://shareslices-release-verifier.internal",
+          SHARESLICES_RELEASE_VERIFICATION_INVOCATION_ID:
+            payload.invocationId,
           SHARESLICES_RELEASE_VERIFICATION_NONCE: payload.nonce,
           SHARESLICES_RELEASE_VERIFICATION_FENCE: String(payload.fence),
           SHARESLICES_RELEASE_VERIFICATION_SUB_FENCE: String(payload.subFence),
@@ -289,6 +297,13 @@ export class ThumbnailContainer extends PrivateShareSlicesContainer {
       ...this.envVars,
       SHARESLICES_THUMBNAIL_BOOTSTRAP_GRANT: bootstrapGrant,
       SHARESLICES_THUMBNAIL_BROKER_ORIGIN: "http://shareslices-broker.internal",
+    };
+  }
+
+  protected override verificationEnvironment(): Record<string, string> {
+    return {
+      SHARESLICES_RELEASE_VERIFICATION_BROKER_ORIGIN:
+        "http://shareslices-broker.internal",
     };
   }
 }

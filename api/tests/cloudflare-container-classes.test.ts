@@ -151,6 +151,7 @@ describe("Cloudflare Container lifecycle", () => {
         method: "POST",
         body: JSON.stringify({
           version: 1,
+          invocationId: "invocation-0123456789",
           nonce: "nonce-012345678901",
           releaseId: "release-1",
           fence: 7,
@@ -170,6 +171,8 @@ describe("Cloudflare Container lifecycle", () => {
           "registry.example/processing@sha256:processing",
         SHARESLICES_RELEASE_VERIFICATION_ORIGIN:
           "http://shareslices-release-verifier.internal",
+        SHARESLICES_RELEASE_VERIFICATION_INVOCATION_ID:
+          "invocation-0123456789",
         SHARESLICES_RELEASE_VERIFICATION_NONCE: "nonce-012345678901",
         SHARESLICES_RELEASE_VERIFICATION_FENCE: "7",
         SHARESLICES_RELEASE_VERIFICATION_SUB_FENCE: "3",

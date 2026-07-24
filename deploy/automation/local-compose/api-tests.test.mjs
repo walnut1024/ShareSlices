@@ -144,7 +144,13 @@ test("automated tests accept only an explicitly discovered local Docker socket",
   assert.equal(resolveLocalDockerHost({
     candidates: ["/tmp/not-a-socket", "/tmp/local.sock"],
     isSocket: (path) => path.endsWith("local.sock"),
+    resolveSocket: (path) => path,
   }), "unix:///tmp/local.sock");
+  assert.equal(resolveLocalDockerHost({
+    candidates: ["/var/run/docker.sock"],
+    isSocket: () => true,
+    resolveSocket: () => "/Users/test/.orbstack/run/docker.sock",
+  }), "unix:///Users/test/.orbstack/run/docker.sock");
   assert.throws(
     () => resolveLocalDockerHost({
       candidates: ["tcp://remote.example.test:2376"],

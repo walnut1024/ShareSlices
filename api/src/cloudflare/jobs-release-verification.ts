@@ -254,6 +254,7 @@ async function dispatchContainerProbes(
           headers: {"content-type": "application/json"},
           body: JSON.stringify({
             version: 1,
+            invocationId: scope.invocationId,
             nonce: scope.nonce,
             releaseId: scope.releaseId,
             fence: scope.fence,
@@ -280,17 +281,11 @@ async function exerciseSyntheticResources(
   repository: ReturnType<typeof createReleaseVerificationRepository>,
 ) {
   const databaseKey = syntheticResourceKey(scope, "database/jobs-worker");
-  const brokerKey = syntheticResourceKey(scope, "broker/private-execution");
-  for (const [kind, key] of [
-    ["database", databaseKey],
-    ["broker", brokerKey],
-  ] as const) {
-    if (
-      !(await repository.prepareSyntheticResource(scope, kind, key)) ||
-      !(await repository.commitSyntheticResource(scope, kind, key))
-    ) {
-      throw new Error(`release_verification_${kind}_probe_fenced`);
-    }
+  if (
+    !(await repository.prepareSyntheticResource(scope, "database", databaseKey)) ||
+    !(await repository.commitSyntheticResource(scope, "database", databaseKey))
+  ) {
+    throw new Error("release_verification_database_probe_fenced");
   }
   const r2Key = syntheticResourceKey(
     scope,
@@ -334,7 +329,6 @@ async function exerciseSyntheticResources(
   return {
     namespace: `release-verification/${scope.nonce}/`,
     database: {resourceKey: databaseKey, committed: true},
-    broker: {resourceKey: brokerKey, committed: true},
     r2: {
       resourceKey: r2Key,
       bytes: bytes.byteLength,
@@ -630,6 +624,23 @@ export function createJobsReleaseVerificationFetch() {
       if (containers.length !== expectedContainerCount) {
         throw new Error("release_verification_container_convergence_timeout");
       }
+      const inventory = await repository.cleanupInventory(scope);
+      const brokerResources = inventory?.resources.filter(
+        ({kind, state}) => kind === "broker" && state === "committed",
+      ) ?? [];
+      if (brokerResources.length !== thumbnailSlots.length) {
+        throw new Error("release_verification_broker_convergence_failed");
+      }
+      const completedSynthetic = {
+        ...synthetic,
+        broker: {
+          origin: "http://shareslices-broker.internal",
+          attempts: brokerResources.map(({key}) => ({
+            resourceKey: key,
+            committed: true,
+          })),
+        },
+      };
       const evidence = {
         version: 1,
         scope: {
@@ -654,7 +665,7 @@ export function createJobsReleaseVerificationFetch() {
           origin: "http://shareslices-broker.internal",
           publicIngress: false,
         },
-        synthetic,
+        synthetic: completedSynthetic,
         configuredContainerImages: {
           trustedProcessing: bindings.TRUSTED_PROCESSING_IMAGE_REFERENCE,
           thumbnail: bindings.THUMBNAIL_IMAGE_REFERENCE,

@@ -666,12 +666,38 @@ describe("Cloudflare route-free Jobs release verification", () => {
       get: (slot: unknown) => ({
         fetch: async (containerRequest: Request) => {
           const body = await containerRequest.json() as {
+            invocationId: string;
             stableSlot: string;
             nonce: string;
             releaseId: string;
             fence: number;
             subFence: number;
           };
+          if (containerClass === "thumbnail") {
+            const brokerResponse = await createBroker({
+              connection: directConnection,
+              bucket: bucket({}).binding,
+              leaseSeconds: 30,
+            }).fetch(new Request(
+              "http://shareslices-broker.internal/v1/release-verification",
+              {
+                method: "POST",
+                headers: {
+                  "content-type": "application/json",
+                  "x-shareslices-container-id": `provider-${String(slot)}`,
+                },
+                body: JSON.stringify({
+                  version: 1,
+                  invocationId: body.invocationId,
+                  nonce: body.nonce,
+                  releaseId: body.releaseId,
+                  fence: body.fence,
+                  subFence: body.subFence,
+                }),
+              },
+            ));
+            expect(brokerResponse.status).toBe(200);
+          }
           await pool.query(
             `insert into cloudflare_release_verification_container_evidence(
                nonce, release_id, fence, sub_fence, container_class,
@@ -787,6 +813,16 @@ describe("Cloudflare route-free Jobs release verification", () => {
         r2: {roundTrip: true},
       },
     });
+    const brokerResources = await pool.query<{resource_key: string}>(
+      `select resource_key
+       from cloudflare_release_verification_resource
+       where nonce = $1 and resource_kind = 'broker' and state = 'committed'`,
+      [nonce],
+    );
+    expect(brokerResources.rows).toHaveLength(1);
+    expect(brokerResources.rows[0]?.resource_key).toMatch(
+      new RegExp(`^release-verification/${nonce}/broker/thumbnail/[0-9a-f]{64}$`),
+    );
     const replay = await fetch(request(), bindings, context);
     expect(replay.status).toBe(200);
     expect(replay.headers.get("x-shareslices-evidence-digest")).toBe(

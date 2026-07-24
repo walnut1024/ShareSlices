@@ -3,6 +3,7 @@ import {createHash, randomBytes} from "node:crypto";
 import type {DatabaseConnection} from "../db/connection.js";
 import {createArtifactThumbnailRepository} from "../db/artifact-thumbnail-repository.js";
 import type {R2BucketBinding} from "../storage/r2-object-storage.js";
+import {createReleaseVerificationRepository} from "./release-verification-repository.js";
 
 const CAPTURE_SECONDS = 30;
 const OUTPUT_MAXIMUM_BYTES = 2 * 1024 * 1024;
@@ -62,12 +63,68 @@ function normalizedCapturePath(encoded: string): string | null {
   return decoded;
 }
 
+function releaseVerificationScope(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const body = value as Record<string, unknown>;
+  if (
+    Object.keys(body).length !== 6 ||
+    body.version !== 1 ||
+    typeof body.invocationId !== "string" ||
+    !/^[A-Za-z0-9_-]{16,256}$/.test(body.invocationId) ||
+    typeof body.nonce !== "string" ||
+    !/^[A-Za-z0-9_-]{16,256}$/.test(body.nonce) ||
+    typeof body.releaseId !== "string" ||
+    body.releaseId.length < 1 ||
+    body.releaseId.length > 256 ||
+    !Number.isSafeInteger(body.fence) ||
+    Number(body.fence) <= 0 ||
+    !Number.isSafeInteger(body.subFence) ||
+    Number(body.subFence) <= 0
+  ) {
+    return null;
+  }
+  return {
+    invocationId: body.invocationId,
+    nonce: body.nonce,
+    releaseId: body.releaseId,
+    fence: Number(body.fence),
+    subFence: Number(body.subFence),
+  };
+}
+
 export function createCloudflareThumbnailExecutionBroker(input: Readonly<{
   connection: DatabaseConnection;
   bucket: R2BucketBinding;
   leaseSeconds: number;
 }>) {
   const thumbnails = createArtifactThumbnailRepository(input.connection.database);
+
+  async function verifyRelease(request: Request): Promise<Response> {
+    const containerId = trustedContainerId(request);
+    if (!containerId) return notFound();
+    let scope: ReturnType<typeof releaseVerificationScope>;
+    try {
+      scope = releaseVerificationScope(await request.json());
+    } catch {
+      return notFound();
+    }
+    if (!scope) return notFound();
+    const resourceKey =
+      `release-verification/${scope.nonce}/broker/thumbnail/` +
+      hash(containerId);
+    const repository = createReleaseVerificationRepository(input.connection);
+    if (
+      !(await repository.prepareSyntheticResource(scope, "broker", resourceKey)) ||
+      !(await repository.commitSyntheticResource(scope, "broker", resourceKey))
+    ) {
+      return notFound();
+    }
+    return json({
+      version: 1,
+      resourceKey,
+      committed: true,
+    });
+  }
 
   async function bootstrap(request: Request): Promise<Response> {
     const bootstrapGrant = bearer(request);
@@ -437,6 +494,12 @@ export function createCloudflareThumbnailExecutionBroker(input: Readonly<{
       }
       if (request.method === "POST" && url.pathname === "/v1/bootstrap") {
         return bootstrap(request);
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/v1/release-verification"
+      ) {
+        return verifyRelease(request);
       }
       if (request.method === "GET" && url.pathname.startsWith("/v1/capture/")) {
         return capture(request, url);

@@ -187,7 +187,19 @@ components:
             database:
               $ref: "#/components/schemas/SyntheticCommit"
             broker:
-              $ref: "#/components/schemas/SyntheticCommit"
+              type: object
+              additionalProperties: false
+              required: [origin, attempts]
+              properties:
+                origin:
+                  type: string
+                  const: http://shareslices-broker.internal
+                attempts:
+                  type: array
+                  minItems: 1
+                  uniqueItems: true
+                  items:
+                    $ref: "#/components/schemas/SyntheticCommit"
             r2:
               type: object
               additionalProperties: false

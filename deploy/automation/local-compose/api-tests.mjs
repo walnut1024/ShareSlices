@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -106,6 +107,7 @@ function existingSocket(path) {
 export function resolveLocalDockerHost({
   candidates = ["/var/run/docker.sock", join(homedir(), ".docker/run/docker.sock")],
   isSocket = existingSocket,
+  resolveSocket = realpathSync,
 } = {}) {
   const socket = candidates.find(isSocket);
   if (!socket) {
@@ -113,7 +115,7 @@ export function resolveLocalDockerHost({
       `No supported local Docker socket found (${candidates.join(", ")}); remote and caller-selected Docker endpoints are refused.`,
     );
   }
-  return `unix://${socket}`;
+  return `unix://${resolveSocket(socket)}`;
 }
 
 export function dockerChildEnvironment({ dockerConfig, dockerHost }) {

@@ -8,6 +8,27 @@ servers:
 security:
   - brokerCapability: []
 paths:
+  /v1/release-verification:
+    post:
+      operationId: verifyThumbnailBrokerRelease
+      description: Executes one nonce-owned broker attempt under the live release-verification invocation lease and probe sub-fence.
+      parameters:
+        - $ref: "#/components/parameters/ContainerId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReleaseVerification"
+      responses:
+        "200":
+          description: The private broker attempt crossed its fenced commit boundary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleaseVerificationResult"
+        "404":
+          $ref: "#/components/responses/Rejected"
   /v1/bootstrap:
     post:
       operationId: bootstrapThumbnailExecution
@@ -118,6 +139,25 @@ components:
     Rejected:
       description: Invalid, expired, replayed, cross-audience, cross-Container, or stale capability.
   schemas:
+    ReleaseVerification:
+      type: object
+      additionalProperties: false
+      required: [version, invocationId, nonce, releaseId, fence, subFence]
+      properties:
+        version: {type: integer, const: 1}
+        invocationId: {type: string, minLength: 16, maxLength: 256}
+        nonce: {type: string, minLength: 16, maxLength: 256}
+        releaseId: {type: string, minLength: 1, maxLength: 256}
+        fence: {type: integer, minimum: 1}
+        subFence: {type: integer, minimum: 1}
+    ReleaseVerificationResult:
+      type: object
+      additionalProperties: false
+      required: [version, resourceKey, committed]
+      properties:
+        version: {type: integer, const: 1}
+        resourceKey: {type: string}
+        committed: {type: boolean, const: true}
     Bootstrap:
       type: object
       additionalProperties: false
