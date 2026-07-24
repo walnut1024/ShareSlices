@@ -82,3 +82,6 @@ Durable documentation must satisfy these stable invariants:
 - [Kubernetes target](operations/kubernetes.md) documents existing-cluster
   prerequisites, direct and GitOps reconciliation, verification,
   recoverability evidence, and compatible rollback.
+- [Kubernetes example migration](operations/kubernetes-migration.md) documents
+  the breaking move from fixed-address, placeholder-Secret, mutable-image, and
+  init-container-migration examples to the supported deployment interface.
