@@ -97,6 +97,59 @@ function queueObservation(status) {
   );
 }
 
+function jobsObservation(status) {
+  const jobs = status.telemetry?.jobs;
+  if (
+    !Number.isSafeInteger(jobs?.backlog) ||
+    !Number.isSafeInteger(jobs?.activeLeases) ||
+    jobs.observedTableCount !== jobs.expectedTableCount
+  ) {
+    return observation("unknown", "job_telemetry_unobserved", {
+      "job.backlog": null,
+      "job.active_leases": null,
+    });
+  }
+  return observation("ok", "job_telemetry_observed", {
+    "job.backlog": jobs.backlog,
+    "job.active_leases": jobs.activeLeases,
+  });
+}
+
+function databaseObservation(status) {
+  const database = status.telemetry?.database;
+  if (
+    !Number.isSafeInteger(database?.activeConnections) ||
+    !Number.isSafeInteger(database?.connectionLimit) ||
+    database.connectionLimit <= 0
+  ) {
+    return observation("unknown", "database_connection_telemetry_unobserved", {
+      "database.active_connections": null,
+      "database.connection_limit": null,
+    });
+  }
+  const utilization = database.activeConnections / database.connectionLimit;
+  return observation(
+    utilization >= 0.9 ? "critical" : utilization >= 0.8 ? "warning" : "ok",
+    utilization >= 0.9
+      ? "database_connection_headroom_critical"
+      : utilization >= 0.8
+        ? "database_connection_headroom_warning"
+        : "database_connection_headroom_healthy",
+    {
+      "database.active_connections": database.activeConnections,
+      "database.connection_limit": database.connectionLimit,
+    },
+    [
+      {
+        metric: "database.active_connections",
+        direction: "above",
+        warning: Math.floor(database.connectionLimit * 0.8),
+        critical: Math.floor(database.connectionLimit * 0.9),
+      },
+    ],
+  );
+}
+
 export function createStatusTelemetryObservers(status) {
   if (!status || !["compose", "kubernetes", "cloudflare"].includes(status.target)) {
     throw new TypeError("Status telemetry requires one target status observation.");
@@ -104,6 +157,8 @@ export function createStatusTelemetryObservers(status) {
   const observers = {
     "deployment-operation": async () => operationObservation(status),
     migration: async () => migrationObservation(status),
+    jobs: async () => jobsObservation(status),
+    database: async () => databaseObservation(status),
   };
   if (status.target === "kubernetes") {
     observers.kubernetes = async () => kubernetesObservation(status);

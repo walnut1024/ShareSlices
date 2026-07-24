@@ -181,6 +181,7 @@ export function createCloudflareStatusObserver({
       target: "cloudflare",
       desiredReleaseId,
       operation: control.operation,
+      telemetry: control.telemetry,
       observedReleaseId: allDesired && activeMatches ? desiredReleaseId : null,
       verification: verificationPassed ? "passed" : "pending",
       phases: control.phases ?? [],

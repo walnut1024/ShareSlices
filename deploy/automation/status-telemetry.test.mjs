@@ -13,6 +13,15 @@ test("projects operation, migration, and Kubernetes probe observations", async (
     },
     phases: [{phase: "verification", state: "completed"}],
     migration: {schemaHead: "0009"},
+    telemetry: {
+      jobs: {
+        backlog: 4,
+        activeLeases: 2,
+        observedTableCount: 8,
+        expectedTableCount: 8,
+      },
+      database: {activeConnections: 8, connectionLimit: 10},
+    },
     components: [
       {probes: {podCount: 2, readyPods: 2}},
       {probes: {podCount: 1, readyPods: 1}},
@@ -28,6 +37,11 @@ test("projects operation, migration, and Kubernetes probe observations", async (
     "kubernetes.ready": 3,
     "kubernetes.desired": 3,
   });
+  assert.deepEqual((await observers.jobs()).attributes, {
+    "job.backlog": 4,
+    "job.active_leases": 2,
+  });
+  assert.equal((await observers.database()).state, "warning");
 });
 
 test("projects actual Cloudflare ready and dead-letter backlogs", async () => {

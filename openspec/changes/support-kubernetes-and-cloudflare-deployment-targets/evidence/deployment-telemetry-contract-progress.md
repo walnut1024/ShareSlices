@@ -45,3 +45,14 @@ The first real source integration now projects:
 These projections preserve `null` plus `unknown` when evidence is absent instead
 of inventing a zero. Task 14.13 remains open for the other owning readers and
 reviewed thresholds.
+
+The direct PostgreSQL control observer also now reads:
+
+- queued work and active leases across all eight current job tables, refusing a
+  partial table set rather than undercounting;
+- active connections to the current database; and
+- the server's observed connection limit.
+
+Database projection derives warning and critical thresholds at 80 and 90
+percent of the observed limit. The query path is read-only and exposes only
+aggregate counts.

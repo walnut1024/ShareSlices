@@ -9,10 +9,50 @@ import {
   createKubernetesStatusObserver,
   createKubernetesStateObserver,
   createPostgresControlObserver,
+  inspectPostgresOperationalTelemetry,
 } from "./control-observation.mjs";
 import {deriveDeploymentStatus} from "./status.mjs";
 
 const digest = (character) => `sha256:${character.repeat(64)}`;
+
+test("PostgreSQL telemetry aggregates present job lanes and connection headroom", async () => {
+  const queries = [];
+  const client = {
+    async query(sql, values) {
+      queries.push([sql, values]);
+      if (sql.includes("to_regclass")) {
+        return {
+          rows: [
+            {name: "artifact_processing_job", present: true},
+            {name: "artifact_thumbnail_job", present: true},
+          ],
+        };
+      }
+      if (sql.includes("from artifact_processing_job")) {
+        return {rows: [{backlog: 3, active_leases: 1}]};
+      }
+      if (sql.includes("from artifact_thumbnail_job")) {
+        return {rows: [{backlog: 2, active_leases: 1}]};
+      }
+      return {rows: [{active_connections: 8, connection_limit: 20}]};
+    },
+  };
+  const result = await inspectPostgresOperationalTelemetry(client);
+  assert.deepEqual(result.jobs, {
+    backlog: 5,
+    activeLeases: 2,
+    observedTableCount: 2,
+    expectedTableCount: 8,
+  });
+  assert.deepEqual(result.database, {
+    activeConnections: 8,
+    connectionLimit: 20,
+  });
+  assert.equal(
+    queries.some(([sql]) => /insert|update|delete/i.test(sql)),
+    false,
+  );
+});
 
 test("file Secret resolution stays under the explicit root", async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "shareslices-secret-root-"));

@@ -269,8 +269,15 @@ migration head, Kubernetes Pod readiness, and Cloudflare Queue/DLQ backlog from
 the existing authoritative control, cluster, and provider observations. Missing
 or unavailable data is represented by a present attribute with a `null` value
 and `unknown` state; it is never converted to an observed zero. Runtime job,
-Container, database, R2, SMTP/Resend, provider-limit, and cost observations
-still require their owning readers.
+database connection, Container, R2, SMTP/Resend, provider-limit, and cost
+observations still require their owning readers.
+
+The direct PostgreSQL observer now aggregates queued work and active leases
+across every current processing, thumbnail, Gallery, authentication-email, and
+Cloudflare dispatch job table. It reports job telemetry only when the complete
+expected table set exists. It also reads current-database connection usage and
+the server connection limit; the shared projection emits warning at 80 percent
+and critical at 90 percent of that observed limit.
 
 ## Configuration and release inputs
 

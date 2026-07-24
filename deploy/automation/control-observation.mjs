@@ -17,6 +17,59 @@ const controlTables = Object.freeze([
   "shareslices_deployment_phase_step_checkpoint",
   "shareslices_deployment_release_record",
 ]);
+const operationalJobTables = Object.freeze([
+  Object.freeze({name: "artifact_processing_job", queued: "queued", active: "running"}),
+  Object.freeze({name: "artifact_thumbnail_job", queued: "queued", active: "running"}),
+  Object.freeze({name: "content_bundle_thumbnail_job", queued: "queued", active: "running"}),
+  Object.freeze({name: "gallery_safety_job", queued: "queued", active: "running"}),
+  Object.freeze({name: "gallery_cover_job", queued: "queued", active: "running"}),
+  Object.freeze({name: "gallery_copy_job", queued: "accepted", active: "processing"}),
+  Object.freeze({name: "authentication_email_delivery", queued: "pending", active: "sending"}),
+  Object.freeze({name: "cloudflare_job_dispatch_outbox", queued: "pending", active: "publishing"}),
+]);
+
+export async function inspectPostgresOperationalTelemetry(client) {
+  const presence = await client.query(
+    "select name, to_regclass(name) is not null as present from unnest($1::text[]) name",
+    [operationalJobTables.map(({name}) => name)],
+  );
+  const present = new Set(
+    presence.rows.filter(({present: exists}) => exists).map(({name}) => name),
+  );
+  let backlog = 0;
+  let activeLeases = 0;
+  for (const table of operationalJobTables) {
+    if (!present.has(table.name)) continue;
+    const counts = await client.query(
+      `select count(*) filter (where state = $1)::int as backlog,
+              count(*) filter (
+                where state = $2 and lease_owner is not null
+                  and lease_expires_at > now()
+              )::int as active_leases
+         from ${table.name}`,
+      [table.queued, table.active],
+    );
+    backlog += Number(counts.rows[0]?.backlog ?? 0);
+    activeLeases += Number(counts.rows[0]?.active_leases ?? 0);
+  }
+  const database = await client.query(
+    `select count(*) filter (where datname = current_database())::int as active_connections,
+            current_setting('max_connections')::int as connection_limit
+       from pg_stat_activity`,
+  );
+  return Object.freeze({
+    jobs: Object.freeze({
+      backlog: present.size > 0 ? backlog : null,
+      activeLeases: present.size > 0 ? activeLeases : null,
+      observedTableCount: present.size,
+      expectedTableCount: operationalJobTables.length,
+    }),
+    database: Object.freeze({
+      activeConnections: Number(database.rows[0]?.active_connections),
+      connectionLimit: Number(database.rows[0]?.connection_limit),
+    }),
+  });
+}
 
 export function createFileSecretResolvers(root) {
   if (typeof root !== "string" || root.length === 0 || !path.isAbsolute(root)) {
@@ -126,6 +179,7 @@ async function inspectControlProjection(client, installationId) {
       updatedAt: row.updated_at ?? null,
     }));
   }
+  const telemetry = await inspectPostgresOperationalTelemetry(client);
   return Object.freeze({
     databaseSchemaHead,
     releaseRecords: Object.freeze(Object.fromEntries(releases.rows.map((row) => [row.slot, Object.freeze({
@@ -154,6 +208,7 @@ async function inspectControlProjection(client, installationId) {
     }) : null,
     phases: Object.freeze(phases),
     phaseSteps: Object.freeze(phaseSteps),
+    telemetry,
   });
 }
 
@@ -554,6 +609,7 @@ export function createKubernetesStatusObserver({observeControl}) {
       target: "kubernetes",
       desiredReleaseId,
       operation: control.operation,
+      telemetry: control.telemetry,
       observedReleaseId: candidateObserved ? desiredReleaseId : allActiveAndReady ? active.releaseId : null,
       verification: control.phases.some(({phase, state}) => phase === "verification" && state === "completed")
         ? "passed"
