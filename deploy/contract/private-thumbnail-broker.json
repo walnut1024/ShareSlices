@@ -6,7 +6,7 @@
   "trustedContainerIdentityHeader": "x-shareslices-container-id",
   "operations": [
     {"method": "POST", "path": "/v1/bootstrap", "audience": "bootstrap"},
-    {"method": "GET", "path": "/v1/capture/{versionId}/content/{assetPath}", "audience": "capture"},
+    {"method": "GET", "path": "/v1/capture/{versionId}/attempts/{attemptId}/content/{assetPath}", "audience": "capture"},
     {"method": "POST", "path": "/v1/heartbeat", "audience": "controller"},
     {"method": "PUT", "path": "/v1/output", "audience": "controller"},
     {"method": "POST", "path": "/v1/commit", "audience": "controller"}

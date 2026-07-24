@@ -859,6 +859,7 @@ export const artifactThumbnailCaptureGrant = pgTable(
   {
     tokenHash: text("token_hash").primaryKey(),
     versionId: text("version_id").notNull().references(() => artifactVersion.id, { onDelete: "cascade" }),
+    attemptId: text("attempt_id"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     consumedAt: timestamp("consumed_at", { withTimezone: true }),
     sessionTokenHash: text("session_token_hash"),
@@ -868,6 +869,9 @@ export const artifactThumbnailCaptureGrant = pgTable(
   },
   (table) => [
     index("artifact_thumbnail_capture_grant_expiry_idx").on(table.expiresAt).where(sql`${table.consumedAt} is null`),
+    index("artifact_thumbnail_capture_grant_attempt_idx")
+      .on(table.attemptId)
+      .where(sql`${table.attemptId} is not null`),
     check("artifact_thumbnail_capture_grant_hash_check", sql`${table.tokenHash} ~ '^[0-9a-f]{64}$'`),
     check("artifact_thumbnail_capture_grant_expiry_check", sql`${table.expiresAt} > ${table.createdAt}`),
     check("artifact_thumbnail_capture_grant_session_hash_check", sql`${table.sessionTokenHash} is null or ${table.sessionTokenHash} ~ '^[0-9a-f]{64}$'`),

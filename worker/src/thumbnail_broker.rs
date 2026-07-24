@@ -216,7 +216,7 @@ mod tests {
             version: 1,
             renderer_revision: renderer_revision.to_owned(),
             capture_url:
-                "http://shareslices-broker.internal/v1/capture/version/content/?grant=grant"
+                "http://shareslices-broker.internal/v1/capture/version/attempts/attempt/content/?grant=grant"
                     .to_owned(),
             controller_token: "a".repeat(43),
             output: OutputContract {
@@ -246,8 +246,8 @@ mod tests {
     #[test]
     fn rejects_a_capture_url_outside_the_private_http_broker() {
         for capture_url in [
-            "https://shareslices-broker.internal/v1/capture/version/content/",
-            "http://example.test/v1/capture/version/content/",
+            "https://shareslices-broker.internal/v1/capture/version/attempts/attempt/content/",
+            "http://example.test/v1/capture/version/attempts/attempt/content/",
             "file:///tmp/index.html",
             "data:text/html,artifact",
         ] {

@@ -48,6 +48,7 @@ export function createArtifactThumbnailRepository(
       rawToken: string,
       versionId: string,
       containerId?: string,
+      attemptId?: string,
     ): Promise<CaptureSession | null> {
       const sessionToken = randomBytes(32).toString("base64url");
       const expiresAt = new Date(Date.now() + CAPTURE_SESSION_SECONDS * 1000);
@@ -60,6 +61,9 @@ export function createArtifactThumbnailRepository(
           ...(containerId
             ? [eq(schema.artifactThumbnailCaptureGrant.containerId, containerId)]
             : []),
+          ...(attemptId
+            ? [eq(schema.artifactThumbnailCaptureGrant.attemptId, attemptId)]
+            : []),
           isNull(schema.artifactThumbnailCaptureGrant.consumedAt),
           gt(schema.artifactThumbnailCaptureGrant.expiresAt, new Date())
         ))
@@ -71,6 +75,7 @@ export function createArtifactThumbnailRepository(
       rawToken: string,
       versionId: string,
       containerId?: string,
+      attemptId?: string,
     ): Promise<boolean> {
       const row = await database.query.artifactThumbnailCaptureGrant.findFirst({
         columns: { tokenHash: true },
@@ -79,6 +84,9 @@ export function createArtifactThumbnailRepository(
           eq(schema.artifactThumbnailCaptureGrant.sessionTokenHash, hash(rawToken)),
           ...(containerId
             ? [eq(schema.artifactThumbnailCaptureGrant.containerId, containerId)]
+            : []),
+          ...(attemptId
+            ? [eq(schema.artifactThumbnailCaptureGrant.attemptId, attemptId)]
             : []),
           gt(schema.artifactThumbnailCaptureGrant.sessionExpiresAt, new Date())
         )

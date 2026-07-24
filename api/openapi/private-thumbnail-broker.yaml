@@ -22,12 +22,16 @@ paths:
                 $ref: "#/components/schemas/Bootstrap"
         "404":
           $ref: "#/components/responses/Rejected"
-  /v1/capture/{versionId}/content/{assetPath}:
+  /v1/capture/{versionId}/attempts/{attemptId}/content/{assetPath}:
     get:
       operationId: readThumbnailCaptureAsset
       parameters:
         - $ref: "#/components/parameters/ContainerId"
         - name: versionId
+          in: path
+          required: true
+          schema: {type: string}
+        - name: attemptId
           in: path
           required: true
           schema: {type: string}

@@ -277,6 +277,7 @@ describe("Cloudflare secretless thumbnail execution broker", () => {
     ));
     expect(bootstrap.status).toBe(200);
     const contract = await bootstrap.json() as {
+      attemptId: string;
       captureUrl: string;
       controllerToken: string;
       viewport: {width: number; height: number};
@@ -297,8 +298,7 @@ describe("Cloudflare secretless thumbnail execution broker", () => {
     expect(entry.headers.get("cache-control")).toBe("no-store");
     const cookie = entry.headers.get("set-cookie")!;
     const asset = await broker.fetch(new Request(
-      `http://shareslices-broker.internal/v1/capture/` +
-      `${seeded.versionId}/content/assets/app.js`,
+      new URL("assets/app.js", contract.captureUrl),
       {headers: {cookie}},
     ));
     expect(await asset.text()).toBe("ready=1");
@@ -449,6 +449,7 @@ describe("Cloudflare secretless thumbnail execution broker", () => {
       },
     ));
     const contract = await bootstrap.json() as {
+      attemptId: string;
       captureUrl: string;
       controllerToken: string;
     };
@@ -463,17 +464,13 @@ describe("Cloudflare secretless thumbnail execution broker", () => {
         headers: {authorization: `Bearer ${execution.bootstrapGrant}`},
       },
     ))).status).toBe(404);
-    const firstEntry = await broker.fetch(new Request(
-      `${contract.captureUrl}&attemptId=another-attempt`,
-      {headers: controllerHeaders},
-    ));
+    const firstEntry = await broker.fetch(new Request(contract.captureUrl));
     expect(firstEntry.status).toBe(200);
     const captureCookie = firstEntry.headers.get("set-cookie")!;
     expect(captureCookie).toContain("HttpOnly");
     expect(captureCookie).toContain("SameSite=Strict");
     expect((await broker.fetch(new Request(
-      `http://shareslices-broker.internal/v1/capture/` +
-      `${seeded.versionId}/content/assets/app.js`,
+      new URL("assets/app.js", contract.captureUrl),
       {headers: {cookie: captureCookie}},
     ))).status).toBe(200);
     const entry = await broker.fetch(new Request(contract.captureUrl));
@@ -484,10 +481,11 @@ describe("Cloudflare secretless thumbnail execution broker", () => {
     expect(replayCookie).toBeNull();
 
     for (const path of [
-      `/v1/capture/${seeded.versionId}/content/../secret`,
-      `/v1/capture/${seeded.versionId}/content/%2e%2e/secret`,
-      `/v1/capture/%E0%A4%A/content/`,
-      `/v1/capture/${seeded.versionId}/content/missing`,
+      `/v1/capture/${seeded.versionId}/attempts/${contract.attemptId}/content/../secret`,
+      `/v1/capture/${seeded.versionId}/attempts/${contract.attemptId}/content/%2e%2e/secret`,
+      `/v1/capture/%E0%A4%A/attempts/${contract.attemptId}/content/`,
+      `/v1/capture/${seeded.versionId}/attempts/%E0%A4%A/content/`,
+      `/v1/capture/${seeded.versionId}/attempts/${contract.attemptId}/content/missing`,
     ]) {
       const response = await broker.fetch(new Request(
         `http://shareslices-broker.internal${path}`,
@@ -496,11 +494,18 @@ describe("Cloudflare secretless thumbnail execution broker", () => {
       expect(response.headers.get("location")).toBeNull();
     }
     expect((await broker.fetch(new Request(
-      `http://shareslices-broker.internal/v1/capture/another-version/content/index.html`,
+      `http://shareslices-broker.internal/v1/capture/another-version/` +
+      `attempts/${contract.attemptId}/content/index.html`,
       {headers: {cookie: captureCookie}},
     ))).status).toBe(404);
     expect((await broker.fetch(new Request(
-      `http://shareslices-broker.internal/v1/capture/${seeded.versionId}/content/index.html`,
+      `http://shareslices-broker.internal/v1/capture/${seeded.versionId}/` +
+      `attempts/another-attempt/content/index.html`,
+      {headers: {cookie: captureCookie}},
+    ))).status).toBe(404);
+    expect((await broker.fetch(new Request(
+      `http://shareslices-broker.internal/v1/capture/${seeded.versionId}/` +
+      `attempts/${contract.attemptId}/content/index.html`,
       {headers: {cookie: "shareslices_capture=%E0%A4%A"}},
     ))).status).toBe(404);
 
@@ -515,7 +520,7 @@ describe("Cloudflare secretless thumbnail execution broker", () => {
     );
     expect((await broker.fetch(new Request(
       `http://shareslices-broker.internal/v1/capture/` +
-      `${seeded.versionId}/content/index.html`,
+      `${seeded.versionId}/attempts/${contract.attemptId}/content/index.html`,
       {headers: {cookie: captureCookie}},
     ))).status).toBe(404);
 
