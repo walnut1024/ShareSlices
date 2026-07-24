@@ -21,6 +21,7 @@ test("projects operation, migration, and Kubernetes probe observations", async (
         expectedTableCount: 8,
       },
       database: {activeConnections: 8, connectionLimit: 10},
+      smtp: {classification: "provider_accepted"},
     },
     components: [
       {probes: {podCount: 2, readyPods: 2}},
@@ -42,6 +43,9 @@ test("projects operation, migration, and Kubernetes probe observations", async (
     "job.active_leases": 2,
   });
   assert.equal((await observers.database()).state, "warning");
+  assert.deepEqual((await observers.smtp()).attributes, {
+    "smtp.classification": "provider_accepted",
+  });
 });
 
 test("projects actual Cloudflare ready and dead-letter backlogs", async () => {
@@ -74,6 +78,7 @@ test("uses null unknown evidence instead of invented zero values", async () => {
     "kubernetes.ready": null,
     "kubernetes.desired": null,
   });
+  assert.equal((await kubernetes.smtp()).state, "unknown");
   const cloudflare = createStatusTelemetryObservers({
     target: "cloudflare",
     phases: [],

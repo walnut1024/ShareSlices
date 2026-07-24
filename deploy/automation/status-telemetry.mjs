@@ -150,6 +150,29 @@ function databaseObservation(status) {
   );
 }
 
+function smtpObservation(status) {
+  const classification = status.telemetry?.smtp?.classification;
+  if (!classification || classification === "no_delivery_observed") {
+    return observation("unknown", "smtp_delivery_unobserved", {
+      "smtp.classification": classification ?? null,
+    });
+  }
+  const state = classification === "provider_accepted"
+    ? "ok"
+    : classification === "pending"
+      ? "warning"
+      : "critical";
+  return observation(
+    state,
+    state === "ok"
+      ? "smtp_provider_accepted"
+      : state === "warning"
+        ? "smtp_delivery_pending"
+        : "smtp_delivery_unresolved",
+    {"smtp.classification": classification},
+  );
+}
+
 export function createStatusTelemetryObservers(status) {
   if (!status || !["compose", "kubernetes", "cloudflare"].includes(status.target)) {
     throw new TypeError("Status telemetry requires one target status observation.");
@@ -160,6 +183,9 @@ export function createStatusTelemetryObservers(status) {
     jobs: async () => jobsObservation(status),
     database: async () => databaseObservation(status),
   };
+  if (["compose", "kubernetes"].includes(status.target)) {
+    observers.smtp = async () => smtpObservation(status);
+  }
   if (status.target === "kubernetes") {
     observers.kubernetes = async () => kubernetesObservation(status);
   }

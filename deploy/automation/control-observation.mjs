@@ -57,6 +57,33 @@ export async function inspectPostgresOperationalTelemetry(client) {
             current_setting('max_connections')::int as connection_limit
        from pg_stat_activity`,
   );
+  const emailColumns = await client.query(
+    `select exists(
+       select 1 from pg_attribute
+        where attrelid = to_regclass('authentication_email_delivery')
+          and attname = 'transport_adapter' and not attisdropped
+     ) as present`,
+  );
+  let smtpClassification = null;
+  if (emailColumns.rows[0]?.present === true) {
+    const smtp = await client.query(
+      `select state, result_classification
+         from authentication_email_delivery
+        where transport_adapter = 'smtp'
+        order by created_at desc limit 1`,
+    );
+    const latest = smtp.rows[0];
+    smtpClassification = latest
+      ? latest.result_classification ??
+        (
+          latest.state === "sent"
+            ? "provider_accepted"
+            : ["failed", "manual_reconciliation"].includes(latest.state)
+              ? "acceptance_unresolved"
+              : "pending"
+        )
+      : "no_delivery_observed";
+  }
   return Object.freeze({
     jobs: Object.freeze({
       backlog: present.size > 0 ? backlog : null,
@@ -68,6 +95,7 @@ export async function inspectPostgresOperationalTelemetry(client) {
       activeConnections: Number(database.rows[0]?.active_connections),
       connectionLimit: Number(database.rows[0]?.connection_limit),
     }),
+    smtp: Object.freeze({classification: smtpClassification}),
   });
 }
 

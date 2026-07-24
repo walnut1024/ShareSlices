@@ -56,3 +56,8 @@ The direct PostgreSQL control observer also now reads:
 Database projection derives warning and critical thresholds at 80 and 90
 percent of the observed limit. The query path is read-only and exposes only
 aggregate counts.
+
+SMTP projection reads only the newest SMTP delivery's stable state and
+result-classification fields. It never selects recipient, payload, endpoint, or
+provider diagnostics. An older migration prefix without transport columns
+produces `unknown` rather than breaking status observation.

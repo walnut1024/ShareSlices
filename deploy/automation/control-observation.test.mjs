@@ -34,6 +34,20 @@ test("PostgreSQL telemetry aggregates present job lanes and connection headroom"
       if (sql.includes("from artifact_thumbnail_job")) {
         return {rows: [{backlog: 2, active_leases: 1}]};
       }
+      if (sql.includes("from pg_stat_activity")) {
+        return {rows: [{active_connections: 8, connection_limit: 20}]};
+      }
+      if (sql.includes("from pg_attribute")) {
+        return {rows: [{present: true}]};
+      }
+      if (sql.includes("from authentication_email_delivery")) {
+        return {
+          rows: [{
+            state: "sent",
+            result_classification: "provider_accepted",
+          }],
+        };
+      }
       return {rows: [{active_connections: 8, connection_limit: 20}]};
     },
   };
@@ -48,6 +62,7 @@ test("PostgreSQL telemetry aggregates present job lanes and connection headroom"
     activeConnections: 8,
     connectionLimit: 20,
   });
+  assert.deepEqual(result.smtp, {classification: "provider_accepted"});
   assert.equal(
     queries.some(([sql]) => /insert|update|delete/i.test(sql)),
     false,

@@ -279,6 +279,12 @@ expected table set exists. It also reads current-database connection usage and
 the server connection limit; the shared projection emits warning at 80 percent
 and critical at 90 percent of that observed limit.
 
+For Kubernetes and Compose SMTP, the PostgreSQL observer reads only the latest
+transport Adapter and stable delivery-result classification. It emits accepted,
+pending, unresolved, no-delivery, or unavailable state without recipient,
+message, endpoint, or provider diagnostic data. When an older schema lacks the
+transport column, SMTP telemetry is `unknown` and status observation continues.
+
 ## Configuration and release inputs
 
 The versioned deployment schema is
