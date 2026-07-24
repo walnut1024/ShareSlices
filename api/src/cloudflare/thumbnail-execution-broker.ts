@@ -33,7 +33,12 @@ function captureCookie(request: Request): string | null {
     ?.split(";")
     .map((part) => part.trim())
     .find((part) => part.startsWith("shareslices_capture="));
-  return match ? decodeURIComponent(match.slice("shareslices_capture=".length)) : null;
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match.slice("shareslices_capture=".length));
+  } catch {
+    return null;
+  }
 }
 
 function trustedContainerId(request: Request): string | null {
@@ -116,11 +121,12 @@ export function createCloudflareThumbnailExecutionBroker(input: Readonly<{
         }
         await client.query(
           `insert into artifact_thumbnail_capture_grant(
-             token_hash, version_id, expires_at, container_id
-           ) values($1, $2, now() + make_interval(secs => $3), $4)`,
+             token_hash, version_id, attempt_id, expires_at, container_id
+           ) values($1, $2, $3, now() + make_interval(secs => $4), $5)`,
           [
             hash(captureGrant),
             row.capture_version_id,
+            row.attempt_id,
             CAPTURE_SECONDS,
             containerId,
           ],
@@ -132,7 +138,8 @@ export function createCloudflareThumbnailExecutionBroker(input: Readonly<{
           rendererRevision: row.renderer_revision,
           captureUrl:
             `http://shareslices-broker.internal/v1/capture/` +
-            `${encodeURIComponent(row.capture_version_id)}/content/` +
+            `${encodeURIComponent(row.capture_version_id)}/attempts/` +
+            `${encodeURIComponent(row.attempt_id)}/content/` +
             `?grant=${encodeURIComponent(captureGrant)}`,
           controllerToken,
           output: {
@@ -155,7 +162,9 @@ export function createCloudflareThumbnailExecutionBroker(input: Readonly<{
   async function capture(request: Request, url: URL): Promise<Response> {
     const containerId = trustedContainerId(request);
     if (!containerId) return notFound();
-    const match = /^\/v1\/capture\/([^/]+)\/content\/(.*)$/.exec(url.pathname);
+    const match =
+      /^\/v1\/capture\/([^/]+)\/attempts\/([^/]+)\/content\/(.*)$/
+        .exec(url.pathname);
     if (!match) return notFound();
     let versionId: string;
     try {
@@ -163,23 +172,40 @@ export function createCloudflareThumbnailExecutionBroker(input: Readonly<{
     } catch {
       return notFound();
     }
-    const path = normalizedCapturePath(match[2]!);
+    let attemptId: string;
+    try {
+      attemptId = decodeURIComponent(match[2]!);
+    } catch {
+      return notFound();
+    }
+    const path = normalizedCapturePath(match[3]!);
     if (path === null) return notFound();
     let sessionToken = captureCookie(request);
     let sessionHeader: string | undefined;
     if (path === "") {
       const grant = url.searchParams.get("grant");
       if (!grant) return notFound();
-      const session = await thumbnails.consumeGrant(grant, versionId, containerId);
+      const session = await thumbnails.consumeGrant(
+        grant,
+        versionId,
+        containerId,
+        attemptId,
+      );
       if (!session) return notFound();
       sessionToken = session.token;
       sessionHeader =
         `shareslices_capture=${encodeURIComponent(session.token)}; ` +
         `Max-Age=${CAPTURE_SECONDS}; Path=/v1/capture/` +
-        `${encodeURIComponent(versionId)}/content/; HttpOnly; SameSite=Strict`;
+        `${encodeURIComponent(versionId)}/attempts/` +
+        `${encodeURIComponent(attemptId)}/content/; HttpOnly; SameSite=Strict`;
     } else if (
       !sessionToken ||
-      !(await thumbnails.resolveSession(sessionToken, versionId, containerId))
+      !(await thumbnails.resolveSession(
+        sessionToken,
+        versionId,
+        containerId,
+        attemptId,
+      ))
     ) {
       return notFound();
     }
@@ -298,10 +324,14 @@ export function createCloudflareThumbnailExecutionBroker(input: Readonly<{
       return notFound();
     }
     const record = body as Record<string, unknown>;
+    const keys = Object.keys(record);
     if (
       !body ||
       typeof body !== "object" ||
       Array.isArray(body) ||
+      keys.length !== 4 ||
+      keys.some((key) =>
+        !["sha256", "sizeBytes", "width", "height"].includes(key)) ||
       typeof record.sha256 !== "string" ||
       !/^[0-9a-f]{64}$/.test(record.sha256) ||
       !Number.isSafeInteger(record.sizeBytes) ||
@@ -399,7 +429,12 @@ export function createCloudflareThumbnailExecutionBroker(input: Readonly<{
   return Object.freeze({
     async fetch(request: Request): Promise<Response> {
       const url = new URL(request.url);
-      if (url.hostname !== "shareslices-broker.internal") return notFound();
+      if (
+        url.protocol !== "http:" ||
+        url.hostname !== "shareslices-broker.internal"
+      ) {
+        return notFound();
+      }
       if (request.method === "POST" && url.pathname === "/v1/bootstrap") {
         return bootstrap(request);
       }

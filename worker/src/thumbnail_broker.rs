@@ -242,4 +242,18 @@ mod tests {
     fn rejects_a_renderer_revision_mismatch() {
         assert!(validate_bootstrap(&contract("renderer-v1"), "renderer-v2").is_err());
     }
+
+    #[test]
+    fn rejects_a_capture_url_outside_the_private_http_broker() {
+        for capture_url in [
+            "https://shareslices-broker.internal/v1/capture/version/content/",
+            "http://example.test/v1/capture/version/content/",
+            "file:///tmp/index.html",
+            "data:text/html,artifact",
+        ] {
+            let mut candidate = contract("renderer-v2");
+            candidate.capture_url = capture_url.to_owned();
+            assert!(validate_bootstrap(&candidate, "renderer-v2").is_err());
+        }
+    }
 }

@@ -25,6 +25,15 @@ type ContainerBindings = Readonly<{
 
 const REMAINING_WORK_EXIT_CODE = 75;
 
+export function bindTrustedContainerIdentity(
+  request: Request,
+  containerId: string,
+): Request {
+  const trustedRequest = new Request(request);
+  trustedRequest.headers.set("x-shareslices-container-id", containerId);
+  return trustedRequest;
+}
+
 function sleepAfterMilliseconds(name: string, value: string): number {
   const seconds = Number(value);
   if (!Number.isSafeInteger(seconds) || seconds <= 0) {
@@ -160,9 +169,8 @@ export class ThumbnailContainer extends PrivateShareSlicesContainer {
         idleTimeoutMs: 1_000,
       });
       try {
-        const trustedRequest = new Request(request);
-        trustedRequest.headers.set(
-          "x-shareslices-container-id",
+        const trustedRequest = bindTrustedContainerIdentity(
+          request,
           context.containerId,
         );
         return await createCloudflareThumbnailExecutionBroker({

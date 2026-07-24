@@ -392,9 +392,163 @@ describe("Cloudflare secretless thumbnail execution broker", () => {
       {method: "POST", headers: {authorization: "Bearer valid-looking"}},
     ))).status).toBe(404);
     expect((await broker.fetch(new Request(
+      "https://shareslices-broker.internal/v1/bootstrap",
+      {method: "POST", headers: {authorization: "Bearer valid-looking"}},
+    ))).status).toBe(404);
+    expect((await broker.fetch(new Request(
       "http://shareslices-broker.internal/v1/capture/version/content/",
       {headers: {authorization: "Bearer controller-looking"}},
     ))).status).toBe(404);
+    const get = vi.spyOn(storage.binding, "get");
+    const put = vi.spyOn(storage.binding, "put");
+    for (const path of ["/v1/database", "/v1/r2", "/v1/redirect"]) {
+      const response = await broker.fetch(new Request(
+        `http://shareslices-broker.internal${path}`,
+        {
+          method: "POST",
+          headers: {authorization: "Bearer controller-looking"},
+        },
+      ));
+      expect(response.status).toBe(404);
+      expect(response.headers.get("location")).toBeNull();
+    }
+    expect(get).not.toHaveBeenCalled();
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it("rejects cross-scope capture, stale fences, malformed paths, and operation confusion", async () => {
+    const seeded = await seed();
+    const execution = await createCloudflareThumbnailExecutionRepository(
+      directConnection,
+    ).prepare({
+      version: 1,
+      wakeId: seeded.wakeId,
+      lane: "thumbnail",
+      durableJobId: seeded.thumbnailJobId,
+      createdAt: new Date().toISOString(),
+    }, {
+      leaseSeconds: 300,
+      bootstrapLifetimeSeconds: 60,
+    });
+    const storage = bucket({
+      [`content-bundles/${seeded.bundleId}/index.html`]:
+        new TextEncoder().encode("<html></html>"),
+      [`content-bundles/${seeded.bundleId}/assets/app.js`]:
+        new TextEncoder().encode("ready=1"),
+    });
+    const broker = createCloudflareThumbnailExecutionBroker({
+      connection: directConnection,
+      bucket: storage.binding,
+      leaseSeconds: 300,
+    });
+    const bootstrap = await broker.fetch(new Request(
+      "http://shareslices-broker.internal/v1/bootstrap",
+      {
+        method: "POST",
+        headers: {authorization: `Bearer ${execution.bootstrapGrant}`},
+      },
+    ));
+    const contract = await bootstrap.json() as {
+      captureUrl: string;
+      controllerToken: string;
+    };
+    const controllerHeaders = {
+      authorization: `Bearer ${contract.controllerToken}`,
+    };
+
+    expect((await broker.fetch(new Request(
+      "http://shareslices-broker.internal/v1/heartbeat",
+      {
+        method: "POST",
+        headers: {authorization: `Bearer ${execution.bootstrapGrant}`},
+      },
+    ))).status).toBe(404);
+    const firstEntry = await broker.fetch(new Request(
+      `${contract.captureUrl}&attemptId=another-attempt`,
+      {headers: controllerHeaders},
+    ));
+    expect(firstEntry.status).toBe(200);
+    const captureCookie = firstEntry.headers.get("set-cookie")!;
+    expect(captureCookie).toContain("HttpOnly");
+    expect(captureCookie).toContain("SameSite=Strict");
+    expect((await broker.fetch(new Request(
+      `http://shareslices-broker.internal/v1/capture/` +
+      `${seeded.versionId}/content/assets/app.js`,
+      {headers: {cookie: captureCookie}},
+    ))).status).toBe(200);
+    const entry = await broker.fetch(new Request(contract.captureUrl));
+    expect(entry.status).toBe(404);
+    const replayCookie = (await broker.fetch(new Request(
+      `${contract.captureUrl.replace(seeded.versionId, "another-version")}`,
+    ))).headers.get("set-cookie");
+    expect(replayCookie).toBeNull();
+
+    for (const path of [
+      `/v1/capture/${seeded.versionId}/content/../secret`,
+      `/v1/capture/${seeded.versionId}/content/%2e%2e/secret`,
+      `/v1/capture/%E0%A4%A/content/`,
+      `/v1/capture/${seeded.versionId}/content/missing`,
+    ]) {
+      const response = await broker.fetch(new Request(
+        `http://shareslices-broker.internal${path}`,
+      ));
+      expect(response.status).toBe(404);
+      expect(response.headers.get("location")).toBeNull();
+    }
+    expect((await broker.fetch(new Request(
+      `http://shareslices-broker.internal/v1/capture/another-version/content/index.html`,
+      {headers: {cookie: captureCookie}},
+    ))).status).toBe(404);
+    expect((await broker.fetch(new Request(
+      `http://shareslices-broker.internal/v1/capture/${seeded.versionId}/content/index.html`,
+      {headers: {cookie: "shareslices_capture=%E0%A4%A"}},
+    ))).status).toBe(404);
+
+    const sessionToken = decodeURIComponent(
+      /shareslices_capture=([^;]+)/.exec(captureCookie)![1]!,
+    );
+    await pool.query(
+      `update artifact_thumbnail_capture_grant
+       set session_expires_at = now() - interval '1 second'
+       where session_token_hash = $1`,
+      [createHash("sha256").update(sessionToken).digest("hex")],
+    );
+    expect((await broker.fetch(new Request(
+      `http://shareslices-broker.internal/v1/capture/` +
+      `${seeded.versionId}/content/index.html`,
+      {headers: {cookie: captureCookie}},
+    ))).status).toBe(404);
+
+    await pool.query(
+      `update content_bundle_thumbnail_job
+       set lease_expires_at = now() - interval '1 second'
+       where id = $1`,
+      [seeded.thumbnailJobId],
+    );
+    expect((await broker.fetch(new Request(
+      "http://shareslices-broker.internal/v1/heartbeat",
+      {method: "POST", headers: controllerHeaders},
+    ))).status).toBe(404);
+    expect((await broker.fetch(new Request(
+      "http://shareslices-broker.internal/v1/commit",
+      {
+        method: "POST",
+        headers: {...controllerHeaders, "content-type": "application/json"},
+        body: JSON.stringify({
+          sha256: "0".repeat(64),
+          sizeBytes: 12,
+          width: 800,
+          height: 450,
+          attemptId: "another-attempt",
+        }),
+      },
+    ))).status).toBe(404);
+    await pool.query(
+      `update content_bundle_thumbnail_job
+       set state = 'cancelled', lease_owner = null, lease_expires_at = null
+       where id = $1`,
+      [seeded.thumbnailJobId],
+    );
   });
 
   it("revokes an interrupted execution and creates a fresh durable wake", async () => {

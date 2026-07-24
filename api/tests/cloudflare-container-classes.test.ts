@@ -24,6 +24,7 @@ vi.mock("@cloudflare/containers", () => ({
 import {
   ThumbnailContainer,
   TrustedProcessingContainer,
+  bindTrustedContainerIdentity,
   containerDrainEntrypoint,
 } from "../src/cloudflare/container-classes.js";
 
@@ -123,8 +124,26 @@ describe("Cloudflare Container lifecycle", () => {
       }),
     }]);
     expect(JSON.stringify(lifecycle.starts)).not.toContain("controllerToken");
+    expect(JSON.stringify(lifecycle.starts)).not.toMatch(
+      /DATABASE_URL|HYPERDRIVE|ARTIFACTS|R2|S3|RESEND|SMTP/,
+    );
+    expect(container.enableInternet).toBe(false);
+    expect(Object.keys(ThumbnailContainer.outboundByHost)).toEqual([
+      "shareslices-broker.internal",
+    ]);
     await container.onStop({exitCode: 75, reason: "exit"});
     expect(lifecycle.starts).toHaveLength(1);
+  });
+
+  it("replaces an untrusted container identity header with platform identity", () => {
+    const request = bindTrustedContainerIdentity(new Request(
+      "http://shareslices-broker.internal/v1/bootstrap",
+      {headers: {"x-shareslices-container-id": "artifact-controlled"}},
+    ), "platform-container-id");
+
+    expect(request.headers.get("x-shareslices-container-id")).toBe(
+      "platform-container-id",
+    );
   });
 
   it("rejects invalid bounds and exposes no proxy route", async () => {
