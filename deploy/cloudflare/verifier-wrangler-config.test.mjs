@@ -34,15 +34,7 @@ test("generates one route-free, trigger-isolated verifier with explicit bindings
   assert.equal(generated.config.preview_urls, false);
   assert.equal("routes" in generated.config, false);
   assert.equal("triggers" in generated.config, false);
-  assert.deepEqual(generated.config.queues.consumers, [{
-    queue: generated.names.queue,
-    max_batch_size: 1,
-    max_batch_timeout: 1,
-    max_retries: 3,
-    dead_letter_queue: generated.names.deadLetterQueue,
-    max_concurrency: 1,
-    retry_delay: 30,
-  }]);
+  assert.equal(generated.config.queues, undefined);
   assert.deepEqual(generated.config.services, [
     {binding: "APP_RELEASE_VERIFICATION", service: "example-app"},
     {binding: "CONTENT_RELEASE_VERIFICATION", service: "example-content"},

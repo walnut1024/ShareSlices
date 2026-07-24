@@ -95,7 +95,12 @@ async function observeWorkers(fetchImplementation, token, accountId, config) {
       const scriptName = encodeURIComponent(name);
       const prefix = `/accounts/${accountId}/workers/scripts/${scriptName}`;
       const [settings, subdomain, schedules] = await Promise.all([
-        readApi(fetchImplementation, token, `${prefix}/settings`, {allowNotFound: true}),
+        readApi(
+          fetchImplementation,
+          token,
+          `${prefix}/script-settings`,
+          {allowNotFound: true},
+        ),
         readApi(fetchImplementation, token, `${prefix}/subdomain`, {allowNotFound: true}),
         readApi(fetchImplementation, token, `${prefix}/schedules`, {allowNotFound: true}),
       ]);
@@ -125,6 +130,107 @@ async function observeWorkers(fetchImplementation, token, accountId, config) {
       })];
     }),
   )));
+}
+
+export function createCloudflareVerifierWorkerObserver({
+  resolvers,
+  fetchImplementation = fetch,
+  now = () => new Date(),
+} = {}) {
+  return async ({config, name}) => withResolvedSecret(
+    config.cloudflare.providerReadToken,
+    resolvers ?? {},
+    async (token) => {
+      if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(name ?? "")) throw apiError();
+      const accountId = encodeURIComponent(config.cloudflare.accountId);
+      const scriptName = encodeURIComponent(name);
+      const prefix = `/accounts/${accountId}/workers/scripts/${scriptName}`;
+      const [settings, subdomain, schedules, domains, zones] = await Promise.all([
+        readApi(
+          fetchImplementation,
+          token,
+          `${prefix}/script-settings`,
+          {allowNotFound: true},
+        ),
+        readApi(
+          fetchImplementation,
+          token,
+          `${prefix}/subdomain`,
+          {allowNotFound: true},
+        ),
+        readApi(
+          fetchImplementation,
+          token,
+          `${prefix}/schedules`,
+          {allowNotFound: true},
+        ),
+        readNumberedPages(
+          fetchImplementation,
+          token,
+          `/accounts/${accountId}/workers/domains`,
+        ),
+        readNumberedPages(
+          fetchImplementation,
+          token,
+          `/zones?account.id=${accountId}`,
+        ),
+      ]);
+      if (!settings && !subdomain && !schedules) {
+        return Object.freeze({
+          name,
+          exists: false,
+          observedAt: now().toISOString(),
+        });
+      }
+      if (
+        !settings ||
+        !subdomain ||
+        !schedules ||
+        !Array.isArray(settings.result?.bindings) ||
+        typeof subdomain.result?.enabled !== "boolean" ||
+        typeof subdomain.result?.previews_enabled !== "boolean" ||
+        !Array.isArray(schedules.result?.schedules)
+      ) {
+        throw apiError();
+      }
+      const zoneRoutes = await Promise.all(zones.map(async (zone) => {
+        if (typeof zone?.id !== "string" || zone.account?.id !== config.cloudflare.accountId) {
+          throw apiError();
+        }
+        return readNumberedPages(
+          fetchImplementation,
+          token,
+          `/zones/${encodeURIComponent(zone.id)}/workers/routes`,
+        );
+      }));
+      const routes = zoneRoutes.flat()
+        .filter(({script}) => script === name)
+        .map(({id, pattern}) => {
+          if (typeof id !== "string" || typeof pattern !== "string") throw apiError();
+          return Object.freeze({id, pattern});
+        });
+      const customDomains = domains
+        .filter(({service}) => service === name)
+        .map(({id, hostname}) => {
+          if (typeof id !== "string" || typeof hostname !== "string") throw apiError();
+          return Object.freeze({id, hostname});
+        });
+      return Object.freeze({
+        name,
+        exists: true,
+        workersDevEnabled: subdomain.result.enabled,
+        previewUrlsEnabled: subdomain.result.previews_enabled,
+        bindings: Object.freeze(settings.result.bindings.map(safeBinding)),
+        schedules: Object.freeze(schedules.result.schedules.map(({cron}) => {
+          if (typeof cron !== "string") throw apiError();
+          return Object.freeze({cron});
+        })),
+        routes: Object.freeze(routes),
+        customDomains: Object.freeze(customDomains),
+        observedAt: now().toISOString(),
+      });
+    },
+  );
 }
 
 export function createCloudflareProviderObserver({

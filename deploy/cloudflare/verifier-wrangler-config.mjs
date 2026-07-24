@@ -76,17 +76,6 @@ export function generateReleaseVerifierWranglerConfig(input) {
       logs: {enabled: true, invocation_logs: true},
       traces: {enabled: true, head_sampling_rate: 1},
     },
-    queues: {
-      consumers: [{
-        queue: names.queue,
-        max_batch_size: 1,
-        max_batch_timeout: 1,
-        max_retries: 3,
-        dead_letter_queue: names.deadLetterQueue,
-        max_concurrency: 1,
-        retry_delay: 30,
-      }],
-    },
     services: [
       {binding: "APP_RELEASE_VERIFICATION", service: appService},
       {binding: "CONTENT_RELEASE_VERIFICATION", service: contentService},
