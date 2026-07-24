@@ -203,6 +203,77 @@ function r2Observation(status) {
   });
 }
 
+function containerObservation(status) {
+  const container = status.provider?.analytics?.container;
+  const usage = container?.usage;
+  if (
+    container?.state !== "observed" ||
+    typeof container.runtimeMilliseconds !== "number" ||
+    !Number.isFinite(container.runtimeMilliseconds) ||
+    !usage ||
+    Object.values(usage).some(
+      (value) => typeof value !== "number" || !Number.isFinite(value),
+    )
+  ) {
+    return observation(
+      "unknown",
+      container?.reasonCode ?? "cloudflare_container_analytics_unobserved",
+      {
+        "container.startup_ms": null,
+        "container.runtime_ms": null,
+        "container.cpu_time_seconds": null,
+        "container.memory_byte_seconds": null,
+        "container.disk_byte_seconds": null,
+        "container.transmitted_bytes": null,
+      },
+    );
+  }
+  return observation(
+    "unknown",
+    "cloudflare_container_runtime_observed_startup_unavailable",
+    {
+      "container.startup_ms": null,
+      "container.runtime_ms": container.runtimeMilliseconds,
+      "container.cpu_time_seconds": usage.cpuTimeSeconds,
+      "container.memory_byte_seconds": usage.allocatedMemoryByteSeconds,
+      "container.disk_byte_seconds": usage.allocatedDiskByteSeconds,
+      "container.transmitted_bytes": usage.transmittedBytes,
+    },
+  );
+}
+
+function providerLimitObservation(status) {
+  const limit = status.provider?.limits?.maximumRequestBodyBytes;
+  const configured = status.provider?.configuredMaximumUploadBytes;
+  if (
+    !["provider-observed", "operator-evidenced"].includes(limit?.source) ||
+    typeof limit.value !== "number" ||
+    !Number.isFinite(limit.value) ||
+    limit.value <= 0 ||
+    typeof configured !== "number" ||
+    !Number.isFinite(configured) ||
+    configured < 0
+  ) {
+    return observation("unknown", "provider_limit_headroom_unobserved", {
+      "provider_limit.headroom_percent": null,
+    });
+  }
+  const headroom = ((limit.value - configured) / limit.value) * 100;
+  return observation(
+    headroom < 0 ? "critical" : "ok",
+    headroom < 0
+      ? "provider_limit_exceeded"
+      : "provider_limit_headroom_observed",
+    {"provider_limit.headroom_percent": headroom},
+  );
+}
+
+function costRiskObservation() {
+  return observation("unknown", "cost_risk_pricing_evidence_unavailable", {
+    "cost_risk.estimated_units": null,
+  });
+}
+
 function resendObservation(status) {
   const evidence = status.provider?.resendEvidence;
   if (!evidence) {
@@ -238,17 +309,21 @@ export function createStatusTelemetryObservers(status) {
     migration: async () => migrationObservation(status),
     jobs: async () => jobsObservation(status),
     database: async () => databaseObservation(status),
+    "cost-risk": async () => costRiskObservation(status),
   };
   if (["compose", "kubernetes"].includes(status.target)) {
     observers.smtp = async () => smtpObservation(status);
   }
   if (status.target === "kubernetes") {
     observers.kubernetes = async () => kubernetesObservation(status);
+    observers["provider-limit"] = async () => providerLimitObservation(status);
   }
   if (status.target === "cloudflare") {
     observers.queue = async () => queueObservation(status);
     observers.trigger = async () => triggerObservation(status);
     observers.r2 = async () => r2Observation(status);
+    observers.container = async () => containerObservation(status);
+    observers["provider-limit"] = async () => providerLimitObservation(status);
     observers.resend = async () => resendObservation(status);
   }
   return Object.freeze(observers);

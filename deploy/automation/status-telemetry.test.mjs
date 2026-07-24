@@ -62,7 +62,24 @@ test("projects actual Cloudflare ready and dead-letter backlogs", async () => {
       },
       analytics: {
         r2: {state: "observed", requests: 10, bytes: 1320},
+        container: {
+          state: "observed",
+          runtimeMilliseconds: 12_000,
+          usage: {
+            cpuTimeSeconds: 5,
+            allocatedMemoryByteSeconds: 110,
+            allocatedDiskByteSeconds: 220,
+            transmittedBytes: 330,
+          },
+        },
       },
+      limits: {
+        maximumRequestBodyBytes: {
+          source: "provider-observed",
+          value: 100,
+        },
+      },
+      configuredMaximumUploadBytes: 80,
       resendEvidence: {
         classification: "healthy",
         evidenceSource: "operator_evidence",
@@ -83,6 +100,21 @@ test("projects actual Cloudflare ready and dead-letter backlogs", async () => {
     "r2.requests": 10,
     "r2.bytes": 1320,
   });
+  assert.deepEqual((await observers.container()).attributes, {
+    "container.startup_ms": null,
+    "container.runtime_ms": 12_000,
+    "container.cpu_time_seconds": 5,
+    "container.memory_byte_seconds": 110,
+    "container.disk_byte_seconds": 220,
+    "container.transmitted_bytes": 330,
+  });
+  assert.equal((await observers.container()).state, "unknown");
+  assert.equal(
+    (await observers["provider-limit"]()).attributes[
+      "provider_limit.headroom_percent"
+    ],
+    20,
+  );
   assert.equal((await observers.resend()).state, "ok");
   assert.equal((await observers["deployment-operation"]()).state, "unknown");
 });
@@ -107,4 +139,7 @@ test("uses null unknown evidence instead of invented zero values", async () => {
     "queue.ready": null,
     "queue.dlq": null,
   });
+  assert.equal((await cloudflare.container()).state, "unknown");
+  assert.equal((await cloudflare["provider-limit"]()).state, "unknown");
+  assert.equal((await cloudflare["cost-risk"]()).state, "unknown");
 });

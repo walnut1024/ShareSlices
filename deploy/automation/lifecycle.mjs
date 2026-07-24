@@ -15,6 +15,8 @@ import {
   serializeCanonicalTargetBundle,
 } from "./release.mjs";
 import { deriveDeploymentStatus } from "./status.mjs";
+import {createStatusTelemetryObservers} from "./status-telemetry.mjs";
+import {collectDeploymentTelemetry} from "./telemetry.mjs";
 import { bindTargetAdapter, TargetAdapterError } from "./target-adapter.mjs";
 
 export class DeploymentLifecycleError extends Error {
@@ -236,8 +238,14 @@ async function executeReadOnly({ command, config, release, adapter, options }) {
 
   if (command === "status") {
     const projection = await adapter.status({ config });
+    const observedAt = new Date();
     return successful(command, config.target, null, {
       status: deriveDeploymentStatus(projection),
+      telemetry: await collectDeploymentTelemetry({
+        target: config.target,
+        observers: createStatusTelemetryObservers(projection),
+        now: observedAt,
+      }),
     });
   }
 

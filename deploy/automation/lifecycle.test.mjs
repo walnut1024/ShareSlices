@@ -194,6 +194,26 @@ test("status projects provider observations through the common state model", asy
   );
   assert.equal(execution.exitCode, exitCodes.succeeded);
   assert.equal(execution.result.data.status.state, "verified");
+  assert.equal(
+    execution.result.data.telemetry.schemaVersion,
+    "shareslices.deployment-telemetry-bundle/v1",
+  );
+  assert.deepEqual(
+    execution.result.data.telemetry.records.map(({eventName}) => eventName),
+    [
+      "shareslices.deployment.deployment-operation",
+      "shareslices.deployment.migration",
+      "shareslices.deployment.jobs",
+      "shareslices.deployment.queue",
+      "shareslices.deployment.trigger",
+      "shareslices.deployment.container",
+      "shareslices.deployment.database",
+      "shareslices.deployment.r2",
+      "shareslices.deployment.resend",
+      "shareslices.deployment.provider-limit",
+      "shareslices.deployment.cost-risk",
+    ],
+  );
 });
 
 test("verify exposes read-only core evidence and fails closed on a required check", async () => {

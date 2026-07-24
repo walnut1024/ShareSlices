@@ -254,23 +254,24 @@ classification may be non-unknown only when its source is a provider response
 or fresh operator evidence; without either, emit `unknown` rather than
 replaying historical plan or dashboard facts.
 
-This record contract does not itself collect observations. Target and runtime
-Adapters register every event applicable to their target; collection refuses
-before observation when one is missing and fails indeterminate if an observer
-throws. Compose requires operation, migration, jobs, database, SMTP, and cost
-risk. Kubernetes additionally requires Kubernetes readiness and provider-limit
+The production `status` command collects these observations into a separate
+telemetry bundle alongside deployment status. Target and runtime Adapters
+register every event applicable to their target; collection refuses before
+observation when one is missing and fails indeterminate if an observer throws.
+Compose requires operation, migration, jobs, database, SMTP, and cost risk.
+Kubernetes additionally requires Kubernetes readiness and provider-limit
 headroom. Cloudflare requires Queue/DLQ, trigger, Container, R2, Resend,
-provider-limit, and cost-risk observations in addition to shared state. The
-remaining task is to connect these observer contracts to the real status
-sources and prove reviewed thresholds before task 14.13 is complete.
+provider-limit, and cost-risk observations in addition to shared state.
 
 Current status projection supplies deployment operation/fence, latest phase,
-migration head, Kubernetes Pod readiness, and Cloudflare Queue/DLQ backlog from
-the existing authoritative control, cluster, and provider observations. Missing
-or unavailable data is represented by a present attribute with a `null` value
-and `unknown` state; it is never converted to an observed zero. Runtime job,
-database connection, Container, R2, SMTP/Resend, provider-limit, and cost
-observations still require their owning readers.
+migration head, job and database aggregates, Kubernetes Pod readiness,
+Cloudflare Queue/DLQ backlog and trigger delay, R2 and Container Analytics, and
+SMTP/Resend evidence from their authoritative sources. Missing or unavailable
+data is represented by a present attribute with a `null` value and `unknown`
+state; it is never converted to an observed zero. Provider-limit headroom is
+known only when current provider or operator limit evidence exists. Cost risk
+remains `unknown` until pricing and allowance evidence can qualify an estimate;
+raw resource usage is not mislabeled as a bill.
 
 The direct PostgreSQL observer now aggregates queued work and active leases
 across every current processing, thumbnail, Gallery, authentication-email, and
@@ -297,6 +298,17 @@ buckets over a bounded window. It records aggregate requests and current
 payload-plus-metadata bytes. Missing Analytics permission, dataset
 unavailability, GraphQL errors, or malformed aggregates produce `unknown`
 without exposing provider diagnostics.
+
+Cloudflare Container telemetry first resolves the two exact configured
+ShareSlices Container application IDs through Wrangler. It then queries
+`containersMetricsAdaptiveGroups` and `containersUsageAdaptiveGroups` for only
+those IDs. Runtime uses documented Container uptime, while CPU seconds, memory
+byte-seconds, disk byte-seconds, and transmitted bytes retain their documented
+units. The official datasets do not expose startup duration, so
+`container.startup_ms` remains `null` and the event remains `unknown` even when
+runtime usage was observed. Failure to establish exact application identity
+skips the Container query rather than aggregating unrelated account workloads;
+the independent R2 query still runs.
 
 Cloudflare status projects only the Resend classification, evidence source,
 age, maximum age, and stable reason. Fresh operator evidence may report healthy

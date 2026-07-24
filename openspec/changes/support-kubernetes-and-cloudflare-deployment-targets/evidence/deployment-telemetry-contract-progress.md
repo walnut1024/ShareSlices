@@ -29,10 +29,10 @@ Focused validation:
 - `mise run docs-check`
 - `git diff --check`
 
-Task 14.13 remains open. The next work is to connect each runtime and target
-observer to actual status and metrics sources, set reviewed thresholds, and
-verify the emitted event set rather than treating this collector as provider
-evidence.
+The production `status` path now collects the target's complete event set into
+one validated telemetry bundle alongside the deployment-status projection.
+Unavailable facts remain present as stable `unknown` events rather than
+silently omitting an observer.
 
 The first real source integration now projects:
 
@@ -86,3 +86,22 @@ operator evidence already validated by deployment configuration. It emits the
 source, age, and maximum age. Missing, future, or stale evidence is normalized
 to `unknown`; it never reuses a historical healthy classification or exports
 the team, domain, key, or sender.
+
+Cloudflare Container Analytics is scoped only after Wrangler resolves exactly
+one application ID for each configured `<installation>-processing` and
+`<installation>-thumbnail` name. The GraphQL query filters both
+`containersMetricsAdaptiveGroups` and `containersUsageAdaptiveGroups` by those
+IDs and reports documented uptime, CPU seconds, memory byte-seconds, disk
+byte-seconds, and transmitted bytes. It never aggregates all Containers in the
+account.
+
+The official datasets do not expose startup duration. Consequently startup is
+explicitly `null`, and Container telemetry remains `unknown` even when runtime
+and usage are observed. Cost risk likewise remains `unknown` without current
+pricing and allowance evidence; resource usage is not presented as an exact
+bill. If Container identity is unavailable, only the Container query is
+skipped and the independent R2 query continues.
+
+Additional official source refreshed on 2026-07-25:
+
+- [Querying Containers metrics with GraphQL](https://developers.cloudflare.com/analytics/graphql-api/tutorials/querying-container-metrics/)

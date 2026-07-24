@@ -338,7 +338,7 @@ rather than numeric section order:
 - [x] 14.10 Add failure drills for migration failure, dependency outage, incorrect CDN caching, Resend rate limiting, SMTP outage, unsafe Gallery topology, and incompatible rollback.
 - [x] 14.11 Prove ordinary apply refuses destructive prerequisite actions, retires only positively inventoried release-owned resources after traffic and schedule removal, and reports the separately reviewed recovery or migration procedure required for every other deletion.
 - [x] 14.12 Report core, email, processing, thumbnail, CDN, and Gallery readiness separately and never mark a release or capability verified on failed or indeterminate evidence.
-- [ ] 14.13 Emit and verify unified deployment-operation lease/fence, phase, migration head, job backlog/lease, Queue/DLQ, trigger delay, Container startup/runtime, database connection, R2 usage, SMTP, Kubernetes resource/probe, provider-limit headroom, and cost-risk telemetry with stable redacted attributes and alert thresholds; report Resend quota or account-health facts only from provider responses or fresh operator/dashboard evidence and otherwise emit a stable `unknown` classification.
+- [x] 14.13 Emit and verify unified deployment-operation lease/fence, phase, migration head, job backlog/lease, Queue/DLQ, trigger delay, Container startup/runtime, database connection, R2 usage, SMTP, Kubernetes resource/probe, provider-limit headroom, and cost-risk telemetry with stable redacted attributes and alert thresholds; report Resend quota or account-health facts only from provider responses or fresh operator/dashboard evidence and otherwise emit a stable `unknown` classification.
 
 ## 15. Operator Documentation and Final Gates
 

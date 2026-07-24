@@ -250,6 +250,15 @@ export function createCloudflareStatusObserver({
           ? {queueRoles: config.cloudflare.queues}
           : {}),
         queues: provider.queues ?? {},
+        ...(provider.limits ? {limits: provider.limits} : {}),
+        ...(Number.isFinite(
+          config.cloudflare.costControls?.maximumUploadBytes,
+        )
+          ? {
+              configuredMaximumUploadBytes:
+                config.cloudflare.costControls.maximumUploadBytes,
+            }
+          : {}),
         ...(analytics ? {analytics} : {}),
         ...(config.cloudflare.email
           ? {resendEvidence: projectResendEvidence(config, now())}
