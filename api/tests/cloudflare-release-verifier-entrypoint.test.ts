@@ -46,7 +46,7 @@ const expected = {
     configurationDigest: `sha256:${"c".repeat(64)}`,
     exportsDigest: `sha256:${"d".repeat(64)}`,
   },
-  migrationHead: "0041_cloudflare_release_verification_terminal_evidence.sql",
+  migrationHead: "0042_cloudflare_release_verification_terminal_invocation.sql",
   configuredContainerImages: {
     trustedProcessing: "registry.example/processing@sha256:image",
     thumbnail: "registry.example/thumbnail@sha256:image",

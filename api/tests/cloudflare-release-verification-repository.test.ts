@@ -118,7 +118,7 @@ describe("Cloudflare release-verification probe fencing", () => {
     await expect(repository.begin(candidate, 30)).resolves.toEqual({
       state: "started",
       migrationHead:
-        "0041_cloudflare_release_verification_terminal_evidence.sql",
+        "0042_cloudflare_release_verification_terminal_invocation.sql",
     });
     await expect(repository.begin(candidate, 30)).resolves.toBeNull();
     await expect(repository.begin(
@@ -153,7 +153,7 @@ describe("Cloudflare release-verification probe fencing", () => {
     await expect(repository.begin(candidate, 30)).resolves.toEqual({
       state: "started",
       migrationHead:
-        "0041_cloudflare_release_verification_terminal_evidence.sql",
+        "0042_cloudflare_release_verification_terminal_invocation.sql",
     });
 
     const digest = `sha256:${"b".repeat(64)}`;
@@ -176,7 +176,8 @@ describe("Cloudflare release-verification probe fencing", () => {
       invocationId: `${candidate.invocationId}-late`,
     }, 30)).resolves.toBeNull();
     expect((await pool.query(
-      `select state, sub_fence, evidence_digest, terminal_evidence,
+      `select state, sub_fence, evidence_digest, terminal_invocation_id,
+              terminal_evidence,
               tombstone_until > terminal_at as retained
        from cloudflare_release_verification_probe where nonce = $1`,
       [candidate.nonce],
@@ -184,6 +185,7 @@ describe("Cloudflare release-verification probe fencing", () => {
       state: "terminal",
       sub_fence: "4",
       evidence_digest: digest,
+      terminal_invocation_id: candidate.invocationId,
       terminal_evidence: evidence,
       retained: true,
     });
@@ -203,7 +205,7 @@ describe("Cloudflare release-verification probe fencing", () => {
     const repository = createReleaseVerificationRepository(connection);
     await expect(repository.begin(candidate, 30)).resolves.toEqual({
       state: "started",
-      migrationHead: "0041_cloudflare_release_verification_terminal_evidence.sql",
+      migrationHead: "0042_cloudflare_release_verification_terminal_invocation.sql",
     });
     const evidence = {
       nonce: candidate.nonce,
@@ -263,7 +265,7 @@ describe("Cloudflare release-verification probe fencing", () => {
     await expect(repository.begin(candidate, 30)).resolves.toEqual({
       state: "started",
       migrationHead:
-        "0041_cloudflare_release_verification_terminal_evidence.sql",
+        "0042_cloudflare_release_verification_terminal_invocation.sql",
     });
     const resources = [
       ["database", `release-verification/${candidate.nonce}/database/probe`],

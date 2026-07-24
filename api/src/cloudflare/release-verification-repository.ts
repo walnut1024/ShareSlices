@@ -415,6 +415,7 @@ export function createReleaseVerificationRepository(
              set state = 'terminal',
                  sub_fence = sub_fence + 1,
                  evidence_digest = $5,
+                 terminal_invocation_id = $8,
                  terminal_evidence = (
                    select invocation.evidence
                    from cloudflare_release_verification_invocation invocation
@@ -472,13 +473,15 @@ export function createReleaseVerificationRepository(
                where nonce = $1 and release_id = $2 and fence = $3
                  and sub_fence = $4 + 1
                  and state = 'terminal'
-                 and evidence_digest = $5`,
+                 and evidence_digest = $5
+                 and terminal_invocation_id = $6`,
               [
                 input.nonce,
                 input.releaseId,
                 input.fence,
                 input.subFence,
                 input.evidenceDigest,
+                input.invocationId,
               ],
             );
             if (replay.rowCount !== 1) {
