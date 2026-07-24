@@ -1,0 +1,13 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "shareslices-opsx-queue-cron-20260725",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-07-24",
+  "workers_dev": false,
+  "preview_urls": false,
+  "triggers": {
+    "crons": [
+      "17 4 1 1 *"
+    ]
+  }
+}
