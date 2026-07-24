@@ -333,6 +333,10 @@ export async function generateStagedWorkerConfigs(input) {
       controls.workerCpuMilliseconds.jobs,
     ),
     hyperdrive: [{binding: "HYPERDRIVE", id: input.privatePrerequisites.hyperdrive_id}],
+    r2_buckets: [{
+      binding: "ARTIFACTS",
+      bucket_name: input.privatePrerequisites.artifact_bucket_name,
+    }],
     queues: {
       producers: [{
         binding: "JOB_WAKE_QUEUE",
@@ -381,6 +385,7 @@ export async function generateStagedWorkerConfigs(input) {
       JOB_OUTBOX_LEASE_SECONDS: "30",
       JOB_OUTBOX_RETRY_DELAY_SECONDS: "30",
       JOB_OUTBOX_LOST_WAKE_AFTER_SECONDS: "300",
+      THUMBNAIL_BOOTSTRAP_LIFETIME_SECONDS: "60",
       CONTAINER_RELEASE_ID: input.releaseId,
       CONTAINER_CONTRACT_REVISION: input.jobsContractRevision,
       ...containerVariables,

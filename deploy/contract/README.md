@@ -21,6 +21,8 @@ and no rendered provider resources.
   or documented owners.
 - `cache-projection.json` defines edge and internal-byte cache boundaries without
   changing outward HTTP contracts.
+- `private-thumbnail-broker.json` projects the route-free, Container-bound
+  thumbnail broker protocol from its checked private OpenAPI source.
 - `verification-scenarios.json` defines shared black-box checks and explicit
   `not_applicable` behavior.
 - `fixtures/` contains deterministic valid and verification examples. Contract

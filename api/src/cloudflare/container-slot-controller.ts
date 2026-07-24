@@ -28,6 +28,10 @@ export type ContainerHandoff = Readonly<{
   handedOffAt: string;
 }>;
 
+export type ContainerWakeAuthorization = Readonly<{
+  bootstrapGrant?: string;
+}>;
+
 function parsePositiveInteger(name: string, value: string): number {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed <= 0) {
@@ -94,7 +98,9 @@ export async function handoffContainerWake(input: Readonly<{
   bindings: ContainerSlotBindings;
   wake: CloudflareJobWake;
   now?: Date;
-  authorizeWake(wake: CloudflareJobWake): Promise<unknown>;
+  authorizeWake(
+    wake: CloudflareJobWake,
+  ): Promise<ContainerWakeAuthorization | void>;
   recordHandoff(handoff: ContainerHandoff): Promise<void>;
 }>): Promise<ContainerHandoff> {
   if (
@@ -103,7 +109,7 @@ export async function handoffContainerWake(input: Readonly<{
   ) {
     throw new Error("container_wake_lane_unsupported");
   }
-  await input.authorizeWake(input.wake);
+  const authorization = await input.authorizeWake(input.wake);
   const lane = input.wake.lane;
   const configuration = laneConfiguration(input.bindings, lane);
   const slot = configuration.slots[
@@ -123,6 +129,9 @@ export async function handoffContainerWake(input: Readonly<{
       releaseId: input.bindings.CONTAINER_RELEASE_ID,
       contractRevision: input.bindings.CONTAINER_CONTRACT_REVISION,
       maximumWallTimeSeconds: configuration.maximumWallTimeSeconds,
+      ...(authorization?.bootstrapGrant
+        ? {bootstrapGrant: authorization.bootstrapGrant}
+        : {}),
     }),
   }));
   if (!response.ok) throw new Error("container_controller_handoff_failed");

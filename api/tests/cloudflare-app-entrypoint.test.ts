@@ -145,6 +145,22 @@ describe("Cloudflare App entrypoint", () => {
     expect(runtimeBindings.ASSETS.fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("never exposes internal capture paths through public Cloudflare ingress", async () => {
+    const runtimeBindings = bindings();
+    const response = await appWorker.fetch(
+      new Request(
+        "https://api.example.test/internal/thumbnail-captures/version-1/content/?grant=valid-looking-grant",
+      ),
+      runtimeBindings,
+      context,
+    );
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(runtimeBindings.ARTIFACTS.get).not.toHaveBeenCalled();
+    expect(runtimeBindings.ASSETS.fetch).not.toHaveBeenCalled();
+  });
+
   it("serves the installation runtime configuration without Static Assets or database routing", async () => {
     const runtimeBindings = {
       ...bindings(),

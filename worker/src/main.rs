@@ -23,6 +23,7 @@ use shareslices_worker::{
     retry_policy::RetryPolicy,
     runner::{BackgroundLane, DrainLimits, Runner, RunnerError, RunnerLane},
     thumbnail::{ThumbnailConfig, ThumbnailLane, preflight_chromium, requeue_failed_browser_jobs},
+    thumbnail_broker::run_thumbnail_broker,
 };
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use uuid::Uuid;
@@ -46,6 +47,13 @@ async fn main() {
         }
         return;
     }
+    if command == Some("thumbnail-broker") {
+        if let Err(error) = run_thumbnail_broker().await {
+            eprintln!("thumbnail broker execution failed: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     let drain_command = if command == Some("drain") {
         match DrainCommand::parse(&arguments[1..]) {
             Ok(command) => Some(command),
@@ -60,6 +68,7 @@ async fn main() {
     if let Some(command) = command
         && command != "requeue-failed-thumbnails"
         && command != "drain"
+        && command != "thumbnail-broker"
     {
         eprintln!("unknown worker command: {command}");
         std::process::exit(2);

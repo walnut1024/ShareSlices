@@ -44,7 +44,11 @@ export function createArtifactThumbnailRepository(
       return rows[0] ?? null;
     },
 
-    async consumeGrant(rawToken: string, versionId: string): Promise<CaptureSession | null> {
+    async consumeGrant(
+      rawToken: string,
+      versionId: string,
+      containerId?: string,
+    ): Promise<CaptureSession | null> {
       const sessionToken = randomBytes(32).toString("base64url");
       const expiresAt = new Date(Date.now() + CAPTURE_SESSION_SECONDS * 1000);
       const rows = await database
@@ -53,6 +57,9 @@ export function createArtifactThumbnailRepository(
         .where(and(
           eq(schema.artifactThumbnailCaptureGrant.tokenHash, hash(rawToken)),
           eq(schema.artifactThumbnailCaptureGrant.versionId, versionId),
+          ...(containerId
+            ? [eq(schema.artifactThumbnailCaptureGrant.containerId, containerId)]
+            : []),
           isNull(schema.artifactThumbnailCaptureGrant.consumedAt),
           gt(schema.artifactThumbnailCaptureGrant.expiresAt, new Date())
         ))
@@ -60,12 +67,19 @@ export function createArtifactThumbnailRepository(
       return rows[0] ? { versionId: rows[0].versionId, token: sessionToken, expiresAt } : null;
     },
 
-    async resolveSession(rawToken: string, versionId: string): Promise<boolean> {
+    async resolveSession(
+      rawToken: string,
+      versionId: string,
+      containerId?: string,
+    ): Promise<boolean> {
       const row = await database.query.artifactThumbnailCaptureGrant.findFirst({
         columns: { tokenHash: true },
         where: and(
           eq(schema.artifactThumbnailCaptureGrant.versionId, versionId),
           eq(schema.artifactThumbnailCaptureGrant.sessionTokenHash, hash(rawToken)),
+          ...(containerId
+            ? [eq(schema.artifactThumbnailCaptureGrant.containerId, containerId)]
+            : []),
           gt(schema.artifactThumbnailCaptureGrant.sessionExpiresAt, new Date())
         )
       });

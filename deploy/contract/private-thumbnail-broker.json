@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "source": "api/openapi/private-thumbnail-broker.yaml",
+  "origin": "http://shareslices-broker.internal",
+  "publicIngress": false,
+  "trustedContainerIdentityHeader": "x-shareslices-container-id",
+  "operations": [
+    {"method": "POST", "path": "/v1/bootstrap", "audience": "bootstrap"},
+    {"method": "GET", "path": "/v1/capture/{versionId}/content/{assetPath}", "audience": "capture"},
+    {"method": "POST", "path": "/v1/heartbeat", "audience": "controller"},
+    {"method": "PUT", "path": "/v1/output", "audience": "controller"},
+    {"method": "POST", "path": "/v1/commit", "audience": "controller"}
+  ],
+  "fixedRendererContract": {
+    "viewport": {"width": 1440, "height": 810},
+    "output": {"contentType": "image/webp", "width": 800, "height": 450, "maximumBytes": 2097152},
+    "readinessDeadlineSeconds": 10
+  }
+}

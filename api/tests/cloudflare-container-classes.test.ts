@@ -22,6 +22,7 @@ vi.mock("@cloudflare/containers", () => ({
 }));
 
 import {
+  ThumbnailContainer,
   TrustedProcessingContainer,
   containerDrainEntrypoint,
 } from "../src/cloudflare/container-classes.js";
@@ -35,6 +36,7 @@ const bindings = {
   THUMBNAIL_MAXIMUM_WALL_TIME_SECONDS: "300",
   TRUSTED_PROCESSING_IMAGE_BUILD_IDENTITY: "processing-build",
   THUMBNAIL_IMAGE_BUILD_IDENTITY: "thumbnail-build",
+  ARTIFACT_RENDERER_REVISION: "renderer-v2",
   CONTAINER_RELEASE_ID: "release-1",
   CONTAINER_CONTRACT_REVISION: "contract-v1",
 };
@@ -53,7 +55,11 @@ describe("Cloudflare Container lifecycle", () => {
 
     const response = await container.fetch(new Request(
       "https://container.invalid/internal/wake",
-      {method: "POST"},
+      {
+        method: "POST",
+        headers: {"content-type": "application/json"},
+        body: JSON.stringify({version: 1}),
+      },
     ));
 
     expect(response.status).toBe(202);
@@ -90,6 +96,34 @@ describe("Cloudflare Container lifecycle", () => {
     await container.onStop({exitCode: 75, reason: "runtime_signal"});
 
     expect(lifecycle.stops).toEqual(["SIGTERM"]);
+    expect(lifecycle.starts).toHaveLength(1);
+  });
+
+  it("starts the thumbnail process with only a short-lived bootstrap grant", async () => {
+    const container = new ThumbnailContainer({} as never, bindings as never);
+    const bootstrapGrant = "a".repeat(43);
+    const response = await container.fetch(new Request(
+      "https://container.invalid/internal/wake",
+      {
+        method: "POST",
+        headers: {"content-type": "application/json"},
+        body: JSON.stringify({bootstrapGrant}),
+      },
+    ));
+
+    expect(response.status).toBe(202);
+    expect(lifecycle.starts).toEqual([{
+      enableInternet: false,
+      entrypoint: ["shareslices-worker", "thumbnail-broker"],
+      envVars: expect.objectContaining({
+        SHARESLICES_THUMBNAIL_BOOTSTRAP_GRANT: bootstrapGrant,
+        SHARESLICES_THUMBNAIL_BROKER_ORIGIN:
+          "http://shareslices-broker.internal",
+        SHARESLICES_ARTIFACT_RENDERER_REVISION: "renderer-v2",
+      }),
+    }]);
+    expect(JSON.stringify(lifecycle.starts)).not.toContain("controllerToken");
+    await container.onStop({exitCode: 75, reason: "exit"});
     expect(lifecycle.starts).toHaveLength(1);
   });
 

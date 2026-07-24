@@ -17,4 +17,5 @@ pub mod processing;
 pub mod retry_policy;
 pub mod runner;
 pub mod thumbnail;
+pub mod thumbnail_broker;
 pub mod validation_report;

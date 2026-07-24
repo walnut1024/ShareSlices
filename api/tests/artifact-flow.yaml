@@ -28,6 +28,13 @@ archives:
     slides.html: "<!doctype html><title>Slides</title>"
 
 cases:
+  - id: public_ingress_rejects_internal_thumbnail_capture
+    request:
+      method: GET
+      path: /internal/thumbnail-captures/version-looking/content/?grant=valid-looking-grant
+    expect:
+      status: 404
+
   - id: upload_policy_requires_authentication
     request:
       method: GET

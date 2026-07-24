@@ -863,6 +863,7 @@ export const artifactThumbnailCaptureGrant = pgTable(
     consumedAt: timestamp("consumed_at", { withTimezone: true }),
     sessionTokenHash: text("session_token_hash"),
     sessionExpiresAt: timestamp("session_expires_at", { withTimezone: true }),
+    containerId: text("container_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
   },
   (table) => [
@@ -962,6 +963,48 @@ export const contentBundleThumbnailAttempt = pgTable(
         or (${table.cleanupState} = 'cleaned' and ${table.cleanupEligibleAt} is not null and ${table.cleanedAt} is not null)`
     )
   ]
+);
+
+export const cloudflareThumbnailExecutionGrant = pgTable(
+  "cloudflare_thumbnail_execution_grant",
+  {
+    id: text("id").primaryKey(),
+    attemptId: text("attempt_id")
+      .notNull()
+      .references(() => contentBundleThumbnailAttempt.id, { onDelete: "cascade" }),
+    bootstrapTokenHash: text("bootstrap_token_hash").notNull().unique(),
+    controllerTokenHash: text("controller_token_hash").unique(),
+    containerId: text("container_id"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("cloudflare_thumbnail_execution_grant_live_attempt_idx")
+      .on(table.attemptId)
+      .where(sql`${table.revokedAt} is null`),
+    index("cloudflare_thumbnail_execution_grant_expiry_idx")
+      .on(table.expiresAt)
+      .where(sql`${table.revokedAt} is null`),
+    check(
+      "cloudflare_thumbnail_execution_grant_bootstrap_hash_check",
+      sql`${table.bootstrapTokenHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "cloudflare_thumbnail_execution_grant_controller_hash_check",
+      sql`${table.controllerTokenHash} is null or ${table.controllerTokenHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "cloudflare_thumbnail_execution_grant_expiry_check",
+      sql`${table.expiresAt} > ${table.createdAt}`,
+    ),
+    check(
+      "cloudflare_thumbnail_execution_grant_consumption_check",
+      sql`(${table.consumedAt} is null and ${table.controllerTokenHash} is null and ${table.containerId} is null)
+        or (${table.consumedAt} is not null and ${table.controllerTokenHash} is not null and ${table.containerId} <> '')`,
+    ),
+  ],
 );
 
 export const contentBundleThumbnail = pgTable(

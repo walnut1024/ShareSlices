@@ -1,0 +1,160 @@
+openapi: 3.1.0
+info:
+  title: ShareSlices private thumbnail execution broker
+  version: 1.0.0
+  description: Private, route-free protocol available only through a Cloudflare Container outbound handler.
+servers:
+  - url: http://shareslices-broker.internal
+security:
+  - brokerCapability: []
+paths:
+  /v1/bootstrap:
+    post:
+      operationId: bootstrapThumbnailExecution
+      parameters:
+        - $ref: "#/components/parameters/ContainerId"
+      responses:
+        "200":
+          description: The fixed renderer contract and split controller/capture capabilities.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bootstrap"
+        "404":
+          $ref: "#/components/responses/Rejected"
+  /v1/capture/{versionId}/content/{assetPath}:
+    get:
+      operationId: readThumbnailCaptureAsset
+      parameters:
+        - $ref: "#/components/parameters/ContainerId"
+        - name: versionId
+          in: path
+          required: true
+          schema: {type: string}
+        - name: assetPath
+          in: path
+          required: true
+          schema: {type: string}
+        - name: grant
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        "200":
+          description: A manifest-authorized immutable Version asset.
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+            Set-Cookie:
+              description: Present only when a one-time grant becomes a path-scoped capture session.
+              schema: {type: string}
+          content:
+            application/octet-stream:
+              schema: {type: string, contentEncoding: binary}
+        "404":
+          $ref: "#/components/responses/Rejected"
+  /v1/heartbeat:
+    post:
+      operationId: heartbeatThumbnailExecution
+      parameters:
+        - $ref: "#/components/parameters/ContainerId"
+      responses:
+        "200":
+          description: The fenced job and attempt leases were renewed.
+        "404":
+          $ref: "#/components/responses/Rejected"
+  /v1/output:
+    put:
+      operationId: uploadThumbnailExecutionOutput
+      parameters:
+        - $ref: "#/components/parameters/ContainerId"
+      requestBody:
+        required: true
+        content:
+          image/webp:
+            schema: {type: string, contentEncoding: binary, maxLength: 2097152}
+      responses:
+        "201":
+          description: An attempt-unique object was created without overwrite.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Uploaded"
+        "404":
+          $ref: "#/components/responses/Rejected"
+  /v1/commit:
+    post:
+      operationId: commitThumbnailExecution
+      parameters:
+        - $ref: "#/components/parameters/ContainerId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Commit"
+      responses:
+        "200":
+          description: The fenced immutable winner was committed.
+        "404":
+          $ref: "#/components/responses/Rejected"
+components:
+  securitySchemes:
+    brokerCapability:
+      type: http
+      scheme: bearer
+  parameters:
+    ContainerId:
+      name: x-shareslices-container-id
+      in: header
+      required: true
+      description: Trusted outbound-handler context; the Container cannot choose this value.
+      schema: {type: string, minLength: 1, maxLength: 256}
+  responses:
+    Rejected:
+      description: Invalid, expired, replayed, cross-audience, cross-Container, or stale capability.
+  schemas:
+    Bootstrap:
+      type: object
+      additionalProperties: false
+      required: [version, attemptId, rendererRevision, captureUrl, controllerToken, output, viewport, readinessDeadlineSeconds, writeDeadlineAt]
+      properties:
+        version: {type: integer, const: 1}
+        attemptId: {type: string}
+        rendererRevision: {type: string}
+        captureUrl: {type: string, format: uri}
+        controllerToken: {type: string}
+        output:
+          type: object
+          additionalProperties: false
+          required: [contentType, width, height, maximumBytes]
+          properties:
+            contentType: {type: string, const: image/webp}
+            width: {type: integer, const: 800}
+            height: {type: integer, const: 450}
+            maximumBytes: {type: integer, const: 2097152}
+        viewport:
+          type: object
+          additionalProperties: false
+          required: [width, height]
+          properties:
+            width: {type: integer, const: 1440}
+            height: {type: integer, const: 810}
+        readinessDeadlineSeconds: {type: integer, const: 10}
+        writeDeadlineAt: {type: string, format: date-time}
+    Uploaded:
+      type: object
+      additionalProperties: false
+      required: [sha256, sizeBytes]
+      properties:
+        sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+        sizeBytes: {type: integer, minimum: 1, maximum: 2097152}
+    Commit:
+      type: object
+      additionalProperties: false
+      required: [sha256, sizeBytes, width, height]
+      properties:
+        sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+        sizeBytes: {type: integer, minimum: 1, maximum: 2097152}
+        width: {type: integer, const: 800}
+        height: {type: integer, const: 450}

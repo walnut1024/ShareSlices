@@ -18,6 +18,11 @@ import { createCloudflareJobsEntrypoint } from "./jobs-runtime.js";
 import { createCloudflareLogger } from "./logger.js";
 import {createScheduledExecutionGate} from "./scheduled-execution-gate.js";
 import {recoverExpiredCloudflareProcessingLeases} from "./expired-processing-lease-recovery.js";
+import {
+  createCloudflareThumbnailExecutionRepository,
+  type PreparedThumbnailExecution,
+} from "./thumbnail-execution-repository.js";
+import {recoverExpiredCloudflareThumbnailLeases} from "./expired-thumbnail-lease-recovery.js";
 
 export type CloudflareJobsBindings = CloudflareAuthenticationEmailBindings & ContainerSlotBindings & Readonly<{
   JOB_WAKE_QUEUE: CloudflareWakeQueue;
@@ -25,6 +30,7 @@ export type CloudflareJobsBindings = CloudflareAuthenticationEmailBindings & Con
   JOB_OUTBOX_LEASE_SECONDS: string;
   JOB_OUTBOX_RETRY_DELAY_SECONDS: string;
   JOB_OUTBOX_LOST_WAKE_AFTER_SECONDS: string;
+  THUMBNAIL_BOOTSTRAP_LIFETIME_SECONDS: string;
   SERVICE_VERSION: string;
   DEPLOYMENT_ENVIRONMENT: string;
 }>;
@@ -75,11 +81,59 @@ export function createCloudflareJobsWorker() {
       await connection.close();
     }
   };
+  const thumbnailContainerHandoff = async (
+    wake: Parameters<typeof handoffContainerWake>[0]["wake"],
+    bindings: CloudflareJobsBindings,
+  ) => {
+    const connection = createDatabaseConnection({
+      mode: "hyperdrive",
+      cache: "disabled",
+      connectionString: bindings.HYPERDRIVE.connectionString,
+      maxConnections: 1,
+      connectionTimeoutMs: 5_000,
+      idleTimeoutMs: 1_000,
+    });
+    try {
+      const handoffs = createContainerHandoffRepository(connection);
+      const executions = createCloudflareThumbnailExecutionRepository(connection);
+      let authorization: AuthorizedContainerWake | undefined;
+      let execution: PreparedThumbnailExecution | undefined;
+      await handoffContainerWake({
+        bindings,
+        wake,
+        async authorizeWake(candidate) {
+          authorization = await handoffs.authorizeWake(candidate);
+          execution = await executions.prepare(candidate, {
+            leaseSeconds: positiveInteger(
+              "thumbnail_maximum_wall_time_seconds",
+              bindings.THUMBNAIL_MAXIMUM_WALL_TIME_SECONDS,
+            ),
+            bootstrapLifetimeSeconds: positiveInteger(
+              "thumbnail_bootstrap_lifetime_seconds",
+              bindings.THUMBNAIL_BOOTSTRAP_LIFETIME_SECONDS,
+            ),
+          });
+          if (execution.outboxFence !== authorization.outboxFence) {
+            throw new Error("thumbnail_execution_outbox_fence_mismatch");
+          }
+          return {bootstrapGrant: execution.bootstrapGrant};
+        },
+        async recordHandoff(handoff) {
+          if (!authorization || !execution) {
+            throw new Error("container_wake_not_authorized");
+          }
+          await handoffs.recordHandoff(authorization, handoff);
+        },
+      });
+    } finally {
+      await connection.close();
+    }
+  };
   return createCloudflareJobsEntrypoint(createCloudflareJobsDrains<CloudflareJobsBindings>({
     handlers: {
       "authentication-email": authenticationEmail,
       "artifact-processing": containerHandoff,
-      thumbnail: containerHandoff,
+      thumbnail: thumbnailContainerHandoff,
     },
     scheduled: [async (controller, bindings) => {
       const connection = createDatabaseConnection({
@@ -111,6 +165,15 @@ export function createCloudflareJobsWorker() {
             expiredBefore: new Date(),
             limit: positiveInteger("job_outbox_max_messages", bindings.JOB_OUTBOX_MAX_MESSAGES),
           });
+          const recoveredThumbnailLeaseCount =
+            await recoverExpiredCloudflareThumbnailLeases({
+              databaseClients: connection,
+              expiredBefore: new Date(),
+              limit: positiveInteger(
+                "job_outbox_max_messages",
+                bindings.JOB_OUTBOX_MAX_MESSAGES,
+              ),
+            });
           const recoveredWakeCount = await recoverLostCloudflareJobWakes({
             databaseClients: connection,
             acceptedLanes: ["authentication-email", "artifact-processing", "thumbnail"],
@@ -144,6 +207,8 @@ export function createCloudflareJobsWorker() {
               "shareslices.job_outbox.published": result.published,
               "shareslices.job_outbox.remaining": result.remaining,
               "shareslices.processing.recovered_lease_count": recoveredLeaseCount,
+              "shareslices.thumbnail.recovered_lease_count":
+                recoveredThumbnailLeaseCount,
               "shareslices.job_outbox.recovered_wake_count": recoveredWakeCount,
             },
           });

@@ -86,7 +86,9 @@ test("generates schema-valid staged App, Content, and immediate Jobs Wrangler in
       { binding: "ARTIFACTS", bucket_name: "shareslices-artifacts" },
     ]);
   }
-  assert.equal("r2_buckets" in first.configs.jobs, false);
+  assert.deepEqual(first.configs.jobs.r2_buckets, [
+    {binding: "ARTIFACTS", bucket_name: "shareslices-artifacts"},
+  ]);
   assert.deepEqual(first.configs.app.limits, {cpu_ms: 30_000});
   assert.deepEqual(first.configs.content.limits, {cpu_ms: 30_000});
   assert.deepEqual(first.configs.jobs.limits, {cpu_ms: 30_000});

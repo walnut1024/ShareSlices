@@ -261,6 +261,15 @@ export function createCloudflareAppWorker(): CloudflareFetchHandler<CloudflareAp
       }
       const bootstrap = runtimeConfiguration(request, bindings);
       if (bootstrap) return bootstrap;
+      if (new URL(request.url).pathname.startsWith("/internal/")) {
+        return new Response("Not Found", {
+          status: 404,
+          headers: {
+            "Cache-Control": "no-store",
+            "Content-Type": "text/plain; charset=UTF-8",
+          },
+        });
+      }
       const connection = createDatabaseConnection({
         mode: "hyperdrive",
         cache: "disabled",
