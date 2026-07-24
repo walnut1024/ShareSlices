@@ -292,6 +292,15 @@ Cloudflare documents trigger-configuration propagation, but does not publish a
 single-invocation delay SLA. Operators must supply any product alert threshold
 separately.
 
+Cloudflare Cron control-plane safety is separate from invocation delay. The
+pinned platform baseline records Cloudflare's documented maximum
+trigger-configuration propagation interval of 900 seconds. Status reports the
+actual configured schedules and always labels global propagation completion as
+unobservable. It calculates elapsed and remaining safety time only from a
+completed control-plane readback checkpoint whose state and exact schedule set
+still match the provider observation. Without that checkpoint, safety-window
+state is explicitly unknown.
+
 Cloudflare R2 telemetry queries the official GraphQL Analytics operations and
 storage datasets for the configured private Artifact and deployment-state
 buckets over a bounded window. It records aggregate requests and current

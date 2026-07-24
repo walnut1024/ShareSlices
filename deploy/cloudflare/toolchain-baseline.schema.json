@@ -85,12 +85,17 @@
       "additionalProperties": false,
       "required": [
         "qualifiedOn",
+        "cronTriggerPropagationMaximumSeconds",
         "workersPaidMaximumCpuMilliseconds",
         "workersPaidMaximumStaticAssetFiles",
         "maximumStaticAssetFileBytes"
       ],
       "properties": {
         "qualifiedOn": {"type": "string", "format": "date"},
+        "cronTriggerPropagationMaximumSeconds": {
+          "type": "integer",
+          "const": 900
+        },
         "workersPaidMaximumCpuMilliseconds": {
           "type": "integer",
           "const": 300000

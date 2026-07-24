@@ -1,5 +1,11 @@
+import {readFile} from "node:fs/promises";
+
 import {TargetAdapterError} from "../automation/target-adapter.mjs";
 
+const baseline = JSON.parse(await readFile(
+  new URL("./toolchain-baseline.json", import.meta.url),
+  "utf8",
+));
 const markerPattern =
   /^shareslices:([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?):(sha256:[a-f0-9]{64}):(sha256:[a-f0-9]{64})$/;
 
@@ -100,6 +106,61 @@ function projectResendEvidence(config, now) {
     reasonCode: healthy
       ? "resend_operator_evidence_healthy"
       : "resend_operator_evidence_unhealthy",
+  });
+}
+
+function projectCronSafety(config, provider, phaseSteps, now) {
+  const expected = [config.cloudflare.costControls.schedule.cron];
+  const actual = provider.workers?.jobs?.schedules;
+  const controlPlaneState = Array.isArray(actual)
+    ? JSON.stringify(actual) === JSON.stringify(expected)
+      ? "attached"
+      : actual.length === 0
+        ? "detached"
+        : "drifted"
+    : "unknown";
+  const maximumSeconds =
+    baseline.platformLimits.cronTriggerPropagationMaximumSeconds;
+  const checkpoint = [...(phaseSteps ?? [])]
+    .filter(({state, evidence}) =>
+      ["attached", "detached"].includes(controlPlaneState) &&
+      state === "completed" &&
+      evidence?.kind === "cloudflare_cron_control_plane_observation" &&
+      evidence?.state === controlPlaneState &&
+      Array.isArray(evidence?.schedules) &&
+      JSON.stringify(evidence.schedules) === JSON.stringify(actual)
+    )
+    .sort((left, right) =>
+      String(left.updatedAt ?? "").localeCompare(String(right.updatedAt ?? ""))
+    )
+    .at(-1);
+  const observedAt = Date.parse(checkpoint?.updatedAt ?? "");
+  if (!Number.isFinite(observedAt) || observedAt > now.getTime()) {
+    return Object.freeze({
+      controlPlaneState,
+      propagationCompletion: "unobservable",
+      maximumSeconds,
+      elapsedSeconds: null,
+      remainingSeconds: null,
+      safetyWindowState: "unknown",
+      reasonCode: "cloudflare_cron_safety_checkpoint_unobserved",
+    });
+  }
+  const elapsedSeconds = Math.max(
+    0,
+    Math.floor((now.getTime() - observedAt) / 1_000),
+  );
+  const remainingSeconds = Math.max(0, maximumSeconds - elapsedSeconds);
+  return Object.freeze({
+    controlPlaneState,
+    propagationCompletion: "unobservable",
+    maximumSeconds,
+    elapsedSeconds,
+    remainingSeconds,
+    safetyWindowState: remainingSeconds === 0 ? "elapsed" : "waiting",
+    reasonCode: remainingSeconds === 0
+      ? "cloudflare_cron_safety_window_elapsed"
+      : "cloudflare_cron_safety_window_waiting",
   });
 }
 
@@ -250,6 +311,12 @@ export function createCloudflareStatusObserver({
           ? {queueRoles: config.cloudflare.queues}
           : {}),
         queues: provider.queues ?? {},
+        cronSafety: projectCronSafety(
+          config,
+          provider,
+          control.phaseSteps,
+          now(),
+        ),
         ...(provider.limits ? {limits: provider.limits} : {}),
         ...(Number.isFinite(
           config.cloudflare.costControls?.maximumUploadBytes,

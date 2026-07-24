@@ -29,6 +29,7 @@
   },
   "platformLimits": {
     "qualifiedOn": "2026-07-24",
+    "cronTriggerPropagationMaximumSeconds": 900,
     "workersPaidMaximumCpuMilliseconds": 300000,
     "workersPaidMaximumStaticAssetFiles": 100000,
     "maximumStaticAssetFileBytes": 26214400
@@ -36,6 +37,7 @@
   "officialContracts": [
     "https://developers.cloudflare.com/workers/configuration/compatibility-dates/",
     "https://developers.cloudflare.com/workers/configuration/compatibility-flags/",
+    "https://developers.cloudflare.com/workers/configuration/cron-triggers/",
     "https://developers.cloudflare.com/workers/wrangler/configuration/",
     "https://developers.cloudflare.com/workers/platform/limits/",
     "https://developers.cloudflare.com/containers/get-started/",

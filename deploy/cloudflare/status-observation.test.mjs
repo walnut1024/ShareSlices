@@ -48,6 +48,7 @@ function observer(overrides = {}) {
         },
       },
       phases: [{phase: "verification", state: "completed"}],
+      phaseSteps: [],
       ...overrides.control,
     }),
     readTerraformState: async () => ({
@@ -124,7 +125,85 @@ test("projects an exact active Cloudflare release as verified", async () => {
       },
     },
     queues: {},
+    cronSafety: {
+      controlPlaneState: "attached",
+      propagationCompletion: "unobservable",
+      maximumSeconds: 900,
+      elapsedSeconds: null,
+      remainingSeconds: null,
+      safetyWindowState: "unknown",
+      reasonCode: "cloudflare_cron_safety_checkpoint_unobserved",
+    },
   });
+});
+
+test("projects elapsed and remaining Cron safety time from an exact control-plane checkpoint", async () => {
+  const waiting = await observer({
+    now: () => new Date("2026-07-25T12:10:00.000Z"),
+    control: {
+      phaseSteps: [{
+        phase: "activation",
+        step: "cron-attached-observed",
+        state: "completed",
+        evidence: {
+          kind: "cloudflare_cron_control_plane_observation",
+          state: "attached",
+          schedules: ["*/5 * * * *"],
+        },
+        updatedAt: "2026-07-25T12:00:00.000Z",
+      }],
+    },
+  })({config});
+  assert.deepEqual(waiting.provider.cronSafety, {
+    controlPlaneState: "attached",
+    propagationCompletion: "unobservable",
+    maximumSeconds: 900,
+    elapsedSeconds: 600,
+    remainingSeconds: 300,
+    safetyWindowState: "waiting",
+    reasonCode: "cloudflare_cron_safety_window_waiting",
+  });
+
+  const elapsed = await observer({
+    now: () => new Date("2026-07-25T12:20:00.000Z"),
+    control: {
+      phaseSteps: [{
+        phase: "activation",
+        step: "cron-attached-observed",
+        state: "completed",
+        evidence: {
+          kind: "cloudflare_cron_control_plane_observation",
+          state: "attached",
+          schedules: ["*/5 * * * *"],
+        },
+        updatedAt: "2026-07-25T12:00:00.000Z",
+      }],
+    },
+  })({config});
+  assert.equal(elapsed.provider.cronSafety.safetyWindowState, "elapsed");
+  assert.equal(elapsed.provider.cronSafety.elapsedSeconds, 1200);
+  assert.equal(elapsed.provider.cronSafety.remainingSeconds, 0);
+});
+
+test("does not reuse a Cron checkpoint for different observed schedules", async () => {
+  const status = await observer({
+    now: () => new Date("2026-07-25T12:20:00.000Z"),
+    control: {
+      phaseSteps: [{
+        phase: "activation",
+        step: "cron-attached-observed",
+        state: "completed",
+        evidence: {
+          kind: "cloudflare_cron_control_plane_observation",
+          state: "attached",
+          schedules: ["0 * * * *"],
+        },
+        updatedAt: "2026-07-25T12:00:00.000Z",
+      }],
+    },
+  })({config});
+  assert.equal(status.provider.cronSafety.safetyWindowState, "unknown");
+  assert.equal(status.provider.cronSafety.elapsedSeconds, null);
 });
 
 test("projects only fresh redacted Resend operator evidence", async () => {
