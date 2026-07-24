@@ -85,3 +85,7 @@ Durable documentation must satisfy these stable invariants:
 - [Kubernetes example migration](operations/kubernetes-migration.md) documents
   the breaking move from fixed-address, placeholder-Secret, mutable-image, and
   init-container-migration examples to the supported deployment interface.
+- [Cloudflare target](operations/cloudflare.md) documents production
+  prerequisites, cost and cache boundaries, target resources, Secret and
+  release handling, emergency shutdown, and disposable-prototype teardown
+  without claiming the unqualified target is available.
