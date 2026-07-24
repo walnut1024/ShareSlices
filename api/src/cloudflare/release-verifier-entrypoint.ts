@@ -8,6 +8,8 @@ type ServiceBinding = Readonly<{
 }>;
 
 export type CloudflareReleaseVerifierBindings = Readonly<{
+  APP_RELEASE_VERIFICATION: ServiceBinding;
+  CONTENT_RELEASE_VERIFICATION: ServiceBinding;
   JOBS_RELEASE_VERIFICATION: ServiceBinding;
   VERIFIER_QUEUE_NAME: string;
 }>;
@@ -33,6 +35,8 @@ type ReleaseVerificationMessage = Readonly<{
     quiescenceSeconds: number;
   }>;
   expected: Readonly<{
+    appWorker: Readonly<{name: string; versionId: string}>;
+    contentWorker: Readonly<{name: string; versionId: string}>;
     jobsWorker: Readonly<{
       versionId: string;
       releaseBundleIdentity: string;
@@ -94,6 +98,8 @@ function parseMessage(value: unknown): ReleaseVerificationMessage | null {
   }
   const expectedRecord = expected as Record<string, unknown>;
   const jobsWorker = expectedRecord.jobsWorker;
+  const appWorker = expectedRecord.appWorker;
+  const contentWorker = expectedRecord.contentWorker;
   const images = expectedRecord.configuredContainerImages;
   const containers = expectedRecord.containers;
   if (
@@ -120,7 +126,11 @@ function parseMessage(value: unknown): ReleaseVerificationMessage | null {
       MAXIMUM_QUIESCENCE_SECONDS ||
     Number((lifecycle as Record<string, unknown>).quiescenceSeconds) >=
       Number((lifecycle as Record<string, unknown>).tombstoneSeconds) ||
-    Object.keys(expectedRecord).length !== 4 ||
+    Object.keys(expectedRecord).length !== 6 ||
+    !parseVersionedWorker(appWorker) ||
+    !parseVersionedWorker(contentWorker) ||
+    (appWorker as Record<string, unknown>).name ===
+      (contentWorker as Record<string, unknown>).name ||
     !jobsWorker ||
     typeof jobsWorker !== "object" ||
     Array.isArray(jobsWorker) ||
@@ -175,6 +185,8 @@ function parseMessage(value: unknown): ReleaseVerificationMessage | null {
       ),
     },
     expected: {
+      appWorker: parseVersionedWorker(appWorker)!,
+      contentWorker: parseVersionedWorker(contentWorker)!,
       jobsWorker: {
         versionId: parsedJobs.versionId!,
         releaseBundleIdentity: parsedJobs.releaseBundleIdentity!,
@@ -189,6 +201,22 @@ function parseMessage(value: unknown): ReleaseVerificationMessage | null {
       containers: parsedContainers as ExpectedContainer[],
     },
   };
+}
+
+function parseVersionedWorker(
+  value: unknown,
+): Readonly<{name: string; versionId: string}> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const worker = value as Record<string, unknown>;
+  if (
+    Object.keys(worker).sort().join("\n") !== ["name", "versionId"].join("\n") ||
+    !isNonEmptyString(worker.name, 63) ||
+    !/^[a-z0-9][a-z0-9-]{0,62}$/.test(worker.name) ||
+    !isNonEmptyString(worker.versionId, 256)
+  ) {
+    return null;
+  }
+  return {name: worker.name, versionId: worker.versionId};
 }
 
 function parseCleanupMessage(value: unknown): ReleaseCleanupMessage | null {
@@ -310,6 +338,10 @@ function verifyEvidence(
     jobsWorker.configurationDigest !==
       message.expected.jobsWorker.configurationDigest ||
     jobsWorker.exportsDigest !== message.expected.jobsWorker.exportsDigest ||
+    canonicalJson(record.entryWorkers) !== canonicalJson({
+      application: message.expected.appWorker,
+      content: message.expected.contentWorker,
+    }) ||
     record.migrationHead !== message.expected.migrationHead ||
     !images ||
     images.trustedProcessing !==
@@ -361,6 +393,35 @@ async function runCleanup(
   }
 }
 
+async function verifyVersionedWorker(
+  binding: ServiceBinding,
+  internalHost: string,
+  expected: Readonly<{name: string; versionId: string}>,
+): Promise<Readonly<{name: string; versionId: string}>> {
+  const response = await binding.fetch(
+    new Request(`http://${internalHost}/health`, {
+      headers: {
+        "Cloudflare-Workers-Version-Overrides":
+          `${expected.name}="${expected.versionId}"`,
+      },
+    }),
+  );
+  if (
+    response.status !== 200 ||
+    response.headers.get("cache-control") !== "no-store"
+  ) {
+    throw new Error("release_verifier_version_probe_rejected");
+  }
+  const body = await response.json() as Record<string, unknown>;
+  if (body.version !== 1 || body.versionId !== expected.versionId) {
+    throw new Error("release_verifier_version_override_mismatch");
+  }
+  return Object.freeze({
+    name: expected.name,
+    versionId: expected.versionId,
+  });
+}
+
 export function createCloudflareReleaseVerifier({
   sleep = (milliseconds: number) =>
     new Promise<void>((resolve) => setTimeout(resolve, milliseconds)),
@@ -385,6 +446,16 @@ export function createCloudflareReleaseVerifier({
       }
       const message = parseMessage(batch.messages[0]!.body);
       if (!message) throw new Error("release_verifier_message_invalid");
+      const application = await verifyVersionedWorker(
+        bindings.APP_RELEASE_VERIFICATION,
+        "shareslices-app.internal",
+        message.expected.appWorker,
+      );
+      const content = await verifyVersionedWorker(
+        bindings.CONTENT_RELEASE_VERIFICATION,
+        "shareslices-content.internal",
+        message.expected.contentWorker,
+      );
       const response = await bindings.JOBS_RELEASE_VERIFICATION.fetch(
         new Request("http://shareslices-jobs.internal/v1/release-verification", {
           method: "POST",
@@ -396,6 +467,7 @@ export function createCloudflareReleaseVerifier({
             releaseId: message.releaseId,
             fence: message.fence,
             subFence: message.subFence,
+            entryWorkers: {application, content},
           }),
         }),
       );

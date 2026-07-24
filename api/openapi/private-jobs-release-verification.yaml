@@ -72,7 +72,7 @@ components:
     Probe:
       type: object
       additionalProperties: false
-      required: [version, invocationId, nonce, releaseId, fence, subFence]
+      required: [version, invocationId, nonce, releaseId, fence, subFence, entryWorkers]
       properties:
         version: {type: integer, const: 1}
         invocationId: {type: string, minLength: 16, maxLength: 256}
@@ -80,6 +80,8 @@ components:
         releaseId: {type: string, minLength: 1, maxLength: 256}
         fence: {type: integer, minimum: 1}
         subFence: {type: integer, minimum: 1}
+        entryWorkers:
+          $ref: "#/components/schemas/EntryWorkers"
     FinalizeProbe:
       type: object
       additionalProperties: false
@@ -121,6 +123,7 @@ components:
         - version
         - scope
         - jobsWorker
+        - entryWorkers
         - migrationHead
         - database
         - broker
@@ -159,6 +162,8 @@ components:
             exportsDigest:
               type: string
               pattern: "^sha256:[0-9a-f]{64}$"
+        entryWorkers:
+          $ref: "#/components/schemas/EntryWorkers"
         migrationHead: {type: string, minLength: 1}
         database:
           type: object
@@ -261,6 +266,24 @@ components:
         containerConvergence:
           type: string
           const: verified
+    EntryWorkers:
+      type: object
+      additionalProperties: false
+      required: [application, content]
+      properties:
+        application:
+          $ref: "#/components/schemas/EntryWorker"
+        content:
+          $ref: "#/components/schemas/EntryWorker"
+    EntryWorker:
+      type: object
+      additionalProperties: false
+      required: [name, versionId]
+      properties:
+        name:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9-]{0,62}$"
+        versionId: {type: string, minLength: 1, maxLength: 256}
     SyntheticCommit:
       type: object
       additionalProperties: false

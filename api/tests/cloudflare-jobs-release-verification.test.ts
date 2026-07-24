@@ -133,6 +133,10 @@ const probe = {
   releaseId: "release-1",
   fence: 7,
   subFence: 3,
+  entryWorkers: {
+    application: {name: "shareslices-app", versionId: "app-version-1"},
+    content: {name: "shareslices-content", versionId: "content-version-1"},
+  },
 };
 
 describe("route-free Jobs release verification", () => {
@@ -226,6 +230,7 @@ describe("route-free Jobs release verification", () => {
         configurationDigest: bindings.JOBS_CONFIGURATION_DIGEST,
         exportsDigest: bindings.JOBS_EXPORTS_DIGEST,
       },
+      entryWorkers: probe.entryWorkers,
       migrationHead: "0038_cloudflare_release_verification_probe",
       database: {mode: "hyperdrive", reachable: true},
       broker: {
@@ -282,7 +287,12 @@ describe("route-free Jobs release verification", () => {
       {
         method: "POST",
         body: JSON.stringify({
-          ...probe,
+          version: probe.version,
+          invocationId: probe.invocationId,
+          nonce: probe.nonce,
+          releaseId: probe.releaseId,
+          fence: probe.fence,
+          subFence: probe.subFence,
           evidenceDigest,
           tombstoneSeconds: 345_660,
           quiescenceSeconds: 660,

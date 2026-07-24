@@ -35,7 +35,7 @@ export type JobsReleaseVerificationBindings = Readonly<{
   ARTIFACTS: R2BucketBinding;
 }>;
 
-type ProbeRequest = Readonly<{
+type OperationScope = Readonly<{
   version: 1;
   invocationId: string;
   nonce: string;
@@ -44,7 +44,14 @@ type ProbeRequest = Readonly<{
   subFence: number;
 }>;
 
-type FinalizeRequest = ProbeRequest & Readonly<{
+type ProbeRequest = OperationScope & Readonly<{
+  entryWorkers: Readonly<{
+    application: Readonly<{name: string; versionId: string}>;
+    content: Readonly<{name: string; versionId: string}>;
+  }>;
+}>;
+
+type FinalizeRequest = OperationScope & Readonly<{
   evidenceDigest: string;
   tombstoneSeconds: number;
   quiescenceSeconds: number;
@@ -88,7 +95,7 @@ function parseStableSlots(value: string): readonly string[] | null {
   }
 }
 
-function parseRequest(value: unknown): ProbeRequest | null {
+function parseOperationScope(value: unknown): OperationScope | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   if (
@@ -108,13 +115,50 @@ function parseRequest(value: unknown): ProbeRequest | null {
   ) {
     return null;
   }
-  return record as ProbeRequest;
+  return record as OperationScope;
+}
+
+function parseEntryWorker(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const worker = value as Record<string, unknown>;
+  return (
+    Object.keys(worker).sort().join("\n") === ["name", "versionId"].join("\n") &&
+    typeof worker.name === "string" &&
+    /^[a-z0-9][a-z0-9-]{0,62}$/.test(worker.name) &&
+    typeof worker.versionId === "string" &&
+    worker.versionId.length > 0 &&
+    worker.versionId.length <= 256
+  ) ? {name: worker.name, versionId: worker.versionId} : null;
+}
+
+function parseRequest(value: unknown): ProbeRequest | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const scope = parseOperationScope(Object.fromEntries(
+    Object.entries(record).filter(([key]) => key !== "entryWorkers"),
+  ));
+  const entryWorkers = record.entryWorkers as Record<string, unknown> | undefined;
+  const application = parseEntryWorker(entryWorkers?.application);
+  const content = parseEntryWorker(entryWorkers?.content);
+  if (
+    Object.keys(record).length !== 7 ||
+    !scope ||
+    !entryWorkers ||
+    Object.keys(entryWorkers).sort().join("\n") !==
+      ["application", "content"].join("\n") ||
+    !application ||
+    !content ||
+    application.name === content.name
+  ) {
+    return null;
+  }
+  return {...scope, entryWorkers: {application, content}};
 }
 
 function parseFinalizeRequest(value: unknown): FinalizeRequest | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
-  const probe = parseRequest(Object.fromEntries(
+  const probe = parseOperationScope(Object.fromEntries(
     Object.entries(record).filter(([key]) =>
       ![
         "evidenceDigest",
@@ -659,6 +703,7 @@ export function createJobsReleaseVerificationFetch() {
           configurationDigest: bindings.JOBS_CONFIGURATION_DIGEST,
           exportsDigest: bindings.JOBS_EXPORTS_DIGEST,
         },
+        entryWorkers: scope.entryWorkers,
         migrationHead: begin.migrationHead,
         database: {mode: "hyperdrive", reachable: true},
         broker: {

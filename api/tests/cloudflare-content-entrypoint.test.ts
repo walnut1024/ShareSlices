@@ -45,10 +45,28 @@ function bindings(): CloudflareContentBindings {
     GALLERY_ISOLATED_CONTENT_READY: true,
     SERVICE_VERSION: "test-version",
     DEPLOYMENT_ENVIRONMENT: "test",
+    CF_VERSION_METADATA: {
+      id: "content-version-id",
+      timestamp: "2026-07-24T00:00:00.000Z",
+    },
   };
 }
 
 describe("Cloudflare content entrypoint", () => {
+  it("returns version metadata only on the route-free Service Binding host", async () => {
+    const internal = await contentWorker.fetch(
+      new Request("http://shareslices-content.internal/health"),
+      bindings(),
+      context,
+    );
+    expect(internal.status).toBe(200);
+    expect(internal.headers.get("cache-control")).toBe("no-store");
+    await expect(internal.json()).resolves.toEqual({
+      version: 1,
+      versionId: "content-version-id",
+    });
+  });
+
   it("exposes only content health and no management graph", async () => {
     const health = await contentWorker.fetch(
       new Request("https://content.example.net/health"),

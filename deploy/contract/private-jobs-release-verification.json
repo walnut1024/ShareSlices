@@ -9,7 +9,7 @@
     {
       "method": "POST",
       "path": "/v1/release-verification",
-      "scope": ["releaseId", "fence", "nonce", "subFence"]
+      "scope": ["releaseId", "fence", "nonce", "subFence", "entryWorkers"]
     },
     {
       "method": "POST",
@@ -24,5 +24,6 @@
   ],
   "terminalNonceRequired": true,
   "activeInvocationLeaseRequired": true,
+  "entryWorkerVersionEvidenceRequired": true,
   "containerConvergenceRequiredForAcceptance": true
 }

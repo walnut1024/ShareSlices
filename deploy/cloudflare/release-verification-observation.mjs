@@ -46,6 +46,10 @@ function requireExpectedEvidence(evidence, message) {
       message.expected?.jobsWorker?.configurationDigest ||
     evidence.jobsWorker?.exportsDigest !==
       message.expected?.jobsWorker?.exportsDigest ||
+    JSON.stringify(evidence.entryWorkers) !== JSON.stringify({
+      application: message.expected?.appWorker,
+      content: message.expected?.contentWorker,
+    }) ||
     evidence.migrationHead !== message.expected?.migrationHead ||
     evidence.configuredContainerImages?.trustedProcessing !==
       message.expected?.configuredContainerImages?.trustedProcessing ||

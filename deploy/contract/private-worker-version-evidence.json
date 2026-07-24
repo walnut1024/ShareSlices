@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "source": "api/openapi/private-worker-version-evidence.yaml",
+  "origins": {
+    "application": "http://shareslices-app.internal",
+    "content": "http://shareslices-content.internal"
+  },
+  "publicIngress": false,
+  "transport": "fetch-service-binding",
+  "versionSelection": "Cloudflare-Workers-Version-Overrides",
+  "versionIdentitySource": "CF_VERSION_METADATA",
+  "operations": [
+    {
+      "method": "GET",
+      "path": "/health",
+      "sideEffects": false,
+      "cache": "no-store"
+    }
+  ]
+}

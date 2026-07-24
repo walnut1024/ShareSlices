@@ -259,6 +259,7 @@ Deployment documentation should link operators to the live pricing/limits pages 
 - [Preview URLs](https://developers.cloudflare.com/workers/versions-and-deployments/preview-urls/)
 - [`workers.dev` routing controls](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/)
 - [Version overrides](https://developers.cloudflare.com/workers/versions-and-deployments/version-overrides/)
+- [Service bindings](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/)
 - [Service Bindings and non-public Worker calls](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/)
 - [Fetch-based Service Bindings](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/http/)
 - [Worker Deployments API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/)

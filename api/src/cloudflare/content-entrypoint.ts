@@ -21,6 +21,10 @@ import type {
   CloudflareExecutionContext,
   CloudflareFetchHandler,
 } from "./runtime.js";
+import {
+  releaseVersionEvidence,
+  type CloudflareVersionMetadata,
+} from "./release-version-evidence.js";
 
 export type CloudflareContentBindings = Readonly<{
   HYPERDRIVE: Readonly<{ connectionString: string }>;
@@ -43,11 +47,18 @@ export type CloudflareContentBindings = Readonly<{
   GALLERY_ISOLATED_CONTENT_READY: boolean;
   SERVICE_VERSION: string;
   DEPLOYMENT_ENVIRONMENT: string;
+  CF_VERSION_METADATA: CloudflareVersionMetadata;
 }>;
 
 export function createCloudflareContentWorker(): CloudflareFetchHandler<CloudflareContentBindings> {
   return {
     async fetch(request, bindings, _context: CloudflareExecutionContext) {
+      const versionEvidence = releaseVersionEvidence(
+        request,
+        "shareslices-content.internal",
+        bindings.CF_VERSION_METADATA,
+      );
+      if (versionEvidence) return versionEvidence;
       const connection = createDatabaseConnection({
         mode: "hyperdrive",
         cache: "disabled",

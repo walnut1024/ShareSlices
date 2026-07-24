@@ -17,6 +17,11 @@ const message = Object.freeze({
   fence: 7,
   subFence: 9,
   expected: {
+    appWorker: {name: "shareslices-app", versionId: "app-version"},
+    contentWorker: {
+      name: "shareslices-content",
+      versionId: "content-version",
+    },
     jobsWorker: {
       versionId: "jobs-version",
       releaseBundleIdentity: "release-bundle",
@@ -58,6 +63,10 @@ const terminalEvidence = Object.freeze({
     subFence: message.subFence,
   },
   jobsWorker: message.expected.jobsWorker,
+  entryWorkers: {
+    application: message.expected.appWorker,
+    content: message.expected.contentWorker,
+  },
   migrationHead: message.expected.migrationHead,
   configuredContainerImages: message.expected.configuredContainerImages,
   containerConvergence: "verified",

@@ -1,0 +1,28 @@
+openapi: 3.1.0
+info:
+  title: ShareSlices private Worker version evidence
+  version: 1.0.0
+  description: Side-effect-free version evidence callable only through route-free fetch Service Bindings.
+servers:
+  - url: http://shareslices-app.internal
+  - url: http://shareslices-content.internal
+paths:
+  /health:
+    get:
+      operationId: readPrivateWorkerVersionEvidence
+      responses:
+        "200":
+          description: Executing Worker version metadata for override verification.
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [version, versionId]
+                properties:
+                  version: {type: integer, const: 1}
+                  versionId: {type: string, minLength: 1, maxLength: 256}
+                  versionTag: {type: string, minLength: 1}

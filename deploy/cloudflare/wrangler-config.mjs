@@ -217,6 +217,7 @@ export async function generateStagedWorkerConfigs(input) {
       slashPath(configDirectory, resolve(input.workerDirectory, "app-worker.js")),
       input.config.cloudflare.costControls.workerCpuMilliseconds.application,
     ),
+    version_metadata: {binding: "CF_VERSION_METADATA"},
     assets: {
       directory: slashPath(configDirectory, resolve(input.staticAssetsDirectory)),
       binding: "ASSETS",
@@ -270,6 +271,7 @@ export async function generateStagedWorkerConfigs(input) {
       slashPath(configDirectory, resolve(input.workerDirectory, "content-worker.js")),
       input.config.cloudflare.costControls.workerCpuMilliseconds.content,
     ),
+    version_metadata: {binding: "CF_VERSION_METADATA"},
     hyperdrive: [{ binding: "HYPERDRIVE", id: input.privatePrerequisites.hyperdrive_id }],
     r2_buckets: [
       {

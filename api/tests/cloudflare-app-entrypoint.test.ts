@@ -92,10 +92,35 @@ function bindings(): CloudflareAppBindings {
     GALLERY_ISOLATED_CONTENT_READY: true,
     SERVICE_VERSION: "test-version",
     DEPLOYMENT_ENVIRONMENT: "test",
+    CF_VERSION_METADATA: {
+      id: "app-version-id",
+      timestamp: "2026-07-24T00:00:00.000Z",
+    },
   };
 }
 
 describe("Cloudflare App entrypoint", () => {
+  it("returns version metadata only on the route-free Service Binding host", async () => {
+    const internal = await appWorker.fetch(
+      new Request("http://shareslices-app.internal/health"),
+      bindings(),
+      context,
+    );
+    expect(internal.status).toBe(200);
+    expect(internal.headers.get("cache-control")).toBe("no-store");
+    await expect(internal.json()).resolves.toEqual({
+      version: 1,
+      versionId: "app-version-id",
+    });
+
+    const publicInternalHost = await appWorker.fetch(
+      new Request("https://api.example.test/internal/release-verification"),
+      bindings(),
+      context,
+    );
+    expect(publicInternalHost.status).toBe(404);
+  });
+
   it("keeps every non-static shared route family ahead of Static Assets", () => {
     const projection = JSON.parse(
       readFileSync(

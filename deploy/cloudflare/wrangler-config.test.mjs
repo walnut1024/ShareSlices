@@ -273,6 +273,12 @@ test("generates schema-valid staged App, Content, and immediate Jobs Wrangler in
   assert.deepEqual(first.configs.jobs.version_metadata, {
     binding: "CF_VERSION_METADATA",
   });
+  assert.deepEqual(first.configs.app.version_metadata, {
+    binding: "CF_VERSION_METADATA",
+  });
+  assert.deepEqual(first.configs.content.version_metadata, {
+    binding: "CF_VERSION_METADATA",
+  });
   assert.equal(
     first.configs.app.vars.CONTENT_FINGERPRINT_KEY_CURRENT_REVISION,
     "3",

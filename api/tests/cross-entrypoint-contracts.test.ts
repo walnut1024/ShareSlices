@@ -75,6 +75,10 @@ function cloudflareAppBindings(): CloudflareAppBindings {
     GALLERY_ISOLATED_CONTENT_READY: true,
     SERVICE_VERSION: "test-version",
     DEPLOYMENT_ENVIRONMENT: "test",
+    CF_VERSION_METADATA: {
+      id: "app-version-id",
+      timestamp: "2026-07-24T00:00:00.000Z",
+    },
   };
 }
 

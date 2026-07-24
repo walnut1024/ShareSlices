@@ -38,6 +38,10 @@ import { systemRoutes } from "../http/system-routes.js";
 import { buildTrustedHttpApp } from "../http/trusted-app.js";
 import { R2ObjectStorage, type R2BucketBinding } from "../storage/r2-object-storage.js";
 import { createCloudflareLogger } from "./logger.js";
+import {
+  releaseVersionEvidence,
+  type CloudflareVersionMetadata,
+} from "./release-version-evidence.js";
 import type { CloudflareExecutionContext, CloudflareFetchHandler } from "./runtime.js";
 import {
   CloudflareViewerByteReader,
@@ -101,6 +105,7 @@ export type CloudflareAppBindings = Readonly<
     BETTER_AUTH_SECRETS: string;
     EDGE_CDN_MODE: "web-assets-only" | "web-and-public-viewer-bytes";
     VIEWER_BYTE_CACHE_MAX_ASSET_BYTES: number;
+    CF_VERSION_METADATA: CloudflareVersionMetadata;
   }
 >;
 
@@ -250,6 +255,12 @@ async function bindConnectionLifetime(
 export function createCloudflareAppWorker(): CloudflareFetchHandler<CloudflareAppBindings> {
   return {
     async fetch(request, bindings, context: CloudflareExecutionContext) {
+      const versionEvidence = releaseVersionEvidence(
+        request,
+        "shareslices-app.internal",
+        bindings.CF_VERSION_METADATA,
+      );
+      if (versionEvidence) return versionEvidence;
       if (!configuredHost(request, bindings)) {
         return new Response("Not Found", {
           status: 404,

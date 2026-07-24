@@ -31,13 +31,14 @@ describe("private Jobs release-verification wire contract", () => {
       transport: "fetch-service-binding",
       terminalNonceRequired: true,
       activeInvocationLeaseRequired: true,
+      entryWorkerVersionEvidenceRequired: true,
       containerConvergenceRequiredForAcceptance: true,
     });
     expect(projection.operations).toEqual([
       {
         method: "POST",
         path: "/v1/release-verification",
-        scope: ["releaseId", "fence", "nonce", "subFence"],
+        scope: ["releaseId", "fence", "nonce", "subFence", "entryWorkers"],
       },
       {
         method: "POST",
@@ -63,6 +64,7 @@ describe("private Jobs release-verification wire contract", () => {
     const evidence = openapi.components.schemas.Evidence;
     expect(evidence.required).toEqual(expect.arrayContaining([
       "jobsWorker",
+      "entryWorkers",
       "migrationHead",
       "database",
       "broker",
