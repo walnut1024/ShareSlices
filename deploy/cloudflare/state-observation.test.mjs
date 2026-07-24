@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import {serializeCanonicalTargetBundle} from "../automation/release.mjs";
 import {createCloudflareStateObserver} from "./state-observation.mjs";
 
 const config = {
@@ -124,4 +125,100 @@ test("rejects ownership conflicts, missing markers, and invalid desired-state di
     invalidDigest({config}),
     (error) => error.code === "cloudflare_terraform_resource_invalid",
   );
+});
+
+test("projects completed migration and exact active release verification from PostgreSQL", async () => {
+  const release = {
+    releaseId: `sha256:${"d".repeat(64)}`,
+  };
+  const migration = {
+    logicalId: "deployment-control/migrations/0030.sql",
+    phase: "migration",
+    owner: "deployment-module",
+    retention: "active",
+    securitySensitive: true,
+    desired: {schemaHead: "0030.sql"},
+    digest: `sha256:${"a".repeat(64)}`,
+  };
+  const verification = {
+    logicalId: `deployment-control/release-verification/${release.releaseId}`,
+    phase: "verification",
+    owner: "deployment-module",
+    retention: "active",
+    securitySensitive: true,
+    desired: {},
+    digest: `sha256:${"b".repeat(64)}`,
+  };
+  const bundle = {
+    target: "cloudflare",
+    releaseId: release.releaseId,
+    configurationDigest: `sha256:${"c".repeat(64)}`,
+    phases: [
+      {id: "migration", resources: [migration]},
+      {id: "verification", resources: [verification]},
+    ],
+  };
+  const bundleDigest = serializeCanonicalTargetBundle(bundle).digest;
+  const observer = createCloudflareStateObserver({
+    observeControl: async () => ({
+      controlSchema: {state: "present", revision: "control-9"},
+      databaseSchemaHead: "0030.sql",
+      releaseRecords: {
+        active: {
+          target: "cloudflare",
+          releaseId: release.releaseId,
+          bundleDigest,
+          configurationDigest: bundle.configurationDigest,
+          operationId: "operation-1",
+          fencingToken: 12,
+        },
+      },
+    }),
+    observeTerraform: async () => ({revision: "terraform-1", resources: []}),
+    observeWrangler: async () => ({revision: "wrangler-1", resources: []}),
+  });
+  const result = await observer({config, release, bundle});
+  assert.deepEqual(
+    result.resources.map(({logicalId}) => logicalId),
+    [migration.logicalId, verification.logicalId],
+  );
+  assert.equal(result.resources.every(({owner}) => owner === "deployment-module"), true);
+  assert.deepEqual(result.resources[0].providerIdentity, {
+    schemaHead: "0030.sql",
+    source: "postgresql",
+  });
+  assert.deepEqual(result.resources[1].providerIdentity, {
+    operationId: "operation-1",
+    fencingToken: 12,
+  });
+});
+
+test("does not project migration or verification from mismatched control evidence", async () => {
+  const bundle = {
+    target: "cloudflare",
+    releaseId: "release-1",
+    configurationDigest: "configuration-1",
+    phases: [{
+      id: "migration",
+      resources: [{
+        logicalId: "migration",
+        phase: "migration",
+        owner: "deployment-module",
+        retention: "active",
+        desired: {schemaHead: "expected"},
+        digest: `sha256:${"a".repeat(64)}`,
+      }],
+    }],
+  };
+  const observer = createCloudflareStateObserver({
+    observeControl: async () => ({
+      controlSchema: {state: "present", revision: "control-10"},
+      databaseSchemaHead: "other",
+      releaseRecords: {},
+    }),
+    observeTerraform: async () => ({revision: "terraform-1", resources: []}),
+    observeWrangler: async () => ({revision: "wrangler-1", resources: []}),
+  });
+  const result = await observer({config, release: {releaseId: "release-1"}, bundle});
+  assert.deepEqual(result.resources, []);
 });

@@ -1,4 +1,5 @@
 import {sha256Digest} from "../automation/canonical.mjs";
+import {serializeCanonicalTargetBundle} from "../automation/release.mjs";
 import {TargetAdapterError} from "../automation/target-adapter.mjs";
 
 const digestPattern = /^sha256:[a-f0-9]{64}$/;
@@ -56,6 +57,63 @@ function normalizeResource(source, resource, installationId) {
   });
 }
 
+function controlResources(control, config, release, bundle) {
+  const desired = (bundle?.phases ?? []).flatMap(({resources}) => resources);
+  const resources = [];
+  const migration = desired.find(({phase}) => phase === "migration");
+  if (
+    migration &&
+    control.databaseSchemaHead === migration.desired?.schemaHead
+  ) {
+    resources.push({
+      logicalId: migration.logicalId,
+      digest: migration.digest,
+      owner: "deployment-module",
+      retention: migration.retention,
+      providerIdentity: {
+        schemaHead: control.databaseSchemaHead,
+        source: "postgresql",
+      },
+      releaseId: release?.releaseId ?? null,
+      ownershipMarkers: {
+        installation: config.installationId,
+        owner: "deployment-module",
+        release: release?.releaseId ?? null,
+      },
+    });
+  }
+  const verification = desired.find(({phase}) => phase === "verification");
+  const active = control.releaseRecords?.active;
+  const bundleDigest = verification
+    ? serializeCanonicalTargetBundle(bundle).digest
+    : null;
+  if (
+    verification &&
+    active?.target === "cloudflare" &&
+    active.releaseId === release?.releaseId &&
+    active.bundleDigest === bundleDigest &&
+    active.configurationDigest === bundle.configurationDigest
+  ) {
+    resources.push({
+      logicalId: verification.logicalId,
+      digest: verification.digest,
+      owner: "deployment-module",
+      retention: verification.retention,
+      providerIdentity: {
+        operationId: active.operationId,
+        fencingToken: active.fencingToken,
+      },
+      releaseId: active.releaseId,
+      ownershipMarkers: {
+        installation: config.installationId,
+        owner: "deployment-module",
+        release: active.releaseId,
+      },
+    });
+  }
+  return resources;
+}
+
 export function createCloudflareStateObserver({
   observeControl,
   observeTerraform,
@@ -87,6 +145,10 @@ export function createCloudflareStateObserver({
     const resources = [];
     const logicalIds = new Set();
     for (const [source, observation] of [
+      ["control", {
+        revision: control.controlSchema.revision,
+        resources: controlResources(control, config, release, bundle),
+      }],
       ["terraform", terraform],
       ["wrangler", wrangler],
     ]) {
