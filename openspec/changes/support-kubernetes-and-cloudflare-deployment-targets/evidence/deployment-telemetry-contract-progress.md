@@ -61,3 +61,22 @@ SMTP projection reads only the newest SMTP delivery's stable state and
 result-classification fields. It never selects recipient, payload, endpoint, or
 provider diagnostics. An older migration prefix without transport columns
 produces `unknown` rather than breaking status observation.
+
+Cloudflare scheduled delay now comes from the durable difference between
+`cloudflare_scheduled_invocation.started_at` and `scheduled_time`. The
+projection deliberately has no guessed default threshold: the current Cron
+manual documents up to 15 minutes for configuration changes to propagate, not
+an invocation-delay SLA.
+
+R2 telemetry uses the documented GraphQL Analytics
+`r2OperationsAdaptiveGroups` and `r2StorageAdaptiveGroups` datasets for the two
+configured private buckets. It aggregates request count and
+payload-plus-metadata bytes over a bounded 15-minute window. Missing
+permissions, dataset errors, transport failures, and malformed results become
+stable `unknown` evidence without provider error text.
+
+Official sources refreshed on 2026-07-25:
+
+- [R2 metrics and analytics](https://developers.cloudflare.com/r2/platform/metrics-analytics/)
+- [Cron Triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
+- [GraphQL Analytics limits](https://developers.cloudflare.com/analytics/graphql-api/limits/)

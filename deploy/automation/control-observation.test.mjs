@@ -48,6 +48,12 @@ test("PostgreSQL telemetry aggregates present job lanes and connection headroom"
           }],
         };
       }
+      if (sql.includes("cloudflare_scheduled_invocation') is not null")) {
+        return {rows: [{present: true}]};
+      }
+      if (sql.includes("from cloudflare_scheduled_invocation")) {
+        return {rows: [{delay_seconds: 12.5}]};
+      }
       return {rows: [{active_connections: 8, connection_limit: 20}]};
     },
   };
@@ -63,6 +69,7 @@ test("PostgreSQL telemetry aggregates present job lanes and connection headroom"
     connectionLimit: 20,
   });
   assert.deepEqual(result.smtp, {classification: "provider_accepted"});
+  assert.deepEqual(result.trigger, {delaySeconds: 12.5});
   assert.equal(
     queries.some(([sql]) => /insert|update|delete/i.test(sql)),
     false,

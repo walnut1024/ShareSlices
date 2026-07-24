@@ -173,6 +173,36 @@ function smtpObservation(status) {
   );
 }
 
+function triggerObservation(status) {
+  const delay = status.telemetry?.trigger?.delaySeconds;
+  if (typeof delay !== "number" || !Number.isFinite(delay) || delay < 0) {
+    return observation("unknown", "trigger_delay_unobserved", {
+      "trigger.delay_seconds": null,
+    });
+  }
+  return observation("ok", "trigger_delay_observed", {
+    "trigger.delay_seconds": delay,
+  });
+}
+
+function r2Observation(status) {
+  const r2 = status.provider?.analytics?.r2;
+  if (
+    r2?.state !== "observed" ||
+    !Number.isSafeInteger(r2.requests) ||
+    !Number.isSafeInteger(r2.bytes)
+  ) {
+    return observation("unknown", r2?.reasonCode ?? "cloudflare_r2_analytics_unobserved", {
+      "r2.requests": null,
+      "r2.bytes": null,
+    });
+  }
+  return observation("ok", "cloudflare_r2_analytics_observed", {
+    "r2.requests": r2.requests,
+    "r2.bytes": r2.bytes,
+  });
+}
+
 export function createStatusTelemetryObservers(status) {
   if (!status || !["compose", "kubernetes", "cloudflare"].includes(status.target)) {
     throw new TypeError("Status telemetry requires one target status observation.");
@@ -191,6 +221,8 @@ export function createStatusTelemetryObservers(status) {
   }
   if (status.target === "cloudflare") {
     observers.queue = async () => queueObservation(status);
+    observers.trigger = async () => triggerObservation(status);
+    observers.r2 = async () => r2Observation(status);
   }
   return Object.freeze(observers);
 }

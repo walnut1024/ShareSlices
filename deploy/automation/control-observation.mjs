@@ -84,6 +84,20 @@ export async function inspectPostgresOperationalTelemetry(client) {
         )
       : "no_delivery_observed";
   }
+  const scheduledTable = await client.query(
+    "select to_regclass('cloudflare_scheduled_invocation') is not null as present",
+  );
+  let triggerDelaySeconds = null;
+  if (scheduledTable.rows[0]?.present === true) {
+    const trigger = await client.query(
+      `select extract(epoch from (started_at - scheduled_time))::double precision
+                as delay_seconds
+         from cloudflare_scheduled_invocation
+        order by scheduled_time desc limit 1`,
+    );
+    const delay = Number(trigger.rows[0]?.delay_seconds);
+    triggerDelaySeconds = Number.isFinite(delay) && delay >= 0 ? delay : null;
+  }
   return Object.freeze({
     jobs: Object.freeze({
       backlog: present.size > 0 ? backlog : null,
@@ -96,6 +110,7 @@ export async function inspectPostgresOperationalTelemetry(client) {
       connectionLimit: Number(database.rows[0]?.connection_limit),
     }),
     smtp: Object.freeze({classification: smtpClassification}),
+    trigger: Object.freeze({delaySeconds: triggerDelaySeconds}),
   });
 }
 

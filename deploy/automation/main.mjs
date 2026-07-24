@@ -3,6 +3,7 @@
 import {pathToFileURL} from "node:url";
 
 import {createCloudflareAdapter} from "../cloudflare/adapter.mjs";
+import {createCloudflareAnalyticsObserver} from "../cloudflare/analytics-observation.mjs";
 import {
   createCloudflareTerraformStateReader,
   createCloudflareWranglerDeploymentReader,
@@ -107,6 +108,7 @@ export function createProductionCloudflareAdapter({
   createTerraformObserver = createCloudflareTerraformObserver,
   createWranglerObserver = createCloudflareWranglerObserver,
   createProviderObserver = createCloudflareProviderObserver,
+  createAnalyticsObserver = createCloudflareAnalyticsObserver,
   readTerraformState = createCloudflareTerraformStateReader(),
   readWranglerDeployments = createCloudflareWranglerDeploymentReader(),
 } = {}) {
@@ -134,9 +136,13 @@ export function createProductionCloudflareAdapter({
   const observeProvider = async (input) => createProviderObserver({
     resolvers: resolvers(),
   })(input);
+  const observeAnalytics = async (input) => createAnalyticsObserver({
+    resolvers: resolvers(),
+  })(input);
   const observeStatus = createStatusObserver({
     observeControl,
     observeProvider,
+    observeAnalytics,
     readTerraformState,
     readWranglerDeployments,
   });

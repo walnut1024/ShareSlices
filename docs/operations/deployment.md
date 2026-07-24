@@ -285,6 +285,19 @@ pending, unresolved, no-delivery, or unavailable state without recipient,
 message, endpoint, or provider diagnostic data. When an older schema lacks the
 transport column, SMTP telemetry is `unknown` and status observation continues.
 
+Cloudflare scheduled-invocation delay is measured from the durable
+`started_at - scheduled_time` record. No default warning threshold is inferred:
+Cloudflare documents trigger-configuration propagation, but does not publish a
+single-invocation delay SLA. Operators must supply any product alert threshold
+separately.
+
+Cloudflare R2 telemetry queries the official GraphQL Analytics operations and
+storage datasets for the configured private Artifact and deployment-state
+buckets over a bounded window. It records aggregate requests and current
+payload-plus-metadata bytes. Missing Analytics permission, dataset
+unavailability, GraphQL errors, or malformed aggregates produce `unknown`
+without exposing provider diagnostics.
+
 ## Configuration and release inputs
 
 The versioned deployment schema is

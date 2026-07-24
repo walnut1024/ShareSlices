@@ -65,6 +65,7 @@ function projectDeployment(config, role, name, deployment, drift) {
 export function createCloudflareStatusObserver({
   observeControl,
   observeProvider,
+  observeAnalytics,
   readTerraformState,
   readWranglerDeployments,
 } = {}) {
@@ -97,7 +98,7 @@ export function createCloudflareStatusObserver({
         orphans: [],
       });
     }
-    const [terraform, deployments, provider] = await Promise.all([
+    const [terraform, deployments, provider, analytics] = await Promise.all([
       readTerraformState({config}),
       Promise.all(Object.entries(config.cloudflare.workers).map(
         async ([role, name]) => [
@@ -110,6 +111,9 @@ export function createCloudflareStatusObserver({
         config,
         account: {id: config.cloudflare.accountId},
       }),
+      typeof observeAnalytics === "function"
+        ? observeAnalytics({config})
+        : null,
     ]);
     if (
       typeof terraform?.lineage !== "string" ||
@@ -204,6 +208,7 @@ export function createCloudflareStatusObserver({
           ? {queueRoles: config.cloudflare.queues}
           : {}),
         queues: provider.queues ?? {},
+        ...(analytics ? {analytics} : {}),
       },
     });
   };

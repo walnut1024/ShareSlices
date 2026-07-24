@@ -60,11 +60,22 @@ test("projects actual Cloudflare ready and dead-letter backlogs", async () => {
         "jobs-queue": {metrics: {backlogCount: 7}},
         "jobs-dlq": {metrics: {backlogCount: 2}},
       },
+      analytics: {
+        r2: {state: "observed", requests: 10, bytes: 1320},
+      },
     },
+    telemetry: {trigger: {delaySeconds: 75}},
   });
   const queue = await observers.queue();
   assert.equal(queue.state, "warning");
   assert.deepEqual(queue.attributes, {"queue.ready": 7, "queue.dlq": 2});
+  assert.deepEqual((await observers.trigger()).attributes, {
+    "trigger.delay_seconds": 75,
+  });
+  assert.deepEqual((await observers.r2()).attributes, {
+    "r2.requests": 10,
+    "r2.bytes": 1320,
+  });
   assert.equal((await observers["deployment-operation"]()).state, "unknown");
 });
 
