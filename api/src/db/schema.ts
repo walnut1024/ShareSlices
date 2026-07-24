@@ -309,6 +309,28 @@ export const cloudflareContainerHandoff = pgTable(
   ],
 );
 
+export const cloudflareScheduledExecutionGate = pgTable("cloudflare_scheduled_execution_gate", {
+  id: text("id").primaryKey(),
+  state: text("state").notNull(),
+  fence: bigint("fence", {mode: "number"}).notNull(),
+  reasonCode: text("reason_code").notNull(),
+  updatedAt: timestamp("updated_at", {withTimezone: true}).defaultNow().notNull(),
+});
+
+export const cloudflareScheduledInvocation = pgTable(
+  "cloudflare_scheduled_invocation",
+  {
+    scheduledTime: timestamp("scheduled_time", {withTimezone: true}).notNull(),
+    cron: text("cron").notNull(),
+    gateFence: bigint("gate_fence", {mode: "number"}).notNull(),
+    state: text("state").notNull(),
+    failureReasonCode: text("failure_reason_code"),
+    startedAt: timestamp("started_at", {withTimezone: true}).defaultNow().notNull(),
+    completedAt: timestamp("completed_at", {withTimezone: true}),
+  },
+  (table) => [primaryKey({columns: [table.scheduledTime, table.cron]})],
+);
+
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
   accounts: many(account),

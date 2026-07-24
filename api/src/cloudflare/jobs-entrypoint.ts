@@ -12,6 +12,7 @@ import { drainCloudflareJobOutbox, type CloudflareWakeQueue } from "./job-outbox
 import { createCloudflareAuthenticationEmailHandler, createCloudflareJobsDrains } from "./jobs.js";
 import { createCloudflareJobsEntrypoint } from "./jobs-runtime.js";
 import { createCloudflareLogger } from "./logger.js";
+import {createScheduledExecutionGate} from "./scheduled-execution-gate.js";
 
 export type CloudflareJobsBindings = CloudflareAuthenticationEmailBindings & ContainerSlotBindings & Readonly<{
   JOB_WAKE_QUEUE: CloudflareWakeQueue;
@@ -84,28 +85,53 @@ export function createCloudflareJobsWorker() {
         idleTimeoutMs: 1_000,
       });
       try {
-        const result = await drainCloudflareJobOutbox({
-          databaseClients: connection,
-          queue: bindings.JOB_WAKE_QUEUE,
-          acceptedLanes: ["authentication-email", "artifact-processing", "thumbnail"],
-          workerId: `cloudflare-scheduled:${controller.scheduledTime}`,
-          maxMessages: positiveInteger("job_outbox_max_messages", bindings.JOB_OUTBOX_MAX_MESSAGES),
-          leaseSeconds: positiveInteger("job_outbox_lease_seconds", bindings.JOB_OUTBOX_LEASE_SECONDS),
-          retryDelaySeconds: positiveInteger(
-            "job_outbox_retry_delay_seconds",
-            bindings.JOB_OUTBOX_RETRY_DELAY_SECONDS,
-          ),
-        });
-        loggerFor(bindings).emit({
-          severity: "INFO",
-          body: "Cloudflare job outbox drain completed.",
-          eventName: "shareslices.cloudflare.job_outbox.drain_completed",
-          attributes: {
-            "shareslices.job_outbox.attempted": result.attempted,
-            "shareslices.job_outbox.published": result.published,
-            "shareslices.job_outbox.remaining": result.remaining,
-          },
-        });
+        const gate = createScheduledExecutionGate(connection);
+        const claim = await gate.claim(controller);
+        if (!claim.accepted) {
+          loggerFor(bindings).emit({
+            severity: "INFO",
+            body: "Cloudflare scheduled invocation fenced.",
+            eventName: "shareslices.cloudflare.scheduled.fenced",
+            attributes: {
+              "shareslices.scheduled.reason_code": claim.reasonCode,
+            },
+          });
+          return;
+        }
+        let completed = false;
+        try {
+          const result = await drainCloudflareJobOutbox({
+            databaseClients: connection,
+            queue: bindings.JOB_WAKE_QUEUE,
+            acceptedLanes: ["authentication-email", "artifact-processing", "thumbnail"],
+            workerId: `cloudflare-scheduled:${controller.scheduledTime}`,
+            maxMessages: positiveInteger("job_outbox_max_messages", bindings.JOB_OUTBOX_MAX_MESSAGES),
+            leaseSeconds: positiveInteger("job_outbox_lease_seconds", bindings.JOB_OUTBOX_LEASE_SECONDS),
+            retryDelaySeconds: positiveInteger(
+              "job_outbox_retry_delay_seconds",
+              bindings.JOB_OUTBOX_RETRY_DELAY_SECONDS,
+            ),
+          });
+          loggerFor(bindings).emit({
+            severity: "INFO",
+            body: "Cloudflare job outbox drain completed.",
+            eventName: "shareslices.cloudflare.job_outbox.drain_completed",
+            attributes: {
+              "shareslices.job_outbox.attempted": result.attempted,
+              "shareslices.job_outbox.published": result.published,
+              "shareslices.job_outbox.remaining": result.remaining,
+            },
+          });
+          await gate.complete(claim, {state: "completed"});
+          completed = true;
+        } finally {
+          if (!completed) {
+            await gate.complete(claim, {
+              state: "failed",
+              reasonCode: "scheduled_recovery_failed",
+            });
+          }
+        }
       } finally {
         await connection.close();
       }
