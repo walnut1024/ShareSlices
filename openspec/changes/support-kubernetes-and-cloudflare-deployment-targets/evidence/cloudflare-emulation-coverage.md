@@ -161,6 +161,36 @@ Current first-party references:
 - [Gradual deployments](https://developers.cloudflare.com/workers/versions-and-deployments/gradual-deployments/)
 - [Worker errors](https://developers.cloudflare.com/workers/observability/errors/)
 
+## Worker rollback staging run
+
+On 2026-07-25, a bounded Workers Free run immediately deployed baseline and
+candidate versions of the disposable version prototype. Provider deployment
+history showed the candidate at 100%, while `versions list` retained both exact
+Version Metadata IDs.
+
+`wrangler rollback` selected the retained baseline ID and created a new
+baseline-only deployment at 100%. A fresh deployments read showed the sequence
+baseline, candidate, baseline rollback, and the edge response returned the
+baseline body with the exact baseline ID. The inactive candidate remained
+provider-addressable through `versions view` after rollback. As the command
+warned, rollback changed the Worker deployment but did not claim to roll back
+bound Durable Object, D1, R2, KV, or other resource state.
+
+This proves retained-version selection and immediate Worker rollback for two
+recent versions. It does not experimentally prove eviction at the documented
+100-published-version boundary; creating 100 disposable versions solely to
+repeat a documented limit would consume quota without qualifying product
+rollback. Production automation must reread the exact retained version and all
+required binding resources before authorizing rollback.
+
+Cleanup deleted the Worker. A fresh deployments read returned provider code
+`10007` and the former URL returned 404.
+
+Current first-party references:
+
+- [Rollbacks](https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/)
+- [Versions and deployments](https://developers.cloudflare.com/workers/versions-and-deployments/)
+
 ## Queue and Cron control-plane staging run
 
 On 2026-07-25, a bounded Workers Free run created one route-free Worker and one
