@@ -286,6 +286,29 @@ export const cloudflareJobDispatchOutbox = pgTable(
   ],
 );
 
+export const cloudflareContainerHandoff = pgTable(
+  "cloudflare_container_handoff",
+  {
+    wakeId: text("wake_id").primaryKey(),
+    lane: text("lane").notNull(),
+    durableJobId: text("durable_job_id").notNull(),
+    outboxFence: bigint("outbox_fence", {mode: "number"}).notNull(),
+    stableSlot: text("stable_slot").notNull(),
+    releaseId: text("release_id").notNull(),
+    contractRevision: text("contract_revision").notNull(),
+    handedOffAt: timestamp("handed_off_at", {withTimezone: true}).notNull(),
+    recordedAt: timestamp("recorded_at", {withTimezone: true}).defaultNow().notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.lane, table.durableJobId],
+      foreignColumns: [cloudflareJobDispatchOutbox.lane, cloudflareJobDispatchOutbox.durableJobId],
+    }),
+    index("cloudflare_container_handoff_job_idx")
+      .on(table.lane, table.durableJobId, table.handedOffAt),
+  ],
+);
+
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
   accounts: many(account),

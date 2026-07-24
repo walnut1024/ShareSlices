@@ -47,12 +47,14 @@ describe("Cloudflare stable Container slot controller", () => {
     const first = await handoffContainerWake({
       bindings: target.bindings,
       wake,
+      authorizeWake: async () => undefined,
       recordHandoff,
       now: new Date("2026-07-24T00:00:01Z"),
     });
     const second = await handoffContainerWake({
       bindings: target.bindings,
       wake,
+      authorizeWake: async () => undefined,
       recordHandoff,
       now: new Date("2026-07-24T00:00:02Z"),
     });
@@ -76,8 +78,28 @@ describe("Cloudflare stable Container slot controller", () => {
         durableJobId: "thumbnail-7",
         wakeId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       }),
+      authorizeWake: async () => undefined,
       recordHandoff,
     })).rejects.toThrow("container_controller_handoff_failed");
+    expect(recordHandoff).not.toHaveBeenCalled();
+  });
+
+  it("does not nudge a Container before PostgreSQL authorizes the wake", async () => {
+    const target = harness();
+    const recordHandoff = vi.fn(async () => undefined);
+    await expect(handoffContainerWake({
+      bindings: target.bindings,
+      wake: createCloudflareJobWake({
+        lane: "artifact-processing",
+        durableJobId: "job-unpublished",
+        wakeId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      }),
+      authorizeWake: async () => {
+        throw new Error("container_wake_not_authorized");
+      },
+      recordHandoff,
+    })).rejects.toThrow("container_wake_not_authorized");
+    expect(target.requests).toHaveLength(0);
     expect(recordHandoff).not.toHaveBeenCalled();
   });
 
@@ -90,6 +112,7 @@ describe("Cloudflare stable Container slot controller", () => {
         durableJobId: "mail-1",
         wakeId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
       }),
+      authorizeWake: async () => undefined,
       recordHandoff: async () => undefined,
     })).rejects.toThrow("container_wake_lane_unsupported");
     await expect(handoffContainerWake({
@@ -99,6 +122,7 @@ describe("Cloudflare stable Container slot controller", () => {
         durableJobId: "thumbnail-8",
         wakeId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
       }),
+      authorizeWake: async () => undefined,
       recordHandoff: async () => undefined,
     })).rejects.toThrow("invalid_cloudflare_binding_thumbnail_stable_slots");
   });

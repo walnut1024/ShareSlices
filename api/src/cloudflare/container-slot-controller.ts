@@ -94,6 +94,7 @@ export async function handoffContainerWake(input: Readonly<{
   bindings: ContainerSlotBindings;
   wake: CloudflareJobWake;
   now?: Date;
+  authorizeWake(wake: CloudflareJobWake): Promise<unknown>;
   recordHandoff(handoff: ContainerHandoff): Promise<void>;
 }>): Promise<ContainerHandoff> {
   if (
@@ -102,6 +103,7 @@ export async function handoffContainerWake(input: Readonly<{
   ) {
     throw new Error("container_wake_lane_unsupported");
   }
+  await input.authorizeWake(input.wake);
   const lane = input.wake.lane;
   const configuration = laneConfiguration(input.bindings, lane);
   const slot = configuration.slots[

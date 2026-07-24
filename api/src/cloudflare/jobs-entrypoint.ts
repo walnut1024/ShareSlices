@@ -1,11 +1,19 @@
 import { createDatabaseConnection } from "../db/connection.js";
 import { createCloudflareAuthenticationEmailComposition, type CloudflareAuthenticationEmailBindings } from "./authentication-email-composition.js";
+import {
+  createContainerHandoffRepository,
+  type AuthorizedContainerWake,
+} from "./container-handoff-repository.js";
+import {
+  handoffContainerWake,
+  type ContainerSlotBindings,
+} from "./container-slot-controller.js";
 import { drainCloudflareJobOutbox, type CloudflareWakeQueue } from "./job-outbox.js";
 import { createCloudflareAuthenticationEmailHandler, createCloudflareJobsDrains } from "./jobs.js";
 import { createCloudflareJobsEntrypoint } from "./jobs-runtime.js";
 import { createCloudflareLogger } from "./logger.js";
 
-export type CloudflareJobsBindings = CloudflareAuthenticationEmailBindings & Readonly<{
+export type CloudflareJobsBindings = CloudflareAuthenticationEmailBindings & ContainerSlotBindings & Readonly<{
   JOB_WAKE_QUEUE: CloudflareWakeQueue;
   JOB_OUTBOX_MAX_MESSAGES: string;
   JOB_OUTBOX_LEASE_SECONDS: string;
@@ -30,8 +38,42 @@ export function createCloudflareJobsWorker() {
       return createCloudflareAuthenticationEmailComposition({ logger: loggerFor(bindings) })(bindings, wake);
     },
   });
+  const containerHandoff = async (
+    wake: Parameters<typeof handoffContainerWake>[0]["wake"],
+    bindings: CloudflareJobsBindings,
+  ) => {
+    const connection = createDatabaseConnection({
+      mode: "hyperdrive",
+      cache: "disabled",
+      connectionString: bindings.HYPERDRIVE.connectionString,
+      maxConnections: 1,
+      connectionTimeoutMs: 5_000,
+      idleTimeoutMs: 1_000,
+    });
+    try {
+      const repository = createContainerHandoffRepository(connection);
+      let authorization: AuthorizedContainerWake | undefined;
+      await handoffContainerWake({
+        bindings,
+        wake,
+        async authorizeWake(candidate) {
+          authorization = await repository.authorizeWake(candidate);
+        },
+        async recordHandoff(handoff) {
+          if (!authorization) throw new Error("container_wake_not_authorized");
+          await repository.recordHandoff(authorization, handoff);
+        },
+      });
+    } finally {
+      await connection.close();
+    }
+  };
   return createCloudflareJobsEntrypoint(createCloudflareJobsDrains<CloudflareJobsBindings>({
-    handlers: { "authentication-email": authenticationEmail },
+    handlers: {
+      "authentication-email": authenticationEmail,
+      "artifact-processing": containerHandoff,
+      thumbnail: containerHandoff,
+    },
     scheduled: [async (controller, bindings) => {
       const connection = createDatabaseConnection({
         mode: "hyperdrive",
@@ -45,7 +87,7 @@ export function createCloudflareJobsWorker() {
         const result = await drainCloudflareJobOutbox({
           databaseClients: connection,
           queue: bindings.JOB_WAKE_QUEUE,
-          acceptedLanes: ["authentication-email"],
+          acceptedLanes: ["authentication-email", "artifact-processing", "thumbnail"],
           workerId: `cloudflare-scheduled:${controller.scheduledTime}`,
           maxMessages: positiveInteger("job_outbox_max_messages", bindings.JOB_OUTBOX_MAX_MESSAGES),
           leaseSeconds: positiveInteger("job_outbox_lease_seconds", bindings.JOB_OUTBOX_LEASE_SECONDS),
