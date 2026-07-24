@@ -106,6 +106,43 @@ export function createCloudflareWranglerDeploymentReader({
   };
 }
 
+export function createCloudflareContainerApplicationReader({
+  runCommand = defaultCommand,
+  executable = wranglerPath,
+} = {}) {
+  return async ({names}) => {
+    if (
+      !Array.isArray(names) ||
+      names.length === 0 ||
+      names.some((name) => !requireNonEmptyString(name)) ||
+      new Set(names).size !== names.length
+    ) {
+      throw new TargetAdapterError(
+        "cloudflare_container_application_expectation_invalid",
+        "Cloudflare Container application names are invalid.",
+      );
+    }
+    const result = runCommand(executable, ["containers", "list", "--json"]);
+    const applications = parseJson(result.stdout);
+    if (result.status !== 0 || !Array.isArray(applications)) {
+      throw new TargetAdapterError(
+        "cloudflare_container_applications_unavailable",
+        "Cloudflare Container applications could not be read as structured JSON.",
+      );
+    }
+    return Object.freeze(Object.fromEntries(names.map((name) => {
+      const matches = applications.filter((application) => application?.name === name);
+      if (matches.length !== 1 || !requireNonEmptyString(matches[0]?.id)) {
+        throw new TargetAdapterError(
+          "cloudflare_container_application_identity_mismatch",
+          "Cloudflare Container application identity does not match the deployment configuration.",
+        );
+      }
+      return [name, matches[0].id];
+    })));
+  };
+}
+
 export function createCloudflareContainerInstanceReader({
   runCommand = defaultCommand,
   executable = wranglerPath,

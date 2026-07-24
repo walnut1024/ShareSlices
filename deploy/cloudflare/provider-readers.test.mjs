@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  createCloudflareContainerApplicationReader,
   createCloudflareContainerInstanceReader,
   createCloudflareTerraformStateReader,
   createCloudflareWranglerDeploymentReader,
@@ -106,6 +107,54 @@ test("Wrangler reader rejects other provider errors and non-array JSON", async (
     await assert.rejects(
       reader({name: "worker"}),
       (error) => !error.message.includes("secret"),
+    );
+  }
+});
+
+test("Container application reader resolves only exact configured names", async () => {
+  const reader = createCloudflareContainerApplicationReader({
+    executable: "/tools/wrangler",
+    runCommand: (executable, arguments_) => {
+      assert.equal(executable, "/tools/wrangler");
+      assert.deepEqual(arguments_, ["containers", "list", "--json"]);
+      return {
+        status: 0,
+        stdout: JSON.stringify([
+          {id: "application-processing", name: "demo-processing"},
+          {id: "application-thumbnail", name: "demo-thumbnail"},
+          {id: "unrelated", name: "another-product"},
+        ]),
+        stderr: "",
+      };
+    },
+  });
+  assert.deepEqual(
+    await reader({names: ["demo-processing", "demo-thumbnail"]}),
+    {
+      "demo-processing": "application-processing",
+      "demo-thumbnail": "application-thumbnail",
+    },
+  );
+});
+
+test("Container application reader fails closed on absent or ambiguous identity", async () => {
+  for (const applications of [
+    [],
+    [
+      {id: "application-1", name: "demo-processing"},
+      {id: "application-2", name: "demo-processing"},
+    ],
+  ]) {
+    const reader = createCloudflareContainerApplicationReader({
+      runCommand: () => ({
+        status: 0,
+        stdout: JSON.stringify(applications),
+        stderr: "",
+      }),
+    });
+    await assert.rejects(
+      reader({names: ["demo-processing"]}),
+      {code: "cloudflare_container_application_identity_mismatch"},
     );
   }
 });
