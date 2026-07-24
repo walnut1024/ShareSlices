@@ -225,6 +225,55 @@ export function createCloudflareAdapter({
         ? available("cloudflare-queues", {source: "provider-observed"})
         : unavailable("cloudflare-queues", "cloudflare_queues_unproven"),
     );
+    const workerControlsReady = ["application", "content", "jobs"].every((role) => {
+      const worker = provider?.workers?.[role];
+      const expectedSchedules = role === "jobs"
+        ? [config.cloudflare.costControls.schedule.cron]
+        : [];
+      return (
+        worker?.exists === true &&
+        worker.workersDevEnabled === false &&
+        worker.previewUrlsEnabled === false &&
+        worker.cpuMilliseconds ===
+          config.cloudflare.costControls.workerCpuMilliseconds[role] &&
+        Array.isArray(worker.bindings) &&
+        JSON.stringify(worker.schedules) === JSON.stringify(expectedSchedules)
+      );
+    });
+    checks.push(
+      workerControlsReady
+        ? available("cloudflare-worker-runtime-controls", {
+            source: "provider-observed",
+            workersDevEnabled: false,
+            previewUrlsEnabled: false,
+          })
+        : unavailable(
+            "cloudflare-worker-runtime-controls",
+            "cloudflare_worker_runtime_controls_unproven",
+          ),
+    );
+    const jobsQueue = provider?.queues?.[config.cloudflare.queues.jobs];
+    const jobsConsumers = jobsQueue?.consumers ?? [];
+    const expectedQueue = config.cloudflare.costControls.queue;
+    const queueControlsReady =
+      typeof jobsQueue?.deliveryPaused === "boolean" &&
+      jobsConsumers.length === 1 &&
+      jobsConsumers[0].scriptName === config.cloudflare.workers.jobs &&
+      jobsConsumers[0].deadLetterQueue === config.cloudflare.queues.deadLetter &&
+      jobsConsumers[0].batchSize === expectedQueue.maximumBatchSize &&
+      jobsConsumers[0].maximumConcurrency === expectedQueue.maximumConcurrency &&
+      jobsConsumers[0].maximumRetries === expectedQueue.maximumRetries;
+    checks.push(
+      queueControlsReady
+        ? available("cloudflare-queue-consumer-controls", {
+            source: "provider-observed",
+            deliveryPaused: jobsQueue.deliveryPaused,
+          })
+        : unavailable(
+            "cloudflare-queue-consumer-controls",
+            "cloudflare_queue_consumer_controls_unproven",
+          ),
+    );
 
     const cpu = config.cloudflare.costControls.workerCpuMilliseconds;
     checks.push(

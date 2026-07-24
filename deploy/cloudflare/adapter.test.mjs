@@ -69,6 +69,32 @@ const qualifiedDatabase = {
     negativeIdentityProbe: {passed: true, evidenceId: `${role}-negative`},
   })),
 };
+const qualifiedWorkerControls = Object.freeze(Object.fromEntries(
+  Object.entries(config.cloudflare.workers).map(([role, name]) => [role, {
+    name,
+    exists: true,
+    workersDevEnabled: false,
+    previewUrlsEnabled: false,
+    bindings: [],
+    cpuMilliseconds: config.cloudflare.costControls.workerCpuMilliseconds[role],
+    schedules: role === "jobs"
+      ? [config.cloudflare.costControls.schedule.cron]
+      : [],
+  }]),
+));
+const qualifiedQueueControls = Object.freeze({
+  [config.cloudflare.queues.jobs]: {
+    deliveryPaused: false,
+    consumers: [{
+      scriptName: config.cloudflare.workers.jobs,
+      deadLetterQueue: config.cloudflare.queues.deadLetter,
+      batchSize: config.cloudflare.costControls.queue.maximumBatchSize,
+      maximumConcurrency:
+        config.cloudflare.costControls.queue.maximumConcurrency,
+      maximumRetries: config.cloudflare.costControls.queue.maximumRetries,
+    }],
+  },
+});
 
 test("doctor performs only read-only checks and returns qualified observations", async () => {
   const calls = [];
@@ -85,6 +111,8 @@ test("doctor performs only read-only checks and returns qualified observations",
       distinctSites: true,
       zonesReady: true,
       queuesReady: true,
+      workers: qualifiedWorkerControls,
+      queues: qualifiedQueueControls,
       limits: {
         maximumRequestBodyBytes: {
           source: "provider-observed",
@@ -168,6 +196,8 @@ test("doctor fails closed when account, DNS, TLS, release, ownership, and provid
   assert.equal(unavailable.has("cloudflare-distinct-registrable-sites"), true);
   assert.equal(unavailable.has("cloudflare-zones"), true);
   assert.equal(unavailable.has("cloudflare-queues"), true);
+  assert.equal(unavailable.has("cloudflare-worker-runtime-controls"), true);
+  assert.equal(unavailable.has("cloudflare-queue-consumer-controls"), true);
   assert.equal(unavailable.has("cloudflare-upload-limit"), true);
   assert.equal(unavailable.has("cloudflare-static-assets-limits"), true);
   assert.equal(unavailable.has("cloudflare-release-store-access"), true);
@@ -188,6 +218,8 @@ test("doctor rejects stale or insufficient account-plan Upload evidence", async 
       distinctSites: true,
       zonesReady: true,
       queuesReady: true,
+      workers: qualifiedWorkerControls,
+      queues: qualifiedQueueControls,
       limits: {
         maximumRequestBodyBytes: {
           source: "operator-evidenced",
