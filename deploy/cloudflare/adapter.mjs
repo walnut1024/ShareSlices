@@ -385,7 +385,10 @@ export function createCloudflareAdapter({
       resendEvidenceCurrent &&
       resendEvidence.domainVerified === true &&
       resendEvidence.trackingDisabled === true &&
-      resendEvidence.accountOperational === true &&
+      resendEvidence.teamRatePosture === "within_limits" &&
+      resendEvidence.bounceSpamHealth === "healthy" &&
+      resendEvidence.accountSuspended === false &&
+      resendEvidence.sameTeamDomainRotationAttested === true &&
       resendEvidence.teamNamespace === email.teamNamespace &&
       resendEvidence.sendingDomain === email.sendingDomain &&
       resendEvidence.keyRevision === email.resend.revision;
@@ -396,6 +399,11 @@ export function createCloudflareAdapter({
             revision: email.resend.revision,
             transportRevision: email.transportRevision,
             observedAt: resendEvidence.observedAt,
+            teamRatePosture: resendEvidence.teamRatePosture,
+            bounceSpamHealth: resendEvidence.bounceSpamHealth,
+            accountSuspended: resendEvidence.accountSuspended,
+            sameTeamDomainRotationAttested:
+              resendEvidence.sameTeamDomainRotationAttested,
             valueResolved: false,
           })
         : unavailable(

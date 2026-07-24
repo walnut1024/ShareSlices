@@ -604,7 +604,10 @@
                 "keyRevision",
                 "domainVerified",
                 "trackingDisabled",
-                "accountOperational"
+                "teamRatePosture",
+                "bounceSpamHealth",
+                "accountSuspended",
+                "sameTeamDomainRotationAttested"
               ],
               "properties": {
                 "observedAt": { "type": "string", "format": "date-time" },
@@ -618,7 +621,14 @@
                 "keyRevision": { "type": "string", "minLength": 1 },
                 "domainVerified": { "type": "boolean" },
                 "trackingDisabled": { "type": "boolean" },
-                "accountOperational": { "type": "boolean" }
+                "teamRatePosture": {
+                  "enum": ["within_limits", "constrained", "unknown"]
+                },
+                "bounceSpamHealth": {
+                  "enum": ["healthy", "degraded", "unknown"]
+                },
+                "accountSuspended": { "type": "boolean" },
+                "sameTeamDomainRotationAttested": { "type": "boolean" }
               }
             }
           }

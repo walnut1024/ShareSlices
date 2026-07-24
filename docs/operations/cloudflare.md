@@ -183,7 +183,11 @@ then old-key removal after the maximum grant and mixed-runtime lifetime.
 Cloudflare uses the Resend HTTPS API, not SMTP. Production requires a verified
 sending domain and a sending-access key scoped to that domain/team. The
 configured team namespace, domain, sender, key revision, transport revision,
-tracking-disabled state, and account status are pinned into delivery evidence.
+tracking-disabled state, team-shared rate posture, bounce and spam health,
+account suspension state, and same-team/domain key-rotation scope are pinned
+into dated operator evidence with a maximum age. Missing, stale, degraded,
+constrained, suspended, or unknown evidence keeps email unavailable; a
+sending-access key is not proof of these administrative facts.
 
 Every request uses HTTPS, a required `User-Agent`, and a logical-delivery
 `Idempotency-Key`. Resend currently retains idempotency behavior for a bounded

@@ -105,7 +105,10 @@
         "keyRevision": "2",
         "domainVerified": true,
         "trackingDisabled": true,
-        "accountOperational": true
+        "teamRatePosture": "within_limits",
+        "bounceSpamHealth": "healthy",
+        "accountSuspended": false,
+        "sameTeamDomainRotationAttested": true
       }
     },
     "edgeCdn": {

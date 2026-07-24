@@ -285,6 +285,48 @@ test("doctor rejects stale or mismatched Resend operator evidence without sendin
   );
 });
 
+test("doctor fails closed for each unavailable Resend operator-only fact", async () => {
+  const mutations = [
+    (evidence) => { evidence.teamRatePosture = "constrained"; },
+    (evidence) => { evidence.teamRatePosture = "unknown"; },
+    (evidence) => { evidence.bounceSpamHealth = "degraded"; },
+    (evidence) => { evidence.bounceSpamHealth = "unknown"; },
+    (evidence) => { evidence.accountSuspended = true; },
+    (evidence) => { evidence.sameTeamDomainRotationAttested = false; },
+  ];
+  for (const mutate of mutations) {
+    const candidate = structuredClone(config);
+    mutate(candidate.cloudflare.email.operatorEvidence);
+    const adapter = createCloudflareAdapter({
+      runCommand: commandRunner([]),
+      resolveHost: async () => ["192.0.2.1"],
+      probeTls: async () => ({status: 200}),
+      ownershipMatrix: qualifiedOwnership,
+      now: () => new Date("2026-07-24T12:00:00Z"),
+      probeReleaseStoreAccess: async () => true,
+      observeProvider: async () => ({
+        workersPaid: true,
+        privateR2: true,
+        distinctSites: true,
+        zonesReady: true,
+        queuesReady: true,
+        workers: qualifiedWorkerControls,
+        queues: qualifiedQueueControls,
+        limits: {},
+      }),
+    });
+    const result = await adapter.doctor({
+      config: candidate,
+      prerequisites: discoverPrerequisites(candidate),
+      release,
+    });
+    assert.equal(
+      result.checks.find(({id}) => id === "cloudflare-resend-configuration")?.state,
+      "unavailable",
+    );
+  }
+});
+
 test("render delegates without resolving Secret values", async () => {
   const expected = {target: "cloudflare", releaseId: "release-1", phases: []};
   let received;
