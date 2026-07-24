@@ -8,6 +8,7 @@ import {afterAll, beforeAll, describe, expect, it, vi} from "vitest";
 import {createCloudflareThumbnailExecutionBroker as createBroker} from "../src/cloudflare/thumbnail-execution-broker.js";
 import {createCloudflareThumbnailExecutionRepository} from "../src/cloudflare/thumbnail-execution-repository.js";
 import {recoverExpiredCloudflareThumbnailLeases} from "../src/cloudflare/expired-thumbnail-lease-recovery.js";
+import {createJobsReleaseVerificationFetch} from "../src/cloudflare/jobs-release-verification.js";
 import type {
   DatabaseClientSource,
   DatabaseConnection,
@@ -46,10 +47,25 @@ beforeAll(async () => {
   await admin.connect();
   await admin.query(`create schema "${schemaName}"`);
   const migrationsDirectory = resolve(process.cwd(), "../db/migrations");
-  for (const migration of (await readdir(migrationsDirectory))
+  const migrations = (await readdir(migrationsDirectory))
     .filter((file) => file.endsWith(".sql"))
-    .sort()) {
+    .sort();
+  for (const migration of migrations) {
     await pool.query(await readFile(resolve(migrationsDirectory, migration), "utf8"));
+  }
+  await pool.query(
+    `create table shareslices_migration(
+       name text primary key,
+       checksum text,
+       migration_order integer not null unique
+     )`,
+  );
+  for (const [index, migration] of migrations.entries()) {
+    await pool.query(
+      `insert into shareslices_migration(name, migration_order)
+       values($1, $2)`,
+      [migration, index + 1],
+    );
   }
 });
 
@@ -514,7 +530,7 @@ describe("Cloudflare secretless thumbnail execution broker", () => {
     );
     await pool.query(
       `update artifact_thumbnail_capture_grant
-       set session_expires_at = now() - interval '1 second'
+       set session_expires_at = now() - interval '1 minute'
        where session_token_hash = $1`,
       [createHash("sha256").update(sessionToken).digest("hex")],
     );
@@ -526,7 +542,7 @@ describe("Cloudflare secretless thumbnail execution broker", () => {
 
     await pool.query(
       `update content_bundle_thumbnail_job
-       set lease_expires_at = now() - interval '1 second'
+       set lease_expires_at = now() - interval '1 minute'
        where id = $1`,
       [seeded.thumbnailJobId],
     );
@@ -572,7 +588,7 @@ describe("Cloudflare secretless thumbnail execution broker", () => {
     });
     await pool.query(
       `update content_bundle_thumbnail_job
-       set lease_expires_at = now() - interval '1 second'
+       set lease_expires_at = now() - interval '1 minute'
        where id = $1`,
       [seeded.thumbnailJobId],
     );
@@ -606,5 +622,73 @@ describe("Cloudflare secretless thumbnail execution broker", () => {
         headers: {authorization: `Bearer ${execution.bootstrapGrant}`},
       },
     ))).status).toBe(404);
+  });
+});
+
+describe("Cloudflare route-free Jobs release verification", () => {
+  it("accepts one live fenced invocation and rejects replay or public routing", async () => {
+    const nonce = `nonce-${randomUUID()}`;
+    const invocationId = `invocation-${randomUUID()}`;
+    const releaseId = `sha256:${"a".repeat(64)}`;
+    await pool.query(
+      `insert into cloudflare_release_verification_probe(
+         nonce, release_id, fence, sub_fence, expected_identity
+       ) values($1, $2, 1, 1, '{}'::jsonb)`,
+      [nonce, releaseId],
+    );
+    const connectionUrl = new URL(process.env.DATABASE_URL!);
+    connectionUrl.searchParams.set("options", `-c search_path=${schemaName}`);
+    const fetch = createJobsReleaseVerificationFetch();
+    const bindings = {
+      HYPERDRIVE: {connectionString: connectionUrl.toString()},
+      CF_VERSION_METADATA: {
+        id: "jobs-version-id",
+        timestamp: "2026-07-24T00:00:00.000Z",
+      },
+      JOBS_RELEASE_BUNDLE_IDENTITY: releaseId,
+      JOBS_CONFIGURATION_DIGEST: `sha256:${"b".repeat(64)}`,
+      JOBS_EXPORTS_DIGEST: `sha256:${"c".repeat(64)}`,
+      TRUSTED_PROCESSING_IMAGE_REFERENCE: "registry.example/processing@sha256:a",
+      THUMBNAIL_IMAGE_REFERENCE: "registry.example/thumbnail@sha256:b",
+      RELEASE_VERIFICATION_INVOCATION_LEASE_SECONDS: "60",
+    };
+    const request = () => new Request(
+      "http://shareslices-jobs.internal/v1/release-verification",
+      {
+        method: "POST",
+        headers: {"content-type": "application/json"},
+        body: JSON.stringify({
+          version: 1,
+          invocationId,
+          nonce,
+          releaseId,
+          fence: 1,
+          subFence: 1,
+        }),
+      },
+    );
+    const context = {
+      props: undefined,
+      waitUntil() {},
+      passThroughOnException() {},
+    };
+
+    const response = await fetch(request(), bindings, context);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      scope: {nonce, releaseId, fence: 1, subFence: 1},
+      jobsWorker: {versionId: "jobs-version-id"},
+      migrationHead: "0038_cloudflare_release_verification_probe.sql",
+      containerConvergence: "unverified",
+    });
+    const replay = await fetch(request(), bindings, context);
+    expect(replay.status).toBe(200);
+    expect(replay.headers.get("x-shareslices-evidence-digest")).toBe(
+      response.headers.get("x-shareslices-evidence-digest"),
+    );
+    expect((await fetch(new Request(
+      "https://jobs.example.test/v1/release-verification",
+      {method: "POST", body: "{}"},
+    ), bindings, context)).status).toBe(404);
   });
 });

@@ -1,0 +1,120 @@
+openapi: 3.1.0
+info:
+  title: ShareSlices private Jobs release verification
+  version: 1.0.0
+  description: Route-free protocol callable only through the release verifier Worker's explicit fetch Service Binding.
+servers:
+  - url: http://shareslices-jobs.internal
+paths:
+  /v1/release-verification:
+    post:
+      operationId: verifyJobsRelease
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Probe"
+      responses:
+        "200":
+          description: Fenced private evidence from the executing Jobs Worker.
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+            X-ShareSlices-Evidence-Digest:
+              schema:
+                type: string
+                pattern: "^sha256:[0-9a-f]{64}$"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Evidence"
+        "404":
+          description: Invalid, unscoped, expired, duplicate, terminal, or stale-fence probe.
+components:
+  schemas:
+    Probe:
+      type: object
+      additionalProperties: false
+      required: [version, invocationId, nonce, releaseId, fence, subFence]
+      properties:
+        version: {type: integer, const: 1}
+        invocationId: {type: string, minLength: 16, maxLength: 256}
+        nonce: {type: string, minLength: 16, maxLength: 256}
+        releaseId: {type: string, minLength: 1, maxLength: 256}
+        fence: {type: integer, minimum: 1}
+        subFence: {type: integer, minimum: 1}
+    Evidence:
+      type: object
+      additionalProperties: false
+      required:
+        - version
+        - scope
+        - jobsWorker
+        - migrationHead
+        - database
+        - broker
+        - configuredContainerImages
+        - containers
+        - containerConvergence
+      properties:
+        version: {type: integer, const: 1}
+        scope:
+          type: object
+          additionalProperties: false
+          required: [nonce, releaseId, fence, subFence]
+          properties:
+            nonce: {type: string}
+            releaseId: {type: string}
+            fence: {type: integer, minimum: 1}
+            subFence: {type: integer, minimum: 1}
+        jobsWorker:
+          type: object
+          additionalProperties: false
+          required:
+            - versionId
+            - versionTimestamp
+            - releaseBundleIdentity
+            - configurationDigest
+            - exportsDigest
+          properties:
+            versionId: {type: string, minLength: 1}
+            versionTag: {type: string, minLength: 1}
+            versionTimestamp: {type: string, format: date-time}
+            releaseBundleIdentity: {type: string, minLength: 1}
+            configurationDigest:
+              type: string
+              pattern: "^sha256:[0-9a-f]{64}$"
+            exportsDigest:
+              type: string
+              pattern: "^sha256:[0-9a-f]{64}$"
+        migrationHead: {type: string, minLength: 1}
+        database:
+          type: object
+          additionalProperties: false
+          required: [mode, reachable]
+          properties:
+            mode: {type: string, const: hyperdrive}
+            reachable: {type: boolean, const: true}
+        broker:
+          type: object
+          additionalProperties: false
+          required: [origin, publicIngress]
+          properties:
+            origin:
+              type: string
+              const: http://shareslices-broker.internal
+            publicIngress: {type: boolean, const: false}
+        configuredContainerImages:
+          type: object
+          additionalProperties: false
+          required: [trustedProcessing, thumbnail]
+          properties:
+            trustedProcessing: {type: string, minLength: 1}
+            thumbnail: {type: string, minLength: 1}
+        containers:
+          type: array
+          items: {type: object}
+        containerConvergence:
+          type: string
+          enum: [verified, unverified]

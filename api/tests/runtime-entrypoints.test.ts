@@ -246,7 +246,7 @@ describe("Node runtime entrypoint authority", () => {
     expect(importedEnvironmentReaders(graph)).toEqual(new Set());
 
     const worker = (await import("../src/cloudflare/jobs-entrypoint.js")).default;
-    expect(Object.keys(worker).sort()).toEqual(["queue", "scheduled"]);
-    expect(worker).not.toHaveProperty("fetch");
+    expect(Object.keys(worker).sort()).toEqual(["fetch", "queue", "scheduled"]);
+    expect(worker).toHaveProperty("fetch");
   });
 });

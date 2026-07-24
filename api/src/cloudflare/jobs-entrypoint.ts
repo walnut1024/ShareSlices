@@ -23,8 +23,14 @@ import {
   type PreparedThumbnailExecution,
 } from "./thumbnail-execution-repository.js";
 import {recoverExpiredCloudflareThumbnailLeases} from "./expired-thumbnail-lease-recovery.js";
+import {
+  createJobsReleaseVerificationFetch,
+  type JobsReleaseVerificationBindings,
+} from "./jobs-release-verification.js";
 
-export type CloudflareJobsBindings = CloudflareAuthenticationEmailBindings & ContainerSlotBindings & Readonly<{
+export type CloudflareJobsBindings = CloudflareAuthenticationEmailBindings &
+  ContainerSlotBindings &
+  JobsReleaseVerificationBindings & Readonly<{
   JOB_WAKE_QUEUE: CloudflareWakeQueue;
   JOB_OUTBOX_MAX_MESSAGES: string;
   JOB_OUTBOX_LEASE_SECONDS: string;
@@ -226,7 +232,7 @@ export function createCloudflareJobsWorker() {
         await connection.close();
       }
     }],
-  }));
+  }), createJobsReleaseVerificationFetch());
 }
 
 export default createCloudflareJobsWorker();

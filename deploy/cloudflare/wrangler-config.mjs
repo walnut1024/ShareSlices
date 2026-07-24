@@ -332,6 +332,7 @@ export async function generateStagedWorkerConfigs(input) {
       slashPath(configDirectory, resolve(input.workerDirectory, "jobs-worker.js")),
       controls.workerCpuMilliseconds.jobs,
     ),
+    version_metadata: {binding: "CF_VERSION_METADATA"},
     hyperdrive: [{binding: "HYPERDRIVE", id: input.privatePrerequisites.hyperdrive_id}],
     r2_buckets: [{
       binding: "ARTIFACTS",
@@ -386,11 +387,22 @@ export async function generateStagedWorkerConfigs(input) {
       JOB_OUTBOX_RETRY_DELAY_SECONDS: "30",
       JOB_OUTBOX_LOST_WAKE_AFTER_SECONDS: "300",
       THUMBNAIL_BOOTSTRAP_LIFETIME_SECONDS: "60",
+      RELEASE_VERIFICATION_INVOCATION_LEASE_SECONDS: "60",
       CONTAINER_RELEASE_ID: input.releaseId,
       CONTAINER_CONTRACT_REVISION: input.jobsContractRevision,
       ...containerVariables,
     },
   };
+  if (!/^sha256:[a-f0-9]{64}$/.test(input.releaseBundleIdentity)) {
+    throw new Error("cloudflare_jobs_release_verification_identity_invalid");
+  }
+  const exportsDigest = sha256Digest(jobs.exports);
+  const configurationDigest = sha256Digest(jobs);
+  Object.assign(jobs.vars, {
+    JOBS_RELEASE_BUNDLE_IDENTITY: input.releaseBundleIdentity,
+    JOBS_CONFIGURATION_DIGEST: configurationDigest,
+    JOBS_EXPORTS_DIGEST: exportsDigest,
+  });
   const validate = new Ajv({ allErrors: true, strict: false }).compile(
     wranglerSchema,
   );

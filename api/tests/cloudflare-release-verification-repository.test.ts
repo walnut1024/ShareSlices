@@ -1,0 +1,181 @@
+import {randomUUID} from "node:crypto";
+import {readFile, readdir} from "node:fs/promises";
+import {resolve} from "node:path";
+import {drizzle} from "drizzle-orm/node-postgres";
+import pg from "pg";
+import {afterAll, beforeAll, describe, expect, it} from "vitest";
+
+import {
+  createReleaseVerificationRepository,
+  type ReleaseVerificationScope,
+} from "../src/cloudflare/release-verification-repository.js";
+import type {
+  DatabaseClientSource,
+  DatabaseConnection,
+} from "../src/db/connection.js";
+import * as schema from "../src/db/schema.js";
+
+const {Client, Pool} = pg;
+const schemaName = `test_${randomUUID().replaceAll("-", "")}`;
+const admin = new Client({connectionString: process.env.DATABASE_URL});
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  options: `-c search_path=${schemaName}`,
+});
+const connection: DatabaseConnection = {
+  mode: "node-direct",
+  pool,
+  database: drizzle(pool, {schema}),
+  async withClient<T>(
+    operation: Parameters<DatabaseClientSource["withClient"]>[0],
+  ): Promise<T> {
+    const client = await pool.connect();
+    try {
+      return await operation(client) as T;
+    } finally {
+      client.release();
+    }
+  },
+  async close() {},
+};
+
+beforeAll(async () => {
+  await admin.connect();
+  await admin.query(`create schema "${schemaName}"`);
+  const migrationsDirectory = resolve(process.cwd(), "../db/migrations");
+  const migrations = (await readdir(migrationsDirectory))
+    .filter((file) => file.endsWith(".sql"))
+    .sort();
+  for (const migration of migrations) {
+    await pool.query(
+      await readFile(resolve(migrationsDirectory, migration), "utf8"),
+    );
+  }
+  await pool.query(
+    `create table shareslices_migration(
+       name text primary key,
+       migration_order integer not null unique
+     )`,
+  );
+  for (const [index, migration] of migrations.entries()) {
+    await pool.query(
+      `insert into shareslices_migration(name, migration_order)
+       values($1, $2)`,
+      [migration, index + 1],
+    );
+  }
+});
+
+afterAll(async () => {
+  await pool.end();
+  await admin.query(`drop schema if exists "${schemaName}" cascade`);
+  await admin.end();
+});
+
+async function seed(scope: ReleaseVerificationScope) {
+  await pool.query(
+    `insert into cloudflare_release_verification_probe(
+       nonce, release_id, fence, sub_fence, expected_identity
+     ) values($1, $2, $3, $4, $5::jsonb)`,
+    [
+      scope.nonce,
+      scope.releaseId,
+      scope.fence,
+      scope.subFence,
+      JSON.stringify({jobsVersionId: "version-1"}),
+    ],
+  );
+}
+
+function scope(): ReleaseVerificationScope {
+  const suffix = randomUUID();
+  return {
+    invocationId: `invocation-${suffix}`,
+    nonce: `nonce-${suffix}`,
+    releaseId: `release-${suffix}`,
+    fence: 7,
+    subFence: 3,
+  };
+}
+
+describe("Cloudflare release-verification probe fencing", () => {
+  it("claims one exact release/fence/nonce invocation and commits evidence", async () => {
+    const candidate = scope();
+    await seed(candidate);
+    const repository = createReleaseVerificationRepository(connection);
+
+    await expect(repository.begin(candidate, 30)).resolves.toEqual({
+      state: "started",
+      migrationHead: "0038_cloudflare_release_verification_probe.sql",
+    });
+    await expect(repository.begin(candidate, 30)).resolves.toBeNull();
+    await expect(repository.begin(
+      {...candidate, invocationId: `${candidate.invocationId}-wrong`, fence: 8},
+      30,
+    )).resolves.toBeNull();
+
+    const digest = `sha256:${"a".repeat(64)}`;
+    const evidence = {version: 1, result: "verified"};
+    await expect(repository.complete(candidate, digest, evidence)).resolves.toBe(true);
+    await expect(repository.complete(candidate, digest, evidence)).resolves.toBe(false);
+    await expect(repository.begin(candidate, 30)).resolves.toEqual({
+      state: "completed",
+      evidence,
+      evidenceDigest: digest,
+    });
+    expect((await pool.query(
+      `select state, evidence_digest, evidence
+       from cloudflare_release_verification_invocation where id = $1`,
+      [candidate.invocationId],
+    )).rows[0]).toEqual({
+      state: "completed",
+      evidence_digest: digest,
+      evidence,
+    });
+  });
+
+  it("atomically advances the sub-fence and rejects every late commit", async () => {
+    const candidate = scope();
+    await seed(candidate);
+    const repository = createReleaseVerificationRepository(connection);
+    await expect(repository.begin(candidate, 30)).resolves.toEqual({
+      state: "started",
+      migrationHead: "0038_cloudflare_release_verification_probe.sql",
+    });
+
+    const digest = `sha256:${"b".repeat(64)}`;
+    await expect(repository.markTerminal({
+      nonce: candidate.nonce,
+      releaseId: candidate.releaseId,
+      fence: candidate.fence,
+      subFence: candidate.subFence,
+      evidenceDigest: digest,
+      tombstoneSeconds: 3_600,
+    })).resolves.toBe(true);
+
+    await expect(repository.complete(candidate, digest, {version: 1})).resolves.toBe(false);
+    await expect(repository.begin({
+      ...candidate,
+      invocationId: `${candidate.invocationId}-late`,
+    }, 30)).resolves.toBeNull();
+    expect((await pool.query(
+      `select state, sub_fence, evidence_digest,
+              tombstone_until > terminal_at as retained
+       from cloudflare_release_verification_probe where nonce = $1`,
+      [candidate.nonce],
+    )).rows[0]).toEqual({
+      state: "terminal",
+      sub_fence: "4",
+      evidence_digest: digest,
+      retained: true,
+    });
+    expect((await pool.query(
+      `select state, failure_reason_code
+       from cloudflare_release_verification_invocation where id = $1`,
+      [candidate.invocationId],
+    )).rows[0]).toEqual({
+      state: "fenced",
+      failure_reason_code: "verification_nonce_terminal",
+    });
+  });
+});

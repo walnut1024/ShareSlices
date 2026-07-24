@@ -53,6 +53,11 @@ export type CloudflareScheduledController = Readonly<{
 }>;
 
 export type CloudflareJobsHandler<Bindings, Wake> = Readonly<{
+  fetch(
+    request: Request,
+    bindings: Bindings,
+    context: CloudflareExecutionContext,
+  ): Response | Promise<Response>;
   queue(
     batch: CloudflareQueueBatch<Wake>,
     bindings: Bindings,

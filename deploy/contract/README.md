@@ -23,6 +23,9 @@ and no rendered provider resources.
   changing outward HTTP contracts.
 - `private-thumbnail-broker.json` projects the route-free, Container-bound
   thumbnail broker protocol from its checked private OpenAPI source.
+- `private-jobs-release-verification.json` projects the route-free,
+  Service-Binding-only Jobs release-verification protocol and its fenced probe
+  lifecycle from its checked private OpenAPI source.
 - `verification-scenarios.json` defines shared black-box checks and explicit
   `not_applicable` behavior.
 - `fixtures/` contains deterministic valid and verification examples. Contract

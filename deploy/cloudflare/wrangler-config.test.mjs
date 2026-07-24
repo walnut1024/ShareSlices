@@ -60,6 +60,8 @@ async function generated() {
     privatePrerequisites: prerequisites(),
     containerImages: containerImages(),
     releaseId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    releaseBundleIdentity:
+      "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
     jobsContractRevision: "gallery-job/v1",
     configDirectory: "/release/cloudflare",
     workerDirectory: "/release/workers",
@@ -89,6 +91,22 @@ test("generates schema-valid staged App, Content, and immediate Jobs Wrangler in
   assert.deepEqual(first.configs.jobs.r2_buckets, [
     {binding: "ARTIFACTS", bucket_name: "shareslices-artifacts"},
   ]);
+  assert.equal(
+    first.configs.jobs.vars.JOBS_RELEASE_BUNDLE_IDENTITY,
+    "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  );
+  assert.match(
+    first.configs.jobs.vars.JOBS_CONFIGURATION_DIGEST,
+    /^sha256:[a-f0-9]{64}$/,
+  );
+  assert.match(
+    first.configs.jobs.vars.JOBS_EXPORTS_DIGEST,
+    /^sha256:[a-f0-9]{64}$/,
+  );
+  assert.equal(
+    first.configs.jobs.vars.RELEASE_VERIFICATION_INVOCATION_LEASE_SECONDS,
+    "60",
+  );
   assert.deepEqual(first.configs.app.limits, {cpu_ms: 30_000});
   assert.deepEqual(first.configs.content.limits, {cpu_ms: 30_000});
   assert.deepEqual(first.configs.jobs.limits, {cpu_ms: 30_000});
@@ -241,6 +259,21 @@ test("generates schema-valid staged App, Content, and immediate Jobs Wrangler in
   );
   assert.equal(first.configs.jobs.vars.CONTAINER_CONTRACT_REVISION, "gallery-job/v1");
   assert.equal(
+    first.configs.jobs.vars.JOBS_RELEASE_BUNDLE_IDENTITY,
+    "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  );
+  assert.match(
+    first.configs.jobs.vars.JOBS_CONFIGURATION_DIGEST,
+    /^sha256:[a-f0-9]{64}$/,
+  );
+  assert.match(
+    first.configs.jobs.vars.JOBS_EXPORTS_DIGEST,
+    /^sha256:[a-f0-9]{64}$/,
+  );
+  assert.deepEqual(first.configs.jobs.version_metadata, {
+    binding: "CF_VERSION_METADATA",
+  });
+  assert.equal(
     first.configs.app.vars.CONTENT_FINGERPRINT_KEY_CURRENT_REVISION,
     "3",
   );
@@ -286,6 +319,8 @@ test("rejects drifted or unsafe Terraform prerequisite outputs", async () => {
       },
       containerImages: containerImages(),
       releaseId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      releaseBundleIdentity:
+        "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       jobsContractRevision: "gallery-job/v1",
       configDirectory: "/release/cloudflare",
       workerDirectory: "/release/workers",
@@ -319,6 +354,8 @@ test("writes complete staged configs outside the deployable Static Assets tree",
       privatePrerequisites: prerequisites(),
       containerImages: containerImages(),
       releaseId: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      releaseBundleIdentity:
+        "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       jobsContractRevision: "gallery-job/v1",
       configDirectory: output,
       workerDirectory: workers,
