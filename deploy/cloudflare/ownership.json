@@ -15,10 +15,13 @@
     { "id": "worker.secret-values", "owner": "operator-secret-source", "status": "selected", "activationBlocked": false },
     { "id": "worker.secret-bindings", "owner": "wrangler", "status": "selected", "activationBlocked": false },
     { "id": "durable-object.migrations", "owner": "wrangler", "status": "selected", "activationBlocked": false },
-    { "id": "container.image-rollout", "owner": "wrangler", "status": "selected", "activationBlocked": false },
+    { "id": "container.image", "owner": "wrangler", "status": "selected", "activationBlocked": false },
+    { "id": "container.rollout", "owner": "wrangler", "status": "selected", "activationBlocked": false },
     { "id": "deployment.postgresql-lease-journal", "owner": "deployment-module", "status": "selected", "activationBlocked": false },
     { "id": "deployment.r2-state-mirror", "owner": "deployment-module", "status": "selected", "activationBlocked": false },
-    { "id": "verifier.ephemeral-resources", "owner": "deployment-module", "status": "selected", "activationBlocked": false }
+    { "id": "verifier.worker", "owner": "deployment-module", "status": "selected", "activationBlocked": false },
+    { "id": "verifier.queue-resource", "owner": "deployment-module", "status": "selected", "activationBlocked": false },
+    { "id": "verifier.queue-consumer", "owner": "deployment-module", "status": "selected", "activationBlocked": false },
+    { "id": "verifier.evidence-resources", "owner": "deployment-module", "status": "selected", "activationBlocked": false }
   ]
 }
-

@@ -43,7 +43,11 @@
           {
             "if": { "properties": { "status": { "const": "selected" } } },
             "then": {
-              "properties": { "owner": { "not": { "const": "unresolved" } } }
+              "properties": {
+                "owner": { "not": { "const": "unresolved" } },
+                "activationBlocked": { "const": false }
+              },
+              "not": { "required": ["reason"] }
             }
           }
         ]
