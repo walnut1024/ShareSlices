@@ -36,6 +36,18 @@ function parseJson(value) {
   }
 }
 
+function requireNonEmptyString(value) {
+  return typeof value === "string" && value.length > 0;
+}
+
+function sameProviderVersion(left, right) {
+  return (
+    (typeof left === "string" || typeof left === "number") &&
+    (typeof right === "string" || typeof right === "number") &&
+    String(left) === String(right)
+  );
+}
+
 export function createCloudflareTerraformStateReader({
   runCommand = defaultCommand,
   directory = terraformDirectory,
@@ -91,5 +103,113 @@ export function createCloudflareWranglerDeploymentReader({
       );
     }
     return deployments;
+  };
+}
+
+export function createCloudflareContainerInstanceReader({
+  runCommand = defaultCommand,
+  executable = wranglerPath,
+} = {}) {
+  return async ({applications, terminalEvidence}) => {
+    if (
+      !Array.isArray(applications) ||
+      applications.length === 0 ||
+      applications.some((application) =>
+        !requireNonEmptyString(application?.name) ||
+        !requireNonEmptyString(application?.image) ||
+        !["string", "number"].includes(typeof application?.version)
+      ) ||
+      new Set(applications.map(({name}) => name)).size !== applications.length
+    ) {
+      throw new TargetAdapterError(
+        "cloudflare_container_expectation_invalid",
+        "Cloudflare Container application expectations are invalid.",
+      );
+    }
+    const reportedInstances = terminalEvidence?.containers?.map(
+      ({providerInstance}) => providerInstance,
+    );
+    if (
+      !Array.isArray(reportedInstances) ||
+      reportedInstances.length === 0 ||
+      reportedInstances.some((identity) => !requireNonEmptyString(identity)) ||
+      new Set(reportedInstances).size !== reportedInstances.length
+    ) {
+      throw new TargetAdapterError(
+        "cloudflare_container_evidence_invalid",
+        "Cloudflare Container runtime evidence is invalid.",
+      );
+    }
+
+    const listResult = runCommand(executable, ["containers", "list", "--json"]);
+    const listedApplications = parseJson(listResult.stdout);
+    if (listResult.status !== 0 || !Array.isArray(listedApplications)) {
+      throw new TargetAdapterError(
+        "cloudflare_container_applications_unavailable",
+        "Cloudflare Container applications could not be read as structured JSON.",
+      );
+    }
+
+    const observedInstances = [];
+    for (const expected of applications) {
+      const matches = listedApplications.filter(({name}) => name === expected.name);
+      if (
+        matches.length !== 1 ||
+        !requireNonEmptyString(matches[0]?.id) ||
+        matches[0].image !== expected.image ||
+        !sameProviderVersion(matches[0].version, expected.version)
+      ) {
+        throw new TargetAdapterError(
+          "cloudflare_container_application_identity_mismatch",
+          "Cloudflare Container application identity does not match the authorized release.",
+        );
+      }
+      const application = matches[0];
+      const instancesResult = runCommand(executable, [
+        "containers",
+        "instances",
+        application.id,
+        "--json",
+      ]);
+      const instances = parseJson(instancesResult.stdout);
+      if (
+        instancesResult.status !== 0 ||
+        !Array.isArray(instances) ||
+        instances.some((instance) =>
+          !requireNonEmptyString(instance?.id) ||
+          !["running", "provisioning", "failed", "stopping", "stopped", "unhealthy", "inactive"]
+            .includes(instance?.state) ||
+          (instance.state !== "inactive" &&
+            !["string", "number"].includes(typeof instance?.version))
+        )
+      ) {
+        throw new TargetAdapterError(
+          "cloudflare_container_instances_unavailable",
+          "Cloudflare Container instances could not be read as structured JSON.",
+        );
+      }
+      for (const instance of instances) {
+        if (["stopped", "stopping", "failed", "inactive"].includes(instance.state)) {
+          continue;
+        }
+        if (!sameProviderVersion(instance.version, expected.version)) {
+          throw new TargetAdapterError(
+            "cloudflare_container_previous_version_selectable",
+            "A selectable Cloudflare Container instance belongs to another application version.",
+          );
+        }
+        observedInstances.push(instance.id);
+      }
+    }
+
+    if (
+      reportedInstances.some((identity) => !observedInstances.includes(identity))
+    ) {
+      throw new TargetAdapterError(
+        "cloudflare_container_instance_identity_mismatch",
+        "Cloudflare Container runtime evidence does not match provider instance inventory.",
+      );
+    }
+    return Object.freeze([...reportedInstances].sort());
   };
 }

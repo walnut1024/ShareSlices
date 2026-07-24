@@ -16,7 +16,6 @@ function canonicalContainers(containers) {
   const projected = containers.map((container) => ({
     containerClass: container?.containerClass,
     stableSlot: container?.stableSlot,
-    providerInstance: container?.providerInstance,
     buildIdentity: container?.buildIdentity,
     contractRevision: container?.contractRevision,
     imageReference: container?.imageReference,
@@ -31,6 +30,12 @@ function canonicalContainers(containers) {
 function requireExpectedEvidence(evidence, message) {
   const actualContainers = canonicalContainers(evidence?.containers);
   const expectedContainers = canonicalContainers(message.expected?.containers);
+  const actualProviderInstances = Array.isArray(evidence?.containers)
+    ? evidence.containers.map(({providerInstance}) => providerInstance).sort()
+    : null;
+  const expectedProviderInstances = Array.isArray(message.providerInstances)
+    ? [...message.providerInstances].sort()
+    : null;
   if (
     !evidence ||
     evidence.version !== 1 ||
@@ -57,6 +62,14 @@ function requireExpectedEvidence(evidence, message) {
       message.expected?.configuredContainerImages?.thumbnail ||
     !actualContainers ||
     !expectedContainers ||
+    !actualProviderInstances ||
+    !expectedProviderInstances ||
+    actualProviderInstances.some((identity) =>
+      typeof identity !== "string" || identity.length === 0
+    ) ||
+    new Set(actualProviderInstances).size !== actualProviderInstances.length ||
+    JSON.stringify(actualProviderInstances) !==
+      JSON.stringify(expectedProviderInstances) ||
     JSON.stringify(actualContainers) !== JSON.stringify(expectedContainers)
   ) {
     fail(
@@ -242,6 +255,7 @@ export function createReleaseVerificationObservers({
     new Promise((resolve) => setTimeout(resolve, milliseconds)),
   now = () => new Date(),
   assertLease = async () => undefined,
+  readProviderInstances,
 } = {}) {
   if (typeof readSnapshot !== "function") {
     throw new TypeError("Release verification observation requires a database reader.");
@@ -252,11 +266,26 @@ export function createReleaseVerificationObservers({
   if (!Number.isSafeInteger(intervalMilliseconds) || intervalMilliseconds < 0) {
     throw new TypeError("Release verification observation interval is invalid.");
   }
+  if (typeof readProviderInstances !== "function") {
+    throw new TypeError(
+      "Release verification observation requires a Container instance reader.",
+    );
+  }
   const poll = async (message, project, timeoutCode) => {
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       await assertLease();
       const snapshot = await readSnapshot(message);
-      const projected = project(snapshot, message, now().toISOString());
+      const providerInstances = snapshot?.state === "terminal"
+        ? await readProviderInstances({
+          message,
+          terminalEvidence: snapshot.terminalEvidence,
+        })
+        : [];
+      const projected = project(
+        snapshot,
+        {...message, providerInstances},
+        now().toISOString(),
+      );
       if (projected) return projected;
       if (attempt < attempts) await sleep(intervalMilliseconds);
     }

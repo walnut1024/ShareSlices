@@ -59,7 +59,9 @@ const expected = {
     trustedProcessing: "registry.example/processing@sha256:image",
     thumbnail: "registry.example/thumbnail@sha256:image",
   },
-  containers,
+  containers: containers.map(({providerInstance: _providerInstance, ...container}) =>
+    container
+  ),
 };
 const lifecycle = {
   tombstoneSeconds: 345_660,

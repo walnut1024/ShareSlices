@@ -17,10 +17,13 @@ export type CloudflareReleaseVerifierBindings = Readonly<{
 type ExpectedContainer = Readonly<{
   containerClass: "trusted-processing" | "thumbnail";
   stableSlot: string;
-  providerInstance: string;
   buildIdentity: string;
   contractRevision: string;
   imageReference: string;
+}>;
+
+type ObservedContainer = ExpectedContainer & Readonly<{
+  providerInstance: string;
 }>;
 
 type ReleaseVerificationMessage = Readonly<{
@@ -69,16 +72,15 @@ function isNonEmptyString(value: unknown, maximum = 512): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= maximum;
 }
 
-function parseContainer(value: unknown): ExpectedContainer | null {
+function parseExpectedContainer(value: unknown): ExpectedContainer | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const container = value as Record<string, unknown>;
   if (
-    Object.keys(container).length !== 6 ||
+    Object.keys(container).length !== 5 ||
     (container.containerClass !== "trusted-processing" &&
       container.containerClass !== "thumbnail") ||
     !isNonEmptyString(container.stableSlot, 128) ||
     !/^[a-z0-9][a-z0-9-]{0,127}$/.test(container.stableSlot) ||
-    !isNonEmptyString(container.providerInstance, 256) ||
     !isNonEmptyString(container.buildIdentity) ||
     !isNonEmptyString(container.contractRevision, 256) ||
     !isNonEmptyString(container.imageReference)
@@ -86,6 +88,23 @@ function parseContainer(value: unknown): ExpectedContainer | null {
     return null;
   }
   return container as ExpectedContainer;
+}
+
+function parseObservedContainer(value: unknown): ObservedContainer | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const container = value as Record<string, unknown>;
+  const expected = parseExpectedContainer({
+    containerClass: container.containerClass,
+    stableSlot: container.stableSlot,
+    buildIdentity: container.buildIdentity,
+    contractRevision: container.contractRevision,
+    imageReference: container.imageReference,
+  });
+  return (
+    Object.keys(container).length === 6 &&
+    expected &&
+    isNonEmptyString(container.providerInstance, 256)
+  ) ? {...expected, providerInstance: container.providerInstance} : null;
 }
 
 function parseMessage(value: unknown): ReleaseVerificationMessage | null {
@@ -156,14 +175,12 @@ function parseMessage(value: unknown): ReleaseVerificationMessage | null {
   ) {
     return null;
   }
-  const parsedContainers = containers.map(parseContainer);
+  const parsedContainers = containers.map(parseExpectedContainer);
   if (
     parsedContainers.some((container) => !container) ||
     new Set(parsedContainers.map((container) =>
       `${container!.containerClass}\0${container!.stableSlot}`
-    )).size !== parsedContainers.length ||
-    new Set(parsedContainers.map((container) => container!.providerInstance)).size !==
-      parsedContainers.length
+    )).size !== parsedContainers.length
   ) {
     return null;
   }
@@ -282,12 +299,12 @@ async function readBoundedResponse(response: Response): Promise<string> {
   return new TextDecoder("utf-8", {fatal: true}).decode(bytes);
 }
 
-function containerProjection(value: unknown): readonly ExpectedContainer[] | null {
+function containerProjection(value: unknown): readonly ObservedContainer[] | null {
   if (!Array.isArray(value)) return null;
   const projected = value.map((entry) => {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
     const record = entry as Record<string, unknown>;
-    return parseContainer({
+    return parseObservedContainer({
       containerClass: record.containerClass,
       stableSlot: record.stableSlot,
       providerInstance: record.providerInstance,
@@ -298,11 +315,17 @@ function containerProjection(value: unknown): readonly ExpectedContainer[] | nul
   });
   return projected.some((entry) => !entry)
     ? null
-    : projected as ExpectedContainer[];
+    : projected as ObservedContainer[];
 }
 
 function sortedContainers(containers: readonly ExpectedContainer[]) {
-  return [...containers].sort((left, right) =>
+  return [...containers].map((container) => ({
+    containerClass: container.containerClass,
+    stableSlot: container.stableSlot,
+    buildIdentity: container.buildIdentity,
+    contractRevision: container.contractRevision,
+    imageReference: container.imageReference,
+  })).sort((left, right) =>
     `${left.containerClass}\0${left.stableSlot}`.localeCompare(
       `${right.containerClass}\0${right.stableSlot}`,
     )
@@ -348,6 +371,8 @@ function verifyEvidence(
       message.expected.configuredContainerImages.trustedProcessing ||
     images.thumbnail !== message.expected.configuredContainerImages.thumbnail ||
     !containers ||
+    new Set(containers.map(({providerInstance}) => providerInstance)).size !==
+      containers.length ||
     canonicalJson(sortedContainers(containers)) !==
       canonicalJson(sortedContainers(message.expected.containers))
   ) {

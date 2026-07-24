@@ -37,7 +37,6 @@ const message = Object.freeze({
       {
         containerClass: "thumbnail",
         stableSlot: "thumbnail-a",
-        providerInstance: "provider-thumbnail",
         buildIdentity: "thumbnail-build",
         contractRevision: "thumbnail-contract",
         imageReference: "registry.example/thumbnail@sha256:2",
@@ -45,7 +44,6 @@ const message = Object.freeze({
       {
         containerClass: "trusted-processing",
         stableSlot: "processing-a",
-        providerInstance: "provider-processing",
         buildIdentity: "processing-build",
         contractRevision: "processing-contract",
         imageReference: "registry.example/trusted@sha256:1",
@@ -70,8 +68,17 @@ const terminalEvidence = Object.freeze({
   migrationHead: message.expected.migrationHead,
   configuredContainerImages: message.expected.configuredContainerImages,
   containerConvergence: "verified",
-  containers: [...message.expected.containers].reverse(),
+  containers: [...message.expected.containers].reverse().map(
+    (container, index) => ({
+      ...container,
+      providerInstance: `provider-${index + 1}`,
+    }),
+  ),
 });
+const providerInstances = terminalEvidence.containers.map(
+  ({providerInstance}) => providerInstance,
+);
+const observedMessage = Object.freeze({...message, providerInstances});
 
 function snapshot(overrides = {}) {
   const serialized = JSON.stringify(canonicalize(terminalEvidence));
@@ -97,7 +104,11 @@ function snapshot(overrides = {}) {
 
 test("projects only exact digest-verified terminal evidence", () => {
   assert.deepEqual(
-    projectTerminalObservation(snapshot(), message, "2026-07-24T00:00:00.000Z"),
+    projectTerminalObservation(
+      snapshot(),
+      observedMessage,
+      "2026-07-24T00:00:00.000Z",
+    ),
     {
       terminal: true,
       nonce: message.nonce,
@@ -111,7 +122,7 @@ test("projects only exact digest-verified terminal evidence", () => {
   assert.throws(
     () => projectTerminalObservation(
       snapshot({evidenceDigest: `sha256:${"0".repeat(64)}`}),
-      message,
+      observedMessage,
       "2026-07-24T00:00:00.000Z",
     ),
     {code: "cloudflare_release_verification_terminal_digest_mismatch"},
@@ -119,7 +130,7 @@ test("projects only exact digest-verified terminal evidence", () => {
   assert.throws(
     () => projectTerminalObservation(
       snapshot({subFence: message.subFence + 2}),
-      message,
+      observedMessage,
       "2026-07-24T00:00:00.000Z",
     ),
     {code: "cloudflare_release_verification_terminal_fence_mismatch"},
@@ -127,7 +138,7 @@ test("projects only exact digest-verified terminal evidence", () => {
   assert.throws(
     () => projectTerminalObservation(
       snapshot({terminalInvocationId: "another-invocation"}),
-      message,
+      observedMessage,
       "2026-07-24T00:00:00.000Z",
     ),
     {code: "cloudflare_release_verification_terminal_invocation_mismatch"},
@@ -135,7 +146,7 @@ test("projects only exact digest-verified terminal evidence", () => {
   assert.throws(
     () => projectTerminalObservation(
       snapshot({tombstoneRetained: false}),
-      message,
+      observedMessage,
       "2026-07-24T00:00:00.000Z",
     ),
     {code: "cloudflare_release_verification_tombstone_expired"},
@@ -155,7 +166,7 @@ test("requires complete quiescent cleanup with no nonce-owned residue", () => {
   assert.equal(
     projectCleanupObservation(
       complete,
-      message,
+      observedMessage,
       "2026-07-24T00:00:00.000Z",
     )?.cleanupState,
     "complete",
@@ -163,7 +174,7 @@ test("requires complete quiescent cleanup with no nonce-owned residue", () => {
   assert.throws(
     () => projectCleanupObservation(
       {...complete, resources: [{kind: "r2", key: "owned", state: "committed"}]},
-      message,
+      observedMessage,
       "2026-07-24T00:00:00.000Z",
     ),
     {code: "cloudflare_release_verification_cleanup_identity_mismatch"},
@@ -173,6 +184,7 @@ test("requires complete quiescent cleanup with no nonce-owned residue", () => {
 test("polling is bounded, lease-checked, and retries read-only pending state", async () => {
   let reads = 0;
   let leases = 0;
+  let providerInput;
   const observers = createReleaseVerificationObservers({
     readSnapshot: async () => {
       reads += 1;
@@ -186,16 +198,23 @@ test("polling is bounded, lease-checked, and retries read-only pending state", a
     assertLease: async () => {
       leases += 1;
     },
+    readProviderInstances: async (input) => {
+      providerInput = input;
+      return providerInstances;
+    },
     now: () => new Date("2026-07-24T00:00:00.000Z"),
   });
   assert.equal((await observers.observeUntilTerminal(message)).outcome, "passed");
   assert.equal(reads, 2);
   assert.equal(leases, 2);
+  assert.equal(providerInput.message, message);
+  assert.equal(providerInput.terminalEvidence, terminalEvidence);
 
   const timedOut = createReleaseVerificationObservers({
     readSnapshot: async () => null,
     attempts: 1,
     intervalMilliseconds: 0,
+    readProviderInstances: async () => providerInstances,
   });
   await assert.rejects(
     timedOut.observeUntilTerminal(message),
