@@ -14,6 +14,7 @@ pub mod logging;
 pub mod manifest;
 pub mod object_storage;
 pub mod processing;
+pub mod release_verification;
 pub mod retry_policy;
 pub mod runner;
 pub mod thumbnail;

@@ -26,6 +26,8 @@ and no rendered provider resources.
 - `private-jobs-release-verification.json` projects the route-free,
   Service-Binding-only Jobs release-verification protocol and its fenced probe
   lifecycle from its checked private OpenAPI source.
+- `private-container-release-verification.json` projects the secretless
+  Container identity callback intercepted by the private outbound handler.
 - `verification-scenarios.json` defines shared black-box checks and explicit
   `not_applicable` behavior.
 - `fixtures/` contains deterministic valid and verification examples. Contract

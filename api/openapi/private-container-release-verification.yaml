@@ -1,0 +1,58 @@
+openapi: 3.1.0
+info:
+  title: ShareSlices private Container release-verification callback
+  version: 1.0.0
+  description: Secretless callback intercepted by a Container class outbound handler with no public ingress.
+servers:
+  - url: http://shareslices-release-verifier.internal
+paths:
+  /v1/container-evidence:
+    post:
+      operationId: recordContainerReleaseEvidence
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContainerEvidence"
+      responses:
+        "204":
+          description: Identity matched the live nonce, sub-fence, slot, and expected release.
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+        "404":
+          description: Invalid, unexpected, duplicate, terminal, or stale-fence evidence.
+components:
+  schemas:
+    ContainerEvidence:
+      type: object
+      additionalProperties: false
+      required:
+        - version
+        - nonce
+        - releaseId
+        - fence
+        - subFence
+        - containerClass
+        - stableSlot
+        - providerInstance
+        - buildIdentity
+        - contractRevision
+        - imageReference
+      properties:
+        version: {type: integer, const: 1}
+        nonce: {type: string, minLength: 16, maxLength: 256}
+        releaseId: {type: string, minLength: 1, maxLength: 256}
+        fence: {type: integer, minimum: 1}
+        subFence: {type: integer, minimum: 1}
+        containerClass:
+          type: string
+          enum: [trusted-processing, thumbnail]
+        stableSlot:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9-]{0,127}$"
+        providerInstance: {type: string, minLength: 1, maxLength: 256}
+        buildIdentity: {type: string, minLength: 1, maxLength: 512}
+        contractRevision: {type: string, minLength: 1, maxLength: 256}
+        imageReference: {type: string, minLength: 1, maxLength: 512}

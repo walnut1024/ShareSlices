@@ -37,6 +37,10 @@ const bindings = {
   THUMBNAIL_MAXIMUM_WALL_TIME_SECONDS: "300",
   TRUSTED_PROCESSING_IMAGE_BUILD_IDENTITY: "processing-build",
   THUMBNAIL_IMAGE_BUILD_IDENTITY: "thumbnail-build",
+  TRUSTED_PROCESSING_IMAGE_REFERENCE:
+    "registry.example/processing@sha256:processing",
+  THUMBNAIL_IMAGE_REFERENCE:
+    "registry.example/thumbnail@sha256:thumbnail",
   ARTIFACT_RENDERER_REVISION: "renderer-v2",
   CONTAINER_RELEASE_ID: "release-1",
   CONTAINER_CONTRACT_REVISION: "contract-v1",
@@ -128,11 +132,53 @@ describe("Cloudflare Container lifecycle", () => {
       /DATABASE_URL|HYPERDRIVE|ARTIFACTS|R2|S3|RESEND|SMTP/,
     );
     expect(container.enableInternet).toBe(false);
-    expect(Object.keys(ThumbnailContainer.outboundByHost)).toEqual([
+    expect(Object.keys(ThumbnailContainer.outboundByHost).sort()).toEqual([
       "shareslices-broker.internal",
+      "shareslices-release-verifier.internal",
     ]);
     await container.onStop({exitCode: 75, reason: "exit"});
     expect(lifecycle.starts).toHaveLength(1);
+  });
+
+  it("starts a secretless identity process scoped to one release probe and slot", async () => {
+    const container = new TrustedProcessingContainer(
+      {} as never,
+      bindings as never,
+    );
+    const response = await container.fetch(new Request(
+      "https://container.invalid/internal/release-verification",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          version: 1,
+          nonce: "nonce-012345678901",
+          releaseId: "release-1",
+          fence: 7,
+          subFence: 3,
+          stableSlot: "processing-slot-1",
+        }),
+      },
+    ));
+
+    expect(response.status).toBe(202);
+    expect(lifecycle.starts).toEqual([{
+      enableInternet: false,
+      entrypoint: ["shareslices-worker", "release-verification"],
+      envVars: expect.objectContaining({
+        SHARESLICES_CONTAINER_BUILD_IDENTITY: "processing-build",
+        SHARESLICES_CONTAINER_IMAGE_REFERENCE:
+          "registry.example/processing@sha256:processing",
+        SHARESLICES_RELEASE_VERIFICATION_ORIGIN:
+          "http://shareslices-release-verifier.internal",
+        SHARESLICES_RELEASE_VERIFICATION_NONCE: "nonce-012345678901",
+        SHARESLICES_RELEASE_VERIFICATION_FENCE: "7",
+        SHARESLICES_RELEASE_VERIFICATION_SUB_FENCE: "3",
+        SHARESLICES_RELEASE_VERIFICATION_STABLE_SLOT: "processing-slot-1",
+      }),
+    }]);
+    expect(JSON.stringify(lifecycle.starts)).not.toMatch(
+      /DATABASE_URL|HYPERDRIVE|ARTIFACTS|R2|S3|RESEND|SMTP/,
+    );
   });
 
   it("replaces an untrusted container identity header with platform identity", () => {

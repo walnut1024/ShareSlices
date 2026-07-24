@@ -50,9 +50,15 @@ describe("private Jobs release-verification wire contract", () => {
       "containers",
       "containerConvergence",
     ]));
-    expect(evidence.properties.containerConvergence.enum).toEqual([
-      "verified",
-      "unverified",
-    ]);
+    expect(evidence.properties.containerConvergence.const).toBe("verified");
+    expect(evidence.properties.containers.items.required).toEqual(
+      expect.arrayContaining([
+        "providerInstance",
+        "controllerInstance",
+        "buildIdentity",
+        "imageReference",
+        "stableSlot",
+      ]),
+    );
   });
 });

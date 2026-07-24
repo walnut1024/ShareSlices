@@ -20,6 +20,7 @@ use shareslices_worker::{
     job_store::PostgresJobStore,
     logging::{LogConfig, SanitizedException, Severity, WorkerEvent},
     object_storage::AwsS3ObjectStorage,
+    release_verification::report_container_release_identity,
     retry_policy::RetryPolicy,
     runner::{BackgroundLane, DrainLimits, Runner, RunnerError, RunnerLane},
     thumbnail::{ThumbnailConfig, ThumbnailLane, preflight_chromium, requeue_failed_browser_jobs},
@@ -54,6 +55,13 @@ async fn main() {
         }
         return;
     }
+    if command == Some("release-verification") {
+        if let Err(error) = report_container_release_identity().await {
+            eprintln!("release verification failed: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     let drain_command = if command == Some("drain") {
         match DrainCommand::parse(&arguments[1..]) {
             Ok(command) => Some(command),
@@ -69,6 +77,7 @@ async fn main() {
         && command != "requeue-failed-thumbnails"
         && command != "drain"
         && command != "thumbnail-broker"
+        && command != "release-verification"
     {
         eprintln!("unknown worker command: {command}");
         std::process::exit(2);

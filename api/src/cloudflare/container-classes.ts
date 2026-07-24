@@ -6,6 +6,7 @@ import {
 import {createDatabaseConnection} from "../db/connection.js";
 import type {R2BucketBinding} from "../storage/r2-object-storage.js";
 import {createCloudflareThumbnailExecutionBroker} from "./thumbnail-execution-broker.js";
+import {createContainerReleaseVerificationBroker} from "./container-release-verification-broker.js";
 
 type ContainerBindings = Readonly<{
   HYPERDRIVE: Readonly<{connectionString: string}>;
@@ -18,6 +19,8 @@ type ContainerBindings = Readonly<{
   THUMBNAIL_MAXIMUM_WALL_TIME_SECONDS: string;
   TRUSTED_PROCESSING_IMAGE_BUILD_IDENTITY: string;
   THUMBNAIL_IMAGE_BUILD_IDENTITY: string;
+  TRUSTED_PROCESSING_IMAGE_REFERENCE: string;
+  THUMBNAIL_IMAGE_REFERENCE: string;
   ARTIFACT_RENDERER_REVISION: string;
   CONTAINER_RELEASE_ID: string;
   CONTAINER_CONTRACT_REVISION: string;
@@ -79,6 +82,45 @@ abstract class PrivateShareSlicesContainer extends Container<ContainerBindings> 
 
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    if (
+      request.method === "POST" &&
+      url.pathname === "/internal/release-verification"
+    ) {
+      let payload: Record<string, unknown>;
+      try {
+        payload = await request.json() as Record<string, unknown>;
+      } catch {
+        return new Response("Invalid verification", {status: 400});
+      }
+      if (
+        payload.version !== 1 ||
+        typeof payload.nonce !== "string" ||
+        typeof payload.releaseId !== "string" ||
+        payload.releaseId !== this.envVars.SHARESLICES_CONTAINER_RELEASE_ID ||
+        !Number.isSafeInteger(payload.fence) ||
+        Number(payload.fence) <= 0 ||
+        !Number.isSafeInteger(payload.subFence) ||
+        Number(payload.subFence) <= 0 ||
+        typeof payload.stableSlot !== "string" ||
+        !/^[a-z0-9][a-z0-9-]{0,127}$/.test(payload.stableSlot)
+      ) {
+        return new Response("Invalid verification", {status: 400});
+      }
+      await this.start({
+        enableInternet: false,
+        entrypoint: ["shareslices-worker", "release-verification"],
+        envVars: {
+          ...this.envVars,
+          SHARESLICES_RELEASE_VERIFICATION_ORIGIN:
+            "http://shareslices-release-verifier.internal",
+          SHARESLICES_RELEASE_VERIFICATION_NONCE: payload.nonce,
+          SHARESLICES_RELEASE_VERIFICATION_FENCE: String(payload.fence),
+          SHARESLICES_RELEASE_VERIFICATION_SUB_FENCE: String(payload.subFence),
+          SHARESLICES_RELEASE_VERIFICATION_STABLE_SLOT: payload.stableSlot,
+        },
+      });
+      return new Response(null, {status: 202});
+    }
     if (request.method !== "POST" || url.pathname !== "/internal/wake") {
       return new Response("Not found", {status: 404});
     }
@@ -119,16 +161,31 @@ function embeddedIdentity(
   env: ContainerBindings,
   imageBuildIdentity: string,
   containerClass: string,
+  imageReference: string,
 ) {
   return {
     SHARESLICES_CONTAINER_BUILD_IDENTITY: imageBuildIdentity,
     SHARESLICES_CONTAINER_RELEASE_ID: env.CONTAINER_RELEASE_ID,
     SHARESLICES_CONTAINER_CONTRACT_REVISION: env.CONTAINER_CONTRACT_REVISION,
     SHARESLICES_CONTAINER_CLASS: containerClass,
+    SHARESLICES_CONTAINER_IMAGE_REFERENCE: imageReference,
   };
 }
 
+const releaseVerificationOutbound = {
+  "shareslices-release-verifier.internal": async (
+    request: Request,
+    env: ContainerBindings,
+    context: Readonly<{containerId: string}>,
+  ) => createContainerReleaseVerificationBroker()(
+    request,
+    env,
+    context.containerId,
+  ),
+};
+
 export class TrustedProcessingContainer extends PrivateShareSlicesContainer {
+  static override outboundByHost = releaseVerificationOutbound;
   protected readonly drainEntrypoint: string[];
 
   constructor(
@@ -143,6 +200,7 @@ export class TrustedProcessingContainer extends PrivateShareSlicesContainer {
       args[1],
       args[1].TRUSTED_PROCESSING_IMAGE_BUILD_IDENTITY,
       "trusted-processing",
+      args[1].TRUSTED_PROCESSING_IMAGE_REFERENCE,
     );
     this.drainEntrypoint = containerDrainEntrypoint({
       lane: "artifact-processing",
@@ -155,6 +213,7 @@ export class TrustedProcessingContainer extends PrivateShareSlicesContainer {
 
 export class ThumbnailContainer extends PrivateShareSlicesContainer {
   static override outboundByHost = {
+    ...releaseVerificationOutbound,
     "shareslices-broker.internal": async (
       request: Request,
       env: ContainerBindings,
@@ -205,6 +264,7 @@ export class ThumbnailContainer extends PrivateShareSlicesContainer {
       args[1],
       args[1].THUMBNAIL_IMAGE_BUILD_IDENTITY,
       "thumbnail",
+      args[1].THUMBNAIL_IMAGE_REFERENCE,
     );
     this.envVars.SHARESLICES_ARTIFACT_RENDERER_REVISION =
       args[1].ARTIFACT_RENDERER_REVISION;

@@ -2,6 +2,15 @@ import {createDatabaseConnection} from "../db/connection.js";
 import {createReleaseVerificationRepository} from "./release-verification-repository.js";
 import type {CloudflareExecutionContext} from "./runtime.js";
 
+declare const scheduler: Readonly<{
+  wait(milliseconds: number): Promise<void>;
+}>;
+
+type DurableObjectNamespace = Readonly<{
+  idFromName(name: string): unknown;
+  get(id: unknown): Readonly<{fetch(request: Request): Promise<Response>}>;
+}>;
+
 type VersionMetadata = Readonly<{
   id: string;
   tag?: string;
@@ -17,6 +26,11 @@ export type JobsReleaseVerificationBindings = Readonly<{
   TRUSTED_PROCESSING_IMAGE_REFERENCE: string;
   THUMBNAIL_IMAGE_REFERENCE: string;
   RELEASE_VERIFICATION_INVOCATION_LEASE_SECONDS: string;
+  RELEASE_VERIFICATION_CONTAINER_WAIT_SECONDS: string;
+  TRUSTED_PROCESSING_CONTAINERS: DurableObjectNamespace;
+  THUMBNAIL_CONTAINERS: DurableObjectNamespace;
+  TRUSTED_PROCESSING_STABLE_SLOTS: string;
+  THUMBNAIL_STABLE_SLOTS: string;
 }>;
 
 type ProbeRequest = Readonly<{
@@ -40,6 +54,23 @@ function notFound(): Response {
 function parsePositiveInteger(value: string): number | null {
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function parseStableSlots(value: string): readonly string[] | null {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) &&
+      parsed.length > 0 &&
+      new Set(parsed).size === parsed.length &&
+      parsed.every((slot) =>
+        typeof slot === "string" &&
+        /^[a-z0-9][a-z0-9-]{0,127}$/.test(slot)
+      )
+      ? parsed
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function parseRequest(value: unknown): ProbeRequest | null {
@@ -131,6 +162,47 @@ function evidenceResponse(
   });
 }
 
+async function dispatchContainerProbes(
+  scope: ProbeRequest,
+  bindings: JobsReleaseVerificationBindings,
+  slots: Readonly<{
+    trustedProcessing: readonly string[];
+    thumbnail: readonly string[];
+  }>,
+): Promise<void> {
+  for (const [containerClass, namespace, stableSlots] of [
+    [
+      "trusted-processing",
+      bindings.TRUSTED_PROCESSING_CONTAINERS,
+      slots.trustedProcessing,
+    ],
+    ["thumbnail", bindings.THUMBNAIL_CONTAINERS, slots.thumbnail],
+  ] as const) {
+    for (const stableSlot of stableSlots) {
+      const stub = namespace.get(namespace.idFromName(stableSlot));
+      const response = await stub.fetch(new Request(
+        "https://container.invalid/internal/release-verification",
+        {
+          method: "POST",
+          headers: {"content-type": "application/json"},
+          body: JSON.stringify({
+            version: 1,
+            nonce: scope.nonce,
+            releaseId: scope.releaseId,
+            fence: scope.fence,
+            subFence: scope.subFence,
+            containerClass,
+            stableSlot,
+          }),
+        },
+      ));
+      if (response.status !== 202) {
+        throw new Error("release_verification_container_dispatch_failed");
+      }
+    }
+  }
+}
+
 export function createJobsReleaseVerificationFetch() {
   return async (
     request: Request,
@@ -156,7 +228,23 @@ export function createJobsReleaseVerificationFetch() {
     const leaseSeconds = parsePositiveInteger(
       bindings.RELEASE_VERIFICATION_INVOCATION_LEASE_SECONDS,
     );
-    if (!scope || !leaseSeconds) return notFound();
+    const waitSeconds = parsePositiveInteger(
+      bindings.RELEASE_VERIFICATION_CONTAINER_WAIT_SECONDS,
+    );
+    const trustedProcessingSlots = parseStableSlots(
+      bindings.TRUSTED_PROCESSING_STABLE_SLOTS,
+    );
+    const thumbnailSlots = parseStableSlots(bindings.THUMBNAIL_STABLE_SLOTS);
+    if (
+      !scope ||
+      !leaseSeconds ||
+      !waitSeconds ||
+      waitSeconds >= leaseSeconds ||
+      !trustedProcessingSlots ||
+      !thumbnailSlots
+    ) {
+      return notFound();
+    }
 
     const connection = createDatabaseConnection({
       mode: "hyperdrive",
@@ -175,6 +263,21 @@ export function createJobsReleaseVerificationFetch() {
       if (!begin) return notFound();
       if (begin.state === "completed") {
         return evidenceResponse(begin.evidence, begin.evidenceDigest);
+      }
+      await dispatchContainerProbes(scope, bindings, {
+        trustedProcessing: trustedProcessingSlots,
+        thumbnail: thumbnailSlots,
+      });
+      const expectedContainerCount =
+        trustedProcessingSlots.length + thumbnailSlots.length;
+      const deadline = Date.now() + waitSeconds * 1_000;
+      let containers = await repository.listContainerEvidence(scope);
+      while (containers.length !== expectedContainerCount && Date.now() < deadline) {
+        await scheduler.wait(250);
+        containers = await repository.listContainerEvidence(scope);
+      }
+      if (containers.length !== expectedContainerCount) {
+        throw new Error("release_verification_container_convergence_timeout");
       }
       const evidence = {
         version: 1,
@@ -204,8 +307,8 @@ export function createJobsReleaseVerificationFetch() {
           trustedProcessing: bindings.TRUSTED_PROCESSING_IMAGE_REFERENCE,
           thumbnail: bindings.THUMBNAIL_IMAGE_REFERENCE,
         },
-        containers: [],
-        containerConvergence: "unverified",
+        containers,
+        containerConvergence: "verified",
       };
       const serialized = canonicalJson(evidence);
       const evidenceDigest = await sha256(serialized);

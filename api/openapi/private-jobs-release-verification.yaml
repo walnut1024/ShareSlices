@@ -30,7 +30,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Evidence"
         "404":
-          description: Invalid, unscoped, expired, duplicate, terminal, or stale-fence probe.
+          description: Invalid, unscoped, expired, terminal, or stale-fence probe.
 components:
   schemas:
     Probe:
@@ -114,7 +114,40 @@ components:
             thumbnail: {type: string, minLength: 1}
         containers:
           type: array
-          items: {type: object}
+          minItems: 2
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - nonce
+              - releaseId
+              - fence
+              - subFence
+              - containerClass
+              - stableSlot
+              - providerInstance
+              - controllerInstance
+              - buildIdentity
+              - contractRevision
+              - imageReference
+              - observedAt
+            properties:
+              nonce: {type: string, minLength: 16, maxLength: 256}
+              releaseId: {type: string, minLength: 1, maxLength: 256}
+              fence: {type: integer, minimum: 1}
+              subFence: {type: integer, minimum: 1}
+              containerClass:
+                type: string
+                enum: [trusted-processing, thumbnail]
+              stableSlot:
+                type: string
+                pattern: "^[a-z0-9][a-z0-9-]{0,127}$"
+              providerInstance: {type: string, minLength: 1, maxLength: 256}
+              controllerInstance: {type: string, minLength: 1, maxLength: 256}
+              buildIdentity: {type: string, minLength: 1, maxLength: 512}
+              contractRevision: {type: string, minLength: 1, maxLength: 256}
+              imageReference: {type: string, minLength: 1, maxLength: 512}
+              observedAt: {type: string, format: date-time}
         containerConvergence:
           type: string
-          enum: [verified, unverified]
+          const: verified

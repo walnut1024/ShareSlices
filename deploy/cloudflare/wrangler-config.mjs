@@ -388,6 +388,7 @@ export async function generateStagedWorkerConfigs(input) {
       JOB_OUTBOX_LOST_WAKE_AFTER_SECONDS: "300",
       THUMBNAIL_BOOTSTRAP_LIFETIME_SECONDS: "60",
       RELEASE_VERIFICATION_INVOCATION_LEASE_SECONDS: "60",
+      RELEASE_VERIFICATION_CONTAINER_WAIT_SECONDS: "45",
       CONTAINER_RELEASE_ID: input.releaseId,
       CONTAINER_CONTRACT_REVISION: input.jobsContractRevision,
       ...containerVariables,

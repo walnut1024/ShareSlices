@@ -12,6 +12,23 @@ export type ReleaseVerificationBegin =
   | Readonly<{state: "started"; migrationHead: string}>
   | Readonly<{state: "completed"; evidence: Record<string, unknown>; evidenceDigest: string}>;
 
+export type ReleaseVerificationContainerEvidence = Readonly<{
+  nonce: string;
+  releaseId: string;
+  fence: number;
+  subFence: number;
+  containerClass: "trusted-processing" | "thumbnail";
+  stableSlot: string;
+  providerInstance: string;
+  controllerInstance: string;
+  buildIdentity: string;
+  contractRevision: string;
+  imageReference: string;
+}>;
+
+export type RecordedReleaseVerificationContainerEvidence =
+  ReleaseVerificationContainerEvidence & Readonly<{observedAt: string}>;
+
 export function createReleaseVerificationRepository(
   connection: DatabaseConnection,
 ) {
@@ -164,6 +181,111 @@ export function createReleaseVerificationRepository(
             reasonCode,
           ],
         );
+      });
+    },
+
+    async recordContainerEvidence(
+      evidence: ReleaseVerificationContainerEvidence,
+    ): Promise<boolean> {
+      return connection.withClient(async (client) => {
+        const recorded = await client.query(
+          `insert into cloudflare_release_verification_container_evidence(
+             nonce, release_id, fence, sub_fence, container_class, stable_slot,
+             provider_instance, controller_instance, build_identity,
+             contract_revision, image_reference
+           )
+           select probe.nonce, probe.release_id, probe.fence, probe.sub_fence,
+                  $5, $6, $7, $8, $9, $10, $11
+           from cloudflare_release_verification_probe probe
+           where probe.nonce = $1
+             and probe.release_id = $2
+             and probe.fence = $3
+             and probe.sub_fence = $4
+             and probe.state = 'active'
+             and probe.expected_identity #>> array[
+               'containers', $5, 'releaseId'
+             ] = $2
+             and probe.expected_identity #>> array[
+               'containers', $5, 'buildIdentity'
+             ] = $9
+             and probe.expected_identity #>> array[
+               'containers', $5, 'contractRevision'
+             ] = $10
+             and probe.expected_identity #>> array[
+               'containers', $5, 'imageReference'
+             ] = $11
+             and (probe.expected_identity #> array[
+               'containers', $5, 'stableSlots'
+             ]) ? $6
+           on conflict (nonce, container_class, stable_slot) do nothing`,
+          [
+            evidence.nonce,
+            evidence.releaseId,
+            evidence.fence,
+            evidence.subFence,
+            evidence.containerClass,
+            evidence.stableSlot,
+            evidence.providerInstance,
+            evidence.controllerInstance,
+            evidence.buildIdentity,
+            evidence.contractRevision,
+            evidence.imageReference,
+          ],
+        );
+        return recorded.rowCount === 1;
+      });
+    },
+
+    async listContainerEvidence(
+      scope: Pick<
+        ReleaseVerificationScope,
+        "nonce" | "releaseId" | "fence" | "subFence"
+      >,
+    ): Promise<readonly RecordedReleaseVerificationContainerEvidence[]> {
+      return connection.withClient(async (client) => {
+        const result = await client.query<{
+          nonce: string;
+          release_id: string;
+          fence: string;
+          sub_fence: string;
+          container_class: "trusted-processing" | "thumbnail";
+          stable_slot: string;
+          provider_instance: string;
+          controller_instance: string;
+          build_identity: string;
+          contract_revision: string;
+          image_reference: string;
+          observed_at: Date;
+        }>(
+          `select evidence.*
+           from cloudflare_release_verification_container_evidence evidence
+           join cloudflare_release_verification_probe probe
+             on probe.nonce = evidence.nonce
+            and probe.release_id = evidence.release_id
+            and probe.fence = evidence.fence
+            and probe.sub_fence = evidence.sub_fence
+           where evidence.nonce = $1
+             and evidence.release_id = $2
+             and evidence.fence = $3
+             and evidence.sub_fence = $4
+             and probe.state = 'active'
+           order by evidence.container_class, evidence.stable_slot`,
+          [scope.nonce, scope.releaseId, scope.fence, scope.subFence],
+        );
+        return result.rows.map((row) => ({
+          nonce: row.nonce,
+          releaseId: row.release_id,
+          fence: Number(row.fence),
+          subFence: Number(row.sub_fence),
+          containerClass: row.container_class,
+          stableSlot: row.stable_slot,
+          providerInstance: row.provider_instance,
+          controllerInstance: row.controller_instance,
+          buildIdentity: row.build_identity,
+          contractRevision: row.contract_revision,
+          imageReference: row.image_reference,
+          observedAt: row.observed_at.toISOString(),
+        }));
       });
     },
 

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "source": "api/openapi/private-container-release-verification.yaml",
+  "origin": "http://shareslices-release-verifier.internal",
+  "publicIngress": false,
+  "transport": "container-outbound-handler",
+  "providerIdentitySource": "CLOUDFLARE_DEPLOYMENT_ID",
+  "controllerIdentitySource": "outbound-handler-context.containerId",
+  "operations": [
+    {
+      "method": "POST",
+      "path": "/v1/container-evidence",
+      "scope": ["releaseId", "fence", "nonce", "subFence", "containerClass", "stableSlot"]
+    }
+  ],
+  "terminalNonceRequired": true,
+  "expectedIdentityMatchRequired": true
+}

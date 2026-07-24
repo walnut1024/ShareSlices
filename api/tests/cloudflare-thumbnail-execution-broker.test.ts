@@ -633,12 +633,68 @@ describe("Cloudflare route-free Jobs release verification", () => {
     await pool.query(
       `insert into cloudflare_release_verification_probe(
          nonce, release_id, fence, sub_fence, expected_identity
-       ) values($1, $2, 1, 1, '{}'::jsonb)`,
-      [nonce, releaseId],
+       ) values($1, $2, 1, 1, $3::jsonb)`,
+      [nonce, releaseId, JSON.stringify({
+        containers: {
+          "trusted-processing": {
+            stableSlots: ["processing-slot-1"],
+            buildIdentity: "processing-build",
+            releaseId,
+            contractRevision: "gallery-job/v1",
+            imageReference: "registry.example/processing@sha256:a",
+          },
+          thumbnail: {
+            stableSlots: ["thumbnail-slot-1"],
+            buildIdentity: "thumbnail-build",
+            releaseId,
+            contractRevision: "gallery-job/v1",
+            imageReference: "registry.example/thumbnail@sha256:b",
+          },
+        },
+      })],
     );
     const connectionUrl = new URL(process.env.DATABASE_URL!);
     connectionUrl.searchParams.set("options", `-c search_path=${schemaName}`);
     const fetch = createJobsReleaseVerificationFetch();
+    const containerNamespace = (
+      containerClass: "trusted-processing" | "thumbnail",
+      buildIdentity: string,
+      imageReference: string,
+    ) => ({
+      idFromName: (slot: string) => slot,
+      get: (slot: unknown) => ({
+        fetch: async (containerRequest: Request) => {
+          const body = await containerRequest.json() as {
+            stableSlot: string;
+            nonce: string;
+            releaseId: string;
+            fence: number;
+            subFence: number;
+          };
+          await pool.query(
+            `insert into cloudflare_release_verification_container_evidence(
+               nonce, release_id, fence, sub_fence, container_class,
+               stable_slot, provider_instance, controller_instance,
+               build_identity, contract_revision, image_reference
+             ) values($1, $2, $3, $4, $5, $6, $7, $8, $9,
+                      'gallery-job/v1', $10)`,
+            [
+              body.nonce,
+              body.releaseId,
+              body.fence,
+              body.subFence,
+              containerClass,
+              body.stableSlot,
+              `provider-${String(slot)}`,
+              `controller-${String(slot)}`,
+              buildIdentity,
+              imageReference,
+            ],
+          );
+          return new Response(null, {status: 202});
+        },
+      }),
+    });
     const bindings = {
       HYPERDRIVE: {connectionString: connectionUrl.toString()},
       CF_VERSION_METADATA: {
@@ -651,6 +707,19 @@ describe("Cloudflare route-free Jobs release verification", () => {
       TRUSTED_PROCESSING_IMAGE_REFERENCE: "registry.example/processing@sha256:a",
       THUMBNAIL_IMAGE_REFERENCE: "registry.example/thumbnail@sha256:b",
       RELEASE_VERIFICATION_INVOCATION_LEASE_SECONDS: "60",
+      RELEASE_VERIFICATION_CONTAINER_WAIT_SECONDS: "45",
+      TRUSTED_PROCESSING_STABLE_SLOTS: JSON.stringify(["processing-slot-1"]),
+      THUMBNAIL_STABLE_SLOTS: JSON.stringify(["thumbnail-slot-1"]),
+      TRUSTED_PROCESSING_CONTAINERS: containerNamespace(
+        "trusted-processing",
+        "processing-build",
+        "registry.example/processing@sha256:a",
+      ),
+      THUMBNAIL_CONTAINERS: containerNamespace(
+        "thumbnail",
+        "thumbnail-build",
+        "registry.example/thumbnail@sha256:b",
+      ),
     };
     const request = () => new Request(
       "http://shareslices-jobs.internal/v1/release-verification",
@@ -678,8 +747,9 @@ describe("Cloudflare route-free Jobs release verification", () => {
     expect(await response.json()).toMatchObject({
       scope: {nonce, releaseId, fence: 1, subFence: 1},
       jobsWorker: {versionId: "jobs-version-id"},
-      migrationHead: "0038_cloudflare_release_verification_probe.sql",
-      containerConvergence: "unverified",
+      migrationHead:
+        "0039_cloudflare_release_verification_container_evidence.sql",
+      containerConvergence: "verified",
     });
     const replay = await fetch(request(), bindings, context);
     expect(replay.status).toBe(200);

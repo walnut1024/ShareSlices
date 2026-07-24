@@ -1,5 +1,8 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
-import type {ReleaseVerificationBegin} from "../src/cloudflare/release-verification-repository.js";
+import type {
+  RecordedReleaseVerificationContainerEvidence,
+  ReleaseVerificationBegin,
+} from "../src/cloudflare/release-verification-repository.js";
 
 const mocks = vi.hoisted(() => ({
   close: vi.fn(async () => undefined),
@@ -9,6 +12,9 @@ const mocks = vi.hoisted(() => ({
   })),
   complete: vi.fn(async () => true),
   fail: vi.fn(async () => undefined),
+  listContainerEvidence: vi.fn<
+    () => Promise<readonly RecordedReleaseVerificationContainerEvidence[]>
+  >(async () => []),
   createDatabaseConnection: vi.fn(),
 }));
 
@@ -20,6 +26,7 @@ vi.mock("../src/cloudflare/release-verification-repository.js", () => ({
     begin: mocks.begin,
     complete: mocks.complete,
     fail: mocks.fail,
+    listContainerEvidence: mocks.listContainerEvidence,
   }),
 }));
 
@@ -38,6 +45,21 @@ const bindings = {
   TRUSTED_PROCESSING_IMAGE_REFERENCE: "registry.example/processing:release-a",
   THUMBNAIL_IMAGE_REFERENCE: "registry.example/thumbnail:release-a",
   RELEASE_VERIFICATION_INVOCATION_LEASE_SECONDS: "60",
+  RELEASE_VERIFICATION_CONTAINER_WAIT_SECONDS: "45",
+  TRUSTED_PROCESSING_STABLE_SLOTS: JSON.stringify(["processing-slot-1"]),
+  THUMBNAIL_STABLE_SLOTS: JSON.stringify(["thumbnail-slot-1"]),
+  TRUSTED_PROCESSING_CONTAINERS: {
+    idFromName: vi.fn((slot: string) => slot),
+    get: vi.fn(() => ({
+      fetch: vi.fn(async () => new Response(null, {status: 202})),
+    })),
+  },
+  THUMBNAIL_CONTAINERS: {
+    idFromName: vi.fn((slot: string) => slot),
+    get: vi.fn(() => ({
+      fetch: vi.fn(async () => new Response(null, {status: 202})),
+    })),
+  },
 };
 const context = {
   props: undefined,
@@ -64,6 +86,36 @@ describe("route-free Jobs release verification", () => {
       migrationHead: "0038_cloudflare_release_verification_probe",
     });
     mocks.complete.mockResolvedValue(true);
+    mocks.listContainerEvidence.mockResolvedValue([
+      {
+        nonce: probe.nonce,
+        releaseId: probe.releaseId,
+        fence: probe.fence,
+        subFence: probe.subFence,
+        containerClass: "thumbnail",
+        stableSlot: "thumbnail-slot-1",
+        providerInstance: "thumbnail-provider-1",
+        controllerInstance: "thumbnail-controller-1",
+        buildIdentity: "thumbnail-build",
+        contractRevision: "gallery-job/v1",
+        imageReference: bindings.THUMBNAIL_IMAGE_REFERENCE,
+        observedAt: "2026-07-24T00:00:00.000Z",
+      },
+      {
+        nonce: probe.nonce,
+        releaseId: probe.releaseId,
+        fence: probe.fence,
+        subFence: probe.subFence,
+        containerClass: "trusted-processing",
+        stableSlot: "processing-slot-1",
+        providerInstance: "processing-provider-1",
+        controllerInstance: "processing-controller-1",
+        buildIdentity: "processing-build",
+        contractRevision: "gallery-job/v1",
+        imageReference: bindings.TRUSTED_PROCESSING_IMAGE_REFERENCE,
+        observedAt: "2026-07-24T00:00:00.000Z",
+      },
+    ]);
   });
 
   it("returns executing Worker and configured release identities after fenced commit", async () => {
@@ -102,9 +154,10 @@ describe("route-free Jobs release verification", () => {
         origin: "http://shareslices-broker.internal",
         publicIngress: false,
       },
-      containerConvergence: "unverified",
+      containerConvergence: "verified",
     });
     expect(mocks.begin).toHaveBeenCalledWith(probe, 60);
+    expect(mocks.listContainerEvidence).toHaveBeenCalledWith(probe);
     expect(mocks.complete).toHaveBeenCalledWith(
       probe,
       response.headers.get("x-shareslices-evidence-digest"),

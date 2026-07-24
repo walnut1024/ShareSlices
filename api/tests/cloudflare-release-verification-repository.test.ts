@@ -82,7 +82,18 @@ async function seed(scope: ReleaseVerificationScope) {
       scope.releaseId,
       scope.fence,
       scope.subFence,
-      JSON.stringify({jobsVersionId: "version-1"}),
+      JSON.stringify({
+        jobsVersionId: "version-1",
+        containers: {
+          thumbnail: {
+            stableSlots: ["thumbnail-0"],
+            buildIdentity: "sha256:thumbnail",
+            releaseId: scope.releaseId,
+            contractRevision: "gallery-job/v1",
+            imageReference: "registry.example/thumbnail@sha256:image",
+          },
+        },
+      }),
     ],
   );
 }
@@ -106,7 +117,8 @@ describe("Cloudflare release-verification probe fencing", () => {
 
     await expect(repository.begin(candidate, 30)).resolves.toEqual({
       state: "started",
-      migrationHead: "0038_cloudflare_release_verification_probe.sql",
+      migrationHead:
+        "0039_cloudflare_release_verification_container_evidence.sql",
     });
     await expect(repository.begin(candidate, 30)).resolves.toBeNull();
     await expect(repository.begin(
@@ -140,7 +152,8 @@ describe("Cloudflare release-verification probe fencing", () => {
     const repository = createReleaseVerificationRepository(connection);
     await expect(repository.begin(candidate, 30)).resolves.toEqual({
       state: "started",
-      migrationHead: "0038_cloudflare_release_verification_probe.sql",
+      migrationHead:
+        "0039_cloudflare_release_verification_container_evidence.sql",
     });
 
     const digest = `sha256:${"b".repeat(64)}`;
@@ -177,5 +190,53 @@ describe("Cloudflare release-verification probe fencing", () => {
       state: "fenced",
       failure_reason_code: "verification_nonce_terminal",
     });
+  });
+
+  it("records only expected live Container identity once per stable slot", async () => {
+    const candidate = scope();
+    await seed(candidate);
+    const repository = createReleaseVerificationRepository(connection);
+    const evidence = {
+      nonce: candidate.nonce,
+      releaseId: candidate.releaseId,
+      fence: candidate.fence,
+      subFence: candidate.subFence,
+      containerClass: "thumbnail" as const,
+      stableSlot: "thumbnail-0",
+      providerInstance: `deployment-${randomUUID()}`,
+      controllerInstance: `controller-${randomUUID()}`,
+      buildIdentity: "sha256:thumbnail",
+      contractRevision: "gallery-job/v1",
+      imageReference: "registry.example/thumbnail@sha256:image",
+    };
+
+    await expect(repository.recordContainerEvidence(evidence)).resolves.toBe(true);
+    await expect(repository.recordContainerEvidence({
+      ...evidence,
+      providerInstance: `deployment-${randomUUID()}`,
+    })).resolves.toBe(false);
+    await expect(repository.recordContainerEvidence({
+      ...evidence,
+      stableSlot: "thumbnail-1",
+      providerInstance: `deployment-${randomUUID()}`,
+    })).resolves.toBe(false);
+    await expect(repository.recordContainerEvidence({
+      ...evidence,
+      buildIdentity: "sha256:prior-image",
+      providerInstance: `deployment-${randomUUID()}`,
+    })).resolves.toBe(false);
+
+    await expect(repository.markTerminal({
+      nonce: candidate.nonce,
+      releaseId: candidate.releaseId,
+      fence: candidate.fence,
+      subFence: candidate.subFence,
+      evidenceDigest: `sha256:${"c".repeat(64)}`,
+      tombstoneSeconds: 3_600,
+    })).resolves.toBe(true);
+    await expect(repository.recordContainerEvidence({
+      ...evidence,
+      providerInstance: `deployment-${randomUUID()}`,
+    })).resolves.toBe(false);
   });
 });
