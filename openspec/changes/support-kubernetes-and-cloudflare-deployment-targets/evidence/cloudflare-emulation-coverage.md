@@ -199,3 +199,32 @@ Current first-party references:
 - [Pause and purge Queues](https://developers.cloudflare.com/queues/configuration/pause-purge/)
 - [Queues pricing](https://developers.cloudflare.com/queues/platform/pricing/)
 - [Cron Triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
+
+## Version-scoped Secret staging run
+
+On 2026-07-25, a bounded Workers Free run deployed one route-free prototype
+with Version Metadata and no Secret. The baseline response returned its exact
+version ID and `hasProbeSecret: false`.
+
+`wrangler versions secret put` then created, but did not deploy, a second
+version containing one disposable `PROBE_SECRET`. The active deployment still
+served the original baseline without that Secret. After creating an explicit
+100% baseline / 0% candidate deployment, an ordinary request returned the
+baseline ID with `hasProbeSecret: false`, while a version override returned the
+candidate's exact ID with `hasProbeSecret: true`. No Secret value was returned
+or committed.
+
+Cleanup replaced the current deployment with baseline-only membership and then
+deleted the Worker, which removed the disposable Secret version. A fresh
+deployments read returned provider code `10007` and the former `workers.dev`
+URL returned 404. No route, Preview URL, Queue, Cron, R2, Hyperdrive,
+Container, or custom domain was created. Repeatable non-secret inputs remain
+under `deploy/cloudflare/prototypes/version-secrets/`.
+
+This verifies the App/Content-style version-scoped Secret subset of task 1.10.
+It does not qualify immediate Jobs Secret preservation, update, deletion, or
+Durable Object `exports` compatibility.
+
+Current first-party reference:
+
+- [Workers Secrets](https://developers.cloudflare.com/workers/configuration/secrets/)
