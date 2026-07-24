@@ -105,3 +105,49 @@ This completes the Static Assets precedence/header staging row of 11.16. It
 does not prove version overrides, Hyperdrive, Queue/Cron control-plane
 propagation, R2 transport, Containers, custom domains, or representative cache
 economics.
+
+## Version deployment and override staging run
+
+On 2026-07-25, a bounded Workers Free run used Wrangler 4.112.0 to deploy a
+baseline version, upload a candidate without activating it, and create a
+provider-observed deployment with the baseline at 100% and candidate at 0%.
+Both versions returned their exact official Version Metadata binding ID.
+
+After the deployment propagated, an external override request and a fetch-based
+Service Binding override both selected the 0% candidate and returned its exact
+ID. An ordinary request continued to return the 100% baseline and its exact ID.
+This proves that 0% controls ordinary traffic only; it does not make a candidate
+private or unreachable.
+
+The first requests also exposed a material control-plane boundary. Immediately
+after adding the candidate, an external override initially followed the
+baseline percentage and one Service Binding attempt returned provider error
+1042. Both selected the candidate after propagation. After replacing the
+deployment with baseline-only membership, the public override fell back to the
+baseline before the Service Binding did; the Service Binding also fell back
+after propagation. Automation must therefore reread membership and verify the
+returned Version Metadata ID. A successful control-plane write alone does not
+prove global selection or removal.
+
+The prototype compatibility date is `2026-07-24` because Cloudflare's control
+plane still considered `2026-07-25` a future date during the Asia/Shanghai
+midnight window. Release automation must use a reviewed date rather than derive
+one from the operator's local calendar date.
+
+Cleanup removed candidate membership, then deleted the verifier and target.
+Fresh deployment reads returned provider code `10007` for both exact names and
+both former `workers.dev` URLs returned 404. No custom route, Preview URL,
+Secret, Queue, Cron, R2, Hyperdrive, Container, or custom domain was created.
+The repeatable inputs remain under
+`deploy/cloudflare/prototypes/version-overrides/`.
+
+This completes the version-deployment, external-override, and fetch-Service-
+Binding subset of tasks 1.10 and 11.16. It does not prove version-scoped
+Secrets, Jobs `exports`, rollback retention, trigger ownership, or integrated
+release compensation.
+
+Current first-party references:
+
+- [Version overrides](https://developers.cloudflare.com/workers/versions-and-deployments/version-overrides/)
+- [Gradual deployments](https://developers.cloudflare.com/workers/versions-and-deployments/gradual-deployments/)
+- [Worker errors](https://developers.cloudflare.com/workers/observability/errors/)

@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "shareslices-opsx-version-target-20260725",
+  "main": "candidate.mjs",
+  "compatibility_date": "2026-07-24",
+  "workers_dev": true,
+  "preview_urls": false,
+  "version_metadata": {
+    "binding": "VERSION_METADATA"
+  }
+}

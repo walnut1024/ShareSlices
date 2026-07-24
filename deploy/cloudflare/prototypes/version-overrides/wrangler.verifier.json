@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "shareslices-opsx-version-verifier-20260725",
+  "main": "verifier.mjs",
+  "compatibility_date": "2026-07-24",
+  "workers_dev": true,
+  "preview_urls": false,
+  "services": [
+    {
+      "binding": "TARGET",
+      "service": "shareslices-opsx-version-target-20260725"
+    }
+  ]
+}
