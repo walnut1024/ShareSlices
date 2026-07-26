@@ -25,6 +25,7 @@ test("builds every Kubernetes role once and records only immutable digest refere
     const first = await buildKubernetesImages({
       repository: "registry.example.test/shareslices",
       sourceRevision,
+      sourceRepositoryUrl: "https://github.com/example/shareslices",
       outputDirectory: await outputDirectory(root, "first"),
       runBuild,
     });
@@ -32,6 +33,7 @@ test("builds every Kubernetes role once and records only immutable digest refere
     const second = await buildKubernetesImages({
       repository: "registry.example.test/shareslices",
       sourceRevision,
+      sourceRepositoryUrl: "https://github.com/example/shareslices",
       outputDirectory: await outputDirectory(root, "second"),
       runBuild,
     });
@@ -42,6 +44,9 @@ test("builds every Kubernetes role once and records only immutable digest refere
     assert.equal(first.images.every(({providerReference}) => providerReference.includes("@sha256:")), true);
     assert.equal(first.images.every(({publicationTag}) => publicationTag.endsWith(`release-${sourceRevision}`)), true);
     assert.equal(calls.length, 5);
+    assert.equal(calls.every(({sourceRepositoryUrl}) =>
+      sourceRepositoryUrl === "https://github.com/example/shareslices"), true);
+    assert.equal(first.sourceRepositoryUrl, "https://github.com/example/shareslices");
     const firstBytes = await readFile(resolve(root, "first/kubernetes-images-manifest.json"));
     const secondBytes = await readFile(resolve(root, "second/kubernetes-images-manifest.json"));
     assert.deepEqual(firstBytes, secondBytes);
@@ -58,6 +63,12 @@ test("refuses a mutable source identity, unconfirmed digest, or nonempty output"
       sourceRevision: "main",
       outputDirectory: resolve(root, "mutable"),
     }), /full Git commit SHA/);
+    await assert.rejects(buildKubernetesImages({
+      repository: "registry.example.test/shareslices",
+      sourceRevision,
+      sourceRepositoryUrl: "https://user:password@github.com/example/shareslices",
+      outputDirectory: resolve(root, "credentialed-source"),
+    }), /source repository URL is invalid/);
     await assert.rejects(buildKubernetesImages({
       repository: "registry.example.test/shareslices",
       sourceRevision,

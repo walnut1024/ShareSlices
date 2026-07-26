@@ -71,6 +71,7 @@ jobs:
           mise run kubernetes-build-images --
           --repository "$IMAGE_REPOSITORY"
           --source-revision "$GITHUB_SHA"
+          --source-repository-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
           --platforms "$IMAGE_PLATFORMS"
           --output dist/kubernetes-images
       - name: Publish Cloudflare Container role images
@@ -81,6 +82,7 @@ jobs:
           mise run cloudflare-build-container-images --
           --repository "$IMAGE_REPOSITORY"
           --source-revision "$GITHUB_SHA"
+          --source-repository-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
           --platforms "$IMAGE_PLATFORMS"
           --output dist/cloudflare-container-images
       - name: Retain release inputs

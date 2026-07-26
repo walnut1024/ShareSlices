@@ -25,7 +25,7 @@ const imageDefinitions = Object.freeze([
   },
 ]);
 
-function validateInput(repository, sourceRevision, platforms, buildProxy) {
+function validateInput(repository, sourceRevision, platforms, buildProxy, sourceRepositoryUrl) {
   if (!/^[a-z0-9][a-z0-9._:/-]*[a-z0-9]$/.test(repository ?? "") || repository.includes("://")) {
     throw new TypeError("Cloudflare Container image repository is invalid.");
   }
@@ -43,6 +43,14 @@ function validateInput(repository, sourceRevision, platforms, buildProxy) {
       throw new TypeError("Cloudflare Container image build proxy is invalid.");
     }
   }
+  if (sourceRepositoryUrl !== undefined) {
+    const sourceUrl = URL.parse(sourceRepositoryUrl);
+    if (sourceUrl === null || sourceUrl.protocol !== "https:" ||
+        sourceUrl.username !== "" || sourceUrl.password !== "" ||
+        sourceUrl.search !== "" || sourceUrl.hash !== "") {
+      throw new TypeError("Cloudflare Container image source repository URL is invalid.");
+    }
+  }
 }
 
 async function requireEmptyDirectory(outputDirectory) {
@@ -52,7 +60,14 @@ async function requireEmptyDirectory(outputDirectory) {
   }
 }
 
-async function defaultBuild({definition, reference, platforms, metadataPath, buildProxy}) {
+async function defaultBuild({
+  definition,
+  reference,
+  platforms,
+  metadataPath,
+  buildProxy,
+  sourceRepositoryUrl,
+}) {
   const arguments_ = [
     "buildx", "build",
     "--file", resolve(repositoryRoot, definition.dockerfile),
@@ -60,11 +75,16 @@ async function defaultBuild({definition, reference, platforms, metadataPath, bui
     "--platform", platforms.join(","),
     "--tag", reference,
     "--label", `org.opencontainers.image.revision=${reference.slice(reference.lastIndexOf("-") + 1)}`,
+  ];
+  if (sourceRepositoryUrl !== undefined) {
+    arguments_.push("--label", `org.opencontainers.image.source=${sourceRepositoryUrl}`);
+  }
+  arguments_.push(
     "--provenance=mode=max",
     "--sbom=true",
     "--push",
     "--metadata-file", metadataPath,
-  ];
+  );
   if (buildProxy !== undefined) {
     arguments_.push(
       "--build-arg", `HTTP_PROXY=${buildProxy}`,
@@ -84,9 +104,10 @@ export async function buildCloudflareContainerImages({
   outputDirectory,
   platforms = ["linux/amd64"],
   buildProxy,
+  sourceRepositoryUrl,
   runBuild = defaultBuild,
 }) {
-  validateInput(repository, sourceRevision, platforms, buildProxy);
+  validateInput(repository, sourceRevision, platforms, buildProxy, sourceRepositoryUrl);
   const absoluteOutput = resolve(outputDirectory);
   await requireEmptyDirectory(absoluteOutput);
   const scratch = await mkdtemp(resolve(tmpdir(), "shareslices-cloudflare-container-images-"));
@@ -101,6 +122,7 @@ export async function buildCloudflareContainerImages({
         platforms,
         metadataPath: resolve(scratch, `${definition.name}.json`),
         buildProxy,
+        sourceRepositoryUrl,
       });
       const digest = metadata?.["containerimage.digest"];
       if (!/^sha256:[a-f0-9]{64}$/.test(digest ?? "")) {
@@ -120,6 +142,7 @@ export async function buildCloudflareContainerImages({
       schemaVersion: "shareslices.cloudflare-container-images/v1",
       sourceRevision,
       repository,
+      ...(sourceRepositoryUrl === undefined ? {} : {sourceRepositoryUrl}),
       images: Object.freeze(images),
     });
     const manifest = Object.freeze({...body, manifestDigest: sha256Digest(body)});
@@ -153,6 +176,7 @@ function parseArguments(arguments_) {
     outputDirectory: options.output,
     platforms: options.platforms?.split(",") ?? ["linux/amd64"],
     buildProxy: options["build-proxy"],
+    sourceRepositoryUrl: options["source-repository-url"],
   };
 }
 

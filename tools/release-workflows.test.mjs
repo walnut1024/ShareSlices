@@ -25,6 +25,12 @@ test("application release delegates build and publication policy to mise tasks",
   ]) {
     assert.ok(commands.some((command) => command.includes(`mise run ${task}`)));
   }
+  assert.equal(
+    commands.filter((command) =>
+      command.includes("--source-repository-url \"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY\"")
+    ).length,
+    2,
+  );
   const registry = steps.find(({ name }) => name === "Resolve OCI registry");
   assert.match(registry.run, /GITHUB_OUTPUT/);
   const login = steps.find(({ name }) => name === "Authenticate OCI publication");

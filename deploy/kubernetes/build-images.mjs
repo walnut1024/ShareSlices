@@ -20,7 +20,7 @@ const imageDefinitions = Object.freeze([
   {name: "processing-image", dockerfile: "worker/Dockerfile", target: "runtime"},
 ]);
 
-function validateInput(repository, sourceRevision, platforms) {
+function validateInput(repository, sourceRevision, platforms, sourceRepositoryUrl) {
   if (!/^[a-z0-9][a-z0-9._:/-]*[a-z0-9]$/.test(repository ?? "") || repository.includes("://")) {
     throw new TypeError("Kubernetes image repository is invalid.");
   }
@@ -31,6 +31,14 @@ function validateInput(repository, sourceRevision, platforms) {
       platforms.some((platform) => !/^linux\/(amd64|arm64)$/.test(platform))) {
     throw new TypeError("Kubernetes image platforms are invalid.");
   }
+  if (sourceRepositoryUrl !== undefined) {
+    const sourceUrl = URL.parse(sourceRepositoryUrl);
+    if (sourceUrl === null || sourceUrl.protocol !== "https:" ||
+        sourceUrl.username !== "" || sourceUrl.password !== "" ||
+        sourceUrl.search !== "" || sourceUrl.hash !== "") {
+      throw new TypeError("Kubernetes image source repository URL is invalid.");
+    }
+  }
 }
 
 async function requireEmptyDirectory(outputDirectory) {
@@ -40,20 +48,32 @@ async function requireEmptyDirectory(outputDirectory) {
   }
 }
 
-async function defaultBuild({definition, reference, platforms, metadataPath}) {
-  await execute("docker", [
+async function defaultBuild({
+  definition,
+  reference,
+  platforms,
+  metadataPath,
+  sourceRepositoryUrl,
+}) {
+  const arguments_ = [
     "buildx", "build",
     "--file", resolve(repositoryRoot, definition.dockerfile),
     "--target", definition.target,
     "--platform", platforms.join(","),
     "--tag", reference,
     "--label", `org.opencontainers.image.revision=${reference.slice(reference.lastIndexOf("-") + 1)}`,
+  ];
+  if (sourceRepositoryUrl !== undefined) {
+    arguments_.push("--label", `org.opencontainers.image.source=${sourceRepositoryUrl}`);
+  }
+  arguments_.push(
     "--provenance=mode=max",
     "--sbom=true",
     "--push",
     "--metadata-file", metadataPath,
     repositoryRoot,
-  ], {cwd: repositoryRoot, maxBuffer: 16 * 1024 * 1024});
+  );
+  await execute("docker", arguments_, {cwd: repositoryRoot, maxBuffer: 16 * 1024 * 1024});
   return JSON.parse(await readFile(metadataPath, "utf8"));
 }
 
@@ -62,9 +82,10 @@ export async function buildKubernetesImages({
   sourceRevision,
   outputDirectory,
   platforms = ["linux/amd64"],
+  sourceRepositoryUrl,
   runBuild = defaultBuild,
 }) {
-  validateInput(repository, sourceRevision, platforms);
+  validateInput(repository, sourceRevision, platforms, sourceRepositoryUrl);
   const absoluteOutput = resolve(outputDirectory);
   await requireEmptyDirectory(absoluteOutput);
   const scratch = await mkdtemp(resolve(tmpdir(), "shareslices-kubernetes-images-"));
@@ -78,6 +99,7 @@ export async function buildKubernetesImages({
         reference,
         platforms,
         metadataPath: resolve(scratch, `${definition.name}.json`),
+        sourceRepositoryUrl,
       });
       const digest = metadata?.["containerimage.digest"];
       if (!/^sha256:[a-f0-9]{64}$/.test(digest ?? "")) {
@@ -97,6 +119,7 @@ export async function buildKubernetesImages({
       schemaVersion: "shareslices.kubernetes-images/v1",
       sourceRevision,
       repository,
+      ...(sourceRepositoryUrl === undefined ? {} : {sourceRepositoryUrl}),
       images: Object.freeze(images),
     });
     const manifest = Object.freeze({...body, manifestDigest: sha256Digest(body)});
@@ -123,6 +146,7 @@ function parseArguments(arguments_) {
     sourceRevision: options["source-revision"],
     outputDirectory: options.output,
     platforms: options.platforms?.split(",") ?? ["linux/amd64"],
+    sourceRepositoryUrl: options["source-repository-url"],
   };
 }
 
