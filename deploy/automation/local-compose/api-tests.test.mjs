@@ -13,6 +13,7 @@ import {
   prepareIsolatedDockerConfig,
   processChildEnvironment,
   repositoryRoot,
+  resolveDockerPlugin,
   resolveLocalDockerHost,
   testComposeArgs,
   testComposeArgsWithOwnership,
@@ -158,6 +159,28 @@ test("automated tests accept only an explicitly discovered local Docker socket",
     }),
     /remote and caller-selected Docker endpoints are refused/,
   );
+});
+
+test("Docker plugin discovery supports Linux system plugin directories", () => {
+  const checked = [];
+  const path = resolveDockerPlugin("buildx", {
+    candidates: [
+      "/usr/local/lib/docker/cli-plugins",
+      "/usr/libexec/docker/cli-plugins",
+    ],
+    assertExecutable(candidate) {
+      checked.push(candidate);
+      if (candidate !== "/usr/libexec/docker/cli-plugins/docker-buildx") {
+        throw new Error("not executable");
+      }
+    },
+  });
+
+  assert.equal(path, "/usr/libexec/docker/cli-plugins/docker-buildx");
+  assert.deepEqual(checked, [
+    "/usr/local/lib/docker/cli-plugins/docker-buildx",
+    "/usr/libexec/docker/cli-plugins/docker-buildx",
+  ]);
 });
 
 test("test processes exclude caller application, provider, CI, and agent variables", () => {

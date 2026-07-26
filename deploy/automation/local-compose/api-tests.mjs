@@ -122,20 +122,26 @@ export function dockerChildEnvironment({ dockerConfig, dockerHost }) {
   return dockerEnvironment({ dockerConfig, host: dockerHost });
 }
 
-function resolveDockerPlugin(pluginName) {
+export function resolveDockerPlugin(pluginName, {
+  candidates: candidateDirectories = [
+    join(homedir(), ".docker/cli-plugins"),
+    "/Applications/Docker.app/Contents/Resources/cli-plugins",
+    "/opt/homebrew/lib/docker/cli-plugins",
+    "/usr/local/lib/docker/cli-plugins",
+    "/usr/local/libexec/docker/cli-plugins",
+    "/usr/lib/docker/cli-plugins",
+    "/usr/libexec/docker/cli-plugins",
+  ],
+  assertExecutable = (path) => accessSync(path, constants.X_OK),
+} = {}) {
   const executableName = `docker-${pluginName}`;
-  const candidates = [
-    join(homedir(), `.docker/cli-plugins/${executableName}`),
-    `/Applications/Docker.app/Contents/Resources/cli-plugins/${executableName}`,
-    `/opt/homebrew/lib/docker/cli-plugins/${executableName}`,
-    `/usr/local/lib/docker/cli-plugins/${executableName}`,
-  ];
+  const candidates = candidateDirectories.map((directory) => join(directory, executableName));
   for (const candidate of candidates) {
     try {
-      accessSync(candidate, constants.X_OK);
+      assertExecutable(candidate);
       return candidate;
     } catch {
-      // Continue through the fixed local plugin locations.
+      // Continue through Docker's supported local and system plugin locations.
     }
   }
   throw new Error(`Docker ${pluginName} plugin not found (${candidates.join(", ")})`);
