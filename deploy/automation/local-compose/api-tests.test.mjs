@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-// cspell:words userconfig
+// cspell:words libexec userconfig
 import { mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

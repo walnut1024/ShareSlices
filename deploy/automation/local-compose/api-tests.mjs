@@ -1,3 +1,4 @@
+// cspell:words libexec
 import { spawnSync } from "node:child_process";
 import {
   accessSync,
