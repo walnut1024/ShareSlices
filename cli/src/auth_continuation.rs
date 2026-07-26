@@ -259,14 +259,14 @@ fn state_root() -> Result<PathBuf, AuthError> {
     }
     #[cfg(target_os = "windows")]
     {
-        return std::env::var_os("LOCALAPPDATA")
+        std::env::var_os("LOCALAPPDATA")
             .map(PathBuf::from)
             .map(|path| path.join("ShareSlices"))
-            .ok_or_else(|| AuthError::CredentialStore("state directory unavailable".to_owned()));
+            .ok_or_else(|| AuthError::CredentialStore("state directory unavailable".to_owned()))
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        return Ok(std::env::var_os("XDG_STATE_HOME")
+        Ok(std::env::var_os("XDG_STATE_HOME")
             .map(PathBuf::from)
             .or_else(|| {
                 std::env::var_os("HOME")
@@ -274,7 +274,7 @@ fn state_root() -> Result<PathBuf, AuthError> {
                     .map(|path| path.join(".local/state"))
             })
             .ok_or_else(|| AuthError::CredentialStore("state directory unavailable".to_owned()))?
-            .join("shareslices"));
+            .join("shareslices"))
     }
 }
 
