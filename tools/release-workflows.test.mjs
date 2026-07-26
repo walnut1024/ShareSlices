@@ -34,6 +34,11 @@ test("application release delegates build and publication policy to mise tasks",
   assert.match(login.with.password, /OCI_REGISTRY_TOKEN/);
   assert.equal(document.permissions.packages, "write");
   assert.equal(document.jobs.build["runs-on"], "ubuntu-24.04");
+  const setupRust = steps.find(({ uses }) =>
+    uses === "dtolnay/rust-toolchain@stable"
+  );
+  assert.equal(setupRust.with.toolchain, "1.96.1");
+  assert.equal(setupRust.with.components, "rustfmt, clippy");
   assert.equal(
     steps.find(({ uses }) => uses === "pnpm/action-setup@v4").uses,
     "pnpm/action-setup@v4",
