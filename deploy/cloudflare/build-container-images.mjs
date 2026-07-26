@@ -69,6 +69,8 @@ async function defaultBuild({definition, reference, platforms, metadataPath, bui
     arguments_.push(
       "--build-arg", `HTTP_PROXY=${buildProxy}`,
       "--build-arg", `HTTPS_PROXY=${buildProxy}`,
+      "--build-arg", `http_proxy=${buildProxy}`,
+      "--build-arg", `https_proxy=${buildProxy}`,
     );
   }
   arguments_.push(repositoryRoot);
