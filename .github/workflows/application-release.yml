@@ -34,6 +34,8 @@ jobs:
           enable-cache: false
           version: "0.11.16"
       - uses: docker/setup-buildx-action@v3
+      - name: Install Linux build dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libdbus-1-dev pkg-config
       - name: Install locked dependencies
         run: mise run install -- --frozen-lockfile
       - name: Verify source

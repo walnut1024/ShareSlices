@@ -52,6 +52,11 @@ test("application release delegates build and publication policy to mise tasks",
     steps.find(({ uses }) => uses === "docker/setup-buildx-action@v3").uses,
     "docker/setup-buildx-action@v3",
   );
+  const linuxDependencies = steps.find(({ name }) =>
+    name === "Install Linux build dependencies"
+  );
+  assert.ok(linuxDependencies.run.includes("libdbus-1-dev"));
+  assert.ok(linuxDependencies.run.includes("pkg-config"));
   assert.doesNotMatch(source, /\b(?:docker|kubectl|kustomize|terraform|wrangler)\s/);
 });
 
