@@ -211,7 +211,7 @@ work in the following dependency order rather than numeric section order:
 
 ## 8. Immutable Release Construction and CI
 
-- [ ] 8.1 Build Kubernetes API, Web, content/maintenance, and Rust/Chromium images once per source revision and publish immutable digests.
+- [x] 8.1 Build Kubernetes API, Web, content/maintenance, and Rust/Chromium images once per source revision and publish immutable digests.
 - [x] 8.2 Produce an environment-neutral Web build and a canonical Static Assets manifest digest reusable by both targets.
 - [x] 8.3 Build immutable App, content, and jobs Worker bundles from the shared runtime entrypoints and record their compatibility date and bundle digests.
 - [ ] 8.4 Build and retain separate trusted Rust processing and secretless Rust/Chromium Cloudflare images; always record content digests, use provider-proven digest references or qualified never-reused release tags, and keep every rollback-window image available.
