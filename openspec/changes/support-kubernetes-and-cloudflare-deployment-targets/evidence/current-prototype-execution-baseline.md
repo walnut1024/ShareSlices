@@ -86,12 +86,14 @@ so the CLI's linkage warning is not evidence of a failed provider operation.
 
 These observations replace the mutable `require` and enforcement-disabled state
 recorded above. They prove the selected management-plane configuration and
-post-change project health, but they do not prove a successful Worker-runtime
-query through Hyperdrive. Task 5.3 therefore remains open until the cache
-freshness, transaction, prepared-statement, timeout, connection-budget, positive
-runtime identity, and retained wrong-host or untrusted-certificate negative
-evidence all pass in one bounded qualification run. No Worker, route, trigger,
-consumer, or public service was created by this hardening operation.
+post-change project health. A later bounded run on the same date passed the
+checked Worker-runtime Hyperdrive verifier for representative product paths,
+transaction rollback, cross-Pool freshness, protocol-level named statements,
+transaction-local state reset, statement timeout, and the Worker connection
+budget. Together with the retained wrong-host negative evidence, that run
+completes task 5.3. Its disposable Worker and versioned Secrets were deleted
+immediately after the run; no route, trigger, consumer, or public service
+remains.
 
 ## Execution rule
 

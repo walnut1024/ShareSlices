@@ -396,12 +396,14 @@ Cloudflare account, and bound to the retained cache-disabled Hyperdrive with
 `sslmode = verify-full`. The Supabase database SSL-enforcement setting was then
 enabled, reread as enabled, and the project returned to `ACTIVE_HEALTHY`.
 
-This closes the previously missing management-plane configuration prerequisite,
-not task 5.3. The Hyperdrive reread proves the CA binding and selected TLS mode;
-it does not substitute for the still-required Worker-runtime positive query or
-the complete live semantics suite. The earlier wrong-host result remains
-historical negative evidence, while a bounded follow-up must still record the
-positive `verify-full` runtime result before the task can be checked off.
+This closed the previously missing management-plane configuration prerequisite.
+A later bounded Worker run on the same date passed the dedicated Hyperdrive
+verifier for the representative product paths, transaction rollback,
+cross-Pool freshness, protocol-level named statements, transaction-local state
+reset, statement timeout, and the one-connection Worker pool budget. Combined
+with the earlier wrong-host rejection, the positive CA-bound `verify-full`
+runtime result completes task 5.3 without treating encryption alone as origin
+identity. The disposable Worker and its Secrets were removed after the run.
 
 ## Ninth-pass Compose role and operator-guide correction
 
