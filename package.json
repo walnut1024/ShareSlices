@@ -27,6 +27,7 @@
   "devDependencies": {
     "@aws-sdk/client-s3": "3.1083.0",
     "@cloudflare/containers": "0.3.7",
+    "@fission-ai/openspec": "1.5.0",
     "ajv": "8.17.1",
     "ajv-formats": "3.0.1",
     "cspell": "^10.0.1",

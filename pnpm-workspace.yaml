@@ -3,6 +3,7 @@ packages:
   - "deploy/cloudflare/prototypes/*"
   - "web"
 allowBuilds:
+  '@fission-ai/openspec': false
   esbuild: true
   sharp: true
   workerd: true
