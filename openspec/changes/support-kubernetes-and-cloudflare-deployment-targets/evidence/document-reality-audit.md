@@ -388,6 +388,21 @@ an omitted required direct role, enabled or unknown Hyperdrive caching,
 negative runtime evidence all produce stable unavailable checks. Provider
 observation and the complete CLI doctor remain owned by tasks 3.6 and 12.1.
 
+## Authorized Hyperdrive TLS hardening follow-up
+
+On 2026-07-26, the operator supplied and explicitly authorized use of the
+Supabase project CA. The certificate was validated locally, uploaded to the
+Cloudflare account, and bound to the retained cache-disabled Hyperdrive with
+`sslmode = verify-full`. The Supabase database SSL-enforcement setting was then
+enabled, reread as enabled, and the project returned to `ACTIVE_HEALTHY`.
+
+This closes the previously missing management-plane configuration prerequisite,
+not task 5.3. The Hyperdrive reread proves the CA binding and selected TLS mode;
+it does not substitute for the still-required Worker-runtime positive query or
+the complete live semantics suite. The earlier wrong-host result remains
+historical negative evidence, while a bounded follow-up must still record the
+positive `verify-full` runtime result before the task can be checked off.
+
 ## Ninth-pass Compose role and operator-guide correction
 
 The 2026-07-22 pre-continuation review compared the checked Compose models,

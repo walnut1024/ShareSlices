@@ -1,5 +1,7 @@
 # Current prototype execution baseline
 
+<!-- cspell:words mhhjzebawhdkosyfzvvl pooler -->
+
 ## Purpose
 
 This evidence records which deployment experiments the current operator accounts can support without implying that the Cloudflare production target is qualified. It contains no credential values, provider tokens, database passwords, billing identifiers, or reusable resource addresses.
@@ -58,6 +60,38 @@ inventory `unknown`; it must not cause automation to reuse a historical resource
 select a replacement, or create one. This refresh created no project, changed no
 database or Cloudflare resource, applied no migration, sent no email, and started
 no service.
+
+## 2026-07-26 authorized TLS hardening refresh
+
+The operator explicitly authorized uploading the Supabase project CA, updating
+the retained Hyperdrive configuration to `verify-full`, and enabling Supabase
+database SSL enforcement. Before mutation, the supplied single-certificate CA
+was checked for its subject, validity interval, SHA-256 fingerprint, and a
+successful hostname-verifying TLS handshake to the project's documented pooler
+hostname.
+
+Wrangler reported no pre-existing account certificate. It then uploaded the
+Supabase Root 2021 CA as
+`69a08396-eadb-4aa6-b0ac-8448d848095f` and updated retained Hyperdrive
+`f2bed5e2a79f41f6b68df5e6fc096c07` to bind that CA with
+`sslmode = verify-full`. A management-plane reread reported caching disabled,
+origin connection limit `5`, the expected database DNS hostname, the uploaded
+CA identifier, and `verify-full`.
+
+The Supabase CLI then enabled database SSL enforcement for project
+`mhhjzebawhdkosyfzvvl`. Its post-change read returned `database: true`, and the
+project inventory returned `ACTIVE_HEALTHY` after the change. The repository
+remains intentionally unlinked; the checks used the explicit project reference,
+so the CLI's linkage warning is not evidence of a failed provider operation.
+
+These observations replace the mutable `require` and enforcement-disabled state
+recorded above. They prove the selected management-plane configuration and
+post-change project health, but they do not prove a successful Worker-runtime
+query through Hyperdrive. Task 5.3 therefore remains open until the cache
+freshness, transaction, prepared-statement, timeout, connection-budget, positive
+runtime identity, and retained wrong-host or untrusted-certificate negative
+evidence all pass in one bounded qualification run. No Worker, route, trigger,
+consumer, or public service was created by this hardening operation.
 
 ## Execution rule
 
