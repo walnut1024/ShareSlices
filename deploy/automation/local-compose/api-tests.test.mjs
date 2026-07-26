@@ -12,6 +12,7 @@ import {
   dockerChildEnvironment,
   prepareIsolatedDockerConfig,
   processChildEnvironment,
+  pythonContractRunnerArgs,
   repositoryRoot,
   resolveDockerPlugin,
   resolveLocalDockerHost,
@@ -215,6 +216,21 @@ test("test processes use a fixed CI mode and exclude caller application, provide
   assert.equal(environment.S3_BUCKET, "shareslices-test-artifacts");
   assert.equal(environment.AUTH_EMAIL_FROM, "ShareSlices Test <no-reply@shareslices.local>");
   assert.equal(environment.AUTH_EMAIL_SMTP_ENDPOINT_IDENTITY, "127.0.0.1:49104");
+});
+
+test("Python contracts use isolated exact test dependencies", () => {
+  assert.deepEqual(pythonContractRunnerArgs, [
+    "run",
+    "--isolated",
+    "--no-project",
+    "--with",
+    "pytest==9.1.1",
+    "--with",
+    "requests==2.34.2",
+    "--with",
+    "pyyaml==6.0.3",
+    "pytest",
+  ]);
 });
 
 test("Web E2E receives only frozen isolated Web, API, and Mailpit endpoints", () => {

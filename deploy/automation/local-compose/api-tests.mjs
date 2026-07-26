@@ -54,6 +54,18 @@ export const testComposeArgs = [
   "-f",
   "deploy/compose/compose.test.yaml",
 ];
+export const pythonContractRunnerArgs = Object.freeze([
+  "run",
+  "--isolated",
+  "--no-project",
+  "--with",
+  "pytest==9.1.1",
+  "--with",
+  "requests==2.34.2",
+  "--with",
+  "pyyaml==6.0.3",
+  "pytest",
+]);
 
 export function testComposeArgsWithOwnership(ownershipEnvironmentFile) {
   return [
@@ -415,7 +427,7 @@ export async function runIsolatedTests(suite) {
           run("pnpm", ["--dir", "api", "run", "test"], processEnv);
           run(
             "uv",
-            ["run", "pytest", "api/tests/test_account_entry_contract.py"],
+            [...pythonContractRunnerArgs, "api/tests/test_account_entry_contract.py"],
             contractProcessEnv,
           );
         }
@@ -435,7 +447,7 @@ export async function runIsolatedTests(suite) {
         if (suite === "api") {
           run(
             "uv",
-            ["run", "pytest", "api/tests/artifact_flow_contract.py"],
+            [...pythonContractRunnerArgs, "api/tests/artifact_flow_contract.py"],
             contractProcessEnv,
           );
         } else {
