@@ -22,6 +22,7 @@ test("builds distinct trusted and secretless Cloudflare Container images", async
       repository: "registry.example.test/shareslices",
       sourceRevision,
       outputDirectory: resolve(root, "first"),
+      buildProxy: "http://host.docker.internal:7890",
       runBuild,
     });
     calls.length = 0;
@@ -29,6 +30,7 @@ test("builds distinct trusted and secretless Cloudflare Container images", async
       repository: "registry.example.test/shareslices",
       sourceRevision,
       outputDirectory: resolve(root, "second"),
+      buildProxy: "http://host.docker.internal:7890",
       runBuild,
     });
     assert.deepEqual(first, second);
@@ -45,6 +47,8 @@ test("builds distinct trusted and secretless Cloudflare Container images", async
       true,
     );
     assert.equal(calls.length, 2);
+    assert.equal(calls.every(({buildProxy}) =>
+      buildProxy === "http://host.docker.internal:7890"), true);
     assert.deepEqual(
       await readFile(resolve(root, "first/cloudflare-container-images-manifest.json")),
       await readFile(resolve(root, "second/cloudflare-container-images-manifest.json")),
@@ -68,6 +72,13 @@ test("refuses mutable identity, unconfirmed digest, and occupied output", async 
       outputDirectory: resolve(root, "missing-digest"),
       runBuild: async () => ({}),
     }), /digest_unconfirmed/);
+    await assert.rejects(buildCloudflareContainerImages({
+      repository: "registry.example.test/shareslices",
+      sourceRevision,
+      outputDirectory: resolve(root, "credentialed-proxy"),
+      buildProxy: "http://user:password@proxy.example.test",
+      runBuild: async () => ({}),
+    }), /build proxy is invalid/);
     const occupied = resolve(root, "occupied");
     await writeFile(occupied, "reserved");
     await assert.rejects(buildCloudflareContainerImages({
