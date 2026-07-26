@@ -20,6 +20,10 @@ run = "node deploy/automation/main.mjs"
 description = "Build deterministic Cloudflare Worker bundles"
 run = "node deploy/cloudflare/build-worker-bundles.mjs"
 
+[tasks.cloudflare-build-container-images]
+description = "Build and publish immutable Cloudflare Container role images"
+run = "node deploy/cloudflare/build-container-images.mjs"
+
 [tasks.build-static-assets]
 description = "Build the deterministic environment-neutral Web artifact"
 run = "node deploy/automation/build-static-assets.mjs"

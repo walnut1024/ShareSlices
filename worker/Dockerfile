@@ -14,7 +14,7 @@ RUN mkdir -p worker/src cli/src \
 COPY worker/ worker/
 RUN touch worker/src/main.rs && cargo build --release --locked --package shareslices-worker
 
-FROM debian:bookworm-slim AS runtime
+FROM debian:bookworm-slim AS chromium-runtime
 
 ARG CHROMIUM_VERSION=150.0.7871.181-1~deb12u1
 RUN apt-get update \
@@ -38,3 +38,26 @@ USER shareslices
 HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 CMD ["shareslices-worker", "healthcheck"]
 
 ENTRYPOINT ["shareslices-worker"]
+
+FROM debian:bookworm-slim AS trusted-processing-runtime
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends --yes \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid 10001 shareslices \
+    && useradd --system --uid 10001 --gid shareslices --home-dir /nonexistent --shell /bin/false shareslices \
+    && install --directory --owner=shareslices --group=shareslices /tmp/shareslices
+
+COPY --from=build --chown=shareslices:shareslices /workspace/target/release/shareslices-worker /usr/local/bin/shareslices-worker
+
+ENV HOME=/tmp/shareslices
+USER shareslices
+
+ENTRYPOINT ["shareslices-worker"]
+
+FROM chromium-runtime AS thumbnail-runtime
+
+ENTRYPOINT ["shareslices-worker", "thumbnail-broker"]
+
+FROM chromium-runtime AS runtime
