@@ -41,6 +41,7 @@ test("application release delegates build and publication policy to mise tasks",
   const setupUv = steps.find(({ uses }) =>
     uses === "astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b"
   );
+  assert.equal(setupUv.with["enable-cache"], false);
   assert.equal(setupUv.with.version, "0.11.16");
   assert.equal(
     steps.find(({ uses }) => uses === "docker/setup-buildx-action@v3").uses,

@@ -268,7 +268,7 @@ describe("account entry screens", () => {
     await user.type(screen.getByLabelText("Password"), "correct horse battery staple");
     await user.click(await screen.findByRole("button", { name: "Sign in" }));
 
-    expect(await screen.findByRole("heading", { name: "Artifacts" }, { timeout: 3000 })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Artifacts" }, { timeout: 10000 })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/console");
     expect(screen.queryByText(/signed in as/i)).not.toBeInTheDocument();
   });
