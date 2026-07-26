@@ -16,7 +16,7 @@ RUN touch worker/src/main.rs && cargo build --release --locked --package sharesl
 
 FROM debian:bookworm-slim AS runtime
 
-ARG CHROMIUM_VERSION=150.0.7871.114-1~deb12u1
+ARG CHROMIUM_VERSION=150.0.7871.181-1~deb12u1
 RUN apt-get update \
     && apt-get install --no-install-recommends --yes \
         ca-certificates \
