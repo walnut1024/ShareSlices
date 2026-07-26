@@ -791,6 +791,16 @@ describe("Cloudflare route-free Jobs release verification", () => {
           releaseId,
           fence: 1,
           subFence: 1,
+          entryWorkers: {
+            application: {
+              name: "shareslices-app",
+              versionId: "app-version-id",
+            },
+            content: {
+              name: "shareslices-content",
+              versionId: "content-version-id",
+            },
+          },
         }),
       },
     );

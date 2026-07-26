@@ -24,6 +24,14 @@ test("application release delegates build and publication policy to mise tasks",
   ]) {
     assert.ok(commands.some((command) => command.includes(`mise run ${task}`)));
   }
+  const registry = steps.find(({ name }) => name === "Resolve OCI registry");
+  assert.match(registry.run, /GITHUB_OUTPUT/);
+  const login = steps.find(({ name }) => name === "Authenticate OCI publication");
+  assert.equal(login.uses, "docker/login-action@v3");
+  assert.equal(login.with.registry, "${{ steps.registry.outputs.host }}");
+  assert.match(login.with.username, /OCI_REGISTRY_USERNAME/);
+  assert.match(login.with.password, /OCI_REGISTRY_TOKEN/);
+  assert.equal(document.permissions.packages, "write");
   assert.doesNotMatch(source, /\b(?:docker|kubectl|kustomize|terraform|wrangler)\s/);
 });
 
@@ -37,4 +45,3 @@ test("target workflow serializes one environment and calls only the lifecycle en
   assert.match(lifecycle.run, /mise run deploy/);
   assert.doesNotMatch(source, /\b(?:docker|kubectl|kustomize|terraform|wrangler)\s/);
 });
-

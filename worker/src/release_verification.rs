@@ -58,6 +58,12 @@ fn positive(name: &'static str) -> Result<u64, ReleaseVerificationError> {
 
 /// Reports identity embedded in the running image together with the provider
 /// identity injected into the actual Cloudflare Container process.
+///
+/// # Errors
+///
+/// Returns an error when required release-verification configuration is
+/// missing or invalid, a callback request fails, or the broker or verifier
+/// rejects the reported evidence.
 pub async fn report_container_release_identity() -> Result<(), ReleaseVerificationError> {
     let origin = required("SHARESLICES_RELEASE_VERIFICATION_ORIGIN")?;
     if origin != "http://shareslices-release-verifier.internal" {

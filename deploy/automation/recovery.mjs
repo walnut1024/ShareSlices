@@ -122,3 +122,81 @@ export async function persistRecoveryMarker({ input, database, objectStorage, ma
   }
   return Object.freeze({ marker, writes: Object.freeze(writes) });
 }
+
+export async function runIsolatedRecoveryDrill({
+  authorized,
+  isolated,
+  trafficEnabled,
+  recoverability,
+  restore,
+  readMarkers,
+  now = new Date(),
+}) {
+  if (authorized !== true) {
+    throw new RecoveryEvidenceError(
+      "recovery_drill_unauthorized",
+      "Recovery drill requires explicit authorization.",
+    );
+  }
+  if (isolated !== true || trafficEnabled !== false) {
+    throw new RecoveryEvidenceError(
+      "recovery_drill_not_isolated",
+      "Recovery drill requires an isolated environment with traffic disabled.",
+    );
+  }
+
+  const evidence = inspectRecoverabilityEvidence(recoverability, now);
+  if (!evidence.ready) {
+    throw new RecoveryEvidenceError(
+      "recovery_evidence_unqualified",
+      "Recovery drill requires current evidence for every recovery dependency.",
+    );
+  }
+  if (!restore || typeof readMarkers !== "function") {
+    throw new RecoveryEvidenceError(
+      "recovery_drill_adapter_invalid",
+      "Recovery drill restore and marker adapters are required.",
+    );
+  }
+
+  const orderedSteps = [
+    ["postgresql", restore.postgresql],
+    ["objectStorage", restore.objectStorage],
+    ["recoveryManifest", restore.recoveryManifest],
+    ["deploymentJournal", restore.deploymentJournal],
+    ["iacState", restore.iacState],
+    ["releaseBundles", restore.releaseBundles],
+  ];
+  const completed = [];
+  for (const [kind, step] of orderedSteps) {
+    if (typeof step !== "function") {
+      throw new RecoveryEvidenceError(
+        "recovery_drill_adapter_invalid",
+        `${kind} restore adapter is required.`,
+      );
+    }
+    const outcome = await step();
+    if (outcome?.restored !== true) {
+      throw new RecoveryEvidenceError(
+        "recovery_restore_failed",
+        `${kind} restore did not complete.`,
+      );
+    }
+    completed.push(kind);
+  }
+
+  const markerVerification = verifyRecoveryMarkers(await readMarkers());
+  if (!markerVerification.ready) {
+    throw new RecoveryEvidenceError(
+      markerVerification.reasonCode ?? "recovery_marker_mismatch",
+      "Restored recovery markers do not prove one compatible consistency cut.",
+    );
+  }
+
+  return Object.freeze({
+    ready: true,
+    trafficEnabled: false,
+    completed: Object.freeze(completed),
+    cutId: markerVerification.marker.cutId,
+  });
+}

@@ -107,11 +107,19 @@ different or unproven relay authority.
 Build and publish immutable Kubernetes role images through the checked task:
 
 ```sh
-mise run kubernetes-build-images
+mise run kubernetes-build-images -- \
+  --repository ghcr.io/example/shareslices \
+  --source-revision "$(git rev-parse HEAD)" \
+  --platforms linux/amd64 \
+  --output dist/kubernetes-images
 ```
 
-The release must record each image content digest and the registry must support
-pull by that digest. Then run:
+The command pushes five role images. Authenticate the selected registry before
+running it and use a new empty output directory. The application-release
+workflow performs the same login through `OCI_REGISTRY_USERNAME` and
+`OCI_REGISTRY_TOKEN`; for GHCR it can instead use the workflow actor and scoped
+`GITHUB_TOKEN`. The release must record each registry-confirmed image content
+digest and the registry must support pull by that digest. Then run:
 
 ```sh
 mise run deploy -- doctor --config deployment.json --release release.json

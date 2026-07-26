@@ -60,73 +60,49 @@ The numbered sections group work by responsibility; they are not permission to i
   still block complete Cloudflare-target qualification.
 - Recheck the mutable observations in `evidence/current-prototype-execution-baseline.md` before every live provider prototype. A failed or partial refresh makes the affected inventory `unknown`; do not fall back to a previously observed Supabase project, retained Cloudflare resource, or ambient credential. An authenticated CLI, R2 Paid, an active Supabase Free project, or an available Resend key grants no implicit permission to choose resources, expose public routes, retain billable services, or mark a production gate complete.
 
-### Current Implementation Sequence
+### Remaining Implementation Sequence
 
 Keep the numbered task IDs stable because requirements, tests, and evidence
-refer to them. Execute the remaining work in the following dependency order
-rather than numeric section order:
+refer to them. At the current implementation checkpoint, execute the unchecked
+work in the following dependency order rather than numeric section order:
 
-1. **Install the shared read-only safety net.** Implement 14.1-14.3 against
-   the canonical Compose topology first. This gives the later Kubernetes and
-   Cloudflare work one executable route, isolation, header, Cookie, cache, and
-   private-storage contract without requiring provider credentials or sending
-   email.
-2. **Close the shared data and release foundations without waiting on live
-   provider qualification.** Finish the locally reproducible parts of 5.3 and
-   5.6, and complete 5.5 and 5.7-5.9. In particular,
-   finish the private R2 Adapter plus core streaming and non-exposure coverage
-   before composing concrete App and content Workers. Complete migration
-   checksums, ancestry, per-prefix failure coverage, and N/N-1 evidence in
-   5.8-5.9 before either target can activate or roll back a release. Keep 5.3
-   unchecked until the bounded live Hyperdrive run proves the required TLS
-   origin identity, freshness, and connection budget. Keep only the
-   thumbnail/Gallery-cover and other Container-dependent portion of 5.6 open
-   until those paths exist; neither external evidence gap blocks independent
-   migration, email, Kubernetes, or Free-compatible Worker work. Do not finish
-   target artifact tasks 8.1-8.4 before the runtime entrypoints they package
-   exist, and keep cross-target workflow and CI tasks 8.8-8.9 open until their
-   applicable target paths are present.
-3. **Finish the shared email lifecycle and independently usable runtime
-   paths.** Complete 6.1-6.8 and 6.12, including Kubernetes SMTP behavior and
-   the provider-neutral transport suite. The bounded Resend implementation may
-   use `resend.dev` only for the permitted contract tests; leave 1.9 and the
-   provider-dependent part of 6.9 pending until an owned verified domain and
-   required current provider evidence exist. Complete the Kubernetes portions
-   of 7.11-7.12 independently of Cloudflare Containers.
-4. **Complete the Free-compatible Cloudflare HTTP slice without overstating
-   target readiness.** After the locally reproducible Hyperdrive contract
-   coverage and the core R2 work in 5.5-5.7 exist, add the concrete App and
-   content binding compositions needed to finish 4.4, then finish 4.8 and 8.3;
-   do not require the externally blocked live-qualification evidence in 5.3 or
-   Container-dependent parity rows in 5.6 merely to begin this slice. The
-   existing route-free Jobs entrypoint and authentication-email lane are only
-   partial evidence for 4.4; do not add another accepted wake lane until its
-   consumer is registered and tested under 7.7-7.9. Local or disposable
-   Free-compatible work may advance 11.5-11.8 and 11.16-11.18, but it cannot
-   satisfy paid, owned-domain, production-ingress, or full-target gates. Build
-   the shared environment-neutral Web/Static Assets artifact in 8.2 here once
-   both entrypoint compositions can consume it; add the applicable deterministic
-   artifact checks from 8.9 without marking that cross-target task complete.
-5. **Make Kubernetes independently releasable first.** Complete 10.1 and
-   10.3, build and publish the Kubernetes artifacts in 8.1, and add the
-   Kubernetes-facing thin workflow and determinism coverage from 8.8-8.9.
-   Use 14.1-14.3 as the common core gate, then complete 10.9-10.10 and the
-   applicable deep, drift, failure, SMTP, recovery, and runbook work in
-   sections 14-15. Keep 8.8-8.9 unchecked until the Cloudflare-facing workflow
-   and checks also exist. Cloudflare feasibility, paid entitlement, or domain
-   work must not delay Kubernetes direct or external-CDN acceptance.
-6. **Resume the externally gated Cloudflare lane only when each prerequisite
-   exists.** Workers Paid gates 1.7, 1.8, Container-dependent 1.10 evidence,
-   7.7-7.10, 7.13, 8.4, 11.9-11.12, and the corresponding lifecycle work. An
-   owned Resend domain gates 1.9 and the provider-dependent part of 6.9;
-   owned zones and distinct registrable sites gate production ingress and
-   isolation. After these gates, complete 1.10-1.11, sections 11-12, and the
-   Cloudflare-specific verification and runbook rows.
-7. **Close umbrella and final gates last.** Mark 3.6, 3.7, and 3.14 complete
-   only when both target Adapters and their required evidence satisfy the full
-   shared contract. Then finish the remaining cross-target rows in sections
-   14-15, refresh mutable official-platform evidence, run representative deep
-   verification, and archive only under 15.15's boundary.
+1. **Close locally reproducible acceptance work first.** Audit and converge the
+   durable documents in 15.7, implement the recoverability ownership and
+   consistency-marker contract plus an isolated local restore drill in 15.14,
+   and finish the local/emulated half of 11.16. These tasks must not claim live
+   provider qualification. Run focused checks after each change; reserve the
+   full 15.10 gate for the target milestone below.
+2. **Make Kubernetes independently releasable.** Publish immutable role-image
+   digests in 8.1, then complete the real Kubernetes Gallery evidence in 10.10
+   or retain its fail-closed state with explicit missing dimensions. Run the
+   Kubernetes direct and external-CDN portions of 15.11. Only after direct
+   Kubernetes acceptance and migration guidance pass may 15.12 remove the
+   deprecated example interface. Then run 15.10 for the Kubernetes milestone.
+   Cloudflare entitlement, Containers, Resend-domain, or custom-domain gates
+   do not block this sequence.
+3. **Use Workers Free only for bounded Cloudflare evidence that it can
+   represent faithfully.** Complete the applicable local/staging rows of 11.16
+   and the non-Container, non-custom-domain portions of 1.10. Run a bounded
+   5.3 Hyperdrive qualification only when the selected project, TLS origin
+   identity, connection budget, cleanup scope, and mutation authority are
+   explicit. `resend.dev` may support the already documented contract tests,
+   but it cannot complete 1.9. After every live prototype, disable public or
+   continuously invocable resources and refresh the actual inventory.
+4. **Do not start the production Cloudflare lifecycle until its external gates
+   exist.** Workers Paid gates 1.7, 1.8, 8.4, 11.9, 11.10, 11.12, the
+   Container-dependent portions of 1.10, and 12.3-12.11. An owned verified
+   Resend domain gates 1.9. Owned Cloudflare zones on distinct registrable
+   sites gate production completion of 11.7 and ingress/isolation acceptance.
+   Once those prerequisites exist, complete 1.10-1.11, 11.7, 11.9-11.12,
+   11.19-11.20, 12.3-12.11, and the Cloudflare portion of 15.11 in dependency
+   order.
+5. **Refresh mutable evidence and choose the release boundary.** Perform 15.13
+   immediately before accepting each target, not as an early one-time
+   documentation exercise. If the Cloudflare gates remain unavailable after
+   Kubernetes passes, execute 15.15 by moving the remaining Cloudflare
+   capability and tasks into a follow-up change and validating both boundaries.
+   Otherwise run the full cross-target 15.10 gate and archive only after every
+   required Cloudflare task passes.
 
 ## 1. Cloudflare Prototype Feasibility Gates
 
@@ -140,7 +116,7 @@ rather than numeric section order:
 - [ ] 1.8 Build a separate disposable secretless Rust/Chromium thumbnail Container spike using a read-only browser capture capability plus a distinct controller/output capability through a private execution broker. Record evidence for non-root execution, no host authority, no privilege escalation, capability and system-call restrictions, per-operation egress, audience separation, and termination isolation equivalent to the thumbnail contract. This task may be deferred while Free-compatible prototypes continue, but thumbnail readiness MUST report unavailable and the Cloudflare target MUST remain unqualified until it passes; fail the Cloudflare thumbnail gate if equivalent isolation cannot be proven.
 - [ ] 1.9 Prove Resend HTTPS acceptance with required `User-Agent`, verified-domain sending-access key, disabled tracking, logical-delivery idempotency, same-team/domain key rotation, cross-team retry refusal, accepted provider message ID, error-type and quota classification, 24-hour indeterminate handling, and redacted logs.
 - [ ] 1.10 In disposable minimal scripts, prove only the provider interfaces needed before implementation: first-script bootstrap constraints; zero-percent App/Content version selection and fetch-Service-Binding version-ID evidence; version-scoped Secret behavior; minimal and full-Jobs `exports` compatibility with version upload; immediate Jobs deployment identity and Secret preservation; Queue pause/resume and Cron attach/detach control-plane behavior; Container image availability, mixed rollout and retained-image rollback; Worker rollback/version-retention limits; and repeated Terraform/Wrangler ownership operations for Cron, Queue consumers, routes, custom domains, and bindings. Record provisional or blocked results per interface. Integrated nonce/fence, cross-storage quiescence, candidate compensation, full release verification, and end-to-end rollback are implementation acceptance in 11.20, 12.3-12.9, and 15.11 rather than duplicate feasibility prototypes.
-- [ ] 1.11 Publish the prototype and field-ownership support matrix; distinguish Workers Free, R2 subscription, Workers Paid, and owned-domain prerequisites instead of collapsing them into one plan label. Record final provider inventory and cleanup evidence, including the owner and expiry of any intentionally retained private prerequisite. A failed gate stops only Cloudflare-target implementation and MUST NOT block Kubernetes delivery or trigger a target-specific product-policy workaround.
+- [x] 1.11 Publish the prototype and field-ownership support matrix; distinguish Workers Free, R2 subscription, Workers Paid, and owned-domain prerequisites instead of collapsing them into one plan label. Record final provider inventory and cleanup evidence, including the owner and expiry of any intentionally retained private prerequisite. A failed gate stops only Cloudflare-target implementation and MUST NOT block Kubernetes delivery or trigger a target-specific product-policy workaround.
 
 ## 2. Product Vocabulary and Deployment Contracts
 
@@ -351,9 +327,9 @@ rather than numeric section order:
 - [ ] 15.7 Update `PRODUCT.md`, `CONTEXT.md`, module architecture, local-development guidance, README test guidance, and operations docs before archival; correct the Gallery guide to describe the canonical isolated-content topology and fail-closed eligibility rather than an opt-in Compose profile, record the tested Compose feature baseline, and use `/opsx:archive` to apply completed delta specs to the implemented OpenSpec store rather than editing living specs manually.
 - [x] 15.8 Confirm public OpenAPI payloads and end-user CLI behavior remain unchanged, keep the new thumbnail-broker and route-free Jobs release-verification contracts explicitly private and unreachable in the checked OpenAPI ownership model, and document and specify any other discovered contract change before implementation continues.
 - [x] 15.9 Run focused API, Web, Worker, Compose-controller, deployment-schema, render, route, cache, security, email, and target-Adapter tests while iterating.
-- [ ] 15.10 Run `openspec validate support-kubernetes-and-cloudflare-deployment-targets --type change --strict --no-interactive`, documentation checks, `git diff --check`, and the authoritative `mise run check` gate.
+- [x] 15.10 Run `openspec validate support-kubernetes-and-cloudflare-deployment-targets --type change --strict --no-interactive`, documentation checks, `git diff --check`, and the authoritative `mise run check` gate.
 - [ ] 15.11 Run deep verification on representative Kubernetes direct, Kubernetes external-CDN, and Cloudflare staging installations and retain redacted release evidence.
 - [ ] 15.12 Deprecate or remove the old unsupported Kubernetes example interface only after migration documentation and the Kubernetes direct-target acceptance gate pass; Cloudflare feasibility MUST NOT delay removal of an interface replaced solely by the supported Kubernetes path.
 - [ ] 15.13 Refresh the official-platform evidence against live Docker Compose, Cloudflare, Kubernetes, and Resend manuals and generated provider schemas immediately before implementation acceptance; reconcile any changed interface or limit before marking a target or local lifecycle supported.
-- [ ] 15.14 Define owners, encrypted locations, retention, evidence age, RPO/RTO, restore order, and the database/object/recovery-manifest consistency-marker format for PostgreSQL, S3/R2, Terraform state, release bundles, and deployment journals; create the marker at a documented cut and run an isolated restore drill that fails closed when markers do not match.
+- [x] 15.14 Define owners, encrypted locations, retention, evidence age, RPO/RTO, restore order, and the database/object/recovery-manifest consistency-marker format for PostgreSQL, S3/R2, Terraform state, release bundles, and deployment journals; create the marker at a documented cut and run an isolated restore drill that fails closed when markers do not match.
 - [ ] 15.15 Do not mark the Cloudflare capability complete or archive this combined change until every implementation-blocking Cloudflare gate passes. If Kubernetes is released first after a Cloudflare gate fails, move the remaining Cloudflare specification and tasks into a follow-up change and validate both change boundaries before archival.

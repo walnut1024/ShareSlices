@@ -6,6 +6,7 @@ import {
   inspectRecoverabilityEvidence,
   persistRecoveryMarker,
   RecoveryEvidenceError,
+  runIsolatedRecoveryDrill,
   verifyRecoveryMarkers,
 } from "./recovery.mjs";
 
@@ -161,5 +162,98 @@ test("fails closed for an indeterminate or mismatched durable marker", async () 
   await assert.rejects(
     persistRecoveryMarker({ input, database, objectStorage, manifest }),
     (error) => error.code === "recovery_marker_mismatch",
+  );
+});
+
+function currentRecoverability() {
+  const current = evidence("2026-07-22T00:30:00Z");
+  return {
+    postgresql: current,
+    objectStorage: current,
+    iacState: current,
+    releaseBundles: current,
+    deploymentJournal: current,
+  };
+}
+
+function successfulRestore(order) {
+  return Object.fromEntries([
+    "postgresql",
+    "objectStorage",
+    "recoveryManifest",
+    "deploymentJournal",
+    "iacState",
+    "releaseBundles",
+  ].map((kind) => [kind, async () => {
+    order.push(kind);
+    return { restored: true };
+  }]));
+}
+
+test("runs an authorized isolated restore in dependency order without enabling traffic", async () => {
+  const order = [];
+  const marker = createRecoveryMarker({
+    installationId: "example",
+    databaseRevision: "lsn:0/16B6C50",
+    objectRevision: "inventory:42",
+    createdAt: "2026-07-22T00:45:00.000Z",
+  });
+  const result = await runIsolatedRecoveryDrill({
+    authorized: true,
+    isolated: true,
+    trafficEnabled: false,
+    recoverability: currentRecoverability(),
+    restore: successfulRestore(order),
+    readMarkers: async () => ({
+      database: marker,
+      objectStorage: structuredClone(marker),
+      manifest: structuredClone(marker),
+    }),
+    now: new Date("2026-07-22T01:00:00Z"),
+  });
+  assert.deepEqual(order, [
+    "postgresql",
+    "objectStorage",
+    "recoveryManifest",
+    "deploymentJournal",
+    "iacState",
+    "releaseBundles",
+  ]);
+  assert.equal(result.ready, true);
+  assert.equal(result.trafficEnabled, false);
+  assert.equal(result.cutId, marker.cutId);
+});
+
+test("refuses an unauthorized, non-isolated, stale, or mismatched restore drill", async () => {
+  const base = {
+    authorized: true,
+    isolated: true,
+    trafficEnabled: false,
+    recoverability: currentRecoverability(),
+    restore: successfulRestore([]),
+    readMarkers: async () => ({}),
+    now: new Date("2026-07-22T01:00:00Z"),
+  };
+  await assert.rejects(
+    runIsolatedRecoveryDrill({ ...base, authorized: false }),
+    (error) => error.code === "recovery_drill_unauthorized",
+  );
+  await assert.rejects(
+    runIsolatedRecoveryDrill({ ...base, isolated: false }),
+    (error) => error.code === "recovery_drill_not_isolated",
+  );
+  await assert.rejects(
+    runIsolatedRecoveryDrill({
+      ...base,
+      recoverability: {
+        ...currentRecoverability(),
+        postgresql: evidence("2026-07-21T20:00:00Z"),
+      },
+    }),
+    (error) => error.code === "recovery_evidence_unqualified",
+  );
+  await assert.rejects(
+    runIsolatedRecoveryDrill(base),
+    (error) => error.code === "recovery_marker_missing",
   );
 });

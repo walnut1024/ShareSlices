@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 jobs:
   build:
@@ -34,6 +35,22 @@ jobs:
           --manifest-output dist/manifests/static-assets.json
       - name: Build Cloudflare Worker bundles
         run: mise run cloudflare-build-workers -- --output dist/cloudflare-workers
+      - name: Resolve OCI registry
+        id: registry
+        env:
+          IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+        run: |
+          case "$IMAGE_REPOSITORY" in
+            *://*|""|*' '*|*'/'*) ;;
+            *) exit 1 ;;
+          esac
+          printf 'host=%s\n' "${IMAGE_REPOSITORY%%/*}" >> "$GITHUB_OUTPUT"
+      - name: Authenticate OCI publication
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ steps.registry.outputs.host }}
+          username: ${{ secrets.OCI_REGISTRY_USERNAME || github.actor }}
+          password: ${{ secrets.OCI_REGISTRY_TOKEN || secrets.GITHUB_TOKEN }}
       - name: Publish Kubernetes role images
         env:
           IMAGE_REPOSITORY: ${{ inputs.image_repository }}

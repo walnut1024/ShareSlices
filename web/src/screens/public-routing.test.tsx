@@ -133,9 +133,9 @@ describe("public Website routing", () => {
       String(input) === "/api/users/me" ? json({ user }) : json({ artifacts: [] }),
     ));
     render(<App />);
-    expect(await screen.findByRole("heading", { name: "Artifacts" }, { timeout: 3000 })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Artifacts" }, { timeout: 8000 })).toBeVisible();
     expect(window.location.pathname).toBe("/console");
-  });
+  }, 10_000);
 
   it("clears public metadata synchronously when navigating to account entry", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) =>

@@ -200,11 +200,19 @@ explicit empty Cron list, and no data, network, Secret, or service binding.
 The run attached one Worker consumer with batch size 1, batch timeout 1,
 zero retries, and maximum concurrency 1. `queues info` reread exactly one
 consumer. Pause and resume commands both succeeded and changed the Queue's
-provider `Last Modified` timestamp. However, Wrangler 4.112.0's `queues info`
-output does not expose whether delivery is paused. The CLI therefore cannot
-satisfy a release gate that requires a read-after-write pause-state proof by
-itself; automation needs a qualified provider API reader or a bounded
-behavioral probe.
+provider `Last Modified` timestamp. Wrangler 4.112.0's `queues info` output
+does not expose whether delivery is paused, so that CLI-only prototype could
+not satisfy a read-after-write pause-state gate.
+
+Cloudflare's current Queue List/Get API does expose
+`settings.delivery_paused`. The implementation now reads that field through
+the authenticated provider API in `deploy/cloudflare/provider-observation.mjs`
+and uses the same API field in the release-verifier Queue lifecycle before and
+after pause/resume operations. Focused tests reject missing or mismatched
+pause-state evidence. This closes the earlier reader-design gap, but it is not
+retrospective live evidence: the complete release path must still exercise the
+API reader against the disposable Queue and retain redacted read-after-write
+observations.
 
 The experimental `wrangler triggers deploy` command attached the exact
 `17 4 1 1 *` UTC schedule and reported it, then an explicit empty Cron list
@@ -220,13 +228,14 @@ returned provider code `10007` for the Worker. The repeatable inputs remain
 under `deploy/cloudflare/prototypes/queue-cron-control/`.
 
 This records the Queue pause/resume and Cron attach/detach interface subset of
-task 1.10 as provisional. Task 11.16 remains open until read-after-write Queue
-state and the required Cron safety-window behavior are exercised through the
-qualified release path.
+task 1.10 as provisional. Task 11.16 remains open until the implemented
+read-after-write Queue state checks and the required Cron safety-window
+behavior are exercised through the qualified release path.
 
 Current first-party references:
 
 - [Pause and purge Queues](https://developers.cloudflare.com/queues/configuration/pause-purge/)
+- [Cloudflare Queues API](https://developers.cloudflare.com/api/resources/queues/)
 - [Queues pricing](https://developers.cloudflare.com/queues/platform/pricing/)
 - [Cron Triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
 
