@@ -183,7 +183,7 @@ test("Docker plugin discovery supports Linux system plugin directories", () => {
   ]);
 });
 
-test("test processes exclude caller application, provider, CI, and agent variables", () => {
+test("test processes use a fixed CI mode and exclude caller application, provider, and agent variables", () => {
   const environment = processChildEnvironment("/tmp/shareslices-test-root", testEndpoints, {
     HOME: "/tmp/test-home",
     LANG: "en_US.UTF-8",
@@ -207,7 +207,7 @@ test("test processes exclude caller application, provider, CI, and agent variabl
   assert.equal(environment.CLOUDFLARE_API_TOKEN, undefined);
   assert.equal(environment.COMPOSE_FILE, undefined);
   assert.equal(environment.RESEND_API_KEY, undefined);
-  assert.equal(environment.CI, undefined);
+  assert.equal(environment.CI, "true");
   assert.equal(environment.CODEX_THREAD_ID, undefined);
   assert.equal(environment.NODE_OPTIONS, undefined);
   assert.equal(environment.npm_config_userconfig, undefined);
