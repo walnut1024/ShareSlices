@@ -35,6 +35,10 @@ test("application release delegates build and publication policy to mise tasks",
   assert.equal(document.permissions.packages, "write");
   assert.equal(document.jobs.build["runs-on"], "ubuntu-24.04");
   assert.equal(
+    steps.find(({ uses }) => uses === "pnpm/action-setup@v4").uses,
+    "pnpm/action-setup@v4",
+  );
+  assert.equal(
     steps.find(({ uses }) => uses === "docker/setup-buildx-action@v3").uses,
     "docker/setup-buildx-action@v3",
   );
