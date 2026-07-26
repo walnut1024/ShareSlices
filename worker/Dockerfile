@@ -1,5 +1,5 @@
 # cspell:ignore noto
-FROM rust:1.96.1-bookworm AS build
+FROM rust:1.96.1-slim-bookworm AS build
 
 WORKDIR /workspace
 

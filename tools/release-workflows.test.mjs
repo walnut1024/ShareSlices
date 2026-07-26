@@ -20,6 +20,7 @@ test("application release delegates build and publication policy to mise tasks",
   for (const task of [
     "build-static-assets",
     "cloudflare-build-workers",
+    "cloudflare-build-container-images",
     "kubernetes-build-images",
   ]) {
     assert.ok(commands.some((command) => command.includes(`mise run ${task}`)));
@@ -32,6 +33,11 @@ test("application release delegates build and publication policy to mise tasks",
   assert.match(login.with.username, /OCI_REGISTRY_USERNAME/);
   assert.match(login.with.password, /OCI_REGISTRY_TOKEN/);
   assert.equal(document.permissions.packages, "write");
+  assert.equal(document.jobs.build["runs-on"], "ubuntu-24.04");
+  assert.equal(
+    steps.find(({ uses }) => uses === "docker/setup-buildx-action@v3").uses,
+    "docker/setup-buildx-action@v3",
+  );
   assert.doesNotMatch(source, /\b(?:docker|kubectl|kustomize|terraform|wrangler)\s/);
 });
 
