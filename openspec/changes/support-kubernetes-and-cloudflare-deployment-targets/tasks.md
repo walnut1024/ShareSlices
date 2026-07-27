@@ -214,7 +214,7 @@ work in the following dependency order rather than numeric section order:
 - [x] 8.1 Build Kubernetes API, Web, content/maintenance, and Rust/Chromium images once per source revision and publish immutable digests.
 - [x] 8.2 Produce an environment-neutral Web build and a canonical Static Assets manifest digest reusable by both targets.
 - [x] 8.3 Build immutable App, content, and jobs Worker bundles from the shared runtime entrypoints and record their compatibility date and bundle digests.
-- [ ] 8.4 Build and retain separate trusted Rust processing and secretless Rust/Chromium Cloudflare images; always record content digests, use provider-proven digest references or qualified never-reused release tags, and keep every rollback-window image available.
+- [x] 8.4 Build and retain separate trusted Rust processing and secretless Rust/Chromium Cloudflare images; always record content digests, use provider-proven digest references or qualified never-reused release tags, and keep every rollback-window image available.
 - [x] 8.5 Generate the release manifest from source, artifact, migration, route/cache, verification, schema, and N/N-1 evidence.
 - [x] 8.6 Reject release publication when a target artifact is missing, mutable, unverifiable, or incompatible with the declared schema and adjacent runtime version.
 - [x] 8.7 Define the release-store and OCI-registry prerequisite contracts, including immutable object naming, separate build-push and deploy-pull credentials, Kubernetes image-pull references, `linux/amd64` qualification where required, digest/provenance verification, rollback-window retention, and garbage-collection refusal; publish the release manifest and target artifacts through those Adapters.
